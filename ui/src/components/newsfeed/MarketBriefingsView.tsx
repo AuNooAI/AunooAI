@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileText, History, Loader2, Pencil, PenLine, Play, Save, X } from 'lucide-react';
+import { MarkdownEditor } from './MarkdownEditor';
 import { getBriefingRevision, type BriefingRevision, restoreBriefingRevision, getBriefingRevisions, editBriefing,
   generateBriefing, getBriefing, getBriefings, setBriefingStatus, writePiece,
   type BriefingDetail, type BriefingSummary,
@@ -419,9 +420,8 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                    placeholder="Author (your name)" maxLength={120}
                    className="min-w-[200px] text-sm px-2 py-1.5 border rounded-md bg-white text-slate-800 dark:bg-gray-800 dark:text-gray-100" />
           </div>
-          <textarea value={pieceBody} onChange={e => setPieceBody(e.target.value)}
-                    placeholder="The piece, in Markdown." rows={14}
-                    className="w-full text-sm px-3 py-2 border rounded-md font-mono bg-white text-slate-800 dark:bg-gray-900 dark:text-gray-100" />
+          <MarkdownEditor value={pieceBody} onChange={setPieceBody} rows={18} autoFocus
+                          placeholder="The piece. Markdown: # heading, **bold**, - list, [link](url)." />
           <div className="flex gap-2">
             <button onClick={savePiece} disabled={busy || !pieceTitle.trim() || !pieceBody.trim()}
                     className="text-sm px-3 py-1.5 border rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 inline-flex items-center gap-1.5">
@@ -561,25 +561,11 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                          placeholder="Title" maxLength={300}
                          className="w-full text-sm font-medium px-2 py-1 mb-2 rounded border
                                     bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">
-                        Markdown. Citations like [A3] stay linked to the evidence.
-                      </div>
-                      <textarea value={draft} onChange={e => setDraft(e.target.value)}
-                                spellCheck rows={28}
-                                className="w-full font-mono text-xs leading-5 px-2 py-2 rounded border
-                                           bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">Preview</div>
-                      <div className="mm-prose text-sm text-slate-700 dark:text-gray-300 border rounded p-3
-                                      max-h-[38rem] overflow-y-auto dark:border-gray-700"
-                           dangerouslySetInnerHTML={{
-                             __html: renderMarkdown(draft, open.facts?.citation_index),
-                           }} />
-                    </div>
+                  <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">
+                    Markdown. Citations like [A3] stay linked to the evidence.
                   </div>
+                  <MarkdownEditor value={draft} onChange={setDraft} rows={26}
+                                  renderPreview={md => renderMarkdown(md, open.facts?.citation_index)} />
                   <div className="flex items-center gap-2 mt-2">
                     <button onClick={saveEdit} disabled={saving || !draft.trim()}
                             className="text-xs px-2.5 py-1.5 border rounded bg-white hover:bg-emerald-50

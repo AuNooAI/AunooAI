@@ -2282,6 +2282,81 @@ async def market_voices(market_id: int,
     return await asyncio.to_thread(_work)
 
 
+class FollowRequest(BaseModel):
+    platform: str = Field(..., pattern="^(twitter|bluesky|reddit)$")
+    handle: str = Field(..., min_length=1, max_length=200)
+
+
+@router.get("/markets/{market_id}/follow")
+async def market_follow_list(market_id: int, session=Depends(verify_session_api)):
+    """The accounts we follow for this market: their timelines are read and
+    the posts that touch the market kept, whatever the keyword collector saw."""
+    from app.services import market_follow as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {"accounts": mf.followed(conn)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/follow")
+async def market_follow_add(market_id: int, body: FollowRequest,
+                            session=Depends(verify_session_api)):
+    """Follow an account. It is profiled first when it has no profile (two
+    xpoz calls and one short model call), so the page can say who it is."""
+    from app.services import market_follow as mf
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+    finally:
+        conn.close()
+    try:
+        row = await mf.follow(get_database_instance(), body.platform, body.handle,
+                              market["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    if not row:
+        raise HTTPException(status_code=404,
+                            detail=f"No {body.platform} account found for @{body.handle}")
+    return row
+
+
+@router.delete("/markets/{market_id}/follow")
+async def market_follow_remove(market_id: int, body: FollowRequest,
+                               session=Depends(verify_session_api)):
+    from app.services import market_follow as mf
+
+    if not await asyncio.to_thread(mf.unfollow, get_database_instance(),
+                                   body.platform, body.handle):
+        raise HTTPException(status_code=404, detail="Not on the list")
+    return {"ok": True}
+
+
+@router.post("/markets/{market_id}/follow/collect")
+async def market_follow_collect(market_id: int, session=Depends(verify_session_api)):
+    """Read the followed accounts' timelines now and keep what touches the
+    market. The poller does this on its own cadence as well."""
+    from app.services import market_follow as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mf.collect_followed(conn, market)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
 class VoiceProfileRequest(BaseModel):
     author: str = Field(..., min_length=1, max_length=200)
     platform: str = Field(..., min_length=1, max_length=40)

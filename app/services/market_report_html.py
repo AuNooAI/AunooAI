@@ -820,7 +820,7 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     stage_names = {k: v["label"] for k, v in (tiers or tier_info(cuts)).items()}
     band_names = {k: v["label"] for k, v in (bands or band_info(cuts)).items()}
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
-             'aria-label="Market Horizon: position and balance">',
+             'aria-label="Market Maturity Map: position and balance">',
              _horizon_arrow_def("mm-hz-arrow"),
              f'<path d="{arc(1.0)} Z" fill="#f8fafc" stroke="#e2e8f0"/>']
     # The band cuts are arcs; the stage cuts are lines from the base.
@@ -1060,7 +1060,7 @@ def _horizon_grid_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     b1, b2 = band_cuts(cuts)
     c1, c2, c3 = stage_cuts(cuts)
     parts = [f'<svg viewBox="0 0 {w} {h}" width="100%" style="max-width:{w}px" role="img" '
-             'aria-label="Market Horizon: scale against momentum">',
+             'aria-label="Market Maturity Map: scale against momentum">',
              _horizon_arrow_def("mm-hz-arrow-grid"),
              f'<rect x="{x0:.0f}" y="{y0:.0f}" width="{x1 - x0:.0f}" height="{y1 - y0:.0f}" fill="#f8fafc"/>']
     # The outer bands are washed a shade darker, so the three read as rows
@@ -1443,7 +1443,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     rated = horizon.get("rated") or []
     not_rated = horizon.get("not_rated") or []
     names_allowed = None if public_names else allowed
-    # The drawer's own title already says "Market Horizon"; no second heading.
+    # The drawer's own title already says "Market Maturity Map"; no second heading.
     out = ['<section class="section">']
     out.append(f'<p class="mm-src">{esc(horizon.get("what_it_is_not") or "")} '
                f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
@@ -2381,15 +2381,31 @@ def _summary_unless_duplicate(dev: Dict[str, Any]) -> str:
     return "" if duplicate else summary
 
 
-def _dev_image(dev: Dict[str, Any], images: Optional[Dict[str, str]]) -> str:
-    """The first evidence record's image, when one was collected."""
+#: LinkedIn image variants, sharpest first. A link preview (``articleshare``)
+#: is often an upscaled og:image and reads blurred at any size.
+_IMAGE_KIND_RANK = ("feedshare-image-high-res", "feedshare-shrink", "image-shrink",
+                    "article-cover", "image/", "articleshare")
+
+
+def _image_rank(url: str) -> int:
+    for i, kind in enumerate(_IMAGE_KIND_RANK):
+        if kind in url:
+            return i
+    return len(_IMAGE_KIND_RANK)
+
+
+def _dev_image(dev: Dict[str, Any], images: Optional[Dict[str, str]], *,
+               previews: bool = True) -> str:
+    """The sharpest image among the development's evidence records, or
+    nothing. ``previews=False`` (the lead) refuses a link preview: a blurred
+    picture at that size is worse than none."""
     if not images:
         return ""
-    for e in dev.get("evidence") or []:
-        url = images.get(e.get("uri") or "")
-        if url:
-            return url
-    return ""
+    found = [images[e["uri"]] for e in (dev.get("evidence") or [])
+             if e.get("uri") and images.get(e["uri"])]
+    if not previews:
+        found = [u for u in found if "articleshare" not in u]
+    return min(found, key=_image_rank) if found else ""
 
 
 def _vendor_line(dev: Dict[str, Any], logos: Optional[Dict[str, str]]) -> str:
@@ -2654,14 +2670,23 @@ V2_CSS = """
 .mm-v2 .v2-hl > summary:hover { color:var(--n-accent); }
 .mm-v2 .v2-hl-body { padding:6px 0 2px 34px; }
 .mm-v2 .v2-hl-body > p { margin:0; line-height:1.5; }
-.mm-v2 .n-story-img { display:grid; grid-template-columns:minmax(0,1fr) 96px; gap:4px 14px; }
+/* A 16:10 thumbnail on the right of a story, the picture's middle kept;
+   a square crop cut banners in half and made a card unreadable. */
+.mm-v2 .n-story-img { display:grid; grid-template-columns:minmax(0,1fr) 150px; gap:4px 14px; }
 .mm-v2 .n-story-img > * { grid-column:1; }
-.mm-v2 .n-story-img > .n-thumb { grid-column:2; grid-row:1 / span 6; width:96px; height:96px;
-                                  object-fit:cover; border-radius:6px; background:#e2e8f0; }
-.mm-v2 .v2-lead-story.n-story-img { grid-template-columns:minmax(0,1fr) 260px; }
-.mm-v2 .v2-lead-story.n-story-img > .n-thumb { width:260px; height:180px; border-radius:8px; }
+.mm-v2 .n-story-img > .n-thumb { grid-column:2; grid-row:1 / span 6; width:150px; height:94px;
+                                  object-fit:cover; object-position:center; border-radius:6px;
+                                  background:#e2e8f0; }
+.mm-v2 .v2-lead-story.n-story-img { grid-template-columns:minmax(0,1fr) 320px; }
+/* The lead shows its picture whole: a link-preview card is text, and a crop
+   of it is neither readable nor a picture. */
+.mm-v2 .v2-lead-story.n-story-img > .n-thumb { width:320px; height:200px; border-radius:8px;
+                                                object-fit:contain; background:#f1f5f9; }
+@media (max-width:760px) { .mm-v2 .n-story-img { grid-template-columns:minmax(0,1fr) 120px; }
+                           .mm-v2 .n-story-img > .n-thumb { width:120px; height:75px; } }
 @media (max-width:560px) { .mm-v2 .n-story-img, .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:1fr; }
-                           .mm-v2 .n-story-img > .n-thumb { grid-column:1; grid-row:auto; width:100%; height:160px; } }
+                           .mm-v2 .n-story-img > .n-thumb, .mm-v2 .v2-lead-story.n-story-img > .n-thumb
+                             { grid-column:1; grid-row:auto; width:100%; height:180px; } }
 .mm-v2 .v2-sec { min-width:0; }
 .mm-v2 .v2-sec .n-sec-head { border-bottom:0; border-top:3px solid var(--sec,var(--n-accent));
                              padding:8px 0 0; }
@@ -2939,7 +2964,7 @@ def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
              logos: Optional[Dict[str, str]] = None) -> str:
     colour = _KIND_COLOUR.get(dev.get("event_type") or "", "var(--n-accent)")
     vendors = ", ".join(v.get("vendor") or "" for v in dev.get("vendors") or [])
-    image = _dev_image(dev, images)
+    image = _dev_image(dev, images, previews=False)
     out = [f'<article class="n-story v2-lead-story{" n-story-img" if image else ""}" '
            f'id="{_dev_anchor(dev)}" style="--story:{colour}">',
            (f'<img class="n-thumb v2-lead-img" src="{esc(image)}" alt="">' if image else ""),
@@ -3061,43 +3086,70 @@ def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> 
     return "".join(out)
 
 
-def _v2_top_voices(tv: Optional[Dict[str, Any]], limit: int = _V2_TOP_VENDORS) -> str:
-    """The people whose posts about the market drew the most reactions,
-    among accounts that posted more than once. One post is a post, not a
-    voice; and a company promoting itself is not a voice either, so accounts
-    the analysis tagged as a vendor's are left out."""
-    if not tv:
-        return ""
-    seen: set = set()
-    people = []
-    for v in list(tv.get("consistent") or []) + list(tv.get("voices") or []):
-        key = (str(v.get("platform") or "").lower(), str(v.get("author") or "").lower())
-        if not v.get("author") or key in seen or v.get("vendor_tag"):
-            continue
-        seen.add(key)
-        if int(v.get("posts") or 0) >= 2:
-            people.append(v)
-    people.sort(key=lambda v: (-int(v.get("engagement") or 0), -int(v.get("posts") or 0)))
-    rows = people[:limit]
+_VOICE_ROLES = {"practitioner": "Practitioner", "analyst_or_press": "Analyst / press"}
+_V2_VOICES_SHOWN = 10
+_V2_VOICES_MORE = 10
+
+
+def _v2_tracked_voices(conn, limit: int = _V2_VOICES_SHOWN + _V2_VOICES_MORE) -> List[Dict[str, Any]]:
+    """The people we track for this market: the accounts we follow first,
+    then profiled practitioners and analysts, by reach. From the profiles,
+    not from who happened to post this period, so the list is stable."""
+    from sqlalchemy import text as _sql
+
+    return [dict(r) for r in conn.execute(_sql("""
+        SELECT id, platform, handle, display_name, followers_count, profile_url,
+               watchlisted, metadata->>'market_role' AS role
+          FROM social_accounts
+         WHERE last_profiled_at IS NOT NULL
+           AND (watchlisted OR metadata->>'market_role' = ANY(:roles))
+         ORDER BY watchlisted DESC, followers_count DESC NULLS LAST, handle
+         LIMIT :lim
+    """), {"roles": list(_VOICE_ROLES), "lim": limit}).mappings().all()]
+
+
+def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
+                    teaser: bool) -> str:
+    """The tracked voices as a sidebar card: name, handle, why they are
+    here, reach, and their posts this period when they made any. The first
+    ten are readable; the rest are blurred in the shared view."""
     if not rows:
         return ""
-    out = ['<h3 class="v2-sub">Top voices</h3>',
-           '<p class="v2-subline">People posting about the market more than once, '
-           'by reactions to those posts.</p>']
-    for v in rows:
-        handle = f'@{esc(str(v["author"]))}'
-        if v.get("profile_url"):
-            handle = f'<a href="{esc(v["profile_url"])}">{handle}</a>'
-        acct = v.get("account") or {}
-        who = esc(acct.get("display_name") or "") if acct.get("profiled") else ""
-        platform = _PLATFORM_NAMES.get(str(v.get("platform") or "").lower(), v.get("platform") or "")
-        posts = int(v.get("posts") or 0)
-        reactions = int(v.get("engagement") or 0)
-        out.append('<div class="n-row"><span class="n-rank"></span>'
-                   f'<div><strong>{handle}</strong> <span class="mm-src">on {esc(platform)}</span>'
-                   + (f'<div class="n-row-label">{who}</div>' if who else "")
-                   + f'</div><span class="n-row-val">{posts} post{"" if posts == 1 else "s"} · '
-                   f'{reactions:,} reaction{"" if reactions == 1 else "s"}</span></div>')
+    period: Dict[tuple, Dict[str, Any]] = {}
+    for v in (tv or {}).get("voices") or []:
+        period[(str(v.get("platform") or "").lower(), str(v.get("author") or "").lower())] = v
+
+    def row_html(r: Dict[str, Any]) -> str:
+        handle = f'@{esc(str(r["handle"]))}'
+        if r.get("profile_url"):
+            handle = f'<a href="{esc(r["profile_url"])}">{handle}</a>'
+        name = esc(r.get("display_name") or "")
+        platform = _PLATFORM_NAMES.get(str(r.get("platform") or "").lower(), r.get("platform") or "")
+        tag = "Following" if r.get("watchlisted") else _VOICE_ROLES.get(r.get("role") or "", "")
+        followers = int(r.get("followers_count") or 0)
+        v = period.get((str(r.get("platform") or "").lower(), str(r.get("handle") or "").lower()))
+        posts = int((v or {}).get("posts") or 0)
+        latest = ((v or {}).get("latest_post") or {}).get("url")
+        return ('<div class="n-row"><span class="n-rank"></span>'
+                f'<div><strong>{name or handle}</strong>'
+                + (f' <span class="mm-src">{handle} · {esc(platform)}</span>' if name
+                   else f' <span class="mm-src">{esc(platform)}</span>')
+                + f'<div class="n-row-label">{esc(tag)}'
+                + (f' · {followers:,} followers' if followers else "")
+                + (f' · <a href="{esc(latest)}">latest post</a>' if latest else "")
+                + '</div></div>'
+                + (f'<span class="n-row-val">{posts} post{"" if posts == 1 else "s"}</span>'
+                   if posts else '<span class="n-row-val mm-src">quiet this period</span>')
+                + '</div>')
+
+    shown = rows[:_V2_VOICES_SHOWN]
+    rest = rows[_V2_VOICES_SHOWN:]
+    out = ['<p class="v2-subline">Accounts we follow first, then practitioners and analysts '
+           'we have profiled, by reach.</p>', "".join(row_html(r) for r in shown)]
+    if rest:
+        more = "".join(row_html(r) for r in rest)
+        out.append(_teaser_open("The rest of the voices we track") + more + _TEASER_END
+                   if teaser else more)
     return "".join(out)
 
 
@@ -3280,20 +3332,27 @@ def _mark(logos: Optional[Dict[str, str]], vendor: str, size: int = 18) -> str:
 
 def _v2_images(conn, uris: List[str]) -> Dict[str, str]:
     """The image collected with each record, by uri: a LinkedIn post's
-    picture (``image_url``, kept since 2026-08-29) or a social post's
-    thumbnail. Records without one are absent from the map."""
+    picture (``image_url``, kept since 2026-08-29, 800 px or wider).
+    The social collector's ``thumbnail`` is not used: a Reddit or Bluesky
+    preview is 140 px wide and was reaching the lead slot stretched to
+    320. Records without a picture are absent from the map."""
     from sqlalchemy import text as _sql
 
     uris = sorted({u for u in uris if u})
     if not uris:
         return {}
     rows = conn.execute(_sql("""
-        SELECT uri, COALESCE(social_meta->>'image_url', social_meta->>'thumbnail') AS img
+        SELECT uri, social_meta->>'image_url' AS img
           FROM articles
          WHERE uri = ANY(:uris) AND jsonb_typeof(social_meta) = 'object'
-           AND COALESCE(social_meta->>'image_url', social_meta->>'thumbnail') IS NOT NULL
+           AND social_meta->>'image_url' IS NOT NULL
     """), {"uris": uris}).fetchall()
-    return {r[0]: r[1] for r in rows if str(r[1]).startswith("http")}
+    # A rendered PDF page (a carousel or a document post) is a wall of small
+    # text, unreadable as a thumbnail; a company logo is not a picture of
+    # the story. Photos, cards and link previews stay.
+    skip = ("document-images", "company-logo")
+    return {r[0]: r[1] for r in rows
+            if str(r[1]).startswith("http") and not any(k in str(r[1]) for k in skip)}
 
 
 def _shared_view_note(conn, market_id: int, allowed_brand_ids: List[int]) -> str:
@@ -3377,7 +3436,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
     sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
                       if section is None else None) or {}).get("vendors") or [])
-    top_voices = (_safe(man.top_voices, conn, market["id"], days=days, limit=20)
+
+    top_voices = (_safe(man.top_voices, conn, market["id"], days=days, limit=80)
                   if section in (None, "social") else None)
     pc = _safe(man.period_comparison, conn, market["id"], days=days)
     period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"
@@ -3394,6 +3454,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
         sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
         top_voices = ent.filter_rows(top_voices, allowed_brand_ids, allowed_names)
+
 
     developments = assessment["developments"]
     devs_by_id = {d["event_id"]: d for d in developments}
@@ -3451,8 +3512,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         if key == "voices":
             return _v2_voices(items, []) if items else ""
         if key == "social":
-            inner = _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
-            return inner + _v2_top_voices(top_voices) if inner else inner
+            return _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
         return _v2_stories(items, images, logos)
 
     # ---- chrome shared by the front page and a section page
@@ -3556,7 +3616,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             # apart and put back after the withheld-names check.
             horizon_html = _v2_horizon(
                 horizon, "?" + _relink(link_params, days=days, view="report") + "#mm-horizon")
-            body.append('<div class="v2-card"><h2>Market Horizon</h2>'
+            body.append('<div class="v2-card"><h2>Market Maturity Map</h2>'
                         + _HORIZON_SLOT + "</div>")
         numbers = _v2_numbers(assessment, hiring, days)
         # The assessment already masks a withheld vendor's name here, so the
@@ -3570,6 +3630,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         motion = _v2_motion(sov_rows, logos)
         if motion:
             body.append('<div class="v2-card"><h2>Who caused motion</h2>' + motion + "</div>")
+        tracked = _safe_list(_v2_tracked_voices, conn)
+        if teaser:
+            tracked = ent.drop_text_mentioning(tracked, withheld)
+        voices_card = _v2_voices_card(tracked, top_voices, teaser=teaser)
+        if voices_card:
+            body.append('<div class="v2-card"><h2>Influence and Influencers</h2>' + voices_card + "</div>")
         body.append(_render_briefing_card(conn, market, withheld=withheld,
                                           restricted=teaser, link_params=link_params))
         body.append("</aside></main>")
@@ -3874,7 +3940,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append('<div class="n-top">'
                 + _brand_line()
                 + '<nav class="n-jump" aria-label="Jump to section">'
-                '<a href="#mm-horizon">Horizon</a>'
+                '<a href="#mm-horizon">Maturity Map</a>'
                 '<a href="#mm-assessment">Assessment</a>'
                 '<a href="#mm-moved">Who moved</a>'
                 '<a href="#mm-developments">Developments</a>'
@@ -3902,7 +3968,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 # named research product does.
                 f'<div class="n-kicker">Future-proof cybersecurity advisory · '
                 f'{esc(period_txt)}</div>'
-                f'<h1>{esc(market["name"])} Market Horizon</h1>'
+                f'<h1>{esc(market["name"])} Market Maturity Map</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
                 + f'<p class="n-sub">{esc(scope_text[:500]) + " " if scope_text else ""}'
@@ -3924,7 +3990,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if stored:
         horizon = mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
         body.append(_drawer_open(
-            "Market Horizon",
+            "Market Maturity Map",
             f"Where {horizon['counts']['rated']} of the market's "
             f"{horizon['counts']['eligible']} vendors are placed today, based on "
             "how active they are, how they are growing and how fast they are moving.",
@@ -4661,7 +4727,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if allowed_brand_ids is not None:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
 
-    rendered = html_document(f'{market["name"]} Market Horizon',
+    rendered = html_document(f'{market["name"]} Market Maturity Map',
                              "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)

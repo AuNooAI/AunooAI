@@ -43,7 +43,7 @@ export function MarketVendorHorizonControls({ marketId, brandId }: {
         status_date: form.status === 'active' ? null : (form.status_date || null),
       });
       setForm(saved);
-      setMsg('Saved. Applied on the next Market Horizon compute.');
+      setMsg('Saved. Applied on the next Market Maturity Map compute.');
     } catch (e: any) {
       setError(String(e.message ?? e));
     } finally {
@@ -56,7 +56,7 @@ export function MarketVendorHorizonControls({ marketId, brandId }: {
 
   return (
     <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-      <div className="text-sm font-medium text-slate-800 dark:text-gray-100">Market Horizon controls</div>
+      <div className="text-sm font-medium text-slate-800 dark:text-gray-100">Market Maturity Map controls</div>
       <p className="text-xs text-slate-500 mt-0.5 dark:text-gray-400">
         Per-input multipliers for this vendor (1 = the market weight; 0 ignores the input; 2
         doubles it), status, and an analyst note. Applied on the next compute and shown beside

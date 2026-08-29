@@ -150,13 +150,14 @@ The user reviewed the page and asked for four changes, all in
   see are dropped with `filter_rows`, so the shared view lists only names it may show.
 - **Hover text rewritten** in plain words after the user's review ("can you not sound like
   AI?"): four short sentences, no list of clauses.
-- **Top voices under Social.** `_v2_top_voices(tv)`: five people from `man.top_voices`
-  (already computed for the Analyst View) who posted about the market more than once, by
-  reactions to those posts — handle linked to the profile, platform, profiled display name,
-  posts · reactions. The first cut took the analysis's `consistent` list (three or more
-  posts) first, which put an outside vendor's account with 16 posts and 1 reaction at the
-  top; accounts the analysis tags as a vendor's are now left out and the rest rank by
-  reactions. Restricted readers get the rows through `filter_rows`, as on the Analyst View.
+- **Top voices under Social — built, then removed the same day.** Five people who posted
+  about the market more than once, by reactions. The user judged the result useless
+  ("2 posts · 75 reactions … 4 posts · 4 reactions"), and the data agrees: X reactions are
+  captured once at collection, minutes after posting, and follower counts are not stored,
+  so the ranking is noise; a known analyst with one matched reply does not appear at all.
+  Removed from the front page (the Analyst View's "Who is being heard" is unchanged). The
+  honest way to surface people is a named list of accounts to follow, or a re-read of X
+  engagement a day after collection; neither is built.
 - **Most active vendors skips withheld vendors.** The first version listed
   `assessment["distribution"]["by_vendor"]` as it came, so the shared view's top two rows read
   "a vendor not shown in this view". `_v2_top_vendors` now skips rows with `withheld` and
@@ -179,6 +180,21 @@ The user asked for images and logos. **Post images** first, since the data can b
   draw it as a 96 px thumbnail on the right of a story (260×180 on the lead) via
   `_dev_image`, which takes the first evidence record that has one. Hotlinked, not embedded;
   the page stays under its size.
+
+After the user's look ("images are blurred or formatted badly"): the widths are 800–1920 px,
+so the pictures are sharp; the bad ones were rendered PDF pages (`feedshare-document-images`,
+`ads-document-images` — a wall of small text) squeezed into a 96 px square, and 16:9 banners
+cut square. `_v2_images` now skips document pages and company logos, and the thumbnail is
+16:10 (150×94 on a story, the picture's middle kept; 320×200 on the lead, shown whole on a
+light ground). The lead's Cribl card was still soft: LinkedIn's link-preview variant
+(`articleshare`) is an upscaled og:image. `_dev_image` now picks the sharpest kind among a
+development's sources (`_IMAGE_KIND_RANK`: high-res, feedshare, image, article cover, then
+preview) and the lead refuses a link preview outright — no picture beats a blurred one.
+Measured: the lead's soft picture was in fact a Reddit preview thumbnail
+(`external-preview.redd.it/…?width=140&height=78`) from the Reddit post among the story's
+sources, stretched to 320 px; a random sample of 24 stored LinkedIn images was 500–1080 px
+wide, all sharp. `_v2_images` now reads only `image_url` (LinkedIn) and ignores the social
+collector's `thumbnail`, which is small by definition.
 
 Caveat on the images: LinkedIn serves post images from `media.licdn.com` with a signed URL
 that carries an expiry (`e=`). Measured on the 2,798 backfilled: 2,329 are signed to
@@ -250,8 +266,17 @@ weekly briefing rather than a second store: same approval, same revision history
 - **UI** (`MarketBriefingsView.tsx`, `marketMonitorApi.ts`): a "Write a piece" button in the
   Reports view opens a form — Analysis or Note, title, author, the text in Markdown — that
   saves a draft (`writePiece`); the list shows a piece by its title with its kind and author;
-  approve, edit and history work as for a briefing. Built and deployed
-  (`newsfeed-B095muxb.js`); `npm run typecheck` clean against the 246-error baseline.
+  approve, edit and history work as for a briefing.
+- **A Markdown editor** (`ui/src/components/newsfeed/MarkdownEditor.tsx`, new), after the
+  user said a bare textarea was not one: a toolbar (bold, italic, heading, subheading, link,
+  bulleted and numbered lists, quote, code) that wraps or prefixes the selection and puts
+  the caret back sensibly; Write / Split / Preview; Ctrl/Cmd+B, I, K; Tab and Shift+Tab
+  indent and outdent a line; a word count. The preview is `react-markdown` with
+  `remark-gfm`, both already in the bundle; the briefing edit form passes its own renderer
+  so citations stay linked to their evidence. Used for the new piece form and the existing
+  briefing edit form. Built and deployed; `npm run typecheck` clean against the 246-error
+  baseline. Not clicked through in a browser session — the editor's behaviour rests on the
+  type check and the build.
 - Verification: an in-process run created a throwaway analysis piece, confirmed a draft is
   not served, approved it (feed row published, `published_at` set, "By Test Author"), rendered
   the shared front page with it as the lead and a vendor outside the ten named inside it,
@@ -259,6 +284,60 @@ weekly briefing rather than a second store: same approval, same revision history
   unknown id, then rejected and deleted it — 0 rows and 0 feed rows left.
   `tests/test_market_report_v2.py`: 14 passed (two new: the lead rule and freshness, the
   card's byline and link).
+
+### Feature — a follow list, and "Voices worth reading" from profiles, not reactions
+The user asked why Anton Chuvakin was not a top voice. Two causes: the X collector is
+keyword-driven, so only one of his posts had matched the market, and reactions are captured
+minutes after a post goes up. Both fixed at the root rather than by re-ranking.
+
+- **Follow list** — **`app/services/market_follow.py`** (new). The list is
+  `social_accounts.watchlisted`, shared with Brand Watcher's Accounts view. `follow(db,
+  platform, handle, market_name)` profiles the account first when it has no profile (the
+  existing `market_voice_profiles.profile_one`: two xpoz calls and one short model call) and
+  sets the flag; `unfollow` clears it. `collect_followed(conn, market, days=14,
+  max_posts=40)` reads each followed account's timeline — X through xpoz
+  `get_posts_by_author`, Bluesky through its public API; Reddit has no per-user history
+  through the provider and is skipped with a note — and keeps the posts that touch the
+  market: a market phrase as a whole, word-bounded phrase (`_term_patterns`), or a tracked
+  vendor's name (`touches_market`). Kept posts land through `land_article` with
+  `social_meta.followed = true` and attach to the market with `method = 'watchlist'`,
+  `origin = 'follow'`, so they appear in Social, the river and the voices table like any
+  collected post.
+- **Poller** — **`app/tasks/market_monitor.py`**: `SOURCE_FOLLOW = "watchlist_posts"` on
+  the fast cadence (12 h), run after the post review; a `bw_collection_runs` row per run
+  with fetched / new / skipped counts; nothing happens while the list is empty.
+- **Routes** — `GET/POST/DELETE /markets/{id}/follow` (`platform`, `handle`) and
+  `POST /markets/{id}/follow/collect` (read now).
+- **UI** — `MarketVoicesView.tsx`: an "Accounts we follow" strip above the voices table
+  (the list as chips with a remove ×, an add form with platform and handle, "Read them
+  now"), and a star on every row to follow or unfollow that account. Built and deployed.
+- **Front page** — an **"Influence and Influencers"** card in the sidebar (the user asked for
+  the third column, and for a blurred tail "as we track more"). `_v2_tracked_voices(conn)`
+  reads the people we track from the profiles — the accounts we follow first, then profiled
+  practitioners and analysts (`market_role` in `practitioner`, `analyst_or_press`), by
+  followers; vendors, vendor staff, promoters/bots, "unrelated" and unprofiled accounts
+  never — so the list is stable across periods rather than a function of who posted this
+  week. `_v2_voices_card` shows each with name, @handle · platform, "Following" or the role,
+  followers, a link to the latest matched post, and posts this period ("quiet this period"
+  when none). The first ten are readable; the rest (up to ten more) sit behind the blur in
+  the shared view — the one blurred block on the front page — and are readable in the full
+  view. The test that said "nothing on the front page is blurred" now says "only that".
+- Verification: `mf.follow(db, "twitter", "anton_chuvakin", …)` profiled him (Dr. Anton
+  Chuvakin, 41,746 followers, role `analyst_or_press`) and set the flag;
+  `collect_followed` read 40 of his posts, kept the 1 that touches the market, stored 1.
+  Live after the restart: "Voices worth reading" leads with him (Following · 41,746
+  followers · 2 posts), then gabsmashh, Constellation Research, Cthulhu. Two new pure tests
+  (the voices selection order and exclusions; the market gate on followed posts).
+  `npm run typecheck` clean against the baseline.
+
+### Rename — the Market Horizon is the Market Maturity Map
+The user's name for the map from today. Every reader-facing string changed: the Analyst
+View's title and h1, its drawer title and jump link ("Maturity Map"), the front page's
+sidebar card, both SVGs' aria-labels, the app tab, the panel title, the vendor page's
+controls heading and the API's error strings. Internal names stay as they are —
+`market_horizon.py`, `bw_market_horizon`, `MarketHorizonView.tsx`, the `mm-horizon` anchors,
+`?view=report#mm-horizon` — so nothing stored or linked breaks; comments that still say
+Horizon refer to those. Built and deployed; the Analyst View has 0 "Market Horizon" left.
 
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site

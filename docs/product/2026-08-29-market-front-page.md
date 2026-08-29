@@ -4,12 +4,17 @@ _2026-08-29 · Market Monitor public report (aisoc.aunoo.ai, now also aisocnews.
 ## What shipped
 - A front page for the market: a lead story and the period's highlights (each a headline
   that opens to its evidence), then sections for market moves, product launches, hiring,
-  case studies, thought leadership and social, with the Market Horizon, the numbers, the most active
+  case studies, thought leadership and social, with the Market Maturity Map (the map formerly called the Market Horizon), the numbers, the most active
   vendors, who moved and the weekly briefing beside them.
 - Each section as a page of its own, listing everything in it for the period.
 - The front page is now what https://aisoc.aunoo.ai/ and https://aisocnews.com/ open.
   The existing report is the "Analyst View", one click away, and links back.
 - A dark site with each page as one light card on it.
+- "Influence and Influencers" in the sidebar: the accounts we follow, then practitioners
+  and analysts we have profiled, by reach — not by likes. Ten are readable in the shared
+  view; the rest of the people we track are behind the blur. Following an account (a star in the
+  voices table, or the add form) reads its timeline for posts about the market, so a known
+  analyst shows up whatever the keyword search caught.
 - Our own writing on the page: an Analysis section for pieces we write ourselves, each
   with its author; a new piece leads the front page for its first three days and has its
   own page. Written in the Reports view ("Write a piece"), approved like a briefing.
@@ -56,7 +61,7 @@ full vendor roster and the analyst evidence.
    the right. Hiring shows the five biggest recruiters; "All N →" lists every one.
 3. Scroll to the sections. Click "All N →" on any section, or a section name in the top bar,
    to see the whole list for the period.
-4. The small Horizon names the eight largest and fastest vendors; hover any dot to see its
+4. The small Market Maturity Map names the eight largest and fastest vendors; hover any dot to see its
    vendor; "Full map with names" opens the large map on the report.
 5. Switch 7 / 30 / 90 days; the choice carries across the front page, its sections, the report
    and the news river.

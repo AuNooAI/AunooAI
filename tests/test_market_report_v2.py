@@ -78,6 +78,33 @@ def test_piece_card_says_who_wrote_it():
     assert "edited by Oliver" in html._v2_piece_card(row, {})
 
 
+def test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view():
+    rows = [{"id": i, "platform": "twitter", "handle": f"h{i}", "display_name": f"Person {i}",
+             "followers_count": 1000 - i, "profile_url": None, "watchlisted": i == 0,
+             "role": "practitioner"} for i in range(13)]
+    tv = {"voices": [{"platform": "twitter", "author": "h1", "posts": 3,
+                      "latest_post": {"url": "https://x/p"}}]}
+    shared = html._v2_voices_card(rows, tv, teaser=True)
+    assert shared.index("Person 0") < shared.index("Person 1")
+    assert "Following" in shared and "3 posts" in shared and "quiet this period" in shared
+    assert html._TEASER_START in shared and shared.index("Person 10") > shared.index(html._TEASER_START)
+    full = html._v2_voices_card(rows, tv, teaser=False)
+    assert html._TEASER_START not in full and "Person 12" in full
+    assert html._v2_voices_card([], tv, teaser=True) == ""
+
+
+def test_followed_posts_are_kept_only_when_they_touch_the_market():
+    import re
+    from app.services import market_follow as mf
+    terms = mf._term_patterns(["AI SOC", "alert triage", "security operations center"])
+    vendors = [("Crogl", re.compile(r"(?<![a-z0-9])crogl(?![a-z0-9])"))]
+    assert mf.touches_market("The AI-SOC hype cycle, again.", terms, vendors) == ["AI SOC"]
+    assert mf.touches_market("Alert triage is where the money is", terms, vendors) == ["alert triage"]
+    assert mf.touches_market("Crogl raised a round", terms, vendors) == ["Crogl"]
+    assert mf.touches_market("A post about lunch", terms, vendors) == []
+    assert mf.touches_market("microcrogl is not crogl", terms, vendors) == ["Crogl"]
+
+
 def test_lead_skips_a_hiring_count():
     devs = [_dev(0, "significant_hiring"), _dev(1, "product_launch")]
     parts = html._v2_sections(devs, [], [], [])
@@ -238,9 +265,11 @@ def test_shared_view_names_only_authorized_vendors(conn, market):
     shown = ent.vendor_names(conn, market["id"], allowed).values()
     assert any(n in page for n in shown), "no authorized vendor appears either"
     assert "shared view" in page and 'id="mm-trial"' in page
-    # Nothing on the front page is blurred: the hiring top five and the
-    # figures are readable in the shared view.
-    assert 'class="mm-teaser"' not in page
+    # The hiring top five and the figures are readable in the shared view;
+    # the only blur on the front page is the tail of the influencers list.
+    assert page.count('class="mm-teaser"') <= 1
+    if 'class="mm-teaser"' in page:
+        assert "The rest of the voices we track" in page
 
 
 @pytestmark_db

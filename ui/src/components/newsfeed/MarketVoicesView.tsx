@@ -13,9 +13,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Loader2, RefreshCw, UserRound } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, Star, UserRound } from 'lucide-react';
 import {
   getTopVoices, getVoiceProfileJob, profileAllVoices, profileVoice,
+  getFollowed, followAccount, unfollowAccount, collectFollowed, type FollowedAccount,
   type TopVoices, type Voice, type VoiceProfileJob,
 } from '../../services/marketMonitorApi';
 import { DataTable } from './DataTable';
@@ -127,6 +128,53 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
 
   const keyOf = (v: Voice) => `${v.platform}:${v.author}`;
 
+  // The follow list: accounts whose timelines are read for the market, so a
+  // person we know matters shows up whatever the keyword collector caught.
+  const [followed, setFollowed] = useState<FollowedAccount[] | null>(null);
+  const [followPlatform, setFollowPlatform] = useState<'twitter' | 'bluesky' | 'reddit'>('twitter');
+  const [followHandle, setFollowHandle] = useState('');
+  const [followNote, setFollowNote] = useState<string | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const loadFollowed = useCallback(() => {
+    getFollowed(marketId).then(r => setFollowed(r.accounts)).catch(() => setFollowed([]));
+  }, [marketId]);
+  useEffect(() => { loadFollowed(); }, [loadFollowed]);
+
+  const follow = async (platform: string, handle: string) => {
+    setFollowBusy(true); setFollowNote(null);
+    try {
+      await followAccount(marketId, platform, handle.replace(/^@/, ''));
+      setFollowNote(`Following @${handle.replace(/^@/, '')}. Its posts that touch the market are read on the next collection.`);
+      setFollowHandle('');
+      loadFollowed(); load();
+    } catch (e: any) {
+      setFollowNote(`Could not follow @${handle}: ${e.message ?? e}`);
+    } finally { setFollowBusy(false); }
+  };
+  const unfollow = async (platform: string, handle: string) => {
+    setFollowBusy(true); setFollowNote(null);
+    try {
+      await unfollowAccount(marketId, platform, handle);
+      loadFollowed(); load();
+    } catch (e: any) {
+      setFollowNote(`Could not unfollow @${handle}: ${e.message ?? e}`);
+    } finally { setFollowBusy(false); }
+  };
+  const collectNow = async () => {
+    setFollowBusy(true); setFollowNote(null);
+    try {
+      const r = await collectFollowed(marketId);
+      setFollowNote(`${r.accounts} account${r.accounts === 1 ? '' : 's'} read: ${r.fetched} posts, `
+        + `${r.matched} about the market, ${r.stored} new.`
+        + (r.skipped.length ? ` Skipped: ${r.skipped.join('; ')}` : ''));
+      load();
+    } catch (e: any) {
+      setFollowNote(`Could not read the followed accounts: ${e.message ?? e}`);
+    } finally { setFollowBusy(false); }
+  };
+  const isFollowed = (v: Voice) => !!v.account?.watchlisted
+    || !!followed?.some(f => f.platform === v.platform && f.handle.toLowerCase() === v.author.toLowerCase());
+
   const profileOne = async (v: Voice) => {
     const k = keyOf(v);
     setBusy(prev => new Set(prev).add(k));
@@ -237,6 +285,64 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                   }) : undefined} />
               )}
 
+              <div className="border rounded-lg bg-white p-3 mb-3 space-y-2 dark:bg-gray-800">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                    Accounts we follow
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-gray-400">
+                    Their timelines are read on each collection and the posts that touch the
+                    market kept, whatever the keyword search caught. They lead "Voices worth
+                    reading" on the front page.
+                  </span>
+                  <div className="flex-1" />
+                  <button onClick={collectNow} disabled={followBusy || !followed?.length}
+                          className="text-xs px-2.5 py-1.5 border rounded-md hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-gray-700">
+                    Read them now
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {(followed ?? []).map(f => (
+                    <span key={`${f.platform}:${f.handle}`}
+                          className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border bg-slate-50 dark:bg-gray-700 dark:border-gray-600">
+                      <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                      {f.display_name ? `${f.display_name} · ` : ''}@{f.handle}
+                      <span className="text-slate-400">{f.platform === 'twitter' ? 'X' : f.platform}</span>
+                      <button onClick={() => unfollow(f.platform, f.handle)} disabled={followBusy}
+                              title="Stop following" className="text-slate-400 hover:text-red-600">×</button>
+                    </span>
+                  ))}
+                  {followed && followed.length === 0 && (
+                    <span className="text-xs text-slate-400 dark:text-gray-500">None yet.</span>
+                  )}
+                </div>
+                <form className="flex flex-wrap gap-2 items-center"
+                      onSubmit={e => { e.preventDefault(); if (followHandle.trim()) follow(followPlatform, followHandle.trim()); }}>
+                  <select value={followPlatform} onChange={e => setFollowPlatform(e.target.value as any)}
+                          className="text-xs px-2 py-1.5 border rounded-md bg-white text-slate-700 dark:bg-gray-800 dark:text-gray-300">
+                    <option value="twitter">X</option>
+                    <option value="bluesky">Bluesky</option>
+                    <option value="reddit">Reddit</option>
+                  </select>
+                  <input value={followHandle} onChange={e => setFollowHandle(e.target.value)}
+                         placeholder="@handle" maxLength={200}
+                         className="text-xs px-2 py-1.5 border rounded-md bg-white text-slate-800 min-w-[200px] dark:bg-gray-800 dark:text-gray-100" />
+                  <button type="submit" disabled={followBusy || !followHandle.trim()}
+                          className="text-xs px-2.5 py-1.5 border rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50">
+                    Follow
+                  </button>
+                  <span className="text-xs text-slate-500 dark:text-gray-400">
+                    Following profiles the account first (two xpoz calls, one short model call).
+                    Reddit has no per-user history through the provider.
+                  </span>
+                </form>
+                {followNote && (
+                  <div className="text-xs px-2 py-1.5 rounded bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-gray-300">
+                    {followNote}
+                  </div>
+                )}
+              </div>
+
               <DataTable
                 rows={rows}
                 rowKey={keyOf}
@@ -254,6 +360,12 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                               @{v.author}<ExternalLink className="w-3 h-3 opacity-60" />
                             </a>
                           ) : <span>@{v.author}</span>}
+                          <button disabled={followBusy}
+                                  title={isFollowed(v) ? 'Stop following' : 'Follow: read this account\'s timeline for the market'}
+                                  onClick={e => { e.stopPropagation(); isFollowed(v) ? unfollow(v.platform, v.author) : follow(v.platform, v.author); }}
+                                  className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-gray-700">
+                            <Star className={`w-3.5 h-3.5 ${isFollowed(v) ? 'text-amber-500 fill-amber-500' : 'text-slate-300 dark:text-gray-600'}`} />
+                          </button>
                           {v.vendor_tag && <VendorBadge tag={v.vendor_tag} />}
                         </div>
                         {v.account?.profiled && (

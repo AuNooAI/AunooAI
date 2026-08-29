@@ -1927,6 +1927,49 @@ export interface Leaderboards {
   career_moves: { moves: CareerMove[]; days: number | null; coverage: Coverage };
 }
 
+// ---- The follow list: accounts whose timelines we read for the market ----
+
+export interface FollowedAccount {
+  id: number; platform: string; handle: string; display_name: string | null;
+  followers_count: number | null; profile_url: string | null; avatar_url: string | null;
+  last_profiled_at: string | null; role: string | null;
+}
+
+export async function getFollowed(marketId: number): Promise<{ accounts: FollowedAccount[] }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`,
+    { credentials: 'include' }), 'Failed to load the follow list');
+}
+
+/** Follow an account; it is profiled first when it has no profile. */
+export async function followAccount(
+  marketId: number, platform: string, handle: string,
+): Promise<unknown> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, handle }),
+  }), 'Could not follow the account');
+}
+
+export async function unfollowAccount(
+  marketId: number, platform: string, handle: string,
+): Promise<unknown> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`, {
+    method: 'DELETE', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, handle }),
+  }), 'Could not unfollow the account');
+}
+
+/** Read the followed accounts' timelines now and keep what touches the market. */
+export async function collectFollowed(
+  marketId: number,
+): Promise<{ accounts: number; fetched: number; matched: number; stored: number; skipped: string[] }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow/collect`, {
+    method: 'POST', credentials: 'include',
+  }), 'Could not read the followed accounts');
+}
+
 export async function getTopVoices(
   marketId: number, days?: number, limit = 25,
 ): Promise<TopVoices> {
@@ -2053,13 +2096,13 @@ export async function saveHorizonControls(
 export async function getMarketHorizon(marketId: number): Promise<MarketHorizon | null> {
   const res = await fetch(`${BASE}/markets/${marketId}/horizon`, { credentials: 'include' });
   if (res.status === 404) return null;
-  return jsonOrThrow(res, 'Failed to load Market Horizon');
+  return jsonOrThrow(res, 'Failed to load Market Maturity Map');
 }
 
 export async function computeMarketHorizon(marketId: number): Promise<MarketHorizon> {
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/horizon/compute`, {
     method: 'POST', credentials: 'include',
-  }), 'Failed to compute Market Horizon');
+  }), 'Failed to compute Market Maturity Map');
 }
 
 export async function profileVoice(

@@ -1686,7 +1686,7 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
             ['findings', 'Findings'],
             ['analysis', 'Analysis'],
             ['voices', 'Top voices'],
-            ['horizon', 'Market Horizon'],
+            ['horizon', 'Market Maturity Map'],
             ['collection', 'Collection'],
             ['briefings', 'Reports'],
             ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],

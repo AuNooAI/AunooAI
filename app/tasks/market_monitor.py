@@ -68,6 +68,7 @@ SOURCE_INDEED = mc.INDEED_SOURCE
 # Reads the article corpus we already hold. Calls no provider,
 # so it is not subject to the budget cap.
 SOURCE_CORPUS = "corpus_match"
+SOURCE_FOLLOW = "watchlist_posts"   # followed accounts' timelines, kept when they touch the market
 # Reads vendor posts we already collected and judges each one.
 # Costs a cheap model call per 20 posts, not a provider fetch.
 SOURCE_POST_REVIEW = "post_review"
@@ -167,6 +168,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_JOBS: slow * 3,        # twice weekly — the spec's hiring signal
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
         SOURCE_CORPUS: slow,          # daily — also free, also local
+        SOURCE_FOLLOW: fast,          # followed accounts: a timeline read per account
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
@@ -395,6 +397,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _discover_candidates(conn, market, now)
     runs += _match_corpus(conn, market, now)
     runs += await _review_posts(conn, market, now)
+    runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
@@ -577,6 +580,35 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
 
 
 # ── New entrants ────────────────────────────────────────────────────────────
+
+async def _collect_followed(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Read the followed accounts' timelines and keep what touches the
+    market. One xpoz (or Bluesky) read per account; nothing when the follow
+    list is empty."""
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_FOLLOW, now) is None:
+        return 0
+    from app.services import market_follow as mf
+
+    if not mf.followed(conn, limit=1):
+        return 0
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_FOLLOW,
+                         provider="xpoz")
+    conn.commit()
+    try:
+        result = await asyncio.to_thread(mf.collect_followed, conn, market)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["fetched"], new=result["stored"],
+                     skipped=result["fetched"] - result["matched"],
+                     error=("; ".join(result["skipped"])[:500] or None))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s followed-accounts read failed: %s", market_id, exc)
+    return 1
+
 
 async def _write_briefing(conn, market: Dict[str, Any], now: datetime) -> int:
     """Write last month's briefing, once, after the month has ended.

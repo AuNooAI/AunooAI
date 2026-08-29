@@ -129,7 +129,7 @@ function HorizonArc({ rated, onVendor, largeShift = 10, cuts, stageNames, bandNa
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
-           aria-label="Market Horizon: position and balance">
+           aria-label="Market Maturity Map: position and balance">
         <defs>
           <marker id="mm-hz-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
@@ -314,7 +314,7 @@ function HorizonGrid({ rated, onVendor, largeShift = 10, cuts, stageNames, bandN
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
-           aria-label="Market Horizon: scale against momentum">
+           aria-label="Market Maturity Map: scale against momentum">
         <defs>
           <marker id="mm-hz-arrow-grid" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
@@ -630,7 +630,7 @@ export function MarketHorizonView({ marketId, onVendor }: {
 
   return (
     <div className="space-y-4">
-      <Panel title="Market Horizon">
+      <Panel title="Market Maturity Map">
         <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
           A map of scale against momentum from readings we collect. It does not rate
           product quality, customer satisfaction or strategy. A vendor is on the map only
