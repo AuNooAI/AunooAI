@@ -3500,7 +3500,10 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
                       if section is None else None) or {}).get("vendors") or [])
 
-    top_voices = (_safe(man.top_voices, conn, market["id"], days=days, limit=80)
+    # Every account with a post in the period, not the 80 most reacted-to:
+    # the card looks tracked people up in this list, and a followed analyst
+    # whose one post drew no reactions fell off the end and read as "quiet".
+    top_voices = (_safe(man.top_voices, conn, market["id"], days=days, limit=5000)
                   if section in (None, "social") else None)
     pc = _safe(man.period_comparison, conn, market["id"], days=days)
     period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"

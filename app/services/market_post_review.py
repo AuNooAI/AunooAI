@@ -96,6 +96,11 @@ For each post decide what it is:
 Also give a kind: launch, funding, customer, partnership, acquisition, award,
 hiring, research, opinion, event, other.
 
+A post whose author is shown as @handle is by a person we follow — an analyst
+or practitioner, not a vendor. For them a substantive argument or observation
+about the market is "commentary" and worth keeping; a reply with no substance,
+a joke, or a post about something else entirely is "noise".
+
 These are noise, not signal, however senior the people in them:
 - a speaking slot, panel appearance, webinar, podcast or conference visit
 - an office visit by an official, a customer or an investor
@@ -198,7 +203,45 @@ def candidates(conn, market_id: int, *, limit: int = 200,
                  COALESCE(a.publication_date, a.submission_date) DESC
         LIMIT :lim
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    if not redo and not kinds:
+        out += followed_candidates(conn, market_id, limit=max(0, limit - len(out)), days=days)
+    return out
+
+
+def followed_candidates(conn, market_id: int, *, limit: int = 200,
+                        days: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Posts by followed accounts that matched no market phrase and wait for
+    the judge (``market_follow`` lands them under the market's topic with
+    ``social_meta.pending_review``). Shown to the model as ``@handle``."""
+    if limit <= 0:
+        return []
+    topic = conn.execute(text(
+        "SELECT config->'collection'->>'topic_name' FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar()
+    if not topic:
+        return []
+    where = ["a.topic = :topic", "a.social_meta->>'pending_review' = 'true'",
+             "a.social_meta->>'followed' = 'true'",
+             "NOT EXISTS (SELECT 1 FROM bw_market_articles ma"
+             "             WHERE ma.article_uri = a.uri AND ma.market_id = :m)"]
+    params: Dict[str, Any] = {"m": market_id, "topic": topic, "lim": int(limit)}
+    if days:
+        from datetime import timedelta
+
+        where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = (datetime.now(timezone.utc)
+                           - timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary,
+               '@' || (a.social_meta->>'author') AS vendor,
+               COALESCE(a.publication_date, a.submission_date) AS published
+        FROM articles a
+        WHERE {' AND '.join(where)}
+        ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+        LIMIT :lim
+    """), params).mappings().all()
+    return [{**dict(r), "followed": True} for r in rows]
 
 
 def _render(posts: List[Dict[str, Any]]) -> str:
@@ -265,6 +308,7 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
             "kind": kind,
             "reason": (str(item.get("reason") or "").strip())[:400],
             "customer": _customer_of({**item, "kind": kind}),
+            "followed": bool(post.get("followed")),
         })
     return out
 
@@ -280,12 +324,28 @@ def store(conn, market_id: int, verdicts: List[Dict[str, Any]],
     written = 0
     for v in verdicts:
         customer = v.get("customer")
+        if v.get("followed"):
+            # A followed account's post: the judge decides whether it joins
+            # the market at all. Noise stays off the market, marked so it is
+            # not read again; signal or commentary attaches it.
+            conn.execute(text("""
+                UPDATE articles
+                   SET social_meta = COALESCE(social_meta, '{}'::jsonb) - 'pending_review'
+                                     || jsonb_build_object('follow_verdict', CAST(:verdict AS TEXT))
+                 WHERE uri = :uri
+            """), {"uri": v["uri"], "verdict": v["verdict"]})
+            if v["verdict"] == "noise":
+                written += 1
+                continue
+            method, origin = "watchlist", "follow"
+        else:
+            method, origin = "post_review", "corpus"
         conn.execute(text("""
             INSERT INTO bw_market_articles
                 (market_id, article_uri, method, origin,
                  review_verdict, review_kind, review_reason, review_customer,
                  review_model, reviewed_at)
-            VALUES (:m, :uri, 'post_review', 'corpus',
+            VALUES (:m, :uri, :method, :origin,
                     :verdict, :kind, :reason, CAST(:customer AS JSONB),
                     :model, NOW())
             ON CONFLICT (market_id, article_uri) DO UPDATE SET
@@ -297,6 +357,7 @@ def store(conn, market_id: int, verdicts: List[Dict[str, Any]],
                 reviewed_at     = NOW()
         """), {"m": market_id, "uri": v["uri"], "verdict": v["verdict"],
                "kind": v["kind"], "reason": v["reason"], "model": model,
+               "method": method, "origin": origin,
                "customer": json.dumps(customer) if customer else None})
         written += 1
     return written

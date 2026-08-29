@@ -397,6 +397,41 @@ Market 2 is on the defaults (`sync_feeds` run once: `rss_feeds` 41 Forrester, 42
 "40 of 85 vendors placed by scale and momentum" (front-page sidebar) and "vendors are placed
 today" (Analyst View drawer) now say *mapped* (`market_report_html.py`, user's wording).
 
+### Fix — a followed account's posts: short markers count, and one reply is one row
+
+The Influence card showed Anton Chuvakin with "2 posts" that were one reply stored twice:
+the keyword collector holds it as `x.com/anton_chuvakin/status/<id>`, the follow read stored
+the provider's `x.com/i/status/<id>` form. `market_follow.canonical_url` now stores the
+collector's form on X (Bluesky URLs are unchanged); the one existing duplicate row was
+deleted. And the follow read kept 1 of Anton's last 40 posts because the gate was the market's
+31 phrases plus vendor names only — he writes "SOC" and "detection", not "AI SOC".
+`FOLLOW_MARKERS` (SOC, SIEM, SecOps, MDR, XDR, EDR, SOAR, detection, analyst, triage, alerts,
+threat hunting, incident response, playbook, runbook), word-bounded, now count for a
+followed account on top of the phrases — never for the firehose, where "SOC" alone would
+match half of security Twitter. A market can replace the list in `config['follow_markers']`.
+Tests in `tests/test_market_report_v2.py` (markers, "SOCk" is not "SOC", the URL forms).
+
+And the judge, as asked: a followed account's post that matches no phrase or marker is no
+longer dropped. It lands under the market's topic with `social_meta.pending_review`
+(`market_follow.collect_followed`, `pending` in the counts) and the daily post-review pass
+reads it with the vendor-post judge (`market_post_review.followed_candidates`, appended to
+`candidates`; the prompt says a post shown as `@handle` is a person we follow, for whom a
+substantive argument is commentary worth keeping). `store` then attaches signal or commentary
+as a `watchlist` row and leaves noise off the market, marked `social_meta.follow_verdict` so it
+is not read twice. Readers are untouched: an unjudged or noise post is simply not attached.
+`_fetch_posts` now raises when the provider answers with nothing, so "0 fetched" is reported
+as a provider failure in `skipped` rather than as an empty timeline — today's cause is xpoz
+"Usage limit exceeded" on the shared key, so the new gate could not be exercised live.
+Test: `tests/test_market_follow_judge.py` (DB-backed: two pending posts, one judged noise and
+one commentary, attached and marked accordingly, not candidates again).
+
+### Fix — a followed account with an unreacted post read as "quiet this period"
+
+The Influence card looked each tracked account up in `top_voices(limit=80)`, which is cut by
+reactions; Anton Chuvakin's one post drew none, fell off the end, and the card said "quiet
+this period" beside a post it had. The card now reads the whole period's list (`limit=5000`,
+the query groups everything anyway and only the cut changes).
+
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
 `/etc/nginx/sites-available/aisocnews.com` (enabled), modelled on aisoc.aunoo.ai: port 80

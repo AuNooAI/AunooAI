@@ -103,6 +103,16 @@ def test_followed_posts_are_kept_only_when_they_touch_the_market():
     assert mf.touches_market("Crogl raised a round", terms, vendors) == ["Crogl"]
     assert mf.touches_market("A post about lunch", terms, vendors) == []
     assert mf.touches_market("microcrogl is not crogl", terms, vendors) == ["Crogl"]
+    # A followed account gets the short markers too; the firehose does not.
+    markers = mf._term_patterns(mf.follow_markers({"config": {}}))
+    assert mf.touches_market("Your SOC is not a helpdesk.", terms, vendors) == []
+    assert mf.touches_market("Your SOC is not a helpdesk.", terms, vendors, markers) == ["SOC"]
+    assert mf.touches_market("Social media is not a SOCk puppet", terms, vendors, markers) == []
+    assert mf.follow_markers({"config": {"follow_markers": ["logs"]}}) == ["logs"]
+    # The stored URL is the keyword collector's form, so one reply is one row.
+    assert (mf.canonical_url("twitter", "anton_chuvakin", {"id": "209", "url": "https://x.com/i/status/209"})
+            == "https://x.com/anton_chuvakin/status/209")
+    assert mf.canonical_url("bluesky", "a.bsky.social", {"id": "1", "url": "https://bsky.app/x"}) == "https://bsky.app/x"
 
 
 def test_lead_skips_a_hiring_count():

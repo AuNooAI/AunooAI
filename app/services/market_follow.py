@@ -14,6 +14,13 @@ Accounts view. Following an account profiles it first (two xpoz calls and one
 short model call, the same profile as everywhere else) so the front page can
 say who the person is.
 
+A post that matches nothing is not thrown away: it lands under the market's
+topic marked ``pending_review`` and the daily post-review pass reads it with
+the same judge as the vendor posts. Signal or commentary attaches it to the
+market (``method = 'watchlist'``); noise leaves it unattached and marked, so
+it is not read twice. So a followed analyst's argument about the SOC reaches
+the page even when it uses none of the market's phrases.
+
 Platforms: X through xpoz (``get_posts_by_author``) and Bluesky through its
 public API. Reddit has no per-user history through xpoz, so a Reddit account
 can be followed but yields nothing until that changes.
@@ -35,6 +42,14 @@ METHOD = "watchlist"
 ORIGIN = "follow"
 MAX_POSTS = 40
 WINDOW_DAYS = 14
+#: Words that count for a followed account on top of the market phrases. The
+#: firehose cannot use them ("SOC" alone matches half of security Twitter),
+#: but a hand-picked analyst who writes "SOC" and "detection" rather than
+#: "AI SOC" is exactly who the follow list is for. Word-bounded; a market can
+#: replace the list in ``config['follow_markers']``.
+FOLLOW_MARKERS = ("SOC", "SOCs", "SIEM", "SecOps", "MDR", "XDR", "EDR", "SOAR",
+                  "detection", "detections", "analyst", "analysts", "triage", "alerts",
+                  "threat hunting", "incident response", "playbook", "playbooks", "runbook")
 
 
 def followed(conn, limit: int = 100) -> List[Dict[str, Any]]:
@@ -91,6 +106,10 @@ def _fetch_posts(svc, platform: str, handle: str, max_posts: int) -> List[Dict[s
         ident = svc._fetch_sync(platform, handle, max_posts)
     else:
         return []
+    if not ident:
+        # The profile service answers a provider failure (a rate or usage
+        # limit, most often) with nothing; that is not "no posts".
+        raise RuntimeError("the provider returned nothing (rate or usage limit?)")
     return list((ident or {}).get("posts") or [])
 
 
@@ -107,13 +126,29 @@ def _term_patterns(terms: List[str]) -> List[Tuple[str, re.Pattern]]:
 
 
 def touches_market(text_value: str, term_patterns: List[Tuple[str, re.Pattern]],
-                   vendor_patterns: List[Tuple[str, re.Pattern]]) -> List[str]:
-    """The market phrases and vendor names the text contains; empty when
-    the post is about something else."""
+                   vendor_patterns: List[Tuple[str, re.Pattern]],
+                   marker_patterns: Optional[List[Tuple[str, re.Pattern]]] = None) -> List[str]:
+    """The market phrases, vendor names and (for a followed account) markers
+    the text contains; empty when the post is about something else."""
     hay = (text_value or "").lower()
     hits = [t for t, p in term_patterns if p.search(hay)]
     hits += [v for v, p in vendor_patterns if p.search(hay)]
+    hits += [m for m, p in (marker_patterns or []) if p.search(hay)]
     return hits
+
+
+def follow_markers(market: Dict[str, Any]) -> List[str]:
+    cfg = (market.get("config") or {}).get("follow_markers")
+    return [str(m) for m in cfg if m] if isinstance(cfg, list) else list(FOLLOW_MARKERS)
+
+
+def canonical_url(platform: str, handle: str, post: Dict[str, Any]) -> Optional[str]:
+    """The URL form the keyword collector stores, so a post it already
+    holds is the same row: ``x.com/<handle>/status/<id>`` on X. The
+    provider's ``x.com/i/status/<id>`` form made the same reply two rows."""
+    if platform == "twitter" and post.get("id"):
+        return f"https://x.com/{handle}/status/{post['id']}"
+    return post.get("url")
 
 
 def _published(post: Dict[str, Any]) -> Optional[datetime]:
@@ -141,12 +176,13 @@ def collect_followed(conn, market: Dict[str, Any], *, days: int = WINDOW_DAYS,
     if not accounts:
         return {"accounts": 0, "fetched": 0, "matched": 0, "stored": 0, "skipped": []}
     terms = _term_patterns(list(mcorp.corpus_terms(conn, market["id"]) or []))
+    markers = _term_patterns(follow_markers(market))
     vendors = [(d["vendor"], re.compile(r"(?<![a-z0-9])" + re.escape(d["vendor"].lower()) + r"(?![a-z0-9])"))
                for d in mp.build_dataset(conn, market["id"]) if d.get("vendor") and len(d["vendor"]) >= 3]
     topic = mbr.market_topic(market)
     since = datetime.now(timezone.utc) - timedelta(days=days)
     svc = SocialProfileService()
-    fetched = matched = stored = 0
+    fetched = matched = stored = pending = 0
     skipped: List[str] = []
     for acct in accounts:
         platform, handle = acct["platform"], acct["handle"]
@@ -162,20 +198,30 @@ def collect_followed(conn, market: Dict[str, Any], *, days: int = WINDOW_DAYS,
         fetched += len(posts)
         for post in posts:
             when = _published(post)
-            if not post.get("url") or not post.get("id") or (when and when < since):
+            url = canonical_url(platform, handle, post)
+            if not url or not post.get("id") or (when and when < since):
                 continue
             body = (post.get("text") or "").strip()
-            hits = touches_market(body, terms, vendors)
-            if not hits:
-                continue
-            matched += 1
+            hits = touches_market(body, terms, vendors, markers)
             meta = {"platform": platform, "author": handle, "external_id": str(post["id"]),
                     "followed": True}
             for k in ("likes", "comments", "reposts", "thumbnail"):
                 if post.get(k) is not None:
                     meta[k] = post[k]
+            if not hits:
+                # Lands for the judge; attached only if it says signal or
+                # commentary. Landed once: a post already judged keeps its row.
+                meta["pending_review"] = True
+                if land_article(conn, uri=url, title=f"@{handle}: {body[:200]}",
+                                summary=body[:1000],
+                                news_source=("bluesky" if platform == "bluesky" else f"xpoz:{platform}"),
+                                published_at=(when.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if when else None),
+                                topic=topic, category="", bias_source="", social_meta=meta):
+                    pending += 1
+                continue
+            matched += 1
             is_new = land_article(
-                conn, uri=post["url"], title=f"@{handle}: {body[:200]}", summary=body[:1000],
+                conn, uri=url, title=f"@{handle}: {body[:200]}", summary=body[:1000],
                 news_source=("bluesky" if platform == "bluesky" else f"xpoz:{platform}"),
                 published_at=(when.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if when else None),
                 topic=topic, category="", bias_source="", social_meta=meta)
@@ -185,10 +231,10 @@ def collect_followed(conn, market: Dict[str, Any], *, days: int = WINDOW_DAYS,
                      score, method, origin)
                 VALUES (:m, :uri, :terms, 0, 1, 1.0, :method, :origin)
                 ON CONFLICT (market_id, article_uri) DO NOTHING
-            """), {"m": market["id"], "uri": post["url"], "terms": hits[:10],
+            """), {"m": market["id"], "uri": url, "terms": hits[:10],
                    "method": METHOD, "origin": ORIGIN})
             if is_new:
                 stored += 1
     conn.commit()
     return {"accounts": len(accounts), "fetched": fetched, "matched": matched,
-            "stored": stored, "skipped": skipped}
+            "stored": stored, "pending": pending, "skipped": skipped}
