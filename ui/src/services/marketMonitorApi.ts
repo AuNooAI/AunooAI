@@ -1604,12 +1604,19 @@ export interface BriefingSummary {
   title: string | null;
   status: 'draft' | 'approved' | 'rejected';
   /** "fallback" means the model returned nothing usable and the stored text is
-   *  the assembled evidence rather than written prose. */
-  generation: 'generated' | 'fallback' | 'edited';
+   *  the assembled evidence rather than written prose; "written" means a
+   *  person wrote it and no model was involved. */
+  generation: 'generated' | 'fallback' | 'edited' | 'written';
   model_used: string | null;
   created_at: string;
   updated_at: string;
   sources: number | null;
+  /** A briefing is written by the model from the period's facts; an analysis
+   *  or a note is our own piece, written by a person. */
+  kind: 'briefing' | 'analysis' | 'note';
+  author: string | null;
+  /** When it was first approved; null while a draft. */
+  published_at: string | null;
 }
 
 export interface BriefingDetail extends BriefingSummary {
@@ -1650,6 +1657,18 @@ export async function generateBriefing(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(wireBody),
   }), 'Briefing generation failed');
+}
+
+/** Save a piece a person wrote — an analysis or a note — as a draft. */
+export async function writePiece(
+  marketId: number,
+  body: { kind: 'analysis' | 'note'; title: string; report_content: string; author?: string | null },
+): Promise<BriefingDetail> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/briefings/write`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Could not save the piece');
 }
 
 export interface BriefingRevision {

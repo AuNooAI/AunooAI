@@ -10,6 +10,9 @@ _2026-08-29 · Market Monitor public report (aisoc.aunoo.ai, now also aisocnews.
 - The front page is now what https://aisoc.aunoo.ai/ and https://aisocnews.com/ open.
   The existing report is the "Analyst View", one click away, and links back.
 - A dark site with each page as one light card on it.
+- Our own writing on the page: an Analysis section for pieces we write ourselves, each
+  with its author; a new piece leads the front page for its first three days and has its
+  own page. Written in the Reports view ("Write a piece"), approved like a briefing.
 - In the shared view nothing on the front page is blurred: the hiring top five and the
   market figures are readable. The vendor list is still the ten most active.
 
@@ -64,6 +67,8 @@ every item linked to its sources. That is the difference from a newsletter: noth
 written by hand, and every story says whose word it rests on.
 
 ## Limits and what's next
+- A piece is public in full once approved, including to readers of the shared view, and it
+  can name any vendor. That is deliberate: it is our writing. Approve with that in mind.
 - The sections are only as good as the classification behind them. The customer split rests
   on whether the review pass recorded a customer name; a post that names a customer in a way
   the review missed shows as a case study.

@@ -2686,6 +2686,20 @@ V2_CSS = """
 .mm-v2 .v2-hz svg text.mm-lbl { font-size:22px; }
 .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:0; }
 .mm-v2 .v2-numbers .n-metric { cursor:help; }
+.mm-v2 .v2-piece h3 a, .mm-v2 .v2-piece h2 a { color:inherit; text-decoration:none; }
+.mm-v2 .v2-piece h3 a:hover, .mm-v2 .v2-piece h2 a:hover { color:var(--n-accent); }
+.mm-v2 #v2-analysis .n-story { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+.mm-v2 #v2-analysis .v2-piece { display:block; }
+.mm-v2 #v2-analysis > .v2-piece + .v2-piece { border-top:0; }
+.mm-v2 .v2-piece-page h1 { font-size:clamp(26px,3vw,36px); line-height:1.15; margin:6px 0 8px; font-weight:500; }
+.mm-v2 .v2-piece-page > .n-byline { font-size:13px; margin-bottom:18px; }
+.mm-v2 .v2-piece-body { max-width:72ch; font-size:16px; line-height:1.6; }
+.mm-v2 .v2-piece-body h2 { font-size:20px; margin:26px 0 8px; font-weight:500; }
+.mm-v2 .v2-piece-body h3 { font-size:17px; margin:20px 0 6px; font-weight:500; }
+.mm-v2 .v2-piece-body p, .mm-v2 .v2-piece-body li { margin:0 0 12px; }
+.mm-v2 .v2-piece-body blockquote { border-left:3px solid var(--n-line); margin:0 0 12px; padding:2px 14px; color:var(--n-muted); }
+.mm-v2 .v2-piece-body table { border-collapse:collapse; font-size:14px; }
+.mm-v2 .v2-piece-body td, .mm-v2 .v2-piece-body th { border:1px solid var(--n-line); padding:4px 8px; }
 .mm-v2 .v2-mark { width:18px; height:18px; border-radius:4px; vertical-align:-4px;
                   margin-right:5px; background:#fff; object-fit:contain; }
 .mm-v2 .v2-vendor { white-space:nowrap; }
@@ -2728,6 +2742,12 @@ V2_CSS = """
 
 #: The sections, in page order. ``thing`` completes "No … observed".
 V2_SECTIONS: Dict[str, Dict[str, str]] = {
+    "analysis": {"heading": "Analysis", "colour": "var(--n-text)",
+                 "thing": "piece of ours",
+                 "empty": "Nothing published yet. Our analysis and notes appear here "
+                          "once approved.",
+                 "subline": "Our own reading of the market: analysis and notes, "
+                            "each with who wrote it."},
     "moves": {"heading": "Market moves", "colour": "var(--n-purple)",
               "thing": "market move",
               "subline": "Deals, funding, partnerships, leadership changes "
@@ -2754,7 +2774,10 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
 _V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
 _V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
 #: How many items a section shows on the front page; its own page shows all.
-_V2_CAPS = {"moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6, "social": 6}
+_V2_CAPS = {"analysis": 3, "moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6, "social": 6}
+#: A new piece of ours leads the front page for this many days after publication.
+_V2_PIECE_LEAD_DAYS = 3
+_PIECES_SLOT = "<!--mm-pieces-slot-->"
 _V2_HIGHLIGHTS = 3
 #: Vendors named on the sidebar map, and on the most-active list.
 _V2_HORIZON_NAMES = 8
@@ -2789,7 +2812,8 @@ def _v2_is_voice(row: Dict[str, Any]) -> bool:
 def _v2_sections(developments: List[Dict[str, Any]],
                  corpus_rows: List[Dict[str, Any]],
                  discussion: List[Dict[str, Any]],
-                 highlights: List[Dict[str, Any]]) -> Dict[str, Any]:
+                 highlights: List[Dict[str, Any]], *,
+                 lead_from_developments: bool = True) -> Dict[str, Any]:
     """Every development in exactly one place: the lead, or one section.
 
     The lead is the highest-ranked development that is not a hiring count.
@@ -2799,10 +2823,12 @@ def _v2_sections(developments: List[Dict[str, Any]],
     research papers; Social is the practitioner posts; both minus anything
     already cited as evidence, and the most-shared posts go with Social.
     """
-    lead = next((d for d in developments
-                 if d.get("event_type") not in _V2_HIRING_TYPES), None)
-    if lead is None and developments:
-        lead = developments[0]
+    lead = None
+    if lead_from_developments:
+        lead = next((d for d in developments
+                     if d.get("event_type") not in _V2_HIRING_TYPES), None)
+        if lead is None and developments:
+            lead = developments[0]
     buckets: Dict[str, List[Dict[str, Any]]] = {k: [] for k in V2_SECTIONS}
     for d in developments:
         if d is lead:
@@ -2837,6 +2863,76 @@ def _v2_sections(developments: List[Dict[str, Any]],
     shared = [h for h in (highlights or [])
               if h.get("uri") and h["uri"] not in used and h["uri"] not in voices]
     return {"lead": lead, "buckets": buckets, "highlights": shared[:_V2_HIGHLIGHTS]}
+
+
+def _piece_is_fresh(piece_row: Dict[str, Any], days: int = _V2_PIECE_LEAD_DAYS) -> bool:
+    stamp = piece_row.get("published_at")
+    if not hasattr(stamp, "tzinfo"):
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - stamp).days < days
+
+
+def _piece_when(piece_row: Dict[str, Any]) -> str:
+    stamp = piece_row.get("published_at") or piece_row.get("updated_at")
+    return stamp.strftime("%-d %b %Y") if hasattr(stamp, "strftime") else str(stamp or "")[:10]
+
+
+def _piece_href(link_params: Dict[str, Any], piece_row: Dict[str, Any]) -> str:
+    return "?" + _relink(link_params, view="v2", piece=piece_row["id"])
+
+
+def _plain(md: str) -> str:
+    """Markdown as plain words for a summary: emphasis marks, code ticks
+    and link syntax removed, the link text kept."""
+    out = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", md or "")
+    out = re.sub(r"[*_`]{1,3}", "", out)
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def _piece_tag(piece_row: Dict[str, Any]) -> str:
+    kind = piece_row.get("kind") or "analysis"
+    return "Our analysis" if kind == "analysis" else "Our analysis · Note"
+
+
+def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
+                   lead: bool = False) -> str:
+    """One of our pieces as a story: the kind, the title, the opening
+    paragraph, who wrote it and when. The lead version is larger."""
+    from app.services import market_briefing as mbr
+
+    opening = _plain(mbr.feed_summary(piece_row.get("report_content") or ""))
+    href = _piece_href(link_params, piece_row)
+    title = esc(piece_row.get("title") or "")
+    head = f'<h2><a href="{href}">{title}</a></h2>' if lead else f'<h3><a href="{href}">{title}</a></h3>'
+    return (f'<article class="n-story v2-piece{" v2-lead-story" if lead else ""}" '
+            'style="--story:var(--n-text)">'
+            f'<div class="n-story-tag">{esc(_piece_tag(piece_row))}</div>'
+            + head
+            + (f'<p class="n-story-sum">{esc(_clip(opening, 480 if lead else 260))}</p>' if opening else "")
+            + f'<div class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}'
+            f' · <a href="{href}">Read the piece &rarr;</a></div></article>')
+
+
+def _v2_piece_page(piece_row: Dict[str, Any], others: List[Dict[str, Any]],
+                   link_params: Dict[str, Any]) -> str:
+    """The piece in full: title, who wrote it, the text, and the other pieces."""
+    from app.services import market_briefing as mbr
+
+    more = ""
+    if others:
+        more = ('<h2 class="v2-sub">More of our pieces</h2>' + "".join(
+            f'<div class="n-row"><span class="n-rank"></span><div>'
+            f'<a href="{_piece_href(link_params, o)}"><strong>{esc(o.get("title") or "")}</strong></a>'
+            f'<div class="n-row-label">{esc(mbr.provenance_line(o))} · {esc(_piece_when(o))}</div>'
+            '</div></div>' for o in others))
+    return ('<article class="v2-piece-page">'
+            f'<div class="n-story-tag">{esc(_piece_tag(piece_row))}</div>'
+            f'<h1>{esc(piece_row.get("title") or "")}</h1>'
+            f'<p class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}</p>'
+            '<div class="v2-piece-body">' + mbr.render_body(piece_row) + '</div>'
+            + more + "</article>")
 
 
 def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
@@ -2883,7 +2979,8 @@ def _v2_section(key: str, inner: str, *, count: int, days: int,
     more = (f'<a class="v2-more" href="{more_href}">All {count} &rarr;</a>'
             if more_href and count else "")
     if not inner:
-        inner = (f'<p class="n-empty">No {esc(sec["thing"])} observed in the '
+        inner = ('<p class="n-empty">' + esc(sec["empty"]) + '</p>' if sec.get("empty") else
+                 f'<p class="n-empty">No {esc(sec["thing"])} observed in the '
                  f'last {days} days.</p>')
     return (f'<section class="v2-sec{" v2-wide" if wide else ""}" id="v2-{key}" '
             f'style="--sec:{sec["colour"]}">'
@@ -3214,8 +3311,17 @@ def _shared_view_note(conn, market_id: int, allowed_brand_ids: List[int]) -> str
             'all of it.</p>')
 
 
+def _safe_list(fn, *args, **kwargs) -> List[Dict[str, Any]]:
+    try:
+        return list(fn(*args, **kwargs) or [])
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("front page input %s failed: %s", getattr(fn, "__name__", fn), exc)
+        return []
+
+
 def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                            section: Optional[str] = None,
+                           piece: Optional[int] = None,
                            allowed_brand_ids: Optional[List[int]] = None,
                            link_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
@@ -3227,14 +3333,28 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     leave. Nothing on the front page is blurred: the hiring top five and the
     market figures are readable in the shared view (user's decision,
     29 August 2026); a hiring section page blurs the entries past five.
+
+    Our own pieces (``kind`` analysis or note, approved) are public in full,
+    whoever opens the page — an editorial piece naming a vendor is our
+    writing, not the roster (decision 29 August 2026). Like the Horizon they
+    are rendered apart, into ``_PIECES_SLOT``, and put back after the
+    withheld-names check. ``piece`` opens one of them as a page; an unknown
+    or unapproved id raises LookupError.
     """
     from app.services import market_analysis as man
+    from app.services import market_briefing as mbr
     from app.services import market_assessment as massess
     from app.services import market_corpus as mcorp
     from app.services import market_entitlements as ent
 
     if section is not None and section not in V2_SECTIONS:
         raise KeyError(f"unknown section {section!r}")
+    pieces = _safe_list(mbr.approved_pieces, conn, market["id"])
+    piece_row = None
+    if piece is not None:
+        piece_row = next((p for p in pieces if int(p["id"]) == int(piece)), None)
+        if piece_row is None:
+            raise LookupError(f"no approved piece {piece}")
 
     link_params = dict(link_params or {})
     teaser = allowed_brand_ids is not None
@@ -3297,9 +3417,17 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         except Exception as exc:                                  # noqa: BLE001
             logger.warning("front page previous-period counts failed: %s", exc)
             previous_counts = None
+    lead_piece = pieces[0] if (pieces and section is None and piece_row is None
+                               and _piece_is_fresh(pieces[0])) else None
     parts = _v2_sections(developments, rows, assessment.get("discussion") or [],
-                         highlights)
+                         highlights, lead_from_developments=lead_piece is None)
     buckets = parts["buckets"]
+    buckets["analysis"] = [p for p in pieces if lead_piece is None or p["id"] != lead_piece["id"]]
+    pieces_html: List[str] = []   # rendered apart; put back after the check
+
+    def piece_slot(html_fragment: str) -> str:
+        pieces_html.append(html_fragment)
+        return _PIECES_SLOT
     try:
         images = _v2_images(conn, [e.get("uri") for d in developments
                                    for e in (d.get("evidence") or [])])
@@ -3315,6 +3443,9 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
 
     def section_inner(key: str, items: List[Dict[str, Any]],
                       total: Optional[int] = None) -> str:
+        if key == "analysis":
+            return (piece_slot("".join(_v2_piece_card(p, link_params) for p in items))
+                    if items else "")
         if key == "hiring":
             return _v2_hiring(items, hiring, total=total, logos=logos) if items else ""
         if key == "voices":
@@ -3348,7 +3479,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                        f'<span class="n-market">{esc(market["name"])}</span></div>']
     horizon_html = ""
 
-    if section:
+    if piece_row is not None:
+        others = [p for p in pieces if p["id"] != piece_row["id"]][:6]
+        body.append('<main class="v2-grid"><div class="v2-main v2-one">'
+                    + piece_slot(_v2_piece_page(piece_row, others, link_params))
+                    + "</div></main>")
+    elif section:
         sec = V2_SECTIONS[section]
         items = buckets[section]
         count = len(items) + (len(parts["highlights"]) if section == "social" else 0)
@@ -3387,7 +3523,9 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append('<section class="v2-lead" id="v2-lead">')
         lead = parts["lead"]
         findings = assessment.get("findings") or []
-        if lead is not None:
+        if lead_piece is not None:
+            body.append(piece_slot(_v2_piece_card(lead_piece, link_params, lead=True)))
+        elif lead is not None:
             body.append(_v2_lead(lead, images, logos))
         elif findings:
             body.append(_render_findings(findings[:1], devs_by_id))
@@ -3399,12 +3537,14 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</section>")
         for key in V2_SECTIONS:
             items = buckets[key]
+            if key == "analysis" and lead_piece is not None and not items:
+                continue   # the lead is the analysis; no empty section under it
             shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
             count = len(items) + (len(parts["highlights"]) if key == "social" else 0)
             inner = section_inner(key, shown, total=sum(
                 1 for d in items if d.get("event_type") == "significant_hiring"))
             body.append(_v2_section(key, inner, count=count, days=days,
-                                    more_href=section_href(key)))
+                                    more_href=section_href(key), wide=(key == "analysis")))
         body.append("</div>")
         # ---- the sidebar
         body.append('<aside class="v2-side">')
@@ -3445,7 +3585,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     if horizon_html:
         body.append(f"<script>{_HORIZON_JS}</script>")
 
-    title = (f'{market["name"]} — {V2_SECTIONS[section]["heading"]}' if section
+    title = (f'{piece_row.get("title") or ""} — {market["name"]}' if piece_row is not None
+             else f'{market["name"]} — {V2_SECTIONS[section]["heading"]}' if section
              else f'{market["name"]} front page')
     rendered = html_document(title, "".join(body))
     if teaser:
@@ -3453,6 +3594,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     ent.assert_no_withheld(rendered, withheld,
                            context=f'market {market["id"]} front page')
     rendered = rendered.replace(_HORIZON_SLOT, horizon_html)
+    for fragment in pieces_html:
+        rendered = rendered.replace(_PIECES_SLOT, fragment, 1)
     return rendered.encode("utf-8")
 
 

@@ -214,6 +214,52 @@ cost of storage and is not done.
   vendor never gets one. The data URIs ride in the page (a few KB per named vendor), which
   keeps the "no external requests" property of the saved file.
 
+### Feature — our own pieces: analysis and notes on the front page
+The user asked how to publish our own articles and analysis, and chose to extend the
+weekly briefing rather than a second store: same approval, same revision history, same feed.
+
+- **`alembic/versions/mm_021_briefing_kind.py`**: `bw_market_briefings.kind` (`briefing` |
+  `analysis` | `note`, default `briefing`), `author`, `published_at` (set on first approval;
+  backfilled from `updated_at` for the briefings already approved); `generation` may be
+  `written` (no model involved). Applied on bugfixing.
+- **`app/services/market_briefing.py`**: `create_piece(conn, market, kind=, title=, content=,
+  author=, saved_by=)` stores a person's piece as a draft (`generation = 'written'`, the
+  period is the day it was written, the period label carries the kind and the moment so the
+  `(market, period_label)` uniqueness holds); `set_status` stamps `published_at` on the first
+  approval; `save_edit` keeps `written` on a person's edit of a person's piece; `listing`,
+  `approved_listing(kind=)` and `latest_approved(kind=)` are kind-aware so the weekly card
+  still shows the briefing; new `approved_pieces`, `piece` (approved only) and
+  `provenance_line` ("By X" / "Drafted with a model, edited by X" / "Drafted by a model,
+  reviewed by X"). The feed row for a piece points at its public page
+  (`report.html?view=v2&piece=ID`) and is tagged `market analysis`; withdrawal removes it
+  whichever URL shape it had.
+- **`app/routes/market_monitor_routes.py`**: `POST /markets/{id}/briefings/write`
+  (`kind`, `title`, `report_content`, `author`; session required) saves a draft; the approve,
+  edit, revisions and restore routes work on a piece as they do on a briefing.
+  `report.html` takes `piece=`; an unknown or unapproved id is a 404.
+- **`app/services/market_report_html.py`**: an **Analysis** section, first on the front page
+  and full width, listing approved pieces newest first (three on the front page, all on
+  `?view=v2&section=analysis`) as cards with the kind, the title, the opening paragraph, who
+  wrote it and when; a piece published in the last three days (`_V2_PIECE_LEAD_DAYS`) takes
+  the lead slot and every development stays in its section
+  (`_v2_sections(lead_from_developments=False)`); `?view=v2&piece=ID` is the piece in full —
+  title, byline, the Markdown rendered by `render_body`, and the other pieces. **Decision:**
+  our pieces are public in full, whoever opens the page, including the shared view. An
+  editorial piece naming a vendor is our writing, not the roster, so like the Horizon the
+  pieces are rendered apart (`_PIECES_SLOT`) and put back after `assert_no_withheld`.
+- **UI** (`MarketBriefingsView.tsx`, `marketMonitorApi.ts`): a "Write a piece" button in the
+  Reports view opens a form — Analysis or Note, title, author, the text in Markdown — that
+  saves a draft (`writePiece`); the list shows a piece by its title with its kind and author;
+  approve, edit and history work as for a briefing. Built and deployed
+  (`newsfeed-B095muxb.js`); `npm run typecheck` clean against the 246-error baseline.
+- Verification: an in-process run created a throwaway analysis piece, confirmed a draft is
+  not served, approved it (feed row published, `published_at` set, "By Test Author"), rendered
+  the shared front page with it as the lead and a vendor outside the ten named inside it,
+  its own page (h1, rendered h2, byline), the Analysis section page (1 card), a 404 for an
+  unknown id, then rejected and deleted it — 0 rows and 0 feed rows left.
+  `tests/test_market_report_v2.py`: 14 passed (two new: the lead rule and freshness, the
+  card's byline and link).
+
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
 `/etc/nginx/sites-available/aisocnews.com` (enabled), modelled on aisoc.aunoo.ai: port 80

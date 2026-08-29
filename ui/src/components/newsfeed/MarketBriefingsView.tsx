@@ -11,9 +11,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileText, History, Loader2, Pencil, Play, Save, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileText, History, Loader2, Pencil, PenLine, Play, Save, X } from 'lucide-react';
 import { getBriefingRevision, type BriefingRevision, restoreBriefingRevision, getBriefingRevisions, editBriefing,
-  generateBriefing, getBriefing, getBriefings, setBriefingStatus,
+  generateBriefing, getBriefing, getBriefings, setBriefingStatus, writePiece,
   type BriefingDetail, type BriefingSummary,
 } from '../../services/marketMonitorApi';
 
@@ -185,6 +185,13 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
   const [history, setHistory] = useState<BriefingRevision[] | null>(null);
   const [preview, setPreview] = useState<{ id: number; content: string } | null>(null);
   const [periodKind, setPeriodKind] = useState<PeriodKind>('month');
+  // Our own pieces: a person writes an analysis or a note here; it is a draft
+  // until approved, like a briefing.
+  const [writing, setWriting] = useState(false);
+  const [pieceKind, setPieceKind] = useState<'analysis' | 'note'>('analysis');
+  const [pieceTitle, setPieceTitle] = useState('');
+  const [pieceAuthor, setPieceAuthor] = useState('');
+  const [pieceBody, setPieceBody] = useState('');
   const options = periodOptions(periodKind);
   // The most recent complete period of the chosen kind, matching what
   // "Write last month's" wrote before there was a picker at all.
@@ -226,6 +233,24 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
       if (r.id) openBriefing(r.id);
     } catch (e: any) {
       setNote(`Could not write it: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePiece() {
+    setBusy(true); setNote(null);
+    try {
+      const row = await writePiece(marketId, {
+        kind: pieceKind, title: pieceTitle.trim(), report_content: pieceBody,
+        author: pieceAuthor.trim() || null,
+      });
+      setNote(`Saved as a draft. Approve it to publish it on the front page and in the feed.`);
+      setWriting(false); setPieceTitle(''); setPieceBody('');
+      reload();
+      openBriefing(row.id);
+    } catch (e: any) {
+      setNote(`Could not save it: ${e.message ?? e}`);
     } finally {
       setBusy(false);
     }
@@ -366,7 +391,50 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                 : <Play className="w-4 h-4" />}
           Generate report
         </button>
+        <button onClick={() => { setWriting(w => !w); setNote(null); }} disabled={busy}
+                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                           disabled:opacity-50 inline-flex items-center gap-1.5 dark:hover:bg-gray-700">
+          <PenLine className="w-4 h-4" />
+          Write a piece
+        </button>
       </div>
+
+      {writing && (
+        <div className="border rounded-lg bg-white p-4 space-y-3 dark:bg-gray-800">
+          <p className="text-sm text-slate-600 dark:text-gray-400">
+            Your own analysis or note, in Markdown. It is saved as a draft; approving it
+            puts it on the market's front page, under Analysis, and into the feed. The
+            page says who wrote it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <select value={pieceKind} onChange={e => setPieceKind(e.target.value as 'analysis' | 'note')}
+                    className="text-sm px-2 py-1.5 border rounded-md bg-white text-slate-700 dark:bg-gray-800 dark:text-gray-300">
+              <option value="analysis">Analysis</option>
+              <option value="note">Note</option>
+            </select>
+            <input value={pieceTitle} onChange={e => setPieceTitle(e.target.value)}
+                   placeholder="Title" maxLength={300}
+                   className="flex-1 min-w-[240px] text-sm px-2 py-1.5 border rounded-md bg-white text-slate-800 dark:bg-gray-800 dark:text-gray-100" />
+            <input value={pieceAuthor} onChange={e => setPieceAuthor(e.target.value)}
+                   placeholder="Author (your name)" maxLength={120}
+                   className="min-w-[200px] text-sm px-2 py-1.5 border rounded-md bg-white text-slate-800 dark:bg-gray-800 dark:text-gray-100" />
+          </div>
+          <textarea value={pieceBody} onChange={e => setPieceBody(e.target.value)}
+                    placeholder="The piece, in Markdown." rows={14}
+                    className="w-full text-sm px-3 py-2 border rounded-md font-mono bg-white text-slate-800 dark:bg-gray-900 dark:text-gray-100" />
+          <div className="flex gap-2">
+            <button onClick={savePiece} disabled={busy || !pieceTitle.trim() || !pieceBody.trim()}
+                    className="text-sm px-3 py-1.5 border rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 inline-flex items-center gap-1.5">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save as draft
+            </button>
+            <button onClick={() => setWriting(false)} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 dark:hover:bg-gray-700">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {note && (
         <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-gray-300">
@@ -390,7 +458,7 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                       open?.id === b.id ? 'bg-slate-50 dark:bg-gray-700' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                  {b.period_label}
+                  {b.kind === 'briefing' ? b.period_label : (b.title ?? b.period_label)}
                 </span>
                 <span className={`text-xs px-1.5 py-0.5 rounded border ${
                   STATUS_TONE[b.status]}`}>
@@ -398,8 +466,9 @@ export function MarketBriefingsView({ marketId, onFeedChanged }: {
                 </span>
               </div>
               <div className="text-xs text-slate-500 mt-0.5 dark:text-gray-400">
-                {b.sources ?? 0} sources
-                {b.generation === 'fallback' && ' · evidence only'}
+                {b.kind === 'briefing'
+                  ? <>{b.sources ?? 0} sources{b.generation === 'fallback' && ' · evidence only'}</>
+                  : <>{b.kind === 'analysis' ? 'Analysis' : 'Note'}{b.author ? ` · ${b.author}` : ''}</>}
               </div>
             </button>
           ))}

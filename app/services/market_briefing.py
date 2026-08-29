@@ -660,14 +660,51 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
     return result
 
 
+KINDS = ("briefing", "analysis", "note")
+KIND_LABELS = {"briefing": "Briefing", "analysis": "Analysis", "note": "Note"}
+
+
 def listing(conn, market_id: int, limit: int = 24) -> List[Dict[str, Any]]:
     return [dict(r) for r in conn.execute(text("""
         SELECT id, period_label, period_start, period_end, title, status,
                generation, model_used, created_at, updated_at,
+               kind, author, published_at,
                ARRAY_LENGTH(article_uris, 1) AS sources
         FROM bw_market_briefings WHERE market_id = :m
-        ORDER BY period_start DESC LIMIT :lim
+        ORDER BY period_start DESC, id DESC LIMIT :lim
     """), {"m": market_id, "lim": limit}).mappings().all()]
+
+
+def create_piece(conn, market: Dict[str, Any], *, kind: str, title: str,
+                 content: str, author: Optional[str] = None,
+                 saved_by: Optional[str] = None) -> Dict[str, Any]:
+    """A piece a person wrote — an analysis or a note — as a draft.
+
+    Stored beside the briefings so it gets the same approval, revision and
+    feed handling. ``generation = 'written'`` says no model drafted it; the
+    period is the day it was written, and the period label carries the
+    kind and the moment so the (market, label) uniqueness holds.
+    """
+    if kind not in ("analysis", "note"):
+        raise ValueError(f"unknown kind: {kind}")
+    title = (title or "").strip()[:300]
+    content = (content or "").replace("\r\n", "\n").strip()
+    if not title or not content:
+        raise ValueError("A piece needs a title and its text")
+    now = datetime.now(timezone.utc)
+    label = f"{KIND_LABELS[kind]} · {now.strftime('%Y-%m-%d %H:%M:%S')}"
+    row_id = conn.execute(text("""
+        INSERT INTO bw_market_briefings
+            (market_id, period_start, period_end, period_label, title, facts,
+             report_content, article_uris, model_used, generation, lint,
+             kind, author)
+        VALUES (:m, :d, :d, :label, :t, '{}'::jsonb, :c, '{}'::text[], NULL,
+                'written', '[]'::jsonb, :k, :a)
+        RETURNING id
+    """), {"m": market["id"], "d": now.date(), "label": label, "t": title,
+           "c": content, "k": kind, "a": (author or saved_by or "").strip()[:120] or None}).scalar()
+    conn.commit()
+    return get(conn, market["id"], int(row_id))
 
 
 def get(conn, market_id: int, briefing_id: int) -> Optional[Dict[str, Any]]:
@@ -681,8 +718,13 @@ def get(conn, market_id: int, briefing_id: int) -> Optional[Dict[str, Any]]:
 def set_status(conn, market_id: int, briefing_id: int, status: str) -> bool:
     if status not in ("draft", "approved", "rejected"):
         raise ValueError(f"unknown status: {status}")
+    # The first approval is the publication; a later re-approval keeps it.
     updated = conn.execute(text("""
-        UPDATE bw_market_briefings SET status = :s, updated_at = NOW()
+        UPDATE bw_market_briefings
+           SET status = :s, updated_at = NOW(),
+               published_at = CASE WHEN :s = 'approved'
+                                   THEN COALESCE(published_at, NOW())
+                                   ELSE published_at END
         WHERE market_id = :m AND id = :i
     """), {"s": status, "m": market_id, "i": briefing_id}).rowcount
     conn.commit()
@@ -744,7 +786,9 @@ def save_edit(conn, market: Dict[str, Any], briefing_id: int, *, content: str,
                generation = :g, lint = CAST(:l AS JSONB), updated_at = NOW()
          WHERE market_id = :m AND id = :i
     """), {"c": content, "t": (title or "").strip()[:300] or None,
-           "g": generation if generation in ("generated", "fallback", "edited") else "edited",
+           # A person's own piece stays "written" after a person's edit.
+           "g": generation if generation in ("generated", "fallback", "edited", "written")
+                else ("written" if briefing.get("generation") == "written" else "edited"),
            "l": json.dumps(lint), "m": market["id"], "i": briefing_id})
     conn.commit()
     if briefing.get("status") == "approved":
@@ -803,18 +847,21 @@ FEED_ORIGIN = "report"
 FEED_SUMMARY_LIMIT = 480
 
 
-def briefing_page_path(market_id: int, briefing_id: int) -> str:
+def briefing_page_path(market_id: int, briefing_id: int, kind: str = "briefing") -> str:
+    if kind in ("analysis", "note"):
+        # Our own pieces are public on the front page, whoever opens them.
+        return f"/api/market-monitor/markets/{market_id}/report.html?view=v2&piece={briefing_id}"
     return f"/api/market-monitor/markets/{market_id}/briefings/{briefing_id}/report.html"
 
 
-def briefing_page_url(market_id: int, briefing_id: int) -> str:
+def briefing_page_url(market_id: int, briefing_id: int, kind: str = "briefing") -> str:
     """The absolute URL the feed row carries as its ``uri``.
 
     Absolute because the feed card opens it in a new tab and other readers
     of ``articles`` take the host out of the URI as the source name.
     """
     base = (os.getenv("APP_URL") or "").rstrip("/")
-    return base + briefing_page_path(market_id, briefing_id)
+    return base + briefing_page_path(market_id, briefing_id, kind)
 
 
 _MD_HEADING_RE = re.compile(r"^\s*(#{1,6}\s|[-*_]{3,}\s*$|\*\*[^*]+\*\*\s*$|>\s)")
@@ -869,8 +916,9 @@ def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
              approved_at: Optional[datetime] = None) -> Dict[str, Any]:
     """The ``articles`` row for an approved briefing. Pure; no database."""
     stamp = (approved_at or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    kind = briefing.get("kind") or "briefing"
     return {
-        "uri": briefing_page_url(market["id"], briefing["id"]),
+        "uri": briefing_page_url(market["id"], briefing["id"], kind),
         "title": briefing.get("title") or f"{market['name']} — {briefing.get('period_label', '')}",
         "summary": feed_summary(briefing.get("report_content") or ""),
         "news_source": FEED_SOURCE,
@@ -879,7 +927,7 @@ def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
         "category": FEED_CATEGORY,
         "sentiment": FEED_SENTIMENT,
         "topic": market_topic(market),
-        "tags": ", ".join(t for t in ("market briefing", market.get("name", "")) if t),
+        "tags": ", ".join(t for t in (f"market {kind}", market.get("name", "")) if t),
         "analyzed": True,
         "ingest_status": "approved",
         "article_origin": FEED_ORIGIN,
@@ -887,9 +935,12 @@ def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
 
 
 def _withdraw_from_feed(conn, market_id: int, briefing_id: int) -> int:
-    return conn.execute(text(
-        "DELETE FROM articles WHERE uri = :u AND article_origin = :o"
-    ), {"u": briefing_page_url(market_id, briefing_id), "o": FEED_ORIGIN}).rowcount
+    n = 0
+    for kind in KINDS:
+        n += conn.execute(text(
+            "DELETE FROM articles WHERE uri = :u AND article_origin = :o"
+        ), {"u": briefing_page_url(market_id, briefing_id, kind), "o": FEED_ORIGIN}).rowcount
+    return n
 
 
 def _publish_to_feed(conn, market: Dict[str, Any], briefing: Dict[str, Any]) -> None:
@@ -960,23 +1011,54 @@ def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
 # summary sentences that name no withheld vendor. The text itself is for a
 # reader with a session.
 
-def approved_listing(conn, market_id: int, limit: int = 12) -> List[Dict[str, Any]]:
+def approved_listing(conn, market_id: int, limit: int = 12,
+                     kind: str = "briefing") -> List[Dict[str, Any]]:
     return [dict(r) for r in conn.execute(text("""
         SELECT id, period_label, period_start, period_end, title, updated_at,
+               kind, author, published_at,
                (facts->>'item_count')::int AS item_count
         FROM bw_market_briefings
-        WHERE market_id = :m AND status = 'approved'
+        WHERE market_id = :m AND status = 'approved' AND kind = :k
         ORDER BY period_start DESC LIMIT :lim
+    """), {"m": market_id, "lim": limit, "k": kind}).mappings().all()]
+
+
+def latest_approved(conn, market_id: int, kind: str = "briefing") -> Optional[Dict[str, Any]]:
+    row = conn.execute(text("""
+        SELECT * FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved' AND kind = :k
+        ORDER BY period_start DESC LIMIT 1
+    """), {"m": market_id, "k": kind}).mappings().first()
+    return dict(row) if row else None
+
+
+def approved_pieces(conn, market_id: int, limit: int = 24) -> List[Dict[str, Any]]:
+    """Our own approved pieces — analysis and notes — newest published first,
+    with their text, for the front page."""
+    return [dict(r) for r in conn.execute(text("""
+        SELECT * FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved' AND kind IN ('analysis', 'note')
+        ORDER BY published_at DESC NULLS LAST, id DESC LIMIT :lim
     """), {"m": market_id, "lim": limit}).mappings().all()]
 
 
-def latest_approved(conn, market_id: int) -> Optional[Dict[str, Any]]:
-    row = conn.execute(text("""
-        SELECT * FROM bw_market_briefings
-        WHERE market_id = :m AND status = 'approved'
-        ORDER BY period_start DESC LIMIT 1
-    """), {"m": market_id}).mappings().first()
-    return dict(row) if row else None
+def piece(conn, market_id: int, piece_id: int) -> Optional[Dict[str, Any]]:
+    """One approved piece by id, or None. A draft is never served."""
+    row = get(conn, market_id, piece_id)
+    if not row or row.get("status") != "approved" or row.get("kind") not in ("analysis", "note"):
+        return None
+    return row
+
+
+def provenance_line(piece_row: Dict[str, Any]) -> str:
+    """Who wrote it, honestly: a person, or a model with a person's edit."""
+    author = (piece_row.get("author") or "the Cyberfuturists").strip()
+    gen = piece_row.get("generation") or "written"
+    if gen == "written":
+        return f"By {author}"
+    if gen == "edited":
+        return f"Drafted with a model, edited by {author}"
+    return f"Drafted by a model ({piece_row.get('model_used') or 'unnamed'}), reviewed by {author}"
 
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")

@@ -1278,7 +1278,8 @@ async def market_report(
     token: Optional[str] = Query(None),
     view: str = Query("v2", description="v2 (the front page, the default), report (the assessment), news, briefing."),
     id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
-    section: Optional[str] = Query(None, description="view=v2: one section as its own page (moves, launches, hiring, cases, voices)."),
+    section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social)."),
+    piece: Optional[int] = Query(None, description="view=v2: one of our own pieces (an approved analysis or note) as a page."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
@@ -1353,9 +1354,12 @@ async def market_report(
             if view == "v2":
                 if section is not None and section not in V2_SECTIONS:
                     raise HTTPException(status_code=404, detail="Section not found")
-                return build_market_report_v2(
-                    conn, market, days=days, section=section,
-                    allowed_brand_ids=allowed, link_params=params)
+                try:
+                    return build_market_report_v2(
+                        conn, market, days=days, section=section, piece=piece,
+                        allowed_brand_ids=allowed, link_params=params)
+                except LookupError:
+                    raise HTTPException(status_code=404, detail="Piece not found")
             builder = (build_market_news_page if view == "news"
                        else build_market_report)
             return builder(
@@ -1727,6 +1731,38 @@ async def market_briefing_detail(market_id: int, briefing_id: int,
 
 class BriefingStatus(BaseModel):
     status: str = Field(..., pattern="^(draft|approved|rejected)$")
+
+
+class BriefingWrite(BaseModel):
+    kind: str = Field("analysis", pattern="^(analysis|note)$")
+    title: str = Field(..., min_length=1, max_length=300)
+    report_content: str = Field(..., min_length=1, max_length=200_000)
+    author: Optional[str] = Field(None, max_length=120)
+
+
+@router.post("/markets/{market_id}/briefings/write")
+async def market_piece_write(market_id: int, body: BriefingWrite,
+                             session=Depends(verify_session_api)):
+    """A piece a person wrote — an analysis or a note — saved as a draft.
+    Approve it like a briefing and it goes on the front page and into the
+    feed; edits keep every earlier text."""
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                return mbr.create_piece(conn, market, kind=body.kind, title=body.title,
+                                        content=body.report_content,
+                                        author=body.author, saved_by=by)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.put("/markets/{market_id}/briefings/{briefing_id}/status")

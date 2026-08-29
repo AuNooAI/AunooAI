@@ -54,6 +54,30 @@ def test_hiring_is_ordered_by_open_roles_and_the_top_of_it_says_so():
     assert "2 vendors with" in html._render_hiring_block([big, small])
 
 
+def test_a_fresh_piece_takes_the_lead_and_the_developments_all_stay_in_sections():
+    from datetime import datetime, timedelta, timezone
+    devs = [_dev(0, "acquisition"), _dev(1, "product_launch")]
+    parts = html._v2_sections(devs, [], [], [], lead_from_developments=False)
+    assert parts["lead"] is None
+    assert parts["buckets"]["moves"] == [devs[0]] and parts["buckets"]["launches"] == [devs[1]]
+    fresh = {"published_at": datetime.now(timezone.utc) - timedelta(days=1)}
+    stale = {"published_at": datetime.now(timezone.utc) - timedelta(days=5)}
+    assert html._piece_is_fresh(fresh) and not html._piece_is_fresh(stale)
+    assert not html._piece_is_fresh({"published_at": None})
+
+
+def test_piece_card_says_who_wrote_it():
+    from datetime import datetime, timezone
+    row = {"id": 7, "kind": "analysis", "title": "A title", "author": "Oliver",
+           "generation": "written", "report_content": "First paragraph of the piece.\n\nSecond.",
+           "published_at": datetime(2026, 8, 29, tzinfo=timezone.utc)}
+    card = html._v2_piece_card(row, {"days": 30}, lead=True)
+    assert "Our analysis" in card and "By Oliver" in card and "29 Aug 2026" in card
+    assert "First paragraph of the piece." in card and "view=v2&amp;piece=7" in card
+    row["generation"] = "edited"
+    assert "edited by Oliver" in html._v2_piece_card(row, {})
+
+
 def test_lead_skips_a_hiring_count():
     devs = [_dev(0, "significant_hiring"), _dev(1, "product_launch")]
     parts = html._v2_sections(devs, [], [], [])
