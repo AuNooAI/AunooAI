@@ -96,8 +96,10 @@ def test_thought_leadership_selection():
     highlights = [{"uri": "https://x/used", "quote": "q"}, {"uri": "https://x/res", "quote": "q"},
                   {"uri": "https://x/hot", "quote": "q"}]
     parts = html._v2_sections([dev], rows, discussion, highlights)
-    assert [r["uri"] for r in parts["buckets"]["voices"]] == [
-        "https://x/res", "https://x/disc", "https://x/op"]
+    # Vendor opinion and research stay under Thought leadership; the
+    # practitioner post goes to Social with the most-shared posts.
+    assert [r["uri"] for r in parts["buckets"]["voices"]] == ["https://x/res", "https://x/op"]
+    assert [r["uri"] for r in parts["buckets"]["social"]] == ["https://x/disc"]
     assert [h["uri"] for h in parts["highlights"]] == ["https://x/hot"]
 
 
@@ -168,6 +170,7 @@ def test_front_page_has_its_sections_and_links(conn, market):
     assert 'id="v2-lead"' in page and 'class="v2-grid"' in page
     assert "<h2>Highlights</h2>" in page and '<details class="v2-hl"><summary>' in page
     assert "Most active vendors" in page
+    assert "Who caused motion" in page and "Most discussed" in page
     assert 'href="?days=30&amp;view=report">Analyst View</a>' in page
     assert "view=news" in page
     assert page.count("view=v2&amp;section=") >= len(html.V2_SECTIONS)

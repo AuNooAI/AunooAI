@@ -2652,6 +2652,7 @@ V2_CSS = """
 .mm-v2 .v2-hz svg text { font-size:26px; }
 .mm-v2 .v2-hz svg text.mm-lbl { font-size:22px; }
 .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:0; }
+.mm-v2 .v2-numbers .n-metric { cursor:help; }
 .mm-v2 .v2-bars { display:grid; gap:7px; margin-top:4px; }
 .mm-v2 .v2-bar { display:grid; grid-template-columns:minmax(0,1fr) 90px 22px 44px; gap:8px;
                  align-items:center; font-size:13px; }
@@ -2663,6 +2664,7 @@ V2_CSS = """
 .mm-v2 .v2-move.up { color:var(--n-green); }
 .mm-v2 .v2-move.down { color:var(--n-orange); }
 .mm-v2 .v2-move.same { color:var(--n-muted); }
+.mm-v2 .v2-bars + .v2-sub { margin-top:16px; }
 .mm-v2 .v2-mv { border-bottom:1px solid var(--n-line); padding:9px 0; }
 .mm-v2 .v2-mv > summary { list-style:none; cursor:pointer; display:grid;
                           grid-template-columns:minmax(0,1fr) 16px; gap:8px; align-items:center; }
@@ -2703,13 +2705,17 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
               "subline": "Customer stories where the customer is not named."},
     "voices": {"heading": "Thought leadership", "colour": "var(--n-accent)",
                "thing": "opinion or research",
-               "subline": "Opinion and research from vendors and practitioners "
-                          "that is not tied to a development."},
+               "subline": "Vendors' opinion pieces and research posts, and research "
+                          "papers, not tied to a development."},
+    "social": {"heading": "Social", "colour": "#0e7490",
+               "thing": "practitioner post",
+               "subline": "What practitioners are saying on X, Bluesky, Reddit and "
+                          "LinkedIn, newest first, and the most shared posts."},
 }
 _V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
 _V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
 #: How many items a section shows on the front page; its own page shows all.
-_V2_CAPS = {"moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6}
+_V2_CAPS = {"moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6, "social": 6}
 _V2_HIGHLIGHTS = 3
 #: Vendors named on the sidebar map, and on the most-active list.
 _V2_HORIZON_NAMES = 8
@@ -2750,8 +2756,9 @@ def _v2_sections(developments: List[Dict[str, Any]],
     The lead is the highest-ranked development that is not a hiring count.
     Launches and expansions are one section, hiring and headcount another,
     unnamed customer stories a third; everything else is a market move.
-    Thought leadership is the vendor opinion and research posts plus the
-    practitioner discussion, minus anything already cited as evidence.
+    Thought leadership is the vendor opinion and research posts and the
+    research papers; Social is the practitioner posts; both minus anything
+    already cited as evidence, and the most-shared posts go with Social.
     """
     lead = next((d for d in developments
                  if d.get("event_type") not in _V2_HIRING_TYPES), None)
@@ -2784,9 +2791,10 @@ def _v2_sections(developments: List[Dict[str, Any]],
         uri = row.get("uri")
         if uri and uri not in used and uri not in voices:
             voices[uri] = row
-    buckets["voices"] = sorted(voices.values(),
-                               key=lambda r: str(r.get("published") or ""),
-                               reverse=True)
+    newest = sorted(voices.values(), key=lambda r: str(r.get("published") or ""),
+                    reverse=True)
+    buckets["social"] = [r for r in newest if r.get("article_class") == "discussion"]
+    buckets["voices"] = [r for r in newest if r.get("article_class") != "discussion"]
     shared = [h for h in (highlights or [])
               if h.get("uri") and h["uri"] not in used and h["uri"] not in voices]
     return {"lead": lead, "buckets": buckets, "highlights": shared[:_V2_HIGHLIGHTS]}
@@ -2916,20 +2924,32 @@ def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -
     counts = obs.get("counts") or {}
     total = int(obs.get("total") or 0)
     coverage = hiring.get("coverage") or {}
+    floor = massess_min_openings()
     cards = [
-        ("Developments", str(len(devs)), f"in the last {days} days"),
+        ("Developments", str(len(devs)), f"in the last {days} days",
+         "Something a vendor did that we could confirm: a launch, a partnership, "
+         "a customer win, funding, an acquisition, a new executive, "
+         f"{floor} or more open roles, or a headcount change of 10% or more. "
+         "Counted once, however many articles mention it. Opinion and chatter "
+         "don't count."),
         ("Records analysed", f'{int(assessment.get("collected_records") or 0):,}',
-         "articles, posts and pages"),
+         "articles, posts and pages",
+         "Everything we read about this market in the period: news articles, "
+         "vendor posts and web pages, practitioner posts, research papers."),
         ("Open roles observed", str(int(hiring.get("openings") or 0)),
-         coverage.get("label") or "no job listings seen"),
+         coverage.get("label") or "no job listings seen",
+         "Live job listings on LinkedIn and on vendors' careers pages. A role "
+         "listed in both places counts once."),
         ("Vendors that moved", str(int(counts.get("material_change") or 0)),
-         f"of {total} watched"),
+         f"of {total} watched",
+         "Vendors with at least one development this period."),
     ]
     return ('<div class="n-metrics v2-numbers">'
-            + "".join(f'<div class="n-metric"><div class="n-metric-top"><span>{esc(label)}</span></div>'
+            + "".join(f'<div class="n-metric" title="{esc(what)}">'
+                      f'<div class="n-metric-top"><span>{esc(label)}</span></div>'
                       f'<div class="n-metric-value">{esc(value)}</div>'
                       f'<div class="n-delta">{esc(note)}</div></div>'
-                      for label, value, note in cards)
+                      for label, value, note, what in cards)
             + "</div>")
 
 
@@ -2965,6 +2985,45 @@ def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
                    f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
                    f'<div class="v2-bar-n">{n}</div>{move}</div>')
     out.append("</div>")
+    return "".join(out)
+
+
+def _v2_motion(rows: List[Dict[str, Any]]) -> str:
+    """Who caused motion: the vendors whose own posts drew the most reactions,
+    and the vendors others wrote about most. ``rows`` are share_of_voice's
+    per-vendor rows, already reduced to the vendors the reader may see."""
+    by_reactions = sorted((r for r in rows if int(r.get("reactions") or 0) > 0),
+                          key=lambda r: -int(r.get("reactions") or 0))[:_V2_TOP_VENDORS]
+    by_earned = sorted((r for r in rows if int(r.get("earned") or 0) > 0),
+                       key=lambda r: -int(r.get("earned") or 0))[:_V2_TOP_VENDORS]
+    if not by_reactions and not by_earned:
+        return ""
+    out = []
+    if by_reactions:
+        top = max(int(r["reactions"]) for r in by_reactions) or 1
+        out.append('<h3 class="v2-sub">By engagement</h3>'
+                   '<p class="v2-subline">Reactions on the vendor\'s own posts in the period.</p>'
+                   '<div class="v2-bars">')
+        for r in by_reactions:
+            n = int(r["reactions"])
+            out.append('<div class="v2-bar">'
+                       f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                       f'<div class="v2-bar-n">{n:,}</div>'
+                       f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span></div>')
+        out.append("</div>")
+    if by_earned:
+        top = max(int(r["earned"]) for r in by_earned) or 1
+        out.append('<h3 class="v2-sub">Most discussed</h3>'
+                   '<p class="v2-subline">Articles and posts by others that name the vendor.</p>'
+                   '<div class="v2-bars">')
+        for r in by_earned:
+            n = int(r["earned"])
+            out.append('<div class="v2-bar">'
+                       f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                       f'<div class="v2-bar-n">{n}</div><span></span></div>')
+        out.append("</div>")
     return "".join(out)
 
 
@@ -3064,6 +3123,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     highlights = _safe(man.social_highlights, conn, market["id"], days=days,
                        limit=_V2_HIGHLIGHTS * 2) or []
     hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
+    sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
+                      if section is None else None) or {}).get("vendors") or [])
     pc = _safe(man.period_comparison, conn, market["id"], days=days)
     period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"
 
@@ -3076,6 +3137,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         highlights = ent.drop_text_mentioning(highlights, withheld)
         # Masked, not filtered: the count of open roles is the market's.
         hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
+        allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
+        sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
 
     developments = assessment["developments"]
     devs_by_id = {d["event_id"]: d for d in developments}
@@ -3113,6 +3176,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         if key == "hiring":
             return _v2_hiring(items, hiring, total=total) if items else ""
         if key == "voices":
+            return _v2_voices(items, []) if items else ""
+        if key == "social":
             return _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
         return _v2_stories(items)
 
@@ -3143,7 +3208,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     if section:
         sec = V2_SECTIONS[section]
         items = buckets[section]
-        count = len(items) + (len(parts["highlights"]) if section == "voices" else 0)
+        count = len(items) + (len(parts["highlights"]) if section == "social" else 0)
         body.append('<header class="v2-mast"><div>'
                     f'<div class="n-kicker">{esc(market["name"])} · {esc(period_txt)}</div>'
                     f'<h1>{esc(sec["heading"])}</h1>'
@@ -3191,11 +3256,11 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         for key in V2_SECTIONS:
             items = buckets[key]
             shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
-            count = len(items) + (len(parts["highlights"]) if key == "voices" else 0)
+            count = len(items) + (len(parts["highlights"]) if key == "social" else 0)
             inner = section_inner(key, shown, total=sum(
                 1 for d in items if d.get("event_type") == "significant_hiring"))
             body.append(_v2_section(key, inner, count=count, days=days,
-                                    more_href=section_href(key), wide=(key == "voices")))
+                                    more_href=section_href(key)))
         body.append("</div>")
         # ---- the sidebar
         body.append('<aside class="v2-side">')
@@ -3218,6 +3283,9 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                     + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
                     + _v2_moved(assessment.get("main_developments") or []) + "</div>")
+        motion = _v2_motion(sov_rows)
+        if motion:
+            body.append('<div class="v2-card"><h2>Who caused motion</h2>' + motion + "</div>")
         body.append(_render_briefing_card(conn, market, withheld=withheld,
                                           restricted=teaser, link_params=link_params))
         body.append("</aside></main>")

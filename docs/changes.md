@@ -132,6 +132,24 @@ The user reviewed the page and asked for four changes, all in
   `material_developments` run over a window twice as long, split at the current period's
   first day; when `period_comparison` says the earlier window is not comparable (nothing was
   collecting yet) the bars carry no arrows and the subline drops the comparison.
+- **The numbers say what they count.** Each "By the numbers" card carries a `title` hover:
+  what a development is (one concrete change at a tracked vendor, the list of kinds, the
+  floor for hiring and headcount, what does not count), what a record is, how open roles are
+  counted (one role once across LinkedIn and the careers page), and what "moved" means (at
+  least one development observed in the period).
+- **A Social section.** The practitioner posts (`article_class == "discussion"`: X,
+  Bluesky, Reddit, LinkedIn accounts) leave Thought leadership for their own section,
+  newest first, with "Most shared posts" under them. Thought leadership keeps the vendors'
+  opinion and research posts and the research papers. Six sections on the page and in the
+  nav; the two sit side by side under Hiring and Case studies.
+- **Who caused motion.** A sidebar card under Who moved, from `man.share_of_voice`'s
+  per-vendor rows (already computed for the Analyst View): "By engagement", the five vendors
+  whose own LinkedIn posts drew the most reactions (likes + comments + reposts) in the
+  period, with the number of posts measured; and "Most discussed", the five vendors most
+  often named in articles and posts by others (`earned`). Rows for vendors the reader may not
+  see are dropped with `filter_rows`, so the shared view lists only names it may show.
+- **Hover text rewritten** in plain words after the user's review ("can you not sound like
+  AI?"): four short sentences, no list of clauses.
 - **Most active vendors skips withheld vendors.** The first version listed
   `assessment["distribution"]["by_vendor"]` as it came, so the shared view's top two rows read
   "a vendor not shown in this view". `_v2_top_vendors` now skips rows with `withheld` and

@@ -4,7 +4,7 @@ _2026-08-29 · Market Monitor public report (aisoc.aunoo.ai, now also aisocnews.
 ## What shipped
 - A front page for the market: a lead story and the period's highlights (each a headline
   that opens to its evidence), then sections for market moves, product launches, hiring,
-  case studies and thought leadership, with the Market Horizon, the numbers, the most active
+  case studies, thought leadership and social, with the Market Horizon, the numbers, the most active
   vendors, who moved and the weekly briefing beside them.
 - Each section as a page of its own, listing everything in it for the period.
 - The front page is now what https://aisoc.aunoo.ai/ and https://aisocnews.com/ open.
@@ -41,8 +41,9 @@ full vendor roster and the analyst evidence.
 - Every section has its own page listing everything in it for the period (7, 30 or 90 days).
 - Customer stories are split: named customers are market moves; unnamed ones are case
   studies.
-- Vendor opinion pieces, research posts and practitioner discussion now appear in the
-  Thought leadership section; the most-shared outside posts sit under it.
+- Vendor opinion pieces and research posts appear under Thought leadership; what
+  practitioners say on X, Bluesky, Reddit and LinkedIn is the Social section, with the
+  most-shared posts under it.
 
 ## Demo / walkthrough
 1. Open https://aisocnews.com/ or https://aisoc.aunoo.ai/. "Analyst View", top right, is the
