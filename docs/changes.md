@@ -441,6 +441,17 @@ approved (`market_report_html.py`, the front-page loop); its subline reads "Anal
 written by the Cyberfuturists team." and the section page's empty line "No analysis published
 yet." The front-page test asserts the section is present exactly when a piece is approved.
 
+### Ops — a holding page on aisocnews.com during restarts
+
+The bugfixing service restarted 41 times on 29 August (journal), each a 10–15 s hole, and three
+readers of aisocnews.com landed in one and got nginx's raw 502 (error.log: the user at 10:27,
+`45.153.102.164` at 11:36, `202.78.167.217` at 12:04). The site file
+(`/etc/nginx/sites-available/aisocnews.com`, not in git) now has `error_page 502 503 504 =503
+@holding` serving `/var/www/aisocnews/holding.html` — dark page, "Back in a moment", a meta
+refresh of 8 s, `Retry-After: 8`, `Cache-Control: no-store`. Verified with a temporary
+`location = /__holding_test { return 502; }`: 503, the page body, both headers; the test
+location was removed and nginx reloaded (no downtime). Restarts themselves are to be batched.
+
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
 `/etc/nginx/sites-available/aisocnews.com` (enabled), modelled on aisoc.aunoo.ai: port 80
