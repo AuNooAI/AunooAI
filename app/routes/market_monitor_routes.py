@@ -1280,6 +1280,7 @@ async def market_report(
     id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
     section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social, research)."),
     piece: Optional[int] = Query(None, description="view=v2: one of our own pieces (an approved analysis or note) as a page."),
+    page: Optional[str] = Query(None, description="view=v2: a page of the site that is not a section (about)."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
@@ -1354,9 +1355,11 @@ async def market_report(
             if view == "v2":
                 if section is not None and section not in V2_SECTIONS:
                     raise HTTPException(status_code=404, detail="Section not found")
+                if page is not None and page not in ("about",):
+                    raise HTTPException(status_code=404, detail="Page not found")
                 try:
                     return build_market_report_v2(
-                        conn, market, days=days, section=section, piece=piece,
+                        conn, market, days=days, section=section, piece=piece, page=page,
                         allowed_brand_ids=allowed, link_params=params)
                 except LookupError:
                     raise HTTPException(status_code=404, detail="Piece not found")
@@ -1546,6 +1549,91 @@ async def market_vendor_request(market_id: int, body: VendorRequest, request: Re
             if _notify_vendor_request(market, row_id, company, website, email, note):
                 conn.execute(text("UPDATE market_vendor_requests SET notified = true "
                                   "WHERE id = :i"), {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class NewsTip(BaseModel):
+    url: str = Field(..., min_length=8, max_length=1000)
+    note: Optional[str] = Field(None, max_length=2000)
+    email: Optional[str] = Field(None, max_length=254)
+
+
+_TIP_URL_RE = re.compile(r"^https?://[^\s/]+\.[^\s]+$", re.I)
+
+
+def _notify_news_tip(market: Dict[str, Any], row_id: int, url: str,
+                     note: Optional[str], email: Optional[str]) -> bool:
+    """Stored first, mailed second, like a vendor request."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("news tip %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, so no mail was sent",
+                    row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("news tip %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Link: {url}", f"Note: {note or '-'}", f"From: {email or '-'}",
+                 f"Market: {market['name']} (id {market['id']})", f"Tip id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(to, f"News tip — {market['name']}", html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("news tip %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/news-tip", status_code=201)
+async def market_news_tip(market_id: int, body: NewsTip, request: Request):
+    """A reader points us at a story: a link, what it is, and an email if
+    they want an answer. No session; the same daily limit per address as
+    the trial and vendor requests, shared with them."""
+    url = body.url.strip()
+    note = (body.note or "").strip() or None
+    email = (body.email or "").strip().lower() or None
+    if not _TIP_URL_RE.match(url):
+        raise HTTPException(status_code=422, detail="A link starting with http:// or https:// is required")
+    if email and not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="That email address does not look right")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT (SELECT COUNT(*) FROM market_news_tips
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_vendor_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_trial_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_news_tips (market_id, url, note, email, ip, user_agent)
+                VALUES (:m, :u, :n, :e, :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "u": url, "n": note, "e": email, "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_news_tip(market, row_id, url, note, email):
+                conn.execute(text("UPDATE market_news_tips SET notified = true WHERE id = :i"),
+                             {"i": row_id})
                 conn.commit()
             return {"ok": True, "id": int(row_id)}
         finally:

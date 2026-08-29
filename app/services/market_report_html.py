@@ -41,44 +41,52 @@ logger = logging.getLogger(__name__)
 # Self-contained by necessity — this file is emailed, saved and opened offline,
 # so there are no icon fonts, no CDN scripts and no web fonts. The sparklines
 # are inline SVG built from the same series the page quotes.
+#: The type saas.aunoo.ai uses (``--aunoo-font``); the news pages load it
+#: themselves because the report shell is system type.
+_FONT_LINK = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
+              '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+              '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:'
+              'wght@400;500;600;700&display=swap">')
+
 NEWS_CSS = """
-.mm-news { --n-bg:#f4f6f8; --n-shell:#fff; --n-panel:#fff; --n-text:#111827;
-           --n-muted:#596674; --n-line:#d9e0e5; --n-accent:#096b74;
-           --n-accent-soft:#dff3f2; --n-blue:#2259a8; --n-green:#21734a;
-           --n-orange:#9a5315; --n-purple:#6c48a1;
+.mm-news { font-family:"DM Sans", Inter, system-ui, sans-serif;
+           --n-bg:#f7f6f2; --n-shell:#fff; --n-panel:#fff; --n-text:#211f26;
+           --n-muted:#65636d; --n-line:#dbd8e0; --n-accent:#c2298a;
+           --n-accent-soft:#fee9f5; --n-blue:#0d74ce; --n-green:#218358;
+           --n-orange:#cc4e00; --n-purple:#6550b9;
            margin:0 0 1.6rem; border:1px solid var(--n-line); border-radius:14px;
            overflow:hidden; background:var(--n-bg); color:var(--n-text); }
 .mm-news * { box-sizing:border-box; }
 /* Dark bar: the Cyberfuturists mark is drawn for a dark ground. */
 .mm-news .n-top { display:flex; align-items:center; gap:12px 20px; padding:14px 18px;
                   flex-wrap:wrap;
-                  background:#0b1220; color:#e6edf5; border-bottom:1px solid #1e293b; }
+                  background:#1a1523; color:#f2eff3; border-bottom:1px solid #2d2a37; }
 .mm-news .n-brand { display:flex; align-items:center; gap:9px; font-weight:500;
                     white-space:nowrap; }
 .mm-news .n-brand a { color:inherit; text-decoration:none; }
 .mm-news .n-brand a:hover { color:var(--n-accent); }
-.mm-news .n-brand-made { font-weight:400; color:#aab7c7; font-size:.85rem; }
+.mm-news .n-brand-made { font-weight:400; color:#bcbac7; font-size:.85rem; }
 .mm-news .n-mark { display:block; height:36px; width:auto; }
 .mm-news .n-brand-made .n-mark { height:22px; }
 .mm-news .n-foot { display:flex; align-items:center; justify-content:space-between;
-                   gap:14px; padding:14px 18px; border-top:1px solid #1e293b;
-                   background:#0b1220; color:#e6edf5; font-size:.82rem;
+                   gap:14px; padding:14px 18px; border-top:1px solid #2d2a37;
+                   background:#1a1523; color:#f2eff3; font-size:.82rem;
                    flex-wrap:wrap; }
-.mm-news .n-foot > span:last-child { color:#aab7c7; }
+.mm-news .n-foot > span:last-child { color:#bcbac7; }
 /* The section links take the whole second row: with the two brand marks, the
    page links and the market name on the first, they never fit beside them
    and were wrapping into a column. */
 .mm-news .n-jump { display:flex; gap:4px; flex:1 1 100%; order:10; flex-wrap:wrap; }
-.mm-news .n-jump a { border-radius:7px; padding:6px 10px; color:#aab7c7;
+.mm-news .n-jump a { border-radius:7px; padding:6px 10px; color:#bcbac7;
                      text-decoration:none; font-size:.82rem; }
-.mm-news .n-jump a:hover { background:#1e293b; color:#fff; }
-.mm-news .n-market { color:#aab7c7; white-space:nowrap; font-size:.85rem; }
-.mm-news .n-jump-page { border:1px solid #334155; }
+.mm-news .n-jump a:hover { background:#2d2a37; color:#fff; }
+.mm-news .n-market { color:#bcbac7; white-space:nowrap; font-size:.85rem; }
+.mm-news .n-jump-page { border:1px solid #65636d; }
 /* Page links and the feed: never hidden, whatever the width. */
 .mm-news .n-pages { display:flex; align-items:center; gap:6px; margin-left:auto; }
-.mm-news .n-pages a { border-radius:7px; padding:6px 10px; color:#aab7c7;
-                      border:1px solid #334155; font-size:.82rem; white-space:nowrap; }
-.mm-news .n-pages a:hover { background:#1e293b; color:#fff; }
+.mm-news .n-pages a { border-radius:7px; padding:6px 10px; color:#bcbac7;
+                      border:1px solid #65636d; font-size:.82rem; white-space:nowrap; }
+.mm-news .n-pages a:hover { background:#2d2a37; color:#fff; }
 /* The news river: a time, a source, a headline, and the other outlets. */
 .mm-news .n-river { padding:24px; }
 .mm-news .n-day { font-size:13px; font-weight:500; letter-spacing:.04em;
@@ -231,18 +239,18 @@ NEWS_CSS = """
 .mm-news .n-quote a:hover { text-decoration:underline; }
 /* The drawers holding the working behind the page. Outside .mm-news, because
    they wrap the report's own sections and inherit that styling. */
-.mm-drawer { max-width:1180px; margin:0 auto 10px; border:1px solid #e5e7eb;
+.mm-drawer { max-width:1180px; margin:0 auto 10px; border:1px solid #dbd8e0;
              border-radius:10px; background:#fff; }
 .mm-drawer > summary { list-style:none; cursor:pointer; padding:15px 20px;
                        display:flex; flex-direction:column; gap:3px; }
 .mm-drawer > summary::-webkit-details-marker { display:none; }
 .mm-drawer > summary::after { content:"Show"; position:absolute; right:24px;
-                              font-size:12px; color:#6b7280; }
+                              font-size:12px; color:#84828e; }
 .mm-drawer[open] > summary::after { content:"Hide"; }
 .mm-drawer > summary { position:relative; }
-.mm-drawer > summary:hover .mm-drawer-t { color:#2563eb; }
-.mm-drawer-t { font-size:15px; font-weight:500; color:#111827; }
-.mm-drawer-b { font-size:12.5px; color:#6b7280; max-width:70ch; }
+.mm-drawer > summary:hover .mm-drawer-t { color:#0d74ce; }
+.mm-drawer-t { font-size:15px; font-weight:500; color:#211f26; }
+.mm-drawer-b { font-size:12.5px; color:#84828e; max-width:70ch; }
 .mm-drawer-body { padding:0 8px 8px; }
 @media print { .mm-drawer > summary::after { content:""; } }
 .mm-news .n-empty { color:var(--n-muted); font-size:13px; padding:14px 0; }
@@ -280,8 +288,8 @@ NEWS_CSS = """
                        font-size:12.5px; line-height:1.5; }
 .mm-news .n-cites { margin-top:6px; font-size:12px; color:var(--n-muted); }
 .mm-news .n-cites a { color:var(--n-accent); }
-.mm-news .n-coverage { margin-top:6px; font-size:11.5px; color:#92400e;
-                       background:#fff8e6; border:1px solid #fde68a; border-radius:5px;
+.mm-news .n-coverage { margin-top:6px; font-size:11.5px; color:#ab6400;
+                       background:#fefbe9; border:1px solid #f3d673; border-radius:5px;
                        padding:3px 7px; display:inline-block; }
 .mm-news .n-tablewrap { overflow-x:auto; }
 .mm-news .n-moved td { font-size:13px; }
@@ -318,23 +326,28 @@ EXTRA_CSS = """
                        padding: 1rem 1.25rem; max-width: 400px; text-align: center;
                        font-size: .9rem; color: #111827;
                        box-shadow: 0 8px 24px rgba(17, 24, 39, .12); }
-.mm-btn { display: inline-block; margin-top: .6rem; background: #111827; color: #fff !important;
+.mm-btn { display: inline-block; margin-top: .6rem; background: #211f26; color: #fff !important;
           border: 0; border-radius: 6px; padding: .5rem .9rem; font-size: .85rem;
           font-weight: 600; cursor: pointer; text-decoration: none !important; }
 tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none; }
-.mm-trial { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+.mm-trial { background: #f7f6f2; border: 1px solid #dbd8e0; border-radius: 10px;
             padding: 1.1rem 1.25rem; margin: 1.2rem 0; }
 .mm-trial h2 { margin: 0 0 .3rem; font-size: 1.05rem; }
-.mm-trial p { margin: 0 0 .7rem; font-size: .9rem; color: #334155; }
+.mm-trial p { margin: 0 0 .7rem; font-size: .9rem; color: #65636d; }
 .mm-trial form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
                  gap: .6rem; align-items: end; }
-.mm-trial label { display: block; font-size: .72rem; color: #64748b; text-transform: uppercase;
+.mm-trial label { display: block; font-size: .72rem; color: #65636d; text-transform: uppercase;
                   letter-spacing: .05em; margin-bottom: .2rem; }
-.mm-trial input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1;
+.mm-trial input { width: 100%; box-sizing: border-box; border: 1px solid #d0cdd7;
                   border-radius: 6px; padding: .45rem .55rem; font-size: .88rem; }
 .mm-trial .mm-btn { margin-top: 0; }
-.mm-trial-msg { grid-column: 1 / -1; font-size: .85rem; color: #0f7a4e; min-height: 1em; }
-.mm-trial-msg.err { color: #be123c; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.mm-trial .mm-c-kind { grid-column: 1 / -1; }
+.mm-trial select { width: 100%; max-width: 420px; box-sizing: border-box; border: 1px solid #d0cdd7;
+                   border-radius: 6px; padding: .5rem .6rem; font: inherit; background: #fff; }
+.mm-trial [hidden] { display: none; }
+.mm-trial-msg { grid-column: 1 / -1; font-size: .85rem; color: #218358; min-height: 1em; }
+.mm-trial-msg.err { color: #ce2c31; }
 .mm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
             gap: .7rem; margin: .8rem 0 1rem; }
 .mm-stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: .7rem .85rem; }
@@ -2004,8 +2017,9 @@ def _apply_teasers(rendered: str) -> str:
                 '<div class="mm-teaser-body" aria-hidden="true">'
                 + _scrub_digits(inner) + "</div>"
                 '<div class="mm-teaser-cta"><div>'
-                f"{what} are blurred in this shared view."
-                '<br><a class="mm-btn" href="#mm-trial">Request a trial</a>'
+                f'<strong>Want more data?</strong><span class="sr-only"> {what} are blurred '
+                'in this shared view.</span>'
+                '<br><a class="mm-btn" href="#mm-trial">Get the full report</a>'
                 "</div></div></div>")
     return re.sub(re.escape(_TEASER_START) + r"\[(.*?)\](.*?)" + re.escape(_TEASER_END),
                   _wrap, rendered, flags=re.S)
@@ -2029,6 +2043,113 @@ m.textContent=(x.j&&x.j.detail&&typeof x.j.detail==='string')?x.j.detail:'Could 
 .catch(function(){b.disabled=false;m.className='mm-trial-msg err';
 m.textContent='Could not send the request from this copy of the page.';});});})();
 """
+
+
+_TIP_JS = """
+(function(){var f=document.getElementById('mm-tip-form');if(!f)return;
+var m=document.getElementById('mm-tip-msg');var el=f.elements;
+f.addEventListener('submit',function(e){e.preventDefault();
+var b=f.querySelector('button');b.disabled=true;m.className='mm-trial-msg';
+m.textContent='Sending…';
+var d={url:el['url'].value,note:el['note'].value,email:el['email2'].value};
+fetch(f.getAttribute('data-endpoint'),{method:'POST',
+headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+.then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+.then(function(x){if(x.ok){f.reset();b.disabled=false;
+m.textContent='Thanks. We will read it.';}
+else{b.disabled=false;m.className='mm-trial-msg err';
+m.textContent=(x.j&&x.j.detail&&typeof x.j.detail==='string')?x.j.detail:'Could not send the tip.';}})
+.catch(function(){b.disabled=false;m.className='mm-trial-msg err';
+m.textContent='Could not send the tip from this copy of the page.';});});})();
+"""
+
+
+def _tip_panel(market_id: int, market_name: str) -> str:
+    """"Submit news" — a reader points us at a story we missed."""
+    return (
+        '<section class="mm-trial" id="mm-tip">'
+        "<h2>Submit news</h2>"
+        f"<p>Seen something about {esc(market_name)} that is not here? Send the "
+        "link. We read every tip; what goes on the page is our call.</p>"
+        '<form id="mm-tip-form" data-endpoint='
+        f'"/api/market-monitor/markets/{int(market_id)}/news-tip">'
+        '<div><label for="mm-tip-url">Link</label>'
+        '<input id="mm-tip-url" name="url" type="url" required maxlength="1000" '
+        'autocomplete="url" placeholder="https://"></div>'
+        '<div><label for="mm-tip-note">What it is (optional)</label>'
+        '<input id="mm-tip-note" name="note" maxlength="2000"></div>'
+        '<div><label for="mm-tip-email">Your email (optional)</label>'
+        '<input id="mm-tip-email" name="email" type="email" maxlength="254" '
+        'autocomplete="email"></div>'
+        '<div><button type="submit" class="mm-btn">Send</button></div>'
+        '<div class="mm-trial-msg" id="mm-tip-msg" role="status"></div>'
+        "</form>"
+        f"<script>{_TIP_JS}</script>"
+        "</section>")
+
+
+_CONTACT_JS = """
+(function(){var f=document.getElementById('mm-contact-form');if(!f)return;
+var sel=f.elements['kind'];var m=document.getElementById('mm-contact-msg');var base=f.getAttribute('data-base');
+var groups=f.querySelectorAll('[data-kind]');var btn=f.querySelector('button');
+var labels={news:'Send',missing:'Tell us',trial:'Request trial'};
+function show(){var k=sel.value;for(var i=0;i<groups.length;i++){var g=groups[i];
+var on=g.getAttribute('data-kind').split(' ').indexOf(k)>=0;g.hidden=!on;
+var inp=g.querySelector('input');if(inp){inp.required=on&&g.hasAttribute('data-required');}}
+btn.textContent=labels[k]||'Send';m.textContent='';m.className='mm-trial-msg';}
+sel.addEventListener('change',show);
+var h=location.hash;if(h==='#mm-trial'&&sel.querySelector('option[value=trial]'))sel.value='trial';
+if(h==='#mm-missing')sel.value='missing';show();
+f.addEventListener('submit',function(e){e.preventDefault();var k=sel.value;var el=f.elements;
+btn.disabled=true;m.className='mm-trial-msg';m.textContent='Sending\u2026';
+var d,ep,ok;if(k==='news'){ep='news-tip';d={url:el['url'].value,note:el['note'].value,email:el['email2'].value};ok='Thanks. We will read it.';}
+else if(k==='missing'){ep='vendor-request';d={company:el['company'].value,website:el['website'].value,email:el['email'].value,note:el['note'].value};ok='Thanks. We will look at '+d.company+' and reply at '+d.email+'.';}
+else{ep='trial-request';d={name:el['name'].value,email:el['email'].value,title:el['title'].value};ok='Thanks. We will be in touch at '+d.email+'.';}
+fetch(base+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+.then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+.then(function(x){btn.disabled=false;if(x.ok){f.reset();sel.value=k;show();m.textContent=ok;}
+else{m.className='mm-trial-msg err';
+m.textContent=(x.j&&x.j.detail&&typeof x.j.detail==='string')?x.j.detail:'Could not send it.';}})
+.catch(function(){btn.disabled=false;m.className='mm-trial-msg err';
+m.textContent='Could not send it from this copy of the page.';});});})();
+"""
+
+
+def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
+    """One form at the foot of the page. A dropdown says what it is about
+    — a news tip, a missing vendor, a trial (shared view only) — and shows
+    the fields for that; each kind posts to its own endpoint. ``#mm-tip``
+    and ``#mm-trial`` still land here, preselected."""
+    opts = ['<option value="news">Submit news</option>',
+            '<option value="missing">My company is missing from the list</option>']
+    if trial:
+        opts.append('<option value="trial">Get the full report and data</option>')
+    field = lambda kind, name, label, req=False, extra="": (  # noqa: E731
+        f'<div data-kind="{kind}"{" data-required" if req else ""}><label for="mm-c-{name}">{label}</label>'
+        f'<input id="mm-c-{name}" name="{name}" maxlength="500" {extra}></div>')
+    return (
+        '<section class="mm-trial" id="mm-contact"><span id="mm-tip"></span>'
+        + ('<span id="mm-trial"></span>' if trial else "")
+        + "<h2>Get in touch</h2>"
+        f"<p>Send us a story about {esc(market_name)} that is not here, tell us your company "
+        "belongs on the list" + (", or ask for the full report and data" if trial else "")
+        + ". We read everything; what goes on the page is our call.</p>"
+        f'<form id="mm-contact-form" data-base="/api/market-monitor/markets/{int(market_id)}/">'
+        '<div class="mm-c-kind"><label for="mm-c-kind">What is it about?</label>'
+        f'<select id="mm-c-kind" name="kind">{"".join(opts)}</select></div>'
+        + field("news", "url", "Link", True, 'type="url" autocomplete="url" placeholder="https://"')
+        + field("missing", "company", "Company", True, 'autocomplete="organization"')
+        + field("missing", "website", "Website", False, 'autocomplete="url" placeholder="https://"')
+        + field("trial", "name", "Name", True, 'autocomplete="name"')
+        + field("trial", "title", "Title", False, 'autocomplete="organization-title"')
+        + field("missing trial", "email", "Your email", True, 'type="email" autocomplete="email"')
+        + field("news", "email2", "Your email (optional)", False, 'type="email" autocomplete="email"')
+        + field("news missing", "note", "Anything else (optional)")
+        + '<div><button type="submit" class="mm-btn">Send</button></div>'
+        '<div class="mm-trial-msg" id="mm-contact-msg" role="status"></div>'
+        "</form>"
+        f"<script>{_CONTACT_JS}</script>"
+        "</section>")
 
 
 def _missing_panel(market_id: int, market_name: str) -> str:
@@ -2589,7 +2710,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     if market.get("is_public"):
         rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
                'title="Subscribe in a feed reader">RSS</a>')
-    body = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>", '<div class="mm-news">',
+    body = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>", '<div class="mm-news">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
             f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
@@ -2631,11 +2752,11 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
 #: footer and the shared-view note sit on the dark ground, so they take the
 #: masthead's muted text colour. Emitted by every page of the report.
 DARK_CSS = """
-html, body { background:#0b1220; }
+html, body { background:#1a1523; }
 /* The disclosure footer carries an inline grey, invisible on the dark ground. */
-.container > .ai-disclosure, .container > p.mm-src { color:#aab7c7 !important; }
-.container > .ai-disclosure a, .container > p.mm-src a { color:#e6edf5; }
-.mm-news { border-color:#1e293b; box-shadow:0 12px 40px rgba(0,0,0,.35); }
+.container > .ai-disclosure, .container > p.mm-src { color:#bcbac7 !important; }
+.container > .ai-disclosure a, .container > p.mm-src a { color:#f2eff3; }
+.mm-news { border-color:#2d2a37; box-shadow:0 12px 40px rgba(0,0,0,.35); }
 """
 
 V2_CSS = """
@@ -2678,12 +2799,12 @@ V2_CSS = """
 .mm-v2 .n-story-img > * { grid-column:1; }
 .mm-v2 .n-story-img > .n-thumb { grid-column:2; grid-row:1 / span 6; width:150px; height:94px;
                                   object-fit:cover; object-position:center; border-radius:6px;
-                                  background:#e2e8f0; }
+                                  background:#dbd8e0; }
 .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:minmax(0,1fr) 320px; }
 /* The lead shows its picture whole: a link-preview card is text, and a crop
    of it is neither readable nor a picture. */
 .mm-v2 .v2-lead-story.n-story-img > .n-thumb { width:320px; height:200px; border-radius:8px;
-                                                object-fit:contain; background:#f1f5f9; }
+                                                object-fit:contain; background:#f7f6f2; }
 @media (max-width:760px) { .mm-v2 .n-story-img { grid-template-columns:minmax(0,1fr) 120px; }
                            .mm-v2 .n-story-img > .n-thumb { width:120px; height:75px; } }
 @media (max-width:560px) { .mm-v2 .n-story-img, .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:1fr; }
@@ -2741,8 +2862,8 @@ V2_CSS = """
 .mm-v2 .v2-bar { display:grid; grid-template-columns:minmax(0,1fr) 90px 22px 44px; gap:8px;
                  align-items:center; font-size:13px; }
 .mm-v2 .v2-bar-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
-.mm-v2 .v2-bar-track { height:9px; background:#e2e8f0; border-radius:5px; overflow:hidden; }
-.mm-v2 .v2-bar-fill { height:100%; background:#475569; border-radius:5px; }
+.mm-v2 .v2-bar-track { height:9px; background:#dbd8e0; border-radius:5px; overflow:hidden; }
+.mm-v2 .v2-bar-fill { height:100%; background:#65636d; border-radius:5px; }
 .mm-v2 .v2-bar-n { text-align:right; font-variant-numeric:tabular-nums; font-weight:500; }
 .mm-v2 .v2-move { font-size:11.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .mm-v2 .v2-move.up { color:var(--n-green); }
@@ -2763,7 +2884,20 @@ V2_CSS = """
 .mm-v2 .v2-mv-head a:hover { color:var(--n-accent); }
 .mm-v2 .v2-mv-body .n-story-sum { font-size:12.5px; margin-top:4px; }
 .mm-v2 .v2-mv-body .n-support { margin-top:5px; }
-.mm-v2 .n-jump a[aria-current="page"] { background:#1e293b; color:#fff; }
+.mm-v2 .n-jump a[aria-current="page"] { background:#2d2a37; color:#fff; }
+.mm-v2 .v2-about { padding:0 24px 24px; max-width:760px; }
+.mm-v2 .v2-about .v2-mast { padding-left:0; padding-right:0; }
+.mm-v2 .v2-about section { margin-top:22px; }
+.mm-v2 .v2-about section:first-of-type h2 { border-top:0; padding-top:0; }
+.mm-v2 .v2-about h2 { font-size:13px; letter-spacing:.06em; text-transform:uppercase; margin:0 0 6px;
+                      border-top:3px solid var(--n-text); padding-top:8px; }
+.mm-v2 .v2-about p { font-size:15px; line-height:1.6; margin:0 0 10px; }
+.mm-v2 .n-foot a { color:inherit; }
+.mm-v2 .n-pages a.n-tip { background:var(--n-accent); color:#fff; font-weight:600; }
+/* The masthead names the market right under the bar; with the Submit news
+   button the bar's own copy of the name wrapped onto a second line. */
+.mm-v2 .n-top .n-market { display:none; }
+.mm-v2 .n-pages a.n-tip:hover { filter:brightness(1.1); color:#fff; }
 @media (max-width:1000px) { .mm-v2 .v2-grid { grid-template-columns:1fr; } }
 /* The section links are the site's navigation, so they stay at every width. */
 @media (max-width:850px) { .mm-v2 .n-jump { display:flex; } }
@@ -2795,11 +2929,11 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                "thing": "opinion or research",
                "subline": "Vendors' opinion pieces and research posts, and research "
                           "papers, not tied to a development."},
-    "social": {"heading": "Social", "colour": "#0e7490",
+    "social": {"heading": "Social", "colour": "#00749e",
                "thing": "practitioner post",
                "subline": "What practitioners are saying on X, Bluesky, Reddit and "
                           "LinkedIn, newest first, and the most shared posts."},
-    "research": {"heading": "Latest research", "colour": "#b45309",
+    "research": {"heading": "Latest research", "colour": "#ab6400",
                  "thing": "analyst report or post",
                  "subline": "Reports the analyst firms have named vendors in, and what "
                             "the firms publish in public. The reports themselves are "
@@ -2948,6 +3082,98 @@ def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
             + (f'<p class="n-story-sum">{esc(_clip(opening, 480 if lead else 260))}</p>' if opening else "")
             + f'<div class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}'
             f' · <a href="{href}">Read the piece &rarr;</a></div></article>')
+
+
+#: Pages of the site that are not sections: ``?page=about``.
+V2_PAGES = ("about",)
+
+
+def _v2_about_page(market: Dict[str, Any], link_params: Optional[Dict[str, Any]], days: int) -> str:
+    """About, how the page is made, the AI disclosure, privacy, contact and
+    the disclaimer. Plain statements of what the site does; nothing here is
+    computed from the data."""
+    from app.compliance.ai_disclosure import AI_DISCLOSURE_LONG
+
+    name = esc(market["name"])
+    front = "?" + _relink(link_params, days=days, view="v2")
+    return (
+        '<article class="v2-about" id="v2-about">'
+        '<header class="v2-mast"><div><p class="n-kicker">About this site</p>'
+        f'<h1>{name}</h1>'
+        '<p class="n-sub">A market news page made by the Cyberfuturists with Aunoo. '
+        'What it is, how it is made, and what happens to your data.</p></div></header>'
+
+        '<section><h2>What this is</h2>'
+        f'<p>{name} is a running record of a technology market: the vendors in it, what they '
+        'announce, who is hiring, what customers and practitioners say, and what the analyst '
+        'firms publish. It is written for people who buy, build, invest in or compete in this '
+        'market. The page is updated as new material arrives; the period selector shows the '
+        'last 7, 30 or 90 days.</p>'
+        '<p>It is published by the <a href="https://cyberfuturists.com/">Cyberfuturists</a>, a '
+        'cybersecurity advisory, and made with <a href="https://aunoo.ai/">Aunoo</a>, its market '
+        'intelligence platform.</p></section>'
+
+        '<section id="how"><h2>How it is made</h2>'
+        '<p>Software collects public material about the vendors on the list: press releases, '
+        'news coverage, the vendors\u2019 own websites, blogs and LinkedIn company pages, public '
+        'job listings, posts on X, Bluesky and Reddit that mention the market, and the public '
+        'pages of analyst firms. Every item on the page links to where it came from.</p>'
+        '<p>AI models then read that material and sort it: which vendor an item is about, '
+        'whether it states a fact or is promotion, what kind of development it is, and how '
+        'the summaries and highlights should read. People at the Cyberfuturists set the rules, '
+        'review the output, decide which vendors are on the list, and write the pieces that '
+        'appear under Analysis with their name on them.</p>'
+        '<p>Vendors are added on evidence, not on request, and none pays to be here. A vendor '
+        'that believes it belongs on the list can say so through the form on the front page.</p>'
+        '</section>'
+
+        '<section id="ai"><h2>AI disclosure</h2>'
+        f'<p>{esc(AI_DISCLOSURE_LONG)}</p>'
+        '<p>Summaries, highlights, the sorting of items into sections, the map of vendors by '
+        'scale and momentum and the automatic briefings are produced by AI models and may '
+        'contain errors. Headlines and quotations from sources are the sources\u2019 own. '
+        'Pieces under Analysis are written by a named person. This notice is given under '
+        'Article 50 of the EU AI Act.</p></section>'
+
+        '<section id="privacy"><h2>Privacy</h2>'
+        '<p>The data controller is Oliver Rochford Ltd, trading as Cyberfuturists (see Contact '
+        'and imprint below).</p>'
+        '<p><strong>Reading the page.</strong> There is no account, no login, no cookie and no '
+        'analytics script on this site. Our web server keeps a standard access log with your '
+        'IP address, browser string and the pages you request, used to run the site and to '
+        'stop abuse, and deleted after 14 days.</p>'
+        '<p><strong>Fonts.</strong> The page loads its typeface from Google Fonts, so your '
+        'browser makes a request to Google when it opens the page; Google\u2019s privacy policy '
+        'applies to that request.</p>'
+        '<p><strong>Forms.</strong> If you send a news tip, tell us your company is missing, or '
+        'ask for a trial, we store what you type together with your IP address and browser '
+        'string, and the message is emailed to the editors. We use it to answer you and to '
+        'limit repeated submissions from one address, and for nothing else. We do not sell or '
+        'share it. Write to us through the same forms to have it deleted.</p>'
+        '<p><strong>Links.</strong> Every item links to a third-party site with its own '
+        'privacy terms. Images shown with posts are loaded from the network they were posted '
+        'on.</p>'
+        '<p><strong>People named on the page.</strong> The page shows public posts and public '
+        'profiles of people who write about this market, with a link to the original. If you '
+        'are named and want an entry removed, tell us through the news-tip form and we will '
+        'remove it.</p></section>'
+
+        '<section id="disclaimer"><h2>Disclaimer</h2>'
+        '<p>The page is information, not advice. It is assembled automatically from public '
+        'sources and may be incomplete, out of date or wrong; check the linked source before '
+        'you rely on anything here. The Cyberfuturists and Aunoo accept no liability for '
+        'decisions made on it. Company and product names, and the names of analyst reports, '
+        'are the trademarks of their owners and are used only to identify them.</p></section>'
+
+        '<section id="contact"><h2>Contact and imprint</h2>'
+        '<p>Cyberfuturists is the trading name of Oliver Rochford Ltd, a private limited '
+        'company registered in England and Wales, company number '
+        '<a href="https://find-and-update.company-information.service.gov.uk/company/14480528">'
+        '14480528</a>. Registered office: 7 High Street East, Glossop, Derbyshire, SK13 8DA, '
+        'United Kingdom. Website: <a href="https://cyberfuturists.com/">cyberfuturists.com</a>.</p>'
+        '<p>For this page, the forms on the <a href="' + front + '">front page</a> reach the '
+        'editors directly.</p></section>'
+        '</article>')
 
 
 def _v2_piece_page(piece_row: Dict[str, Any], others: List[Dict[str, Any]],
@@ -3442,6 +3668,7 @@ def _safe_list(fn, *args, **kwargs) -> List[Dict[str, Any]]:
 def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                            section: Optional[str] = None,
                            piece: Optional[int] = None,
+                           page: Optional[str] = None,
                            allowed_brand_ids: Optional[List[int]] = None,
                            link_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
@@ -3469,6 +3696,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
 
     if section is not None and section not in V2_SECTIONS:
         raise KeyError(f"unknown section {section!r}")
+    if page is not None and page not in V2_PAGES:
+        raise KeyError(f"unknown page {page!r}")
     pieces = _safe_list(mbr.approved_pieces, conn, market["id"])
     piece_row = None
     if piece is not None:
@@ -3599,12 +3828,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
               if section else "")
              + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
              f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
-             + rss)
+             + rss + '<a class="n-tip" href="#mm-tip">Submit news</a>')
     periods = "".join(
         f'<a href="?{_relink(link_params, days=d, view="v2", section=section)}"'
         + (' aria-current="page"' if d == days else "")
         + f'>{d} days</a>' for d in (7, 30, 90))
-    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>",
+    body: List[str] = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>",
                        '<div class="mm-news mm-v2">',
                        '<div class="n-top">' + _brand_line()
                        + f'<nav class="n-jump" aria-label="Sections">{jump}</nav>'
@@ -3612,7 +3841,10 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                        f'<span class="n-market">{esc(market["name"])}</span></div>']
     horizon_html = ""
 
-    if piece_row is not None:
+    if page == "about":
+        body.append('<main class="v2-grid"><div class="v2-main v2-one">'
+                    + _v2_about_page(market, link_params, days) + "</div></main>")
+    elif piece_row is not None:
         others = [p for p in pieces if p["id"] != piece_row["id"]][:6]
         body.append('<main class="v2-grid"><div class="v2-main v2-one">'
                     + piece_slot(_v2_piece_page(piece_row, others, link_params))
@@ -3691,13 +3923,6 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                 horizon, "?" + _relink(link_params, days=days, view="report") + "#mm-horizon")
             body.append('<div class="v2-card"><h2>Market Maturity Map</h2>'
                         + _HORIZON_SLOT + "</div>")
-        numbers = _v2_numbers(assessment, hiring, days)
-        # The assessment already masks a withheld vendor's name here, so the
-        # list stays readable in the shared view.
-        body.append('<div class="v2-card"><h2>By the numbers</h2>' + numbers
-                    + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [],
-                                      previous_counts, logos)
-                    + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
                     + _v2_moved(assessment.get("main_developments") or [], logos=logos) + "</div>")
         motion = _v2_motion(sov_rows, logos)
@@ -3711,20 +3936,29 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             body.append('<div class="v2-card"><h2>Influence and Influencers</h2>' + voices_card + "</div>")
         body.append(_render_briefing_card(conn, market, withheld=withheld,
                                           restricted=teaser, link_params=link_params))
+        # Last in the column (user, 29 Aug). The assessment already masks a
+        # withheld vendor's name here, so the list stays readable in the
+        # shared view.
+        numbers = _v2_numbers(assessment, hiring, days)
+        body.append('<div class="v2-card"><h2>By the numbers</h2>' + numbers
+                    + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [],
+                                      previous_counts, logos)
+                    + "</div>")
         body.append("</aside></main>")
 
+    about_href = "?" + _relink(link_params, days=days, view="v2", page="about")
     body.append('<div class="n-foot">' + _brand_line()
-                + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>')
+                + f'<span>{esc(market["name"])} · {esc(period_txt)} · '
+                f'<a href="{about_href}">About</a> · <a href="{about_href}#privacy">Privacy</a></span></div>')
     if teaser:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
-    body.append(_missing_panel(market["id"], market["name"]))
-    if teaser:
-        body.append(_trial_panel(market["id"]))
+    body.append(_contact_panel(market["id"], market["name"], trial=teaser))
     body.append("</div>")
     if horizon_html:
         body.append(f"<script>{_HORIZON_JS}</script>")
 
-    title = (f'{piece_row.get("title") or ""} — {market["name"]}' if piece_row is not None
+    title = (f'About — {market["name"]}' if page == "about"
+             else f'{piece_row.get("title") or ""} — {market["name"]}' if piece_row is not None
              else f'{market["name"]} — {V2_SECTIONS[section]["heading"]}' if section
              else f'{market["name"]} front page')
     rendered = html_document(title, "".join(body))
@@ -3820,7 +4054,7 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
                 f'{esc(briefing.get("period_label", ""))}</div>'
                 f'<h1>{esc(briefing.get("title", ""))}</h1></div></div>'
                 + mbr.render_body(briefing) + more + "</main>")
-    body = (f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>" '<div class="mm-news">'
+    body = (f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>" '<div class="mm-news">'
             + nav + main
             + '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])}</span></div></div>')
@@ -3988,7 +4222,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             announced[name] = announced.get(name, 0) + 1
 
     generated = datetime.now(timezone.utc)
-    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>"]
+    body: List[str] = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>"]
 
     period_range = _fmt_range(*pc["current_range"]) if pc else None
     period_txt = (period_range or f"last {days} days")
@@ -4636,7 +4870,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # How this was measured
     # ================================================================
     body.append(_drawer_close())
-    body.append(_missing_panel(market["id"], market["name"]))
+    body.append(_contact_panel(market["id"], market["name"], trial=False))
     body.append(_drawer_open(
         "How this was measured",
         "Which sources we read, how much of the market each one reached, what "

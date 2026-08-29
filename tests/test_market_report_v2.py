@@ -236,6 +236,13 @@ def test_front_page_has_its_sections_and_links(conn, market):
     assert "<h2>Highlights</h2>" in page and '<details class="v2-hl"><summary>' in page
     assert "Most active vendors" in page
     assert "Who caused motion" in page and "Most discussed" in page
+    # Submit news: the button in the top bar and the panel it jumps to.
+    assert 'class="n-tip" href="#mm-tip">Submit news</a>' in page
+    # One contact form with a dropdown; the button's anchor lands on it.
+    assert 'id="mm-contact"' in page and 'id="mm-tip"' in page
+    assert '<option value="news">Submit news</option>' in page
+    assert '<option value="missing">' in page and '<option value="trial">' not in page
+    assert f'data-base="/api/market-monitor/markets/{market["id"]}/"' in page
     assert 'href="?days=30&amp;view=report">Analyst View</a>' in page
     assert "view=news" in page
     assert page.count("view=v2&amp;section=") >= len(html.V2_SECTIONS)
@@ -248,6 +255,22 @@ def test_the_report_and_the_river_link_to_the_front_page(conn, market):
     for page in (report, river):
         nav = page[page.index('class="n-pages"'):page.index("</nav>", page.index('class="n-pages"'))]
         assert "view=v2" in nav and "Front page" in nav
+
+
+@pytestmark_db
+def test_about_page_has_the_disclosure_and_privacy_and_unknown_page_raises(conn, market):
+    from app.compliance.ai_disclosure import AI_DISCLOSURE_LONG
+    page = html.build_market_report_v2(conn, market, days=30, page="about").decode()
+    assert 'id="v2-about"' in page and 'id="privacy"' in page and 'id="disclaimer"' in page
+    assert AI_DISCLOSURE_LONG in page and "Article 50 of the EU AI Act" in page
+    assert "<title>About — " in page
+    assert "Oliver Rochford Ltd" in page and "14480528" in page and "SK13 8DA" in page
+    front = html.build_market_report_v2(conn, market, days=30).decode()
+    # Linked from the footer only, not the top bar (user, 29 Aug).
+    assert front.count('page=about">About</a>') == 1 and 'page=about#privacy">Privacy</a>' in front
+    assert 'page=about">About</a>' not in front.split('<header class="v2-mast">')[0]
+    with pytest.raises(KeyError):
+        html.build_market_report_v2(conn, market, days=30, page="bogus")
 
 
 @pytestmark_db
@@ -283,7 +306,7 @@ def test_shared_view_names_only_authorized_vendors(conn, market):
     # the only blur on the front page is the tail of the influencers list.
     assert page.count('class="mm-teaser"') <= 1
     if 'class="mm-teaser"' in page:
-        assert "The rest of the voices we track" in page
+        assert "Want more data?" in page and "The rest of the voices we track" in page
 
 
 @pytestmark_db

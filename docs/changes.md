@@ -441,6 +441,75 @@ approved (`market_report_html.py`, the front-page loop); its subline reads "Anal
 written by the Cyberfuturists team." and the section page's empty line "No analysis published
 yet." The front-page test asserts the section is present exactly when a piece is approved.
 
+### Wording — the blurred block asks "Want more data?"
+
+Every blurred block's card read "{what} are blurred in this shared view. Request a trial". It
+now reads "Want more data?" with a "Get the full report" button to the contact form's trial
+option; the old sentence stays for screen readers only (`_apply_teasers`, `.sr-only`).
+
+### Layout — By the numbers last in the sidebar
+
+The sidebar order is now Market Maturity Map, Who moved, Who caused motion, Influence and
+Influencers, the weekly briefing card, then By the numbers at the bottom (user, 29 Aug).
+
+### Fix — one contact form with a dropdown instead of three forms
+
+The foot of the front page had stacked up three forms (Submit news, Is your company missing?,
+Get the full report) and read as clutter. `_contact_panel` (`market_report_html.py`) is one
+"Get in touch" form: a dropdown "What is it about?" — Submit news, My company is missing from
+the list, and in the shared view Get the full report and data — shows only that kind's fields
+and posts to that kind's endpoint (`news-tip`, `vendor-request`, `trial-request`), with the
+same messages as before. `#mm-tip` and `#mm-trial` anchors land on it and preselect the kind,
+so the Submit news button and the blurred blocks' links keep working. The Analyst View foot
+uses the same panel without the trial option (its own trial panel sits higher up). The old
+`_tip_panel`/`_missing_panel`/`_trial_panel` remain for the Analyst View's trial block.
+
+### Feature — About page: how it is made, AI disclosure, privacy, disclaimer, contact
+
+`?view=v2&page=about` (`V2_PAGES`, `_v2_about_page` in `market_report_html.py`; route param
+`page`, 404 for anything else). Linked as "About · Privacy" in every front-page footer only
+(the user took the top-bar link out). The text states what the site is and who makes
+it, how the material is collected and sorted (software collects, AI models sort and summarise,
+people set the rules and write the Analysis pieces; vendors are added on evidence, none pays),
+the AI disclosure from `app/compliance/ai_disclosure.AI_DISCLOSURE_LONG` under EU AI Act
+Article 50, privacy (no account, cookie or analytics; nginx access log with IP kept 14 days —
+`/etc/logrotate.d/nginx`: daily, rotate 14; Google Fonts request; what the three forms store
+and why; third-party links; removal on request for people named), a disclaimer and contact.
+Nothing on it is computed from the data. Imprint under "Contact and imprint", from the user
+and the public Companies House record: Cyberfuturists is the trading name of Oliver Rochford
+Ltd, company 14480528, registered office 7 High Street East, Glossop, Derbyshire, SK13 8DA;
+the Privacy section names that company as the data controller. Test in
+`tests/test_market_report_v2.py`.
+
+### Restyle — the news pages follow saas.aunoo.ai
+
+The front page, section pages, river and Analyst View used their own look: system type, a
+teal accent, slate greys, a navy ground. saas.aunoo.ai's live stylesheet is the Radix
+pink/mauve system in DM Sans (`--aunoo-font`, `--aunoo-surface-secondary #F7F6F2`, dark
+surface `#1a1523`). `NEWS_CSS`, `V2_CSS`, `DARK_CSS` and the form panels in `EXTRA_CSS` now
+use those tokens: DM Sans loaded from Google Fonts (`_FONT_LINK`, before each news
+stylesheet — the report shell is system type), accent pink-11 `#c2298a` with pink-3 soft,
+mauve-12/11/6 for text, muted and lines, warm off-white `#f7f6f2` grounds, section colours
+from the Radix 11-steps (blue `#0d74ce`, green `#218358`, orange `#cc4e00`, violet
+`#6550b9`, amber `#ab6400` for Latest research, cyan `#00749e` for Social), and the dark
+ground `#1a1523` with `#2d2a37` for hover and active. 39 CSS lines recoloured by a token
+map, no layout change. The bar's own market name is hidden on the front page (the masthead
+carries it) because the Submit news button made it wrap. Before/after screenshots at
+1240 px in the session scratchpad; 32 tests pass.
+
+### Feature — Submit news
+
+A "Submit news" button in the front page's top bar (accent colour, beside RSS) jumps to a
+panel at the foot of the page: a link, what it is (optional), an email (optional). It posts to
+`POST /markets/{id}/news-tip` (`NewsTip`, no session; a link must start with http(s)://; the
+same 20-a-day limit per address as the trial and vendor requests, counted together), which
+stores the tip in `market_news_tips` (`alembic/versions/mm_022_news_tips.py`, applied on
+bugfixing: head `mm_022`) and mails `MARKET_TRIAL_NOTIFY_EMAIL` like a vendor request
+(`_notify_news_tip`). The panel (`_tip_panel`, `_TIP_JS` in `market_report_html.py`) sits
+above "Is your company missing?" on the front page and the Analyst View. The aisocnews.com
+site file's form location now lets `news-tip` through (nginx reloaded). A tip is a record for
+the operator, not an article: nothing lands in the corpus until someone reads it.
+
 ### Ops — a holding page on aisocnews.com during restarts
 
 The bugfixing service restarted 41 times on 29 August (journal), each a 10–15 s hole, and three
