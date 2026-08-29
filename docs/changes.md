@@ -510,6 +510,15 @@ above "Is your company missing?" on the front page and the Analyst View. The ais
 site file's form location now lets `news-tip` through (nginx reloaded). A tip is a record for
 the operator, not an article: nothing lands in the corpus until someone reads it.
 
+### Ops — nginx access log carries the host
+
+The default `combined` format has no host field, so aisocnews.com and aisoc.aunoo.ai traffic
+could not be told apart. `/etc/nginx/nginx.conf` (not in git; backup
+`nginx.conf.bak-hostlog-<stamp>` beside it) now declares `log_format vhost` = combined plus
+`$host` at the end, and the http-level `access_log` uses it; appended, not prepended, so
+`awk` field positions in earlier queries still hold. Nothing else parses the log (no
+fail2ban, no cron). Reloaded, no downtime; verified with one tagged request.
+
 ### Ops — a holding page on aisocnews.com during restarts
 
 The bugfixing service restarted 41 times on 29 August (journal), each a 10–15 s hole, and three
