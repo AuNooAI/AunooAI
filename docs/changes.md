@@ -116,6 +116,22 @@ The user reviewed the page and asked for four changes, all in
   "articles, posts and pages"; the job-listing coverage phrase is "N of M vendors have public
   job listings", changed at its source in `market_analysis.py` so the Analyst View's hiring
   coverage line and its "Have public job listings" row say the same.
+- **Footer and forms.** The AI disclosure footer carries an inline grey meant for a white
+  page and was invisible on the dark ground; `DARK_CSS` now overrides it (`!important`). The
+  "Is your company missing?" form is on the front page and the section pages, as on the
+  Analyst View.
+- **"Source", not "Evidence".** The label under a story that names the one record behind it
+  reads "Source:" (`_story_evidence`, on the Analyst View's stories too); "More:" for several.
+- **Who moved opens.** Each sidebar entry is a `<details>`: vendor, kind and date on the
+  line; the headline (linked to its first source), the summary and the sources inside. The
+  jump links it had pointed at `dev-N` anchors that exist only for the developments the
+  capped sections render, so most led nowhere.
+- **Most active vendors is a chart.** `_v2_top_vendors(by_vendor, previous)`: a bar per
+  vendor for its developments in the period, the count, and ▲ n / ▼ n / = against the same
+  vendor's count in the period before. The earlier counts come from one
+  `material_developments` run over a window twice as long, split at the current period's
+  first day; when `period_comparison` says the earlier window is not comparable (nothing was
+  collecting yet) the bars carry no arrows and the subline drops the comparison.
 - **Most active vendors skips withheld vendors.** The first version listed
   `assessment["distribution"]["by_vendor"]` as it came, so the shared view's top two rows read
   "a vendor not shown in this view". `_v2_top_vendors` now skips rows with `withheld` and

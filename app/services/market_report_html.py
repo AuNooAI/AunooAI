@@ -1900,13 +1900,13 @@ def _story_evidence(f: Dict[str, Any]) -> str:
                 if r.get("voice") == "measured"]
     if not rows:
         if measured:
-            return ('<div class="n-support"><strong>Evidence:</strong> '
+            return ('<div class="n-support"><strong>Source:</strong> '
                     f'{esc(measured[0].get("title") or "platform readings")}'
                     '</div>')
         held = int(f.get("evidence_count") or 0)
         if not held:
             return ""
-        return ('<div class="n-support"><strong>Evidence:</strong> '
+        return ('<div class="n-support"><strong>Source:</strong> '
                 f'{held} record{"" if held == 1 else "s"} held, none with a '
                 'public link</div>')
 
@@ -1920,9 +1920,9 @@ def _story_evidence(f: Dict[str, Any]) -> str:
 
     out = ['<div class="n-support">']
     if records:
-        # "Evidence" when there is one record and nothing to add to it;
+        # "Source" when there is one record and nothing to add to it;
         # "More" when the list actually continues past the byline.
-        label = "Evidence" if len(records) == 1 and not discussion else "More"
+        label = "Source" if len(records) == 1 and not discussion else "More"
         out.append(f"<div><strong>{label}:</strong> {links(records)}</div>")
     if discussion:
         out.append(f"<div><strong>Social:</strong> {links(discussion)}</div>")
@@ -2589,7 +2589,8 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
 #: masthead's muted text colour. Emitted by every page of the report.
 DARK_CSS = """
 html, body { background:#0b1220; }
-.container > .ai-disclosure, .container > p.mm-src { color:#aab7c7; }
+/* The disclosure footer carries an inline grey, invisible on the dark ground. */
+.container > .ai-disclosure, .container > p.mm-src { color:#aab7c7 !important; }
 .container > .ai-disclosure a, .container > p.mm-src a { color:#e6edf5; }
 .mm-news { border-color:#1e293b; box-shadow:0 12px 40px rgba(0,0,0,.35); }
 """
@@ -2651,9 +2652,31 @@ V2_CSS = """
 .mm-v2 .v2-hz svg text { font-size:26px; }
 .mm-v2 .v2-hz svg text.mm-lbl { font-size:22px; }
 .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:0; }
-.mm-v2 .v2-moved .n-row { grid-template-columns:minmax(0,1fr); }
-.mm-v2 .v2-moved a { color:var(--n-text); text-decoration:none; }
-.mm-v2 .v2-moved a:hover { color:var(--n-accent); }
+.mm-v2 .v2-bars { display:grid; gap:7px; margin-top:4px; }
+.mm-v2 .v2-bar { display:grid; grid-template-columns:minmax(0,1fr) 90px 22px 44px; gap:8px;
+                 align-items:center; font-size:13px; }
+.mm-v2 .v2-bar-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.mm-v2 .v2-bar-track { height:9px; background:#e2e8f0; border-radius:5px; overflow:hidden; }
+.mm-v2 .v2-bar-fill { height:100%; background:#475569; border-radius:5px; }
+.mm-v2 .v2-bar-n { text-align:right; font-variant-numeric:tabular-nums; font-weight:500; }
+.mm-v2 .v2-move { font-size:11.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mm-v2 .v2-move.up { color:var(--n-green); }
+.mm-v2 .v2-move.down { color:var(--n-orange); }
+.mm-v2 .v2-move.same { color:var(--n-muted); }
+.mm-v2 .v2-mv { border-bottom:1px solid var(--n-line); padding:9px 0; }
+.mm-v2 .v2-mv > summary { list-style:none; cursor:pointer; display:grid;
+                          grid-template-columns:minmax(0,1fr) 16px; gap:8px; align-items:center; }
+.mm-v2 .v2-mv > summary::-webkit-details-marker { display:none; }
+.mm-v2 .v2-mv > summary::after { content:"+"; color:var(--n-muted); font-size:18px;
+                                 line-height:1; text-align:right; }
+.mm-v2 .v2-mv[open] > summary::after { content:"\2212"; }
+.mm-v2 .v2-mv > summary:hover strong { color:var(--n-accent); }
+.mm-v2 .v2-mv-body { padding:6px 0 2px; font-size:13px; }
+.mm-v2 .v2-mv-head { margin:0; font-weight:500; line-height:1.35; }
+.mm-v2 .v2-mv-head a { color:var(--n-text); text-decoration:none; }
+.mm-v2 .v2-mv-head a:hover { color:var(--n-accent); }
+.mm-v2 .v2-mv-body .n-story-sum { font-size:12.5px; margin-top:4px; }
+.mm-v2 .v2-mv-body .n-support { margin-top:5px; }
 .mm-v2 .n-jump a[aria-current="page"] { background:#1e293b; color:#fff; }
 @media (max-width:1000px) { .mm-v2 .v2-grid { grid-template-columns:1fr; } }
 /* The section links are the site's navigation, so they stay at every width. */
@@ -2910,32 +2933,62 @@ def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -
             + "</div>")
 
 
-def _v2_top_vendors(by_vendor: List[Dict[str, Any]]) -> str:
-    """The vendors with the most developments in the period, top five. A
-    vendor the reader may not see is skipped, not shown as a placeholder:
-    a list of "a vendor not shown in this view" is not a list."""
+def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
+                    previous: Optional[Dict[str, int]] = None) -> str:
+    """The vendors with the most developments in the period, top five, as
+    bars, each against the same vendor's count in the period before: up,
+    down or the same. ``previous`` is None when there is no earlier period
+    to compare with, and the bars stand alone. A vendor the reader may not
+    see is skipped, not shown as a placeholder."""
     rows = [r for r in by_vendor
             if r.get("vendor") and not r.get("withheld")][:_V2_TOP_VENDORS]
     if not rows:
         return ""
-    return ('<h3 class="v2-sub">Most active vendors</h3>'
-            + "".join(f'<div class="n-row"><span class="n-rank">{i}</span>'
-                      f'<div><strong>{esc(r["vendor"])}</strong></div>'
-                      f'<span class="n-row-val">{int(r.get("n") or 0)}</span></div>'
-                      for i, r in enumerate(rows, 1)))
+    top = max(int(r.get("n") or 0) for r in rows) or 1
+    out = ['<h3 class="v2-sub">Most active vendors</h3>',
+           '<p class="v2-subline">Developments in the period'
+           + (', against the period before.' if previous is not None else '.') + '</p>',
+           '<div class="v2-bars">']
+    for r in rows:
+        n = int(r.get("n") or 0)
+        move = ""
+        if previous is not None:
+            before = int(previous.get(r["vendor"], 0))
+            if n > before:
+                move = f'<span class="v2-move up" title="{before} in the period before">&#9650; {n - before}</span>'
+            elif n < before:
+                move = f'<span class="v2-move down" title="{before} in the period before">&#9660; {before - n}</span>'
+            else:
+                move = '<span class="v2-move same" title="the same in the period before">=</span>'
+        out.append('<div class="v2-bar">'
+                   f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                   f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                   f'<div class="v2-bar-n">{n}</div>{move}</div>')
+    out.append("</div>")
+    return "".join(out)
 
 
 def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8) -> str:
-    """Who moved, as a sidebar list: the vendor, the kind, the date."""
+    """Who moved, as a sidebar list: the vendor, the kind and the date on
+    the line; the headline, the summary and the sources open on click. The
+    front page shows only the top of each section, so a jump link would
+    often land nowhere; the entry carries its own detail instead."""
     if not devs:
         return '<p class="n-empty">No vendor showed a material change in the period.</p>'
     rows = []
     for d in devs[:limit]:
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
-        rows.append(f'<div class="n-row"><div><a href="#{_dev_anchor(d)}">'
-                    f'<strong>{esc(vendors)}</strong></a>'
-                    f'<div class="n-row-label">{esc(_v2_tag(d))} · {esc(_dev_date(d))}</div>'
-                    "</div></div>")
+        summary = _summary_unless_duplicate(d)
+        top = next((e for e in (d.get("evidence") or []) if e.get("uri")), None)
+        headline = (f'<a href="{esc(top["uri"])}">{esc(d.get("headline") or "")}</a>'
+                    if top else esc(d.get("headline") or ""))
+        rows.append('<details class="v2-mv"><summary>'
+                    f'<div><strong>{esc(vendors)}</strong>'
+                    f'<div class="n-row-label">{esc(_v2_tag(d))} · {esc(_dev_date(d))}</div></div>'
+                    '</summary><div class="v2-mv-body">'
+                    f'<p class="v2-mv-head">{headline}</p>'
+                    + (f'<p class="n-story-sum">{esc(_clip(summary, 220))}</p>' if summary else "")
+                    + _dev_evidence_links(d) + "</div></details>")
     return '<div class="v2-moved">' + "".join(rows) + "</div>"
 
 
@@ -3026,6 +3079,26 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
 
     developments = assessment["developments"]
     devs_by_id = {d["event_id"]: d for d in developments}
+
+    # Each vendor's developments in the period before this one, for the
+    # activity bars: one run over a window twice as long, split at the
+    # current period's first day. None when the earlier window is one
+    # nothing was watching, so the bars carry no arrows.
+    previous_counts: Optional[Dict[str, int]] = None
+    if section is None and pc and pc.get("comparable"):
+        try:
+            both = massess.material_developments(conn, market["id"], days * 2,
+                                                 market=market)["developments"]
+            first_day = pc["current_range"][0]
+            previous_counts = {}
+            for d in both:
+                if (d.get("date") or "") < first_day:
+                    for v in d.get("vendors") or []:
+                        if v.get("vendor"):
+                            previous_counts[v["vendor"]] = previous_counts.get(v["vendor"], 0) + 1
+        except Exception as exc:                                  # noqa: BLE001
+            logger.warning("front page previous-period counts failed: %s", exc)
+            previous_counts = None
     parts = _v2_sections(developments, rows, assessment.get("discussion") or [],
                          highlights)
     buckets = parts["buckets"]
@@ -3140,7 +3213,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         # The assessment already masks a withheld vendor's name here, so the
         # list stays readable in the shared view.
         body.append('<div class="v2-card"><h2>By the numbers</h2>' + numbers
-                    + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [])
+                    + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [],
+                                      previous_counts)
                     + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
                     + _v2_moved(assessment.get("main_developments") or []) + "</div>")
@@ -3152,6 +3226,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                 + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>')
     if teaser:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
+    body.append(_missing_panel(market["id"], market["name"]))
+    if teaser:
         body.append(_trial_panel(market["id"]))
     body.append("</div>")
     if horizon_html:
