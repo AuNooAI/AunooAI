@@ -432,9 +432,9 @@ def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
 def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Reach and shape for one post, for ``articles.social_meta``.
 
-    Only the fields worth keeping. The mapper also returns the full post body
-    and an image URL; the body is already the article summary and the image is
-    of no analytic use.
+    Only the fields worth keeping. The mapper also returns the full post body,
+    which is already the article summary, and the post's image, kept since
+    2026-08-29 so the front page can show it.
     """
     engagement = mapped.get("engagement")
     engagement = engagement if isinstance(engagement, dict) else {}
@@ -453,6 +453,7 @@ def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "comments": engagement.get("comments"),
         "shares": engagement.get("shares"),
         "followers": engagement.get("followers"),
+        "image_url": mapped.get("image_url"),
     }
     # A row of nothing but nulls is worse than no row — it reads as "measured,
     # and measured zero".

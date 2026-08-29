@@ -2330,7 +2330,8 @@ def _render_observation(observation: Dict[str, Any]) -> str:
 
 
 def _render_hiring_block(devs: List[Dict[str, Any]], *,
-                         total: Optional[int] = None) -> str:
+                         total: Optional[int] = None,
+                         logos: Optional[Dict[str, str]] = None) -> str:
     """Hiring developments as one block: a vendor, a count, a mix. Eleven
     entries each listing thirty job titles is the jobs table, not the news.
     ``total`` is the number of vendors above the floor when ``devs`` is only
@@ -2344,7 +2345,7 @@ def _render_hiring_block(devs: List[Dict[str, Any]], *,
             (attrs.get("by_function") or {}).items(), key=lambda kv: -kv[1])[:3])
         vendor = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
         rows.append(f'<div class="n-row"><span class="n-rank"></span>'
-                    f'<div><strong>{esc(vendor)}</strong>'
+                    f'<div><strong>{_vendor_line(d, logos) if logos else esc(vendor)}</strong>'
                     + (f'<div class="n-row-label">{esc(mix)}</div>' if mix else "")
                     + f'</div><span class="n-row-val">{attrs.get("openings", "")}'
                     ' open roles</span></div>')
@@ -2380,10 +2381,31 @@ def _summary_unless_duplicate(dev: Dict[str, Any]) -> str:
     return "" if duplicate else summary
 
 
+def _dev_image(dev: Dict[str, Any], images: Optional[Dict[str, str]]) -> str:
+    """The first evidence record's image, when one was collected."""
+    if not images:
+        return ""
+    for e in dev.get("evidence") or []:
+        url = images.get(e.get("uri") or "")
+        if url:
+            return url
+    return ""
+
+
+def _vendor_line(dev: Dict[str, Any], logos: Optional[Dict[str, str]]) -> str:
+    """The development's vendors, each with its mark when there is one."""
+    names = [v.get("vendor") or "" for v in dev.get("vendors") or []]
+    # One span per vendor, so a flex byline keeps the mark with its name.
+    return ", ".join(f'<span class="v2-vendor">{_mark(logos, n)}{esc(n)}</span>'
+                     for n in names if n)
+
+
 def _render_developments(devs: List[Dict[str, Any]], *,
-                         tag_for=None) -> str:
+                         tag_for=None, images: Optional[Dict[str, str]] = None,
+                         logos: Optional[Dict[str, str]] = None) -> str:
     """Material market developments, one entry per event. ``tag_for``
-    names the tag over a story; the default is the event type's label."""
+    names the tag over a story; the default is the event type's label.
+    ``images`` maps a record's uri to its image, for a thumbnail."""
     if not devs:
         return '<p class="n-empty">No material development in the period.</p>'
     out = []
@@ -2393,20 +2415,23 @@ def _render_developments(devs: List[Dict[str, Any]], *,
             continue
         colour = _KIND_COLOUR.get(d["event_type"], "var(--n-accent)")
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
-        out.append(f'<article class="n-story" id="{_dev_anchor(d)}" '
+        image = _dev_image(d, images)
+        out.append(f'<article class="n-story{" n-story-img" if image else ""}" id="{_dev_anchor(d)}" '
                    f'style="--story:{colour}">')
+        if image:
+            out.append(f'<img class="n-thumb" src="{esc(image)}" alt="" loading="lazy">')
         tag = tag_for(d) if tag_for else d["event_type_label"]
         out.append(f'<div class="n-story-tag">{esc(tag)}</div>')
         out.append(f'<h3>{esc(d["headline"])}</h3>')
         summary = _summary_unless_duplicate(d)
         if summary:
             out.append(f'<p class="n-story-sum">{esc(_clip(summary, 320))}</p>')
-        bits = [vendors, _dev_date(d), _dev_sources(d), d["provenance_label"]]
-        out.append('<div class="n-byline">'
-                   + " · ".join(esc(b) for b in bits if b) + "</div>")
+        bits = [_vendor_line(d, logos) if logos else esc(vendors),
+                esc(_dev_date(d)), esc(_dev_sources(d)), esc(d["provenance_label"])]
+        out.append('<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>")
         out.append(_dev_evidence_links(d))
         out.append("</article>")
-    out.append(_render_hiring_block(hiring))
+    out.append(_render_hiring_block(hiring, logos=logos))
     return "".join(out)
 
 
@@ -2629,6 +2654,14 @@ V2_CSS = """
 .mm-v2 .v2-hl > summary:hover { color:var(--n-accent); }
 .mm-v2 .v2-hl-body { padding:6px 0 2px 34px; }
 .mm-v2 .v2-hl-body > p { margin:0; line-height:1.5; }
+.mm-v2 .n-story-img { display:grid; grid-template-columns:minmax(0,1fr) 96px; gap:4px 14px; }
+.mm-v2 .n-story-img > * { grid-column:1; }
+.mm-v2 .n-story-img > .n-thumb { grid-column:2; grid-row:1 / span 6; width:96px; height:96px;
+                                  object-fit:cover; border-radius:6px; background:#e2e8f0; }
+.mm-v2 .v2-lead-story.n-story-img { grid-template-columns:minmax(0,1fr) 260px; }
+.mm-v2 .v2-lead-story.n-story-img > .n-thumb { width:260px; height:180px; border-radius:8px; }
+@media (max-width:560px) { .mm-v2 .n-story-img, .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:1fr; }
+                           .mm-v2 .n-story-img > .n-thumb { grid-column:1; grid-row:auto; width:100%; height:160px; } }
 .mm-v2 .v2-sec { min-width:0; }
 .mm-v2 .v2-sec .n-sec-head { border-bottom:0; border-top:3px solid var(--sec,var(--n-accent));
                              padding:8px 0 0; }
@@ -2653,6 +2686,12 @@ V2_CSS = """
 .mm-v2 .v2-hz svg text.mm-lbl { font-size:22px; }
 .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:0; }
 .mm-v2 .v2-numbers .n-metric { cursor:help; }
+.mm-v2 .v2-mark { width:18px; height:18px; border-radius:4px; vertical-align:-4px;
+                  margin-right:5px; background:#fff; object-fit:contain; }
+.mm-v2 .v2-vendor { white-space:nowrap; }
+/* The byline flows as text here: as a flex row, the vendor span and the
+   rest of the line became separate items and broke onto two lines. */
+.mm-v2 .n-byline { display:block; line-height:1.6; }
 .mm-v2 .v2-bars { display:grid; gap:7px; margin-top:4px; }
 .mm-v2 .v2-bar { display:grid; grid-template-columns:minmax(0,1fr) 90px 22px 44px; gap:8px;
                  align-items:center; font-size:13px; }
@@ -2800,11 +2839,14 @@ def _v2_sections(developments: List[Dict[str, Any]],
     return {"lead": lead, "buckets": buckets, "highlights": shared[:_V2_HIGHLIGHTS]}
 
 
-def _v2_lead(dev: Dict[str, Any]) -> str:
+def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
+             logos: Optional[Dict[str, str]] = None) -> str:
     colour = _KIND_COLOUR.get(dev.get("event_type") or "", "var(--n-accent)")
     vendors = ", ".join(v.get("vendor") or "" for v in dev.get("vendors") or [])
-    out = [f'<article class="n-story v2-lead-story" id="{_dev_anchor(dev)}" '
-           f'style="--story:{colour}">',
+    image = _dev_image(dev, images)
+    out = [f'<article class="n-story v2-lead-story{" n-story-img" if image else ""}" '
+           f'id="{_dev_anchor(dev)}" style="--story:{colour}">',
+           (f'<img class="n-thumb v2-lead-img" src="{esc(image)}" alt="">' if image else ""),
            f'<div class="n-story-tag">Top development · {esc(_v2_tag(dev))}</div>',
            f'<h2>{esc(dev.get("headline") or "")}</h2>']
     summary = _summary_unless_duplicate(dev)
@@ -2812,8 +2854,9 @@ def _v2_lead(dev: Dict[str, Any]) -> str:
         out.append(f'<p class="n-story-sum">{esc(_clip(summary, 480))}</p>')
     if dev.get("why_it_matters"):
         out.append(f'<p class="n-why">{esc(dev["why_it_matters"])}</p>')
-    bits = [vendors, _dev_date(dev), _dev_sources(dev), dev.get("provenance_label") or ""]
-    out.append('<div class="n-byline">' + " · ".join(esc(b) for b in bits if b) + "</div>")
+    bits = [_vendor_line(dev, logos) if logos else esc(vendors), esc(_dev_date(dev)),
+            esc(_dev_sources(dev)), esc(dev.get("provenance_label") or "")]
+    out.append('<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>")
     out.append(_dev_evidence_links(dev))
     out.append("</article>")
     return "".join(out)
@@ -2849,12 +2892,16 @@ def _v2_section(key: str, inner: str, *, count: int, days: int,
             + inner + "</section>")
 
 
-def _v2_stories(devs: List[Dict[str, Any]]) -> str:
-    return _render_developments(devs, tag_for=_v2_tag) if devs else ""
+def _v2_stories(devs: List[Dict[str, Any]],
+                images: Optional[Dict[str, str]] = None,
+                logos: Optional[Dict[str, str]] = None) -> str:
+    return (_render_developments(devs, tag_for=_v2_tag, images=images, logos=logos)
+            if devs else "")
 
 
 def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
-               total: Optional[int] = None) -> str:
+               total: Optional[int] = None,
+               logos: Optional[Dict[str, str]] = None) -> str:
     """The hiring block for the vendors above the floor, a row per headcount
     move, and the market-wide count of open roles with its coverage.
     ``total`` is how many hiring developments the period holds when ``devs``
@@ -2866,7 +2913,7 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
         out.append(f'<p class="v2-strip"><strong>{openings}</strong> open roles '
                    f'observed; {esc(coverage.get("label") or "coverage unknown")}.</p>')
     shown = [d for d in devs if d.get("event_type") == "significant_hiring"]
-    out.append(_render_hiring_block(shown, total=total))
+    out.append(_render_hiring_block(shown, total=total, logos=logos))
     heads = [d for d in devs if d.get("event_type") == "headcount_change"]
     if heads:
         rows = []
@@ -2877,7 +2924,7 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
             detail = (f"{prev} to {latest} on LinkedIn"
                       if prev is not None and latest is not None else "LinkedIn headcount")
             rows.append(f'<div class="n-row"><span class="n-rank"></span>'
-                        f'<div><strong>{esc(vendor)}</strong>'
+                        f'<div><strong>{_mark(logos, vendor)}{esc(vendor)}</strong>'
                         f'<div class="n-row-label">{esc(detail)} · {esc(_dev_date(d))}</div></div>'
                         f'<span class="n-row-val">{_signed(attrs.get("pct"))}%</span></div>')
         out.append('<article class="n-story" style="--story:var(--n-green)">'
@@ -2914,6 +2961,46 @@ def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> 
                        f'{int(h.get("engagement") or 0)} reactions</div>'
                        f'<p class="n-quote"><a href="{esc(h["uri"])}">'
                        f'{esc(_clip(h.get("quote") or "", 200))}</a></p></div>')
+    return "".join(out)
+
+
+def _v2_top_voices(tv: Optional[Dict[str, Any]], limit: int = _V2_TOP_VENDORS) -> str:
+    """The people whose posts about the market drew the most reactions,
+    among accounts that posted more than once. One post is a post, not a
+    voice; and a company promoting itself is not a voice either, so accounts
+    the analysis tagged as a vendor's are left out."""
+    if not tv:
+        return ""
+    seen: set = set()
+    people = []
+    for v in list(tv.get("consistent") or []) + list(tv.get("voices") or []):
+        key = (str(v.get("platform") or "").lower(), str(v.get("author") or "").lower())
+        if not v.get("author") or key in seen or v.get("vendor_tag"):
+            continue
+        seen.add(key)
+        if int(v.get("posts") or 0) >= 2:
+            people.append(v)
+    people.sort(key=lambda v: (-int(v.get("engagement") or 0), -int(v.get("posts") or 0)))
+    rows = people[:limit]
+    if not rows:
+        return ""
+    out = ['<h3 class="v2-sub">Top voices</h3>',
+           '<p class="v2-subline">People posting about the market more than once, '
+           'by reactions to those posts.</p>']
+    for v in rows:
+        handle = f'@{esc(str(v["author"]))}'
+        if v.get("profile_url"):
+            handle = f'<a href="{esc(v["profile_url"])}">{handle}</a>'
+        acct = v.get("account") or {}
+        who = esc(acct.get("display_name") or "") if acct.get("profiled") else ""
+        platform = _PLATFORM_NAMES.get(str(v.get("platform") or "").lower(), v.get("platform") or "")
+        posts = int(v.get("posts") or 0)
+        reactions = int(v.get("engagement") or 0)
+        out.append('<div class="n-row"><span class="n-rank"></span>'
+                   f'<div><strong>{handle}</strong> <span class="mm-src">on {esc(platform)}</span>'
+                   + (f'<div class="n-row-label">{who}</div>' if who else "")
+                   + f'</div><span class="n-row-val">{posts} post{"" if posts == 1 else "s"} · '
+                   f'{reactions:,} reaction{"" if reactions == 1 else "s"}</span></div>')
     return "".join(out)
 
 
@@ -2954,7 +3041,8 @@ def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -
 
 
 def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
-                    previous: Optional[Dict[str, int]] = None) -> str:
+                    previous: Optional[Dict[str, int]] = None,
+                    logos: Optional[Dict[str, str]] = None) -> str:
     """The vendors with the most developments in the period, top five, as
     bars, each against the same vendor's count in the period before: up,
     down or the same. ``previous`` is None when there is no earlier period
@@ -2981,14 +3069,15 @@ def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
             else:
                 move = '<span class="v2-move same" title="the same in the period before">=</span>'
         out.append('<div class="v2-bar">'
-                   f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                   f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
                    f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
                    f'<div class="v2-bar-n">{n}</div>{move}</div>')
     out.append("</div>")
     return "".join(out)
 
 
-def _v2_motion(rows: List[Dict[str, Any]]) -> str:
+def _v2_motion(rows: List[Dict[str, Any]],
+               logos: Optional[Dict[str, str]] = None) -> str:
     """Who caused motion: the vendors whose own posts drew the most reactions,
     and the vendors others wrote about most. ``rows`` are share_of_voice's
     per-vendor rows, already reduced to the vendors the reader may see."""
@@ -3007,7 +3096,7 @@ def _v2_motion(rows: List[Dict[str, Any]]) -> str:
         for r in by_reactions:
             n = int(r["reactions"])
             out.append('<div class="v2-bar">'
-                       f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                       f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
                        f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
                        f'<div class="v2-bar-n">{n:,}</div>'
                        f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span></div>')
@@ -3020,14 +3109,15 @@ def _v2_motion(rows: List[Dict[str, Any]]) -> str:
         for r in by_earned:
             n = int(r["earned"])
             out.append('<div class="v2-bar">'
-                       f'<div class="v2-bar-name">{esc(r["vendor"])}</div>'
+                       f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
                        f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
                        f'<div class="v2-bar-n">{n}</div><span></span></div>')
         out.append("</div>")
     return "".join(out)
 
 
-def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8) -> str:
+def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8,
+              logos: Optional[Dict[str, str]] = None) -> str:
     """Who moved, as a sidebar list: the vendor, the kind and the date on
     the line; the headline, the summary and the sources open on click. The
     front page shows only the top of each section, so a jump link would
@@ -3042,7 +3132,7 @@ def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8) -> str:
         headline = (f'<a href="{esc(top["uri"])}">{esc(d.get("headline") or "")}</a>'
                     if top else esc(d.get("headline") or ""))
         rows.append('<details class="v2-mv"><summary>'
-                    f'<div><strong>{esc(vendors)}</strong>'
+                    f'<div><strong>{_vendor_line(d, logos) if logos else esc(vendors)}</strong>'
                     f'<div class="n-row-label">{esc(_v2_tag(d))} · {esc(_dev_date(d))}</div></div>'
                     '</summary><div class="v2-mv-body">'
                     f'<p class="v2-mv-head">{headline}</p>'
@@ -3065,6 +3155,48 @@ def _v2_horizon(horizon: Dict[str, Any], full_href: str) -> str:
             f'<p class="n-note">{counts.get("rated", len(rated))} of '
             f'{counts.get("eligible", "")} vendors placed by scale and momentum. '
             f'<a href="{full_href}">Full map with names</a>.</p>')
+
+
+def _v2_logos(conn, market_id: int) -> Dict[str, str]:
+    """Each vendor's mark by display name, for the vendors that have one
+    (``bw_brands.logo_data``, a data URI written by
+    ``scripts/fetch_vendor_logos.py``)."""
+    from sqlalchemy import text as _sql
+
+    rows = conn.execute(_sql("""
+        SELECT b.display_name, b.logo_data
+          FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND b.logo_data IS NOT NULL
+    """), {"m": market_id}).fetchall()
+    return {r[0]: r[1] for r in rows if r[1] and str(r[1]).startswith("data:image/")}
+
+
+def _mark(logos: Optional[Dict[str, str]], vendor: str, size: int = 18) -> str:
+    """The vendor's mark as an inline image, or nothing. Looked up by the
+    name the page is about to print, so a withheld vendor never gets one."""
+    uri = (logos or {}).get(vendor or "")
+    if not uri:
+        return ""
+    return (f'<img class="v2-mark" src="{uri}" alt="" width="{size}" height="{size}" '
+            'loading="lazy">')
+
+
+def _v2_images(conn, uris: List[str]) -> Dict[str, str]:
+    """The image collected with each record, by uri: a LinkedIn post's
+    picture (``image_url``, kept since 2026-08-29) or a social post's
+    thumbnail. Records without one are absent from the map."""
+    from sqlalchemy import text as _sql
+
+    uris = sorted({u for u in uris if u})
+    if not uris:
+        return {}
+    rows = conn.execute(_sql("""
+        SELECT uri, COALESCE(social_meta->>'image_url', social_meta->>'thumbnail') AS img
+          FROM articles
+         WHERE uri = ANY(:uris) AND jsonb_typeof(social_meta) = 'object'
+           AND COALESCE(social_meta->>'image_url', social_meta->>'thumbnail') IS NOT NULL
+    """), {"uris": uris}).fetchall()
+    return {r[0]: r[1] for r in rows if str(r[1]).startswith("http")}
 
 
 def _shared_view_note(conn, market_id: int, allowed_brand_ids: List[int]) -> str:
@@ -3125,6 +3257,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
     sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
                       if section is None else None) or {}).get("vendors") or [])
+    top_voices = (_safe(man.top_voices, conn, market["id"], days=days, limit=20)
+                  if section in (None, "social") else None)
     pc = _safe(man.period_comparison, conn, market["id"], days=days)
     period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"
 
@@ -3139,6 +3273,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
         allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
         sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
+        top_voices = ent.filter_rows(top_voices, allowed_brand_ids, allowed_names)
 
     developments = assessment["developments"]
     devs_by_id = {d["event_id"]: d for d in developments}
@@ -3165,6 +3300,13 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     parts = _v2_sections(developments, rows, assessment.get("discussion") or [],
                          highlights)
     buckets = parts["buckets"]
+    try:
+        images = _v2_images(conn, [e.get("uri") for d in developments
+                                   for e in (d.get("evidence") or [])])
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("front page images failed: %s", exc)
+        images = {}
+    logos = _safe(_v2_logos, conn, market["id"]) or {}
     registry_total = int(((assessment.get("inputs") or {}).get("registry_total")) or 0)
     generated = datetime.now(timezone.utc)
 
@@ -3174,12 +3316,13 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     def section_inner(key: str, items: List[Dict[str, Any]],
                       total: Optional[int] = None) -> str:
         if key == "hiring":
-            return _v2_hiring(items, hiring, total=total) if items else ""
+            return _v2_hiring(items, hiring, total=total, logos=logos) if items else ""
         if key == "voices":
             return _v2_voices(items, []) if items else ""
         if key == "social":
-            return _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
-        return _v2_stories(items)
+            inner = _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
+            return inner + _v2_top_voices(top_voices) if inner else inner
+        return _v2_stories(items, images, logos)
 
     # ---- chrome shared by the front page and a section page
     jump = "".join(
@@ -3224,7 +3367,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             inner = (section_inner(section, items[:cap], total=len(sig))
                      + _teaser_open("The remaining hiring entries")
                      + _render_hiring_block([d for d in items[cap:]
-                                             if d.get("event_type") == "significant_hiring"])
+                                             if d.get("event_type") == "significant_hiring"],
+                                            logos=logos)
                      + _TEASER_END)
         else:
             inner = section_inner(section, items)
@@ -3244,7 +3388,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         lead = parts["lead"]
         findings = assessment.get("findings") or []
         if lead is not None:
-            body.append(_v2_lead(lead))
+            body.append(_v2_lead(lead, images, logos))
         elif findings:
             body.append(_render_findings(findings[:1], devs_by_id))
             findings = findings[1:]
@@ -3279,11 +3423,11 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         # list stays readable in the shared view.
         body.append('<div class="v2-card"><h2>By the numbers</h2>' + numbers
                     + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [],
-                                      previous_counts)
+                                      previous_counts, logos)
                     + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
-                    + _v2_moved(assessment.get("main_developments") or []) + "</div>")
-        motion = _v2_motion(sov_rows)
+                    + _v2_moved(assessment.get("main_developments") or [], logos=logos) + "</div>")
+        motion = _v2_motion(sov_rows, logos)
         if motion:
             body.append('<div class="v2-card"><h2>Who caused motion</h2>' + motion + "</div>")
         body.append(_render_briefing_card(conn, market, withheld=withheld,

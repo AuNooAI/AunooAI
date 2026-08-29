@@ -150,10 +150,69 @@ The user reviewed the page and asked for four changes, all in
   see are dropped with `filter_rows`, so the shared view lists only names it may show.
 - **Hover text rewritten** in plain words after the user's review ("can you not sound like
   AI?"): four short sentences, no list of clauses.
+- **Top voices under Social.** `_v2_top_voices(tv)`: five people from `man.top_voices`
+  (already computed for the Analyst View) who posted about the market more than once, by
+  reactions to those posts — handle linked to the profile, platform, profiled display name,
+  posts · reactions. The first cut took the analysis's `consistent` list (three or more
+  posts) first, which put an outside vendor's account with 16 posts and 1 reaction at the
+  top; accounts the analysis tags as a vendor's are now left out and the rest rank by
+  reactions. Restricted readers get the rows through `filter_rows`, as on the Analyst View.
 - **Most active vendors skips withheld vendors.** The first version listed
   `assessment["distribution"]["by_vendor"]` as it came, so the shared view's top two rows read
   "a vendor not shown in this view". `_v2_top_vendors` now skips rows with `withheld` and
   lists the five most active vendors the reader may see.
+
+### Feature — post images on the front page, and a logo dry run
+The user asked for images and logos. **Post images** first, since the data can be recovered:
+
+- **`app/services/market_collect.py`** (`_post_social_meta`) kept everything about a vendor's
+  LinkedIn post except its image ("of no analytic use"). It now keeps `image_url`.
+- **`scripts/backfill_post_images.py`** (new) recovers the images for posts already stored:
+  the Bright Data snapshot ids are on `bw_collection_runs.job_id`, a finished snapshot can be
+  downloaded again at no charge, and `map_company_post` gives the post URL and image, which
+  is written onto `articles.social_meta.image_url` for the row made from that post. Dry by
+  default. Run on market 2: 23 snapshots, 12,605 raw posts, 2,798 distinct posts with an
+  image, 2,798 rows updated (every stored post that had one).
+- **`app/services/market_report_html.py`**: `_v2_images(conn, uris)` reads the image for the
+  evidence records on the page (`image_url`, or the `thumbnail` the social collector already
+  stores for Bluesky and Reddit); `_render_developments(images=)` and `_v2_lead(images=)`
+  draw it as a 96 px thumbnail on the right of a story (260×180 on the lead) via
+  `_dev_image`, which takes the first evidence record that has one. Hotlinked, not embedded;
+  the page stays under its size.
+
+Caveat on the images: LinkedIn serves post images from `media.licdn.com` with a signed URL
+that carries an expiry (`e=`). Measured on the 2,798 backfilled: 2,329 are signed to
+19 January 2038, so they will not lapse; 467 expire between 3 and 10 September 2026 (the
+`articleshare-shrink` kind, a link preview rather than an uploaded picture); 2 had already
+expired. A thumbnail whose URL has lapsed shows nothing (`alt=""`). The daily post collection
+now keeps `image_url`, so a post that is collected again gets a fresh URL; a post that is not
+keeps its old one. Embedding the picture at collection would remove the dependency at the
+cost of storage and is not done.
+
+**Vendor marks.** The dry run (`scratchpad/logo_dry_run.py`) found a usable icon on 73 of
+85 vendors' sites, so the user said build it:
+
+- **`alembic/versions/mm_020_brand_logo.py`**: `bw_brands.logo_data` (the mark as a data
+  URI), `logo_source`, `logo_fetched_at`. On the brand row, not the market registry: a
+  company has one mark whichever markets list it. Applied on bugfixing.
+- **`scripts/fetch_vendor_logos.py --market N [--apply] [--refresh]`** (new): per vendor with
+  a website, the site is read once and apple-touch-icon, icon, /favicon.ico and og:image are
+  tried in that order; the first that decodes, is 32 px or larger and square-ish (or an SVG,
+  rasterised with cairosvg) is fitted into a 64 px transparent square and stored as a PNG
+  data URI. With nothing usable on the site the script asks Google's favicon service for the
+  domain and keeps the answer unless it is Google's default globe (fingerprinted first).
+  Dry by default. Run on market 2: 84 vendors with a website, 79 marks stored (321 KB in
+  total, ~4 KB each), 5 without — AISOC, Andesite, AquilaI, SOCNova (nothing on the site or
+  at Google) and HTCD (site unreachable); Intezer has no website identifier in
+  `bw_vendor_identifiers` and was not tried. A vendor that already has a mark is skipped
+  unless `--refresh`.
+- **`app/services/market_report_html.py`**: `_v2_logos(conn, market_id)` maps display name
+  to mark for the market's brands; `_mark(logos, name)` draws an 18 px `<img class="v2-mark">`
+  and `_vendor_line(dev, logos)` puts one before each vendor name. Marks appear on the lead
+  and story bylines, the hiring block and headcount rows, Who moved, the activity bars and
+  both Who-caused-motion lists. Looked up by the name about to be printed, so a withheld
+  vendor never gets one. The data URIs ride in the page (a few KB per named vendor), which
+  keeps the "no external requests" property of the saved file.
 
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
