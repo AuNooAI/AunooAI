@@ -655,7 +655,7 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
         "by_vendor": sorted(per_vendor.values(),
                             key=lambda v: -v["openings"]),
         "coverage": _coverage(len(per_vendor), in_scope,
-                              "vendors have job listings we have seen"),
+                              "vendors have public job listings"),
     }
 
 

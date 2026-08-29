@@ -789,7 +789,8 @@ def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool)
 
 def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                  cuts: Dict[str, Any], *, tiers: Optional[Dict[str, Any]] = None,
-                 bands: Optional[Dict[str, Any]] = None, with_inputs: bool = False) -> str:
+                 bands: Optional[Dict[str, Any]] = None, with_inputs: bool = False,
+                 labels: Any = True, label_scale: float = 1.0) -> str:
     """Vendors on a semicircle. The angle is the stage, by scale: the
     smallest vendors on the left, the largest on the right, so a vendor's
     life runs left to right. The distance from the base is momentum: the
@@ -798,7 +799,11 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
     only where the viewer may see them; the dots give nothing away.
 
     The grid in ``_horizon_grid_svg`` plots the same two scores on plain
-    axes; the report offers both and the reader picks."""
+    axes; the report offers both and the reader picks. ``labels`` is True
+    for every name, False for none, or a number: the names of that many
+    vendors, the largest and fastest first, for a copy of the map too small
+    to carry them all. ``label_scale`` tells the placer how much larger
+    than 11 px the page will draw the names, so they still keep apart."""
     from app.services.market_horizon import band_cuts, band_info, stage_cuts, tier_info
     w, h = 900, 532
     cx, cy, radius = w / 2, h - 72, 400
@@ -868,9 +873,11 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
         px, py = best
         band_marks.append((px - bw / 2, py - 6, bw, 12.0))
         band_text.append(_halo_text(px, py + 4, word))
-    parts += [f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="11" fill="#64748b">← smaller by scale</text>',
+    parts += ['<g class="mm-hz-axis">',
+              f'<text x="{cx - radius:.0f}" y="{cy + 16:.0f}" font-size="11" fill="#64748b">← smaller by scale</text>',
               f'<text x="{cx + radius:.0f}" y="{cy + 16:.0f}" text-anchor="end" font-size="11" fill="#64748b">larger by scale →</text>',
-              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">further from the base = more momentum</text>']
+              f'<text x="{cx:.0f}" y="{cy + 16:.0f}" text-anchor="middle" font-size="11" fill="#64748b">further from the base = more momentum</text>',
+              '</g>']
     # The axis captions under the base are obstacles too, so a label that
     # drops below the base cannot land on them.
     captions = [(cx - radius, cy + 6, _label_width("← smaller by scale") * 1.1, 12.0),
@@ -880,8 +887,9 @@ def _horizon_svg(rated: List[Dict[str, Any]], allowed: Optional[set],
                  _label_width("further from the base = more momentum") * 1.1, 12.0)]
     trails, dots_svg = _horizon_dot_layer(rated, allowed, order, spread, place,
                                           obstacles=band_marks + captions, width=w, max_y=cy + 26,
-                                          tiers=tiers, with_inputs=with_inputs, arrow="mm-hz-arrow")
-    parts += _horizon_legend(cx - 268, cy + 44, bool(trails))
+                                          tiers=tiers, with_inputs=with_inputs, arrow="mm-hz-arrow",
+                                          labels=labels, label_scale=label_scale)
+    parts += ['<g class="mm-hz-legend">'] + _horizon_legend(cx - 268, cy + 44, bool(trails)) + ['</g>']
     parts += trails + dots_svg + band_text
     parts.append("</svg>")
     return "".join(parts)
@@ -951,7 +959,7 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
                        order: List[Dict[str, Any]], spread: Dict[int, tuple], place,
                        *, obstacles: List[tuple], width: float, max_y: float,
                        tiers: Optional[Dict[str, Any]], with_inputs: bool,
-                       arrow: str) -> tuple:
+                       arrow: str, labels: Any = True, label_scale: float = 1.0) -> tuple:
     """The trails, dots, marker rings and vendor labels, the same on either
     map shape. ``place`` puts a vendor (or its previous scores) on the
     canvas; ``spread`` is the nudged position per brand id. Returns the
@@ -972,9 +980,17 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
     def ring(r: Dict[str, Any]) -> float:
         return 10.5 if r.get("funded") else 9.0 if r.get("hiring") else 7.5 if r.get("innovating") else 6.0
     shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
-    spots = _label_spots([(x, y, ring(r), _label_width(r["vendor"]) * 1.1 if s else 0.0)
-                          for (r, x, y), s in zip(dots, shown)], 12.0, width, max_y,
-                         obstacles=obstacles)
+    if labels:
+        # ``order`` puts the largest and fastest first, so a number labels
+        # the vendors a reader would look for first.
+        limit = len(dots) if labels is True else int(labels)
+        spots = _label_spots([(x, y, ring(r),
+                               _label_width(r["vendor"]) * 1.1 * label_scale
+                               if (s and i < limit) else 0.0)
+                              for i, ((r, x, y), s) in enumerate(zip(dots, shown))],
+                             12.0 * label_scale, width, max_y, obstacles=obstacles)
+    else:
+        spots = [None] * len(dots)
     parts = []
     for (r, x, y), is_shown, spot in zip(dots, shown, spots):
         colour = _TIER_COLOUR.get(r.get("tier") or "", "#475569")
@@ -1001,7 +1017,7 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle class="mm-core" cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
         if spot is not None:
-            parts.append(f'<text class="mm-lbl" x="{spot["tx"]:.1f}" y="{spot["by"] + 10:.1f}" text-anchor="{spot["anchor"]}" '
+            parts.append(f'<text class="mm-lbl" x="{spot["tx"]:.1f}" y="{spot["by"] + 10 * label_scale:.1f}" text-anchor="{spot["anchor"]}" '
                          f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
         parts.append('</g>')
     return trails, parts
@@ -2173,38 +2189,45 @@ def _render_findings(findings: List[Dict[str, Any]],
     for f in findings:
         out.append('<li class="n-finding">')
         out.append(f'<h3>{esc(f["headline"])}</h3>')
-        out.append(f'<p>{esc(f["body"])}</p>')
-        linked = [devs_by_id[i] for i in (f.get("developments") or [])
-                  if i in devs_by_id]
-        if f.get("evidence"):
-            items = []
-            for e in f["evidence"]:
-                # An evidence line that opens with a development's headline
-                # is that development's citation, so it links there.
-                dev = next((d for d in linked if e.startswith(d["headline"])), None)
-                if dev:
-                    items.append(f'<li><a href="#{_dev_anchor(dev)}">'
-                                 f'{esc(dev["headline"])}</a>'
-                                 f'{esc(e[len(dev["headline"]):])}</li>')
-                else:
-                    items.append(f'<li>{esc(e)}</li>')
-            out.append('<ul class="n-evidence">' + "".join(items) + "</ul>")
-        # Links only when the finding rests on a handful of developments the
-        # evidence lines have not already named; a list of 23 is the
-        # developments section, not a citation.
-        named = " ".join(f.get("evidence") or [])
-        if linked and len(linked) <= 5 and not all(
-                d["headline"] in named for d in linked):
-            links = ", ".join(
-                f'<a href="#{_dev_anchor(d)}">{esc(_clip(d["headline"], 48))}</a>'
-                for d in linked[:5])
-            more = len(linked) - min(len(linked), 5)
-            out.append('<div class="n-cites">Developments: ' + links
-                       + (f" and {more} more" if more > 0 else "") + "</div>")
-        if f.get("coverage"):
-            out.append(f'<div class="n-coverage">{esc(f["coverage"])}</div>')
+        out.append(_finding_body(f, devs_by_id))
         out.append("</li>")
     out.append("</ol>")
+    return "".join(out)
+
+
+def _finding_body(f: Dict[str, Any], devs_by_id: Dict[str, Dict[str, Any]]) -> str:
+    """Everything under a finding's headline: the statement, its evidence
+    lines, the developments it rests on, and its coverage line."""
+    out = [f'<p>{esc(f["body"])}</p>']
+    linked = [devs_by_id[i] for i in (f.get("developments") or [])
+              if i in devs_by_id]
+    if f.get("evidence"):
+        items = []
+        for e in f["evidence"]:
+            # An evidence line that opens with a development's headline
+            # is that development's citation, so it links there.
+            dev = next((d for d in linked if e.startswith(d["headline"])), None)
+            if dev:
+                items.append(f'<li><a href="#{_dev_anchor(dev)}">'
+                             f'{esc(dev["headline"])}</a>'
+                             f'{esc(e[len(dev["headline"]):])}</li>')
+            else:
+                items.append(f'<li>{esc(e)}</li>')
+        out.append('<ul class="n-evidence">' + "".join(items) + "</ul>")
+    # Links only when the finding rests on a handful of developments the
+    # evidence lines have not already named; a list of 23 is the
+    # developments section, not a citation.
+    named = " ".join(f.get("evidence") or [])
+    if linked and len(linked) <= 5 and not all(
+            d["headline"] in named for d in linked):
+        links = ", ".join(
+            f'<a href="#{_dev_anchor(d)}">{esc(_clip(d["headline"], 48))}</a>'
+            for d in linked[:5])
+        more = len(linked) - min(len(linked), 5)
+        out.append('<div class="n-cites">Developments: ' + links
+                   + (f" and {more} more" if more > 0 else "") + "</div>")
+    if f.get("coverage"):
+        out.append(f'<div class="n-coverage">{esc(f["coverage"])}</div>')
     return "".join(out)
 
 
@@ -2306,9 +2329,12 @@ def _render_observation(observation: Dict[str, Any]) -> str:
     return "".join(out)
 
 
-def _render_hiring_block(devs: List[Dict[str, Any]]) -> str:
+def _render_hiring_block(devs: List[Dict[str, Any]], *,
+                         total: Optional[int] = None) -> str:
     """Hiring developments as one block: a vendor, a count, a mix. Eleven
-    entries each listing thirty job titles is the jobs table, not the news."""
+    entries each listing thirty job titles is the jobs table, not the news.
+    ``total`` is the number of vendors above the floor when ``devs`` is only
+    the top of that list, so the heading says so."""
     if not devs:
         return ""
     rows = []
@@ -2326,9 +2352,11 @@ def _render_hiring_block(devs: List[Dict[str, Any]]) -> str:
     return (f'<article class="n-story" id="{_dev_anchor(first)}" '
             'style="--story:var(--n-green)">'
             '<div class="n-story-tag">Hiring</div>'
-            f'<h3>{len(devs)} vendors with {massess_min_openings()} or more open '
-            'roles observed</h3>'
-            '<div class="n-byline">Job boards · observed this period · '
+            + (f'<h3>Top {len(devs)} of {total} vendors with {massess_min_openings()} '
+               'or more open roles observed</h3>' if total and total > len(devs) else
+               f'<h3>{len(devs)} vendors with {massess_min_openings()} or more open '
+               'roles observed</h3>')
+            + '<div class="n-byline">Job boards · observed this period · '
             "Vendor sources only</div>"
             + "".join(rows) + "</article>")
 
@@ -2338,8 +2366,24 @@ def massess_min_openings() -> int:
     return MIN_OPENINGS_FOR_HIRING
 
 
-def _render_developments(devs: List[Dict[str, Any]]) -> str:
-    """Material market developments, one entry per event."""
+def _summary_unless_duplicate(dev: Dict[str, Any]) -> str:
+    """The development's summary, or nothing when it repeats the headline.
+
+    A summary that repeats the headline is not a summary. The title is
+    often the post's own first line, so compare inside, not at the start.
+    """
+    summary = (dev.get("summary") or "").strip()
+    head_key = _norm_words(dev.get("headline") or "")
+    sum_key = _norm_words(summary)
+    duplicate = bool(head_key) and (head_key[:60] in sum_key
+                                    or sum_key[:60] in head_key)
+    return "" if duplicate else summary
+
+
+def _render_developments(devs: List[Dict[str, Any]], *,
+                         tag_for=None) -> str:
+    """Material market developments, one entry per event. ``tag_for``
+    names the tag over a story; the default is the event type's label."""
     if not devs:
         return '<p class="n-empty">No material development in the period.</p>'
     out = []
@@ -2351,16 +2395,11 @@ def _render_developments(devs: List[Dict[str, Any]]) -> str:
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
         out.append(f'<article class="n-story" id="{_dev_anchor(d)}" '
                    f'style="--story:{colour}">')
-        out.append(f'<div class="n-story-tag">{esc(d["event_type_label"])}</div>')
+        tag = tag_for(d) if tag_for else d["event_type_label"]
+        out.append(f'<div class="n-story-tag">{esc(tag)}</div>')
         out.append(f'<h3>{esc(d["headline"])}</h3>')
-        summary = (d.get("summary") or "").strip()
-        head_key = _norm_words(d["headline"])
-        sum_key = _norm_words(summary)
-        # A summary that repeats the headline is not a summary. The title is
-        # often the post's own first line, so compare inside, not at the start.
-        duplicate = bool(head_key) and (head_key[:60] in sum_key
-                                        or sum_key[:60] in head_key)
-        if summary and not duplicate:
+        summary = _summary_unless_duplicate(d)
+        if summary:
             out.append(f'<p class="n-story-sum">{esc(_clip(summary, 320))}</p>')
         bits = [vendors, _dev_date(d), _dev_sources(d), d["provenance_label"]]
         out.append('<div class="n-byline">'
@@ -2507,10 +2546,11 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     if market.get("is_public"):
         rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
                'title="Subscribe in a feed reader">RSS</a>')
-    body = [f"<style>{EXTRA_CSS}{NEWS_CSS}</style>", '<div class="mm-news">',
+    body = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>", '<div class="mm-news">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
-            f'<a href="?{_relink(link_params, days=days)}">Assessment</a>'
+            f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
+            f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
             f'{rss}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>',
             '<main class="n-river">',
@@ -2529,6 +2569,602 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     rendered = html_document(f'{market["name"]} — news river', "".join(body))
     ent.assert_no_withheld(rendered, withheld,
                            context=f'market {market["id"]} news river')
+    return rendered.encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# The front page: the same period laid out like a news site
+# ---------------------------------------------------------------------------
+#
+# ``?view=v2``. A masthead, one lead story, and a section for each kind of
+# development, with the map, the findings and the numbers in a sidebar.
+# ``?view=v2&section=hiring`` is one section as its own page, listing
+# everything in it for the period. Nothing here classifies: the sections are
+# the developments ``market_assessment`` already returns, bucketed by their
+# type, and the thought-leadership section is what the assessment computed as
+# discussion and the report never showed.
+
+#: A dark site with each page as one light card on it. The disclosure
+#: footer and the shared-view note sit on the dark ground, so they take the
+#: masthead's muted text colour. Emitted by every page of the report.
+DARK_CSS = """
+html, body { background:#0b1220; }
+.container > .ai-disclosure, .container > p.mm-src { color:#aab7c7; }
+.container > .ai-disclosure a, .container > p.mm-src a { color:#e6edf5; }
+.mm-news { border-color:#1e293b; box-shadow:0 12px 40px rgba(0,0,0,.35); }
+"""
+
+V2_CSS = """
+.container { max-width: 1180px; }
+.mm-v2 .v2-mast { display:flex; justify-content:space-between; align-items:flex-end;
+                  gap:16px 24px; flex-wrap:wrap; padding:22px 24px 16px;
+                  border-bottom:3px solid var(--n-text); }
+.mm-v2 .v2-mast h1 { font-size:clamp(26px,3.4vw,38px); }
+.mm-v2 .v2-mast .n-sub { margin-top:6px; }
+.mm-v2 .v2-grid { display:grid; grid-template-columns:minmax(0,1fr) 340px;
+                  gap:26px 34px; align-items:start; padding:22px 24px; }
+.mm-v2 .v2-main { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+                  gap:22px 30px; align-content:start; min-width:0; }
+.mm-v2 .v2-main.v2-one { grid-template-columns:1fr; }
+.mm-v2 .v2-lead, .mm-v2 .v2-wide { grid-column:1/-1; }
+.mm-v2 .v2-lead-story { padding-top:0; }
+.mm-v2 .v2-lead-story h2 { font-size:27px; line-height:1.2; font-weight:500; margin:4px 0 0; }
+.mm-v2 .v2-lead-story .n-story-sum { font-size:15.5px; max-width:70ch; }
+.mm-v2 .v2-findings h2 { font-size:12.5px; letter-spacing:.06em; text-transform:uppercase;
+                         margin:18px 0 0; padding-top:8px; border-top:3px solid var(--n-text); }
+.mm-v2 .v2-findings { counter-reset:hl; }
+.mm-v2 .v2-hl { border-bottom:1px solid var(--n-line); padding:9px 0; counter-increment:hl; }
+.mm-v2 .v2-hl > summary { list-style:none; cursor:pointer; display:grid;
+                          grid-template-columns:24px minmax(0,1fr) 16px; gap:10px;
+                          align-items:baseline; font-size:15.5px; font-weight:500; }
+.mm-v2 .v2-hl > summary::-webkit-details-marker { display:none; }
+.mm-v2 .v2-hl > summary::before { content:counter(hl); width:24px; height:24px;
+                                  border-radius:50%; background:var(--n-accent); color:#fff;
+                                  font-size:12px; display:grid; place-items:center;
+                                  align-self:center; }
+.mm-v2 .v2-hl > summary::after { content:"+"; color:var(--n-muted); font-size:18px;
+                                 line-height:1; text-align:right; }
+.mm-v2 .v2-hl[open] > summary::after { content:"\2212"; }
+.mm-v2 .v2-hl > summary:hover { color:var(--n-accent); }
+.mm-v2 .v2-hl-body { padding:6px 0 2px 34px; }
+.mm-v2 .v2-hl-body > p { margin:0; line-height:1.5; }
+.mm-v2 .v2-sec { min-width:0; }
+.mm-v2 .v2-sec .n-sec-head { border-bottom:0; border-top:3px solid var(--sec,var(--n-accent));
+                             padding:8px 0 0; }
+.mm-v2 .v2-sec .n-sec-head h2 { font-size:12.5px; letter-spacing:.06em; text-transform:uppercase;
+                                color:var(--sec,var(--n-accent)); }
+.mm-v2 .v2-more { font-size:12px; color:var(--n-muted); text-decoration:none; white-space:nowrap; }
+.mm-v2 .v2-more:hover { color:var(--n-accent); }
+.mm-v2 .v2-subline { margin:2px 0 4px; font-size:12px; color:var(--n-muted); }
+.mm-v2 .v2-sec .n-story { padding:12px 0; }
+.mm-v2 .v2-sec .n-story h3 { font-size:15.5px; }
+.mm-v2 .v2-sec .n-story-sum { font-size:13.5px; }
+.mm-v2 .v2-strip { font-size:13px; margin:8px 0 0; }
+.mm-v2 .v2-sub { font-size:12px; text-transform:uppercase; letter-spacing:.05em;
+                 color:var(--n-muted); margin:14px 0 2px; font-weight:500; }
+.mm-v2 .v2-side { display:grid; gap:20px; align-content:start; min-width:0; }
+.mm-v2 .v2-card > h2 { font-size:12.5px; letter-spacing:.06em; text-transform:uppercase;
+                       margin:0 0 6px; border-top:3px solid var(--n-text); padding-top:8px;
+                       font-weight:500; }
+.mm-v2 .v2-hz svg { width:100%; height:auto; max-width:none; }
+.mm-v2 .v2-hz svg svg, .mm-v2 .v2-hz .mm-hz-legend, .mm-v2 .v2-hz .mm-hz-axis { display:none; }
+.mm-v2 .v2-hz svg text { font-size:26px; }
+.mm-v2 .v2-hz svg text.mm-lbl { font-size:22px; }
+.mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:0; }
+.mm-v2 .v2-moved .n-row { grid-template-columns:minmax(0,1fr); }
+.mm-v2 .v2-moved a { color:var(--n-text); text-decoration:none; }
+.mm-v2 .v2-moved a:hover { color:var(--n-accent); }
+.mm-v2 .n-jump a[aria-current="page"] { background:#1e293b; color:#fff; }
+@media (max-width:1000px) { .mm-v2 .v2-grid { grid-template-columns:1fr; } }
+/* The section links are the site's navigation, so they stay at every width. */
+@media (max-width:850px) { .mm-v2 .n-jump { display:flex; } }
+@media (max-width:760px) { .mm-v2 .v2-main { grid-template-columns:1fr; }
+                           .mm-v2 .v2-grid, .mm-v2 .v2-mast { padding-left:16px; padding-right:16px; } }
+"""
+
+#: The sections, in page order. ``thing`` completes "No … observed".
+V2_SECTIONS: Dict[str, Dict[str, str]] = {
+    "moves": {"heading": "Market moves", "colour": "var(--n-purple)",
+              "thing": "market move",
+              "subline": "Deals, funding, partnerships, leadership changes "
+                         "and named customers."},
+    "launches": {"heading": "Product launches", "colour": "var(--n-blue)",
+                 "thing": "product launch",
+                 "subline": "New products, and expansions of existing ones."},
+    "hiring": {"heading": "Hiring", "colour": "var(--n-green)",
+               "thing": "hiring above the floor",
+               "subline": "Vendors with 5 or more open roles, and LinkedIn "
+                          "headcount moves of 10% or more."},
+    "cases": {"heading": "Case studies", "colour": "var(--n-orange)",
+              "thing": "case study",
+              "subline": "Customer stories where the customer is not named."},
+    "voices": {"heading": "Thought leadership", "colour": "var(--n-accent)",
+               "thing": "opinion or research",
+               "subline": "Opinion and research from vendors and practitioners "
+                          "that is not tied to a development."},
+}
+_V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
+_V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
+#: How many items a section shows on the front page; its own page shows all.
+_V2_CAPS = {"moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6}
+_V2_HIGHLIGHTS = 3
+#: Vendors named on the sidebar map, and on the most-active list.
+_V2_HORIZON_NAMES = 8
+_V2_TOP_VENDORS = 5
+
+
+def _customer_named(dev: Dict[str, Any]) -> bool:
+    """Whether the review pass recorded the customer's name. A vendor's
+    story about an unnamed customer is a case study, not a customer."""
+    reading = (dev.get("attributes") or {}).get("customer") or {}
+    return bool(reading.get("named"))
+
+
+def _v2_tag(dev: Dict[str, Any]) -> str:
+    if dev.get("event_type") == "customer":
+        return "Customer" if _customer_named(dev) else "Case study"
+    return dev.get("event_type_label") or ""
+
+
+def _v2_is_voice(row: Dict[str, Any]) -> bool:
+    """A vendor post that is opinion or research rather than an
+    announcement. Practitioner discussion arrives separately, already
+    filtered, as the assessment's ``discussion`` list."""
+    verdict = (row.get("review_verdict") or "").lower()
+    kind = (row.get("review_kind") or "").lower()
+    if row.get("article_class") != "social" or verdict in ("noise", "excluded"):
+        return False
+    return ((verdict == "commentary" and kind in ("opinion", "research"))
+            or (verdict == "signal" and kind == "research"))
+
+
+def _v2_sections(developments: List[Dict[str, Any]],
+                 corpus_rows: List[Dict[str, Any]],
+                 discussion: List[Dict[str, Any]],
+                 highlights: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Every development in exactly one place: the lead, or one section.
+
+    The lead is the highest-ranked development that is not a hiring count.
+    Launches and expansions are one section, hiring and headcount another,
+    unnamed customer stories a third; everything else is a market move.
+    Thought leadership is the vendor opinion and research posts plus the
+    practitioner discussion, minus anything already cited as evidence.
+    """
+    lead = next((d for d in developments
+                 if d.get("event_type") not in _V2_HIRING_TYPES), None)
+    if lead is None and developments:
+        lead = developments[0]
+    buckets: Dict[str, List[Dict[str, Any]]] = {k: [] for k in V2_SECTIONS}
+    for d in developments:
+        if d is lead:
+            continue
+        kind = d.get("event_type")
+        if kind in _V2_LAUNCH_TYPES:
+            buckets["launches"].append(d)
+        elif kind in _V2_HIRING_TYPES:
+            buckets["hiring"].append(d)
+        elif kind == "customer" and not _customer_named(d):
+            buckets["cases"].append(d)
+        else:
+            buckets["moves"].append(d)
+    # Hiring is ordered by open roles, most first, then the headcount moves
+    # by size, so the front page's top five are the five biggest recruiters.
+    def hiring_key(d: Dict[str, Any]) -> tuple:
+        attrs = d.get("attributes") or {}
+        if d.get("event_type") == "significant_hiring":
+            return (0, -int(attrs.get("openings") or 0))
+        return (1, -abs(float(attrs.get("pct") or 0)))
+    buckets["hiring"].sort(key=hiring_key)
+    used = {e.get("uri") for d in developments for e in (d.get("evidence") or [])}
+    voices: Dict[str, Dict[str, Any]] = {}
+    for row in [r for r in (corpus_rows or []) if _v2_is_voice(r)] + list(discussion or []):
+        uri = row.get("uri")
+        if uri and uri not in used and uri not in voices:
+            voices[uri] = row
+    buckets["voices"] = sorted(voices.values(),
+                               key=lambda r: str(r.get("published") or ""),
+                               reverse=True)
+    shared = [h for h in (highlights or [])
+              if h.get("uri") and h["uri"] not in used and h["uri"] not in voices]
+    return {"lead": lead, "buckets": buckets, "highlights": shared[:_V2_HIGHLIGHTS]}
+
+
+def _v2_lead(dev: Dict[str, Any]) -> str:
+    colour = _KIND_COLOUR.get(dev.get("event_type") or "", "var(--n-accent)")
+    vendors = ", ".join(v.get("vendor") or "" for v in dev.get("vendors") or [])
+    out = [f'<article class="n-story v2-lead-story" id="{_dev_anchor(dev)}" '
+           f'style="--story:{colour}">',
+           f'<div class="n-story-tag">Top development · {esc(_v2_tag(dev))}</div>',
+           f'<h2>{esc(dev.get("headline") or "")}</h2>']
+    summary = _summary_unless_duplicate(dev)
+    if summary:
+        out.append(f'<p class="n-story-sum">{esc(_clip(summary, 480))}</p>')
+    if dev.get("why_it_matters"):
+        out.append(f'<p class="n-why">{esc(dev["why_it_matters"])}</p>')
+    bits = [vendors, _dev_date(dev), _dev_sources(dev), dev.get("provenance_label") or ""]
+    out.append('<div class="n-byline">' + " · ".join(esc(b) for b in bits if b) + "</div>")
+    out.append(_dev_evidence_links(dev))
+    out.append("</article>")
+    return "".join(out)
+
+
+def _v2_highlights(findings: List[Dict[str, Any]],
+                   devs_by_id: Dict[str, Dict[str, Any]]) -> str:
+    """The findings as headlines, each opening to its statement and
+    evidence: a reader skims the list and opens the one that matters."""
+    if not findings:
+        return ""
+    return ('<div class="v2-findings"><h2>Highlights</h2>'
+            + "".join(f'<details class="v2-hl"><summary>{esc(f["headline"])}</summary>'
+                      f'<div class="v2-hl-body">{_finding_body(f, devs_by_id)}</div></details>'
+                      for f in findings)
+            + "</div>")
+
+
+def _v2_section(key: str, inner: str, *, count: int, days: int,
+                more_href: Optional[str] = None, wide: bool = False) -> str:
+    """One section: its name, a line saying what it holds, and its items or
+    a line saying there are none. The front page links to the full list."""
+    sec = V2_SECTIONS[key]
+    more = (f'<a class="v2-more" href="{more_href}">All {count} &rarr;</a>'
+            if more_href and count else "")
+    if not inner:
+        inner = (f'<p class="n-empty">No {esc(sec["thing"])} observed in the '
+                 f'last {days} days.</p>')
+    return (f'<section class="v2-sec{" v2-wide" if wide else ""}" id="v2-{key}" '
+            f'style="--sec:{sec["colour"]}">'
+            f'<div class="n-sec-head"><h2>{esc(sec["heading"])}</h2>{more}</div>'
+            f'<p class="v2-subline">{esc(sec["subline"])}</p>'
+            + inner + "</section>")
+
+
+def _v2_stories(devs: List[Dict[str, Any]]) -> str:
+    return _render_developments(devs, tag_for=_v2_tag) if devs else ""
+
+
+def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
+               total: Optional[int] = None) -> str:
+    """The hiring block for the vendors above the floor, a row per headcount
+    move, and the market-wide count of open roles with its coverage.
+    ``total`` is how many hiring developments the period holds when ``devs``
+    is the front page's top of the list."""
+    out = []
+    openings = int(hiring.get("openings") or 0)
+    coverage = hiring.get("coverage") or {}
+    if openings:
+        out.append(f'<p class="v2-strip"><strong>{openings}</strong> open roles '
+                   f'observed; {esc(coverage.get("label") or "coverage unknown")}.</p>')
+    shown = [d for d in devs if d.get("event_type") == "significant_hiring"]
+    out.append(_render_hiring_block(shown, total=total))
+    heads = [d for d in devs if d.get("event_type") == "headcount_change"]
+    if heads:
+        rows = []
+        for d in heads:
+            attrs = d.get("attributes") or {}
+            vendor = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
+            prev, latest = attrs.get("previous"), attrs.get("latest")
+            detail = (f"{prev} to {latest} on LinkedIn"
+                      if prev is not None and latest is not None else "LinkedIn headcount")
+            rows.append(f'<div class="n-row"><span class="n-rank"></span>'
+                        f'<div><strong>{esc(vendor)}</strong>'
+                        f'<div class="n-row-label">{esc(detail)} · {esc(_dev_date(d))}</div></div>'
+                        f'<span class="n-row-val">{_signed(attrs.get("pct"))}%</span></div>')
+        out.append('<article class="n-story" style="--story:var(--n-green)">'
+                   '<div class="n-story-tag">Headcount</div>'
+                   f'<h3>{len(heads)} vendor{"" if len(heads) == 1 else "s"} whose '
+                   'LinkedIn headcount moved 10% or more</h3>' + "".join(rows)
+                   + "</article>")
+    return "".join(out)
+
+
+def _v2_voice_row(row: Dict[str, Any]) -> str:
+    from app.services import market_assessment as massess
+    headline = massess.headline_of(row) if row.get("title") else row["uri"]
+    author = (row.get("social_meta") or {}).get("author")
+    if author and headline.lower().startswith(f"@{author}:".lower()):
+        headline = headline[len(author) + 2:].strip() or headline
+    when = _day(row.get("published")) if row.get("published") else ""
+    return ('<div class="n-social">'
+            f'<div class="n-social-meta">{esc(_river_source(row))}'
+            + (f" · {esc(when)}" if when else "") + "</div>"
+            f'<p class="n-quote"><a href="{esc(row["uri"])}">{esc(_clip(headline, 220))}</a></p>'
+            "</div>")
+
+
+def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> str:
+    out = [_v2_voice_row(r) for r in rows]
+    if highlights:
+        out.append('<h3 class="v2-sub">Most shared posts</h3>')
+        for h in highlights:
+            who = (f'@{h["author"]} on {_PLATFORM_NAMES.get(str(h.get("platform") or "").lower(), h.get("platform") or "")}'
+                   if h.get("author") else str(h.get("platform") or ""))
+            out.append('<div class="n-social">'
+                       f'<div class="n-social-meta">{esc(who)} · '
+                       f'{int(h.get("engagement") or 0)} reactions</div>'
+                       f'<p class="n-quote"><a href="{esc(h["uri"])}">'
+                       f'{esc(_clip(h.get("quote") or "", 200))}</a></p></div>')
+    return "".join(out)
+
+
+def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -> str:
+    """Four figures, each with what it is counted over."""
+    devs = assessment.get("developments") or []
+    obs = assessment.get("observation") or {}
+    counts = obs.get("counts") or {}
+    total = int(obs.get("total") or 0)
+    coverage = hiring.get("coverage") or {}
+    cards = [
+        ("Developments", str(len(devs)), f"in the last {days} days"),
+        ("Records analysed", f'{int(assessment.get("collected_records") or 0):,}',
+         "articles, posts and pages"),
+        ("Open roles observed", str(int(hiring.get("openings") or 0)),
+         coverage.get("label") or "no job listings seen"),
+        ("Vendors that moved", str(int(counts.get("material_change") or 0)),
+         f"of {total} watched"),
+    ]
+    return ('<div class="n-metrics v2-numbers">'
+            + "".join(f'<div class="n-metric"><div class="n-metric-top"><span>{esc(label)}</span></div>'
+                      f'<div class="n-metric-value">{esc(value)}</div>'
+                      f'<div class="n-delta">{esc(note)}</div></div>'
+                      for label, value, note in cards)
+            + "</div>")
+
+
+def _v2_top_vendors(by_vendor: List[Dict[str, Any]]) -> str:
+    """The vendors with the most developments in the period, top five. A
+    vendor the reader may not see is skipped, not shown as a placeholder:
+    a list of "a vendor not shown in this view" is not a list."""
+    rows = [r for r in by_vendor
+            if r.get("vendor") and not r.get("withheld")][:_V2_TOP_VENDORS]
+    if not rows:
+        return ""
+    return ('<h3 class="v2-sub">Most active vendors</h3>'
+            + "".join(f'<div class="n-row"><span class="n-rank">{i}</span>'
+                      f'<div><strong>{esc(r["vendor"])}</strong></div>'
+                      f'<span class="n-row-val">{int(r.get("n") or 0)}</span></div>'
+                      for i, r in enumerate(rows, 1)))
+
+
+def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8) -> str:
+    """Who moved, as a sidebar list: the vendor, the kind, the date."""
+    if not devs:
+        return '<p class="n-empty">No vendor showed a material change in the period.</p>'
+    rows = []
+    for d in devs[:limit]:
+        vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
+        rows.append(f'<div class="n-row"><div><a href="#{_dev_anchor(d)}">'
+                    f'<strong>{esc(vendors)}</strong></a>'
+                    f'<div class="n-row-label">{esc(_v2_tag(d))} · {esc(_dev_date(d))}</div>'
+                    "</div></div>")
+    return '<div class="v2-moved">' + "".join(rows) + "</div>"
+
+
+def _v2_horizon(horizon: Dict[str, Any], full_href: str) -> str:
+    """The arc for the sidebar: every dot, and the names of the largest and
+    fastest few. Hovering any dot names its vendor; the full map with every
+    name is one link away."""
+    cfg = horizon.get("config") or {}
+    rated = horizon.get("rated") or []
+    counts = horizon.get("counts") or {}
+    svg = _horizon_svg(rated, None, cfg.get("tiers") or {},
+                       tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
+                       with_inputs=False, labels=_V2_HORIZON_NAMES, label_scale=2.0)
+    return ('<div class="mm-hz v2-hz">' + svg + '<div class="mm-hz-tip" hidden></div></div>'
+            f'<p class="n-note">{counts.get("rated", len(rated))} of '
+            f'{counts.get("eligible", "")} vendors placed by scale and momentum. '
+            f'<a href="{full_href}">Full map with names</a>.</p>')
+
+
+def _shared_view_note(conn, market_id: int, allowed_brand_ids: List[int]) -> str:
+    """What the shared view leaves out, in one sentence, with the trial link."""
+    from sqlalchemy import text as _sql
+
+    total = conn.execute(_sql("""
+        SELECT COUNT(*) FROM bw_market_brands
+         WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).scalar() or 0
+    return ('<p class="mm-src">This is a shared view. It covers the '
+            f'{len(allowed_brand_ids)} most active of the {total} vendors we '
+            'watch, and leaves the rest out. Figures that cover the whole '
+            'market say so. <a href="#mm-trial">Request a trial</a> to see '
+            'all of it.</p>')
+
+
+def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
+                           section: Optional[str] = None,
+                           allowed_brand_ids: Optional[List[int]] = None,
+                           link_params: Optional[Dict[str, Any]] = None
+                           ) -> bytes:
+    """The front page, or one of its sections as a page of its own.
+
+    Same access rules as the report: a restricted reader's developments are
+    computed from the vendors it may see, everything with text is checked
+    for withheld names, and the finished bytes are checked again before they
+    leave. Nothing on the front page is blurred: the hiring top five and the
+    market figures are readable in the shared view (user's decision,
+    29 August 2026); a hiring section page blurs the entries past five.
+    """
+    from app.services import market_analysis as man
+    from app.services import market_assessment as massess
+    from app.services import market_corpus as mcorp
+    from app.services import market_entitlements as ent
+
+    if section is not None and section not in V2_SECTIONS:
+        raise KeyError(f"unknown section {section!r}")
+
+    link_params = dict(link_params or {})
+    teaser = allowed_brand_ids is not None
+    withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
+
+    def _safe(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:                                  # noqa: BLE001
+            logger.warning("front page input %s failed: %s",
+                           getattr(fn, "__name__", fn), exc)
+            return None
+
+    assessment = massess.assess(conn, market, days=days,
+                                allowed_brand_ids=allowed_brand_ids)
+    rows = mcorp.articles(conn, market["id"], limit=2000, days=days,
+                          require_signal_for_social=False)
+    highlights = _safe(man.social_highlights, conn, market["id"], days=days,
+                       limit=_V2_HIGHLIGHTS * 2) or []
+    hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
+    pc = _safe(man.period_comparison, conn, market["id"], days=days)
+    period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"
+
+    if teaser:
+        for key in ("developments", "main_developments", "other_developments",
+                    "discussion", "findings"):
+            assessment[key] = ent.drop_text_mentioning(assessment.get(key) or [],
+                                                       withheld)
+        rows = ent.drop_text_mentioning(rows, withheld)
+        highlights = ent.drop_text_mentioning(highlights, withheld)
+        # Masked, not filtered: the count of open roles is the market's.
+        hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
+
+    developments = assessment["developments"]
+    devs_by_id = {d["event_id"]: d for d in developments}
+    parts = _v2_sections(developments, rows, assessment.get("discussion") or [],
+                         highlights)
+    buckets = parts["buckets"]
+    registry_total = int(((assessment.get("inputs") or {}).get("registry_total")) or 0)
+    generated = datetime.now(timezone.utc)
+
+    def section_href(key: str) -> str:
+        return "?" + _relink(link_params, days=days, view="v2", section=key)
+
+    def section_inner(key: str, items: List[Dict[str, Any]],
+                      total: Optional[int] = None) -> str:
+        if key == "hiring":
+            return _v2_hiring(items, hiring, total=total) if items else ""
+        if key == "voices":
+            return _v2_voices(items, parts["highlights"]) if (items or parts["highlights"]) else ""
+        return _v2_stories(items)
+
+    # ---- chrome shared by the front page and a section page
+    jump = "".join(
+        f'<a href="{section_href(k)}"'
+        + (' aria-current="page"' if k == section else "")
+        + f'>{esc(v["heading"])}</a>' for k, v in V2_SECTIONS.items())
+    rss = (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
+           if market.get("is_public") else "")
+    pages = ((f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
+              if section else "")
+             + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
+             f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
+             + rss)
+    periods = "".join(
+        f'<a href="?{_relink(link_params, days=d, view="v2", section=section)}"'
+        + (' aria-current="page"' if d == days else "")
+        + f'>{d} days</a>' for d in (7, 30, 90))
+    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>",
+                       '<div class="mm-news mm-v2">',
+                       '<div class="n-top">' + _brand_line()
+                       + f'<nav class="n-jump" aria-label="Sections">{jump}</nav>'
+                       f'<nav class="n-pages" aria-label="Pages">{pages}</nav>'
+                       f'<span class="n-market">{esc(market["name"])}</span></div>']
+    horizon_html = ""
+
+    if section:
+        sec = V2_SECTIONS[section]
+        items = buckets[section]
+        count = len(items) + (len(parts["highlights"]) if section == "voices" else 0)
+        body.append('<header class="v2-mast"><div>'
+                    f'<div class="n-kicker">{esc(market["name"])} · {esc(period_txt)}</div>'
+                    f'<h1>{esc(sec["heading"])}</h1>'
+                    f'<p class="n-sub">{esc(sec["subline"])} {count} in the period.</p></div>'
+                    f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
+                    f'<div class="n-period">Generated {generated.strftime("%d %B %Y, %H:%M UTC")}'
+                    '</div></div></header>')
+        body.append('<main class="v2-grid"><div class="v2-main v2-one">')
+        cap = _V2_CAPS.get(section)
+        if section == "hiring" and teaser and cap and len(items) > cap:
+            # The top five are readable; the rest of the list is the trial's.
+            sig = [d for d in items if d.get("event_type") == "significant_hiring"]
+            inner = (section_inner(section, items[:cap], total=len(sig))
+                     + _teaser_open("The remaining hiring entries")
+                     + _render_hiring_block([d for d in items[cap:]
+                                             if d.get("event_type") == "significant_hiring"])
+                     + _TEASER_END)
+        else:
+            inner = section_inner(section, items)
+        body.append(_v2_section(section, inner, count=count, days=days, wide=True))
+        body.append("</div></main>")
+    else:
+        body.append('<header class="v2-mast"><div>'
+                    f'<div class="n-kicker">Future-proof cybersecurity advisory · {esc(period_txt)}</div>'
+                    f'<h1>{esc(market["name"])}</h1>'
+                    f'<p class="n-sub">Market News and Trends for {esc(market["name"])}</p></div>'
+                    f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
+                    f'<div class="n-period">Generated {generated.strftime("%d %B %Y, %H:%M UTC")}'
+                    '</div></div></header>')
+        body.append('<main class="v2-grid"><div class="v2-main">')
+        # The lead, then the findings under it.
+        body.append('<section class="v2-lead" id="v2-lead">')
+        lead = parts["lead"]
+        findings = assessment.get("findings") or []
+        if lead is not None:
+            body.append(_v2_lead(lead))
+        elif findings:
+            body.append(_render_findings(findings[:1], devs_by_id))
+            findings = findings[1:]
+        else:
+            body.append(f'<p class="n-empty">No development met the evidence bar '
+                        f'in the last {days} days.</p>')
+        body.append(_v2_highlights(findings, devs_by_id))
+        body.append("</section>")
+        for key in V2_SECTIONS:
+            items = buckets[key]
+            shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
+            count = len(items) + (len(parts["highlights"]) if key == "voices" else 0)
+            inner = section_inner(key, shown, total=sum(
+                1 for d in items if d.get("event_type") == "significant_hiring"))
+            body.append(_v2_section(key, inner, count=count, days=days,
+                                    more_href=section_href(key), wide=(key == "voices")))
+        body.append("</div>")
+        # ---- the sidebar
+        body.append('<aside class="v2-side">')
+        from app.services import market_horizon as mh
+        stored = _safe(mh.latest, conn, market["id"], n=2) or []
+        if stored:
+            horizon = mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
+            # Names every rated vendor, as the report does by decision; rendered
+            # apart and put back after the withheld-names check.
+            horizon_html = _v2_horizon(
+                horizon, "?" + _relink(link_params, days=days, view="report") + "#mm-horizon")
+            body.append('<div class="v2-card"><h2>Market Horizon</h2>'
+                        + _HORIZON_SLOT + "</div>")
+        numbers = _v2_numbers(assessment, hiring, days)
+        # The assessment already masks a withheld vendor's name here, so the
+        # list stays readable in the shared view.
+        body.append('<div class="v2-card"><h2>By the numbers</h2>' + numbers
+                    + _v2_top_vendors((assessment.get("distribution") or {}).get("by_vendor") or [])
+                    + "</div>")
+        body.append('<div class="v2-card"><h2>Who moved</h2>'
+                    + _v2_moved(assessment.get("main_developments") or []) + "</div>")
+        body.append(_render_briefing_card(conn, market, withheld=withheld,
+                                          restricted=teaser, link_params=link_params))
+        body.append("</aside></main>")
+
+    body.append('<div class="n-foot">' + _brand_line()
+                + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>')
+    if teaser:
+        body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
+        body.append(_trial_panel(market["id"]))
+    body.append("</div>")
+    if horizon_html:
+        body.append(f"<script>{_HORIZON_JS}</script>")
+
+    title = (f'{market["name"]} — {V2_SECTIONS[section]["heading"]}' if section
+             else f'{market["name"]} front page')
+    rendered = html_document(title, "".join(body))
+    if teaser:
+        rendered = _apply_teasers(rendered)
+    ent.assert_no_withheld(rendered, withheld,
+                           context=f'market {market["id"]} front page')
+    rendered = rendered.replace(_HORIZON_SLOT, horizon_html)
     return rendered.encode("utf-8")
 
 
@@ -2585,7 +3221,7 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
 
     nav = ('<div class="n-top">' + _brand_line()
            + '<nav class="n-pages" aria-label="Pages">'
-           f'<a href="?{_relink(link_params, days=days)}">Assessment</a>'
+           f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
            f'<a href="?{_relink(link_params, days=days, view="news")}">News</a>'
            '</nav>'
            f'<span class="n-market">{esc(market["name"])}</span></div>')
@@ -2598,7 +3234,7 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
                 + _render_briefing_card(conn, market, withheld=withheld,
                                         restricted=True, link_params=link_params,
                                         briefing=briefing)
-                + '<p class="n-distil"><a href="?' + _relink(link_params, days=days)
+                + '<p class="n-distil"><a href="?' + _relink(link_params, days=days, view="report")
                 + '#mm-trial">Request a trial on the assessment page</a></p></main>')
     else:
         others = [b for b in mbr.approved_listing(conn, market["id"])
@@ -2614,7 +3250,7 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
                 f'{esc(briefing.get("period_label", ""))}</div>'
                 f'<h1>{esc(briefing.get("title", ""))}</h1></div></div>'
                 + mbr.render_body(briefing) + more + "</main>")
-    body = (f"<style>{EXTRA_CSS}{NEWS_CSS}</style>" '<div class="mm-news">'
+    body = (f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>" '<div class="mm-news">'
             + nav + main
             + '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])}</span></div></div>')
@@ -2782,7 +3418,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             announced[name] = announced.get(name, 0) + 1
 
     generated = datetime.now(timezone.utc)
-    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}</style>"]
+    body: List[str] = [f"<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>"]
 
     period_range = _fmt_range(*pc["current_range"]) if pc else None
     period_txt = (period_range or f"last {days} days")
@@ -2815,6 +3451,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<a href="#mm-registry">Vendors</a>'
                 '<a href="#mm-method">Method</a></nav>'
                 '<nav class="n-pages" aria-label="Pages">'
+                f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
                 + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
                    if market.get("is_public") else "")
@@ -2823,7 +3460,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')
     periods = "".join(
-        f'<a href="?{_relink(link_params, days=d)}"'
+        f'<a href="?{_relink(link_params, days=d, view="report")}"'
         + (' aria-current="page"' if d == days else "")
         + f'>{d} days</a>' for d in (7, 30, 90))
     question = (market.get("question") or "").strip()
@@ -3500,7 +4137,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         # hiring["coverage"] counts vendors with at least one listing in the
         # window, not vendors whose board we read. Labelled "Job boards read"
         # it sat under a table row saying 82 boards were read and showed 20.
-        body.append(_pct_row("Have job listings we have seen",
+        body.append(_pct_row("Have public job listings",
                              hc["measured"], hc["total"]))
     body.append("</tbody></table>")
     counts = observation.get("counts") or {}
@@ -3591,18 +4228,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append(_drawer_close())
 
     if allowed_brand_ids is not None:
-        from sqlalchemy import text as _sql
-
-        total = conn.execute(_sql("""
-            SELECT COUNT(*) FROM bw_market_brands
-             WHERE market_id = :m AND role <> 'excluded'
-        """), {"m": market["id"]}).scalar() or 0
-        body.append(
-            '<p class="mm-src">This is a shared view. It covers the '
-            f'{len(allowed_brand_ids)} most active of the {total} vendors we '
-            'watch, and leaves the rest out. Figures that cover the whole '
-            'market say so. <a href="#mm-trial">Request a trial</a> to see '
-            'all of it.</p>')
+        body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
 
     rendered = html_document(f'{market["name"]} Market Horizon',
                              "".join(body))

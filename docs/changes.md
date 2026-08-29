@@ -2,6 +2,170 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-29 — Market Monitor front page (`?view=v2`): the period laid out like a news site, with section pages; aisocnews.com serves it
+
+### Goal
+https://aisoc.aunoo.ai/ is one long column: map, assessment, briefing card, who-moved table,
+synthesis, then every development in one list. A reader who wants "what launched this month"
+or "who is hiring" scans the whole list. The user asked for a second layout, reached from a
+link in the top-right corner, laid out like a news site — a masthead, a lead story, sections
+for market moves, product launches, hiring, case studies and thought leadership — with the
+Market Horizon compact in a sidebar, each section also as a page of its own, and a dark site
+background with the page as one light card. V1 stays as it is. A new domain, aisocnews.com,
+points at the front page.
+
+### Feature — the front page and its section pages
+**`app/services/market_report_html.py`** — `build_market_report_v2(conn, market, *, days,
+section, allowed_brand_ids, link_params)`, after `build_market_news_page`. Nothing new is
+classified: the sections are the developments `market_assessment.assess()` already returns,
+bucketed by type in the pure helper `_v2_sections`:
+
+- **Market moves**: acquisition, market exit or entry, funding, partnership, executive
+  appointment, and a customer development **only when the review pass named the customer**
+  (`attributes.customer.named`). Tag "Customer".
+- **Case studies**: customer developments with no named customer. Tag "Case study". This is
+  the user's rule: a vendor's story about an unnamed customer is not a customer.
+- **Product launches**: product_launch, product_expansion.
+- **Hiring**: significant_hiring (the existing `_render_hiring_block`), headcount_change as
+  one row each, and the market-wide count of open roles from `man.hiring()` with its coverage.
+- **Thought leadership**: vendor LinkedIn posts the review pass judged `commentary` with kind
+  opinion/research or `signal`/research (`_v2_is_voice`), plus `assessment["discussion"]` —
+  the practitioner and research records that attached to no development, which
+  `material_developments()` computed and V1 threw away — minus any uri already cited as
+  evidence, deduped, newest first; then the three most-shared outside posts from
+  `man.social_highlights()`.
+
+The lead is the highest-ranked development that is not a hiring count; it is removed from its
+bucket so it never appears twice. The front page caps each section (moves 4, launches 4,
+cases 3, voices 6; hiring whole) and links "All N →" to `?view=v2&section=<key>`, which lists
+everything. An empty section stays on the page with one line, "No <thing> observed in the
+last N days", so the page and its nav keep their shape across periods. The sidebar holds the
+Horizon, four figures with their denominators (`_v2_numbers`), a who-moved list (`_v2_moved`)
+and the briefing card. Findings sit under the lead.
+
+Shared helpers: `_summary_unless_duplicate(dev)` factored out of `_render_developments`, which
+takes an optional `tag_for` callback (V1 output unchanged); `_shared_view_note(conn,
+market_id, allowed)` factored out of the V1 tail (byte-identical there). `V2_CSS` is one
+constant beside `NEWS_CSS`; it widens `.container` to 1180px for this page only, paints
+`html, body` dark (#0b1220, the masthead colour) with the page as the light card on it, and
+gives the EU AI Act footer the muted light colour so it reads on the dark ground. On narrow
+screens the section nav stays visible (`.mm-v2 .n-jump { display:flex }`), overriding the
+850px rule that hides V1's jump links.
+
+**Compact Horizon.** `_horizon_svg(..., labels=False)` (threaded through
+`_horizon_dot_layer`) draws the dots, rings and hover panels without vendor names, for a copy
+of the map too small to read them. The legend and axis captions are now wrapped in
+`<g class="mm-hz-legend">` / `<g class="mm-hz-axis">` so the sidebar can hide them; the
+stage names are scaled up with CSS (`svg text { font-size:26px }`). The caption links to the
+full map on the assessment page. Same entitlement trick as V1: rendered into `_HORIZON_SLOT`
+and put back after `assert_no_withheld`.
+
+**Access rules** mirror V1: `assess(..., allowed_brand_ids=)`; when restricted,
+`drop_text_mentioning` on developments, discussion, findings, the corpus rows and the
+highlights (it scans every string field, so a highlight's `quote` is covered);
+`mask_rows` on the hiring totals; the hiring section and the numbers strip are the two
+teaser (blurred) ranges — stories, findings and voices stay readable as V1's developments
+do; shared-view note and trial form; `_apply_teasers`; fail-closed `assert_no_withheld`.
+
+**`app/routes/market_monitor_routes.py`** — `report.html` takes `section` and dispatches
+`view=v2` to the new builder; an unknown section is a 404. **V1 and the news river** carry a
+"Front page" link as the first item of `.n-pages` (the top-right corner); the front page links
+back to the Assessment and the News river, and a section page also to the Front page.
+
+### Follow-ups from the first look (same day)
+The user reviewed the page and asked for four changes, all in
+**`app/services/market_report_html.py`**:
+
+- **Hiring shows the top five.** `_v2_sections` orders the hiring bucket by open roles
+  (most first, then headcount moves by size); the front page shows five
+  (`_V2_CAPS["hiring"] = 5`) and `_render_hiring_block(devs, total=)` heads the block "Top 5
+  of N vendors with 5 or more open roles observed" when it is the top of a longer list. The
+  section page shows all.
+- **The small map names some vendors.** `_horizon_svg(labels=N, label_scale=)`: a number
+  labels that many vendors, the largest and fastest first (the placer's `order`); the
+  sidebar map names eight (`_V2_HORIZON_NAMES`) and tells the placer the names are drawn
+  twice as large (`label_scale=2.0`, matched by `svg text.mm-lbl { font-size:22px }`), so
+  they keep apart at the sidebar's width.
+- **By the numbers lists the most active vendors.** `_v2_top_vendors` under the four
+  figures: the five vendors with the most developments in the period, from
+  `assessment["distribution"]["by_vendor"]`, which already masks a withheld vendor's name, so
+  the list sits outside the blurred range.
+- **Findings are "Highlights", headline first.** `_v2_highlights` renders each finding as a
+  `<details>` whose summary is the headline; the statement, evidence lines, development
+  links and coverage line open on click. The per-finding body is factored into
+  `_finding_body`, which `_render_findings` (V1) uses unchanged.
+
+### Second round (same day): the front page is the default, dark everywhere, nothing blurred on it
+- **`view=v2` is the default.** `report.html` without `view` is the front page
+  (`market_monitor_routes.py`, `Query("v2")`); the assessment is `view=report`. Every link that
+  meant "the assessment" now says so: the period switcher on the assessment itself, the
+  "Analyst View" link (renamed from "Assessment") on the front page, the news river and the
+  briefing page, the briefing page's back link, and the small map's "Full map with names".
+  The nginx `map` on aisocnews.com that sent a bare `/` to `view=v2` is now redundant and
+  harmless.
+- **Dark ground on every page.** The three dark rules moved from `V2_CSS` into `DARK_CSS`,
+  emitted by the assessment, the news river, the briefing page and the front page; the
+  shared-view note and the disclosure footer take the muted light colour on all of them.
+- **Nothing on the front page is blurred.** The hiring top five and the market figures are
+  readable in the shared view (user's decision). A hiring *section page* keeps the entries
+  past five behind the blur. The vendor names are still the entitlement's: the assessment is
+  computed from the vendors the reader may see.
+- **Masthead tagline.** The stats sentence under the market name ("16 developments from 743
+  collected records…") is gone; the line reads "Market News and Trends for <market>".
+- **Wording on the numbers card.** "Records they rest on" → "Records analysed", its note
+  "articles, posts and pages"; the job-listing coverage phrase is "N of M vendors have public
+  job listings", changed at its source in `market_analysis.py` so the Analyst View's hiring
+  coverage line and its "Have public job listings" row say the same.
+- **Most active vendors skips withheld vendors.** The first version listed
+  `assessment["distribution"]["by_vendor"]` as it came, so the shared view's top two rows read
+  "a vendor not shown in this view". `_v2_top_vendors` now skips rows with `withheld` and
+  lists the five most active vendors the reader may see.
+
+### Ops — aisocnews.com
+The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
+`/etc/nginx/sites-available/aisocnews.com` (enabled), modelled on aisoc.aunoo.ai: port 80
+serves the ACME path and redirects to https; a `map $args` sends a bare `/` to
+`report.html?view=v2` and passes any query string through unchanged, so the page's own links
+(sections, periods, the assessment, the news river) keep working on this host; `feed.xml`
+and the trial/vendor-request endpoints are proxied; www redirects to the bare name; anything
+else goes to `/`. Certificate issued with `certbot certonly --webroot -w /var/www/letsencrypt
+-d aisocnews.com -d www.aisocnews.com` (same renewal path as the other names).
+
+### Verification
+- `.venv/bin/python -m pytest tests/test_market_report_v2.py -q` — 11 passed, 12 after the
+  hiring-order test (seven pure tests on bucketing, the customer rule, the hiring order and
+  "Top N of M" heading, the voices selection, the empty-section line and the label-less and
+  N-label map; five DB-backed tests on the front page's sections and links, the corner
+  links on V1 and the river, a section page and an unknown section, the shared view naming
+  only authorized vendors, and the banned-copy patterns from `test_market_report_copy.py`).
+- The related suites (`test_market_horizon_stages`, `test_market_report_copy`,
+  `test_market_entitlements`) ran with it: 45 passed, 2 failed, both on V1 and both older than
+  today — `test_mm20_the_report_names_only_authorized_vendors` fails because the Horizon
+  names every rated vendor by the 27 August decision and is put back after the production
+  check, and `test_the_lead_answers_before_it_shows_evidence` expects the phrase "monitored,
+  no material change observed", which the page fetched before today's change also lacked (no
+  vendor is in that state this period). Not touched.
+- In-process renders of market 2: full front page 231 KB in 0.7 s, shared view 230 KB in
+  1.2 s with 2 blurred blocks, all five section pages, V1 with 1 `view=v2` link.
+- Screenshots at 1240 px and 800 px (scratchpad `shot3.py <html> <png> <height> <width>`):
+  masthead, lead across both columns, two-up sections, 340 px sidebar with the dot-only map,
+  blur on the numbers and hiring only, single column and visible section nav at 600 px.
+- Public: https://aisocnews.com/ 200 (front page, all six section ids),
+  `?view=v2&section=hiring` 200 with Hiring marked current, `?days=30` 200 (V1),
+  `?view=news` 200, `feed.xml` 200, www → 301 to the bare name, http → 301 https.
+- After the second round (restarts 08:21 and 08:22 UTC): https://aisoc.aunoo.ai/ and
+  https://aisocnews.com/ both open the front page with the tagline, the dark ground, the
+  "Analyst View" link and 0 blurred blocks; `?view=report` is the assessment, dark, with its
+  2 blurred blocks as before; `?view=news` is dark. The reader who still sees the blur has a
+  cached copy: the page is served with `Cache-Control: private, max-age=300`.
+- Service restarted three times (08:04, 08:12 UTC and once between, for the first version,
+  the dark background and the follow-ups), each only after the running-jobs check was clear;
+  https://aisocnews.com/ serves the dark page with Highlights.
+
+### Propagation
+bugfixing only — the Market Monitor exists on no other tenant. Files: the two above,
+`tests/test_market_report_v2.py` (new), the nginx site (not in git).
+
 ## 2026-08-28 — Market Horizon reads as a life cycle: stage by scale left to right, momentum outward; a grid version of the same map beside the arc; labels no longer overlap; shorter titles on the shared market report; one shape for articles.submission_date
 
 ### Feature — the map shows how a vendor travels

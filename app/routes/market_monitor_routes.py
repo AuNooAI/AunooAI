@@ -1276,8 +1276,9 @@ async def market_report(
     days: int = Query(30, ge=1, le=365),
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
-    view: str = Query("report"),
+    view: str = Query("v2", description="v2 (the front page, the default), report (the assessment), news, briefing."),
     id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
+    section: Optional[str] = Query(None, description="view=v2: one section as its own page (moves, launches, hiring, cases, voices)."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
@@ -1290,8 +1291,11 @@ async def market_report(
     button adds it. Access is still decided by the session, token or
     public flag — ``full`` only chooses how much of it is rendered.
 
-    ``view=news`` is the second page: every record in the period as a
-    time-ordered river of headlines, no analysis.
+    ``view=v2``, the default since 29 August 2026, is the front page: the
+    period laid out like a news site, one section per kind of development;
+    ``section=`` makes one section a page of its own. ``view=report`` is the
+    assessment. ``view=news`` is the river: every record in the period as a
+    time-ordered list of headlines, no analysis.
 
     Three ways in, in order: a valid signed link, a session, or a public
     market. Anything else is a 404 rather than a redirect — a redirect is what
@@ -1302,9 +1306,11 @@ async def market_report(
 
     from fastapi.responses import Response
 
-    from app.services.market_report_html import (build_market_briefing_page,
+    from app.services.market_report_html import (V2_SECTIONS,
+                                                 build_market_briefing_page,
                                                  build_market_news_page,
-                                                 build_market_report)
+                                                 build_market_report,
+                                                 build_market_report_v2)
 
     signed = bool(
         exp and token
@@ -1343,6 +1349,12 @@ async def market_report(
             if view == "briefing":
                 return build_market_briefing_page(
                     conn, market, briefing_id=id, days=days,
+                    allowed_brand_ids=allowed, link_params=params)
+            if view == "v2":
+                if section is not None and section not in V2_SECTIONS:
+                    raise HTTPException(status_code=404, detail="Section not found")
+                return build_market_report_v2(
+                    conn, market, days=days, section=section,
                     allowed_brand_ids=allowed, link_params=params)
             builder = (build_market_news_page if view == "news"
                        else build_market_report)
