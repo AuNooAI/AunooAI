@@ -339,6 +339,64 @@ controls heading and the API's error strings. Internal names stay as they are �
 `?view=report#mm-horizon` — so nothing stored or linked breaks; comments that still say
 Horizon refer to those. Built and deployed; the Analyst View has 0 "Market Horizon" left.
 
+### Feature — Latest research: the analyst layer, from its public traces
+
+Gartner, Forrester, KuppingerCole and IDC keep their reports behind paywalls, so the page had
+no place for what the analysts say. Two things about a report are public and both were within
+reach: the vendors named in it announce it, and the firms publish blogs and research listings.
+
+**`app/services/market_research.py`** (new) reads both. `cite(row)` finds a report citation in
+a corpus row by rule, no model: a firm name (`FIRMS`: Gartner, Forrester, KuppingerCole, IDC,
+Omdia, GigaOm, 451 Research, ESG, Frost & Sullivan, ISG) plus either a report family
+(`REPORT_FAMILIES`: Magic Quadrant, Market Guide, Hype Cycle, Cool Vendors, Innovation
+Insight, Emerging Tech Impact Radar, Forrester Wave, Tech Tide, Leadership Compass,
+MarketScape, GigaOm Radar, …) or a recognition verb near the firm (named, positioned,
+featured, "a Leader", "a Major Player", "new Gartner research"). A summit-attendance post has
+neither and is left out; a Gartner Peer Insights mention is customer reviews and is left out.
+Each family carries the joiner the firm uses in its own naming, so "Hype Cycle *for* Security
+Operations" and "Innovation Insight*:* AI SOC Agents" read as topics while a vendor's blog
+title "Hype Cycle 2026: Our Take" does not. Text is NFKC-normalised first, because vendors
+dress posts in mathematical-bold letters. `group_citations(rows, domain_names)` folds
+citations by (firm, family, topic) or quoted title, year-insensitive, one entry per vendor
+with its newest record; a post that names only "the 2026 Hype Cycle" joins the single Hype
+Cycle report the corpus knows for that firm, and stays on its own when there are two. A
+vendor's own blog is named like its LinkedIn posts through `domain_names`
+(`_v2_vendor_domains`, from `bw_vendor_identifiers`); a press release from a vendor outside
+the registry takes the company from its title ("LMNTRIX Positioned as…").
+
+The firms' pages: `DEFAULT_FEEDS` is Forrester's security blog and KuppingerCole's RSS (both
+answer 200; GigaOm's report feed is a year stale; Gartner's blogs and newsroom answer this
+host with 403, and TheNewsAPI indexes no gartner.com pages, so Gartner comes only through
+citations — where it dominates: 52 corpus mentions against 4 for IDC and 3 for Forrester).
+A market can set its own list in `bw_markets.config['analyst_feeds']`; `sync_feeds` registers
+the list in `rss_feeds` under the market's collection topic, the path the vendor blogs already
+use (`market_monitor.py:851`), and switches off a feed taken off the list. The RSS monitor
+reads them hourly and the daily corpus scan attaches the items that carry a market term.
+`analyst_posts(rows, market)` picks those rows out of the corpus by domain, labels the kind
+from the URL path (`/research/` Research, `/watch/` Webinar, else Blog) and drops `/events/`.
+
+**`app/services/market_report_html.py`**: section key `research` in `V2_SECTIONS` last,
+after `social` (the bottom of the page, cap 4, colour `#b45309`; the user moved it there from
+beside Market moves on first look); `buckets["research"]` is
+the groups then the posts, out of the rows the page already fetched — the masked set in the
+shared view, so a withheld vendor's citation is not there by construction; `_v2_research`
+renders a group as "{firm} · {family} · {date}", the report label linking to the newest
+citing record, and "Named LMNTRIX (Major Player)" / "Cited by Dropzone AI, …" with marks and
+one link per vendor; a post as "{firm} · {kind} · {date}" and its title. `_river_source`
+prints the firm for analyst rows.
+
+**`app/routes/market_monitor_routes.py`**: `GET/PUT /markets/{id}/analyst-feeds`
+(`AnalystFeeds`, ≤20 feeds, http(s) URLs); the PUT writes the config and calls `sync_feeds`.
+**UI**: `MarketAnalystFeeds.tsx` (new) in Collection → Overview — pills, an add form, a note;
+`getAnalystFeeds`/`putAnalystFeeds` in `marketMonitorApi.ts`.
+
+Market 2 is on the defaults (`sync_feeds` run once: `rss_feeds` 41 Forrester, 42 KuppingerCole).
+
+### Wording — the map caption says "mapped"
+
+"40 of 85 vendors placed by scale and momentum" (front-page sidebar) and "vendors are placed
+today" (Analyst View drawer) now say *mapped* (`market_report_html.py`, user's wording).
+
 ### Ops — aisocnews.com
 The user registered aisocnews.com and pointed it (and www) at this server. New nginx site
 `/etc/nginx/sites-available/aisocnews.com` (enabled), modelled on aisoc.aunoo.ai: port 80
@@ -379,6 +437,22 @@ else goes to `/`. Certificate issued with `certbot certonly --webroot -w /var/ww
 - Service restarted three times (08:04, 08:12 UTC and once between, for the first version,
   the dark background and the follow-ups), each only after the running-jobs check was clear;
   https://aisocnews.com/ serves the dark page with Highlights.
+
+- Latest research: `pytest tests/test_market_research.py tests/test_market_report_v2.py -q` → 28 passed
+  (12 new: the LMNTRIX press release → IDC / MarketScape / "Worldwide MDR/MXDR for the Enterprise" /
+  Major Player; four spellings of one Hype Cycle → one group of three vendors; a quoted title with
+  no family; summit, Peer Insights and a stray Forrester statistic → None; family-only folding;
+  analyst posts by domain with `/events/` dropped; the section markup; `sync_feeds` on a throwaway URL).
+  `tests/test_market_report_copy.py`: the same one pre-existing V1 failure
+  (`test_the_lead_answers_before_it_shows_evidence`), nothing new. Detector over the live market 2
+  corpus, 90 days, full view: 17 citations in 1,577 rows → 10 groups, led by Gartner Hype Cycle for
+  Security Operations, 2026 (5 vendors); every "heading to the Gartner Summit" post rejected. Shared
+  view (curl, no session): 3 groups at 90 days, 2 at 30 (Hype Cycle posts are dated June). Feeds:
+  RSS monitor fetched 10 Forrester and 97 KuppingerCole items within two minutes of the restart;
+  `mcorp.scan` then attached 4 analyst posts (KuppingerCole "123 AI SOC Vendors: Why So Many?",
+  "Cyber MSSPs", a webinar; Forrester "Announcing The Forrester Wave on XDR"). Screenshot at 1240 px:
+  the section is the last on the page, on the dark ground. https://aisocnews.com/?section=research → 200.
+  `npm run typecheck` → 246 errors, all known.
 
 ### Propagation
 bugfixing only — the Market Monitor exists on no other tenant. Files: the two above,

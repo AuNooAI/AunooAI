@@ -1278,7 +1278,7 @@ async def market_report(
     token: Optional[str] = Query(None),
     view: str = Query("v2", description="v2 (the front page, the default), report (the assessment), news, briefing."),
     id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
-    section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social)."),
+    section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social, research)."),
     piece: Optional[int] = Query(None, description="view=v2: one of our own pieces (an approved analysis or note) as a page."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
@@ -2338,6 +2338,72 @@ async def market_follow_remove(market_id: int, body: FollowRequest,
                                    body.platform, body.handle):
         raise HTTPException(status_code=404, detail="Not on the list")
     return {"ok": True}
+
+
+class AnalystFeed(BaseModel):
+    firm: str = Field(..., min_length=1, max_length=60)
+    url: str = Field(..., min_length=8, max_length=500, pattern=r"^https?://")
+
+
+class AnalystFeeds(BaseModel):
+    feeds: List[AnalystFeed] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/markets/{market_id}/analyst-feeds")
+async def market_analyst_feeds(market_id: int, session=Depends(verify_session_api)):
+    """The analyst firms' public feeds read for this market, and whether
+    they are the defaults (nothing set on the market yet)."""
+    from app.services import market_research as mres
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return {"feeds": mres.feeds(market), "defaults": mres.uses_defaults(market)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.put("/markets/{market_id}/analyst-feeds")
+async def set_market_analyst_feeds(market_id: int, payload: AnalystFeeds,
+                                   session=Depends(verify_session_api)):
+    """Replace the list and register it with the RSS monitor under the
+    market's collection topic; a feed taken off the list is switched off."""
+    from app.services import market_research as mres
+
+    cleaned: List[Dict[str, str]] = []
+    seen = set()
+    for f in payload.feeds:
+        url = f.url.strip()
+        if url in seen:
+            continue
+        seen.add(url)
+        cleaned.append({"firm": f.firm.strip(), "url": url})
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            conn.execute(text("""
+                UPDATE bw_markets
+                SET config = COALESCE(config, '{}'::jsonb)
+                             || jsonb_build_object('analyst_feeds', CAST(:f AS JSONB)),
+                    updated_at = NOW()
+                WHERE id = :m
+            """), {"m": market_id, "f": json.dumps(cleaned)})
+            conn.commit()
+            market = _load_market(conn, market_id)
+            result = mres.sync_feeds(conn, market)
+            return {"feeds": mres.feeds(market), "defaults": False, "sync": result}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.post("/markets/{market_id}/follow/collect")

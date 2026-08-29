@@ -2470,6 +2470,8 @@ def _render_corpus(clustered: List[Dict[str, Any]], *, collected: int,
 def _river_source(row: Dict[str, Any]) -> str:
     """Who published it, the way a river labels a line: an outlet, a
     vendor's own channel, or an account on a network."""
+    if row.get("firm"):
+        return str(row["firm"])
     meta = row.get("social_meta") or {}
     kind = row.get("article_class")
     source = (row.get("news_source") or "").strip()
@@ -2725,6 +2727,10 @@ V2_CSS = """
 .mm-v2 .v2-piece-body blockquote { border-left:3px solid var(--n-line); margin:0 0 12px; padding:2px 14px; color:var(--n-muted); }
 .mm-v2 .v2-piece-body table { border-collapse:collapse; font-size:14px; }
 .mm-v2 .v2-piece-body td, .mm-v2 .v2-piece-body th { border:1px solid var(--n-line); padding:4px 8px; }
+.mm-v2 .v2-rs-cited { margin:3px 0 0; font-size:12.5px; color:var(--n-muted); line-height:1.6; }
+.mm-v2 .v2-rs-cited a { color:var(--n-text); text-decoration:none; white-space:nowrap; }
+.mm-v2 .v2-rs-cited a:hover { text-decoration:underline; }
+.mm-v2 .v2-rs-cited .v2-mark { width:16px; height:16px; margin-right:3px; vertical-align:-3px; }
 .mm-v2 .v2-mark { width:18px; height:18px; border-radius:4px; vertical-align:-4px;
                   margin-right:5px; background:#fff; object-fit:contain; }
 .mm-v2 .v2-vendor { white-space:nowrap; }
@@ -2795,11 +2801,17 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                "thing": "practitioner post",
                "subline": "What practitioners are saying on X, Bluesky, Reddit and "
                           "LinkedIn, newest first, and the most shared posts."},
+    "research": {"heading": "Latest research", "colour": "#b45309",
+                 "thing": "analyst report or post",
+                 "subline": "Reports the analyst firms have named vendors in, and what "
+                            "the firms publish in public. The reports themselves are "
+                            "behind paywalls; every item links to its source."},
 }
 _V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
 _V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
 #: How many items a section shows on the front page; its own page shows all.
-_V2_CAPS = {"analysis": 3, "moves": 4, "launches": 4, "hiring": 5, "cases": 3, "voices": 6, "social": 6}
+_V2_CAPS = {"analysis": 3, "research": 4, "moves": 4, "launches": 4, "hiring": 5, "cases": 3,
+            "voices": 6, "social": 6}
 #: A new piece of ours leads the front page for this many days after publication.
 _V2_PIECE_LEAD_DAYS = 3
 _PIECES_SLOT = "<!--mm-pieces-slot-->"
@@ -3086,6 +3098,57 @@ def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> 
     return "".join(out)
 
 
+def _v2_research(items: List[Dict[str, Any]], logos: Optional[Dict[str, str]] = None) -> str:
+    """The Latest research section: reports vendors cite, each with the
+    vendors named in it (``market_research.group_citations``), then the
+    analyst firms' own posts (``market_research.analyst_posts``). The two
+    kinds get a sub-heading only when both are present."""
+    groups = [i for i in items if i.get("item") == "group"]
+    posts = [i for i in items if i.get("item") == "post"]
+    out: List[str] = []
+    if groups and posts:
+        out.append('<h3 class="v2-sub">Reports vendors cite</h3>')
+    for g in groups:
+        meta = " · ".join(x for x in (g.get("firm"), g.get("family"), _day(g["latest"]) if g.get("latest") else "") if x)
+        named = [v for v in g["vendors"] if v.get("position")]
+        lead_word = "Named" if named and len(named) == len(g["vendors"]) else "Cited by"
+        vendors = ", ".join(
+            f'<a href="{esc(v["uri"])}">{_mark(logos, v["vendor"], 16)}{esc(v["vendor"])}'
+            + (f' ({esc(v["position"])})' if v.get("position") else "") + "</a>"
+            for v in g["vendors"])
+        out.append('<div class="n-social v2-rs">'
+                   f'<div class="n-social-meta">{esc(meta)}</div>'
+                   f'<p class="n-quote"><a href="{esc(g["uri"])}">{esc(_clip(g["label"], 160))}</a></p>'
+                   f'<p class="v2-rs-cited">{lead_word} {vendors}</p></div>')
+    if groups and posts:
+        out.append('<h3 class="v2-sub">From the analyst firms</h3>')
+    for r in posts:
+        headline = r.get("title") or r["uri"]
+        when = _day(r.get("published")) if r.get("published") else ""
+        meta = " · ".join(x for x in (r.get("firm"), r.get("research_kind"), when) if x)
+        out.append('<div class="n-social">'
+                   f'<div class="n-social-meta">{esc(meta)}</div>'
+                   f'<p class="n-quote"><a href="{esc(r["uri"])}">{esc(_clip(headline, 220))}</a></p>'
+                   "</div>")
+    return "".join(out)
+
+
+def _v2_vendor_domains(conn, market_id: int) -> Dict[str, str]:
+    """Domain → vendor display name for the market's vendors, so a vendor's
+    own blog post is named like its LinkedIn posts."""
+    from sqlalchemy import text as _sql
+
+    rows = conn.execute(_sql("""
+        SELECT vi.normalized_value, b.display_name
+          FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+          JOIN bw_vendor_identifiers vi ON vi.brand_id = b.id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND vi.kind = 'domain' AND vi.valid_to IS NULL
+    """), {"m": market_id}).fetchall()
+    return {re.sub(r"^www\.", "", str(r[0]).lower()): r[1] for r in rows if r[0] and r[1]}
+
+
 _VOICE_ROLES = {"practitioner": "Practitioner", "analyst_or_press": "Analyst / press"}
 _V2_VOICES_SHOWN = 10
 _V2_VOICES_MORE = 10
@@ -3302,7 +3365,7 @@ def _v2_horizon(horizon: Dict[str, Any], full_href: str) -> str:
                        with_inputs=False, labels=_V2_HORIZON_NAMES, label_scale=2.0)
     return ('<div class="mm-hz v2-hz">' + svg + '<div class="mm-hz-tip" hidden></div></div>'
             f'<p class="n-note">{counts.get("rated", len(rated))} of '
-            f'{counts.get("eligible", "")} vendors placed by scale and momentum. '
+            f'{counts.get("eligible", "")} vendors mapped by scale and momentum. '
             f'<a href="{full_href}">Full map with names</a>.</p>')
 
 
@@ -3484,6 +3547,13 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                          highlights, lead_from_developments=lead_piece is None)
     buckets = parts["buckets"]
     buckets["analysis"] = [p for p in pieces if lead_piece is None or p["id"] != lead_piece["id"]]
+    # Latest research: reports vendors cite, then the analyst firms' own
+    # posts. Both come out of the rows already fetched, which are the masked
+    # set in the shared view, so a withheld vendor's citation is not here.
+    from app.services import market_research as mres
+    domain_names = _safe(_v2_vendor_domains, conn, market["id"]) or {}
+    buckets["research"] = (mres.group_citations(rows, domain_names)
+                           + mres.analyst_posts(rows, market))
     pieces_html: List[str] = []   # rendered apart; put back after the check
 
     def piece_slot(html_fragment: str) -> str:
@@ -3509,6 +3579,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                     if items else "")
         if key == "hiring":
             return _v2_hiring(items, hiring, total=total, logos=logos) if items else ""
+        if key == "research":
+            return _v2_research(items, logos) if items else ""
         if key == "voices":
             return _v2_voices(items, []) if items else ""
         if key == "social":
@@ -3992,7 +4064,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append(_drawer_open(
             "Market Maturity Map",
             f"Where {horizon['counts']['rated']} of the market's "
-            f"{horizon['counts']['eligible']} vendors are placed today, based on "
+            f"{horizon['counts']['eligible']} vendors are mapped today, based on "
             "how active they are, how they are growing and how fast they are moving.",
             anchor="mm-horizon", opened=True))
         # The horizon names every rated vendor in the shared view too — the

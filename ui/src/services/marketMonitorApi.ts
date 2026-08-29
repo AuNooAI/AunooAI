@@ -2585,3 +2585,25 @@ export async function getMarketFindings(
     await fetch(`${BASE}/markets/${marketId}/findings?${params}`,
       { credentials: 'include' }), 'Failed to load findings');
 }
+
+// ---- Analyst feeds: the analyst firms' public pages read for the market ----
+
+export interface AnalystFeed { firm: string; url: string; domain?: string }
+
+export async function getAnalystFeeds(
+  marketId: number,
+): Promise<{ feeds: AnalystFeed[]; defaults: boolean }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analyst-feeds`,
+    { credentials: 'include' }), 'Failed to load the analyst feeds');
+}
+
+/** Replace the list; the feeds are registered with the RSS monitor at once. */
+export async function putAnalystFeeds(
+  marketId: number, feeds: { firm: string; url: string }[],
+): Promise<{ feeds: AnalystFeed[]; defaults: boolean; sync: { added: number; deactivated: number; feeds: number } }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analyst-feeds`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feeds }),
+  }), 'Could not save the analyst feeds');
+}

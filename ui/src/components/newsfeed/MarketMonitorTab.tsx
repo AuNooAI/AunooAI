@@ -20,6 +20,7 @@ import { MarketVoicesView } from './MarketVoicesView';
 import { MarketHorizonView } from './MarketHorizonView';
 import { MarketFindingsView } from './MarketFindingsView';
 import { MarketBriefingsView } from './MarketBriefingsView';
+import { MarketAnalystFeeds } from './MarketAnalystFeeds';
 import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
 import { MetricHeading, SourceLegend } from './MarketMetric';
@@ -2588,6 +2589,7 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
 
           {collectionSubView === 'overview' && overview && (
             <div className="space-y-4">
+              {marketId !== null && <MarketAnalystFeeds marketId={marketId} />}
               {/* The registry's own count vs. the header's — the two are
                   allowed to differ (this includes excluded vendors, the
                   header doesn't) but the gap should be visible, not silent. */}
