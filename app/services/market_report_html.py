@@ -22,6 +22,7 @@ import math
 import logging
 import os
 import re
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
@@ -1458,13 +1459,24 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     ``public_names`` labels every rated vendor and lists every tier in full
     whatever the entitlement; the not-rated names still follow ``allowed``.
     """
-    cfg = horizon.get("config") or {}
+    from app.services import market_horizon as mh
+
+    # Weights and cuts are the stored map's: the vendors were placed with
+    # them. The words beside each input are copy, so they come from the
+    # live config, or a copy edit would wait for the next recompute.
+    cfg = dict(horizon.get("config") or {})
+    live_inputs = (mh.load_config().get("inputs") or {})
+    cfg["inputs"] = {k: {**v, **{w: live_inputs[k][w] for w in ("label", "note")
+                                if w in live_inputs.get(k, {})}}
+                     for k, v in (cfg.get("inputs") or {}).items()}
+    live_label = lambda g: (live_inputs.get(g.get("key"), {}).get("label") or g["label"])
     rated = horizon.get("rated") or []
     not_rated = horizon.get("not_rated") or []
     names_allowed = None if public_names else allowed
     # The drawer's own title already says "Market Maturity Map"; no second heading.
     out = ['<section class="section">']
-    out.append(f'<p class="mm-src">{esc(horizon.get("what_it_is_not") or "")} '
+    # The caption is copy, so it comes from code, not from the stored map.
+    out.append(f'<p class="mm-src">{esc(mh.WHAT_IT_IS_NOT)} '
                f'Computed {esc((horizon.get("computed_at") or "")[:10])} over the '
                f'last {horizon.get("days")} days.</p>')
     full_view = allowed is None
@@ -1474,7 +1486,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     draw = dict(tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
                 with_inputs=full_view)
     out.append('<div class="mm-hz">'
-               '<div class="mm-hz-switch" role="tablist" aria-label="Map shape">'
+               '<div class="mm-hz-switch" role="tablist" aria-label="Map layout">'
                '<button type="button" role="tab" aria-selected="true" data-view="arc">Arc</button>'
                '<button type="button" role="tab" aria-selected="false" data-view="grid">Grid</button>'
                '<span class="mm-hz-chips">Highlight '
@@ -1636,14 +1648,14 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
         by_reason: Dict[str, int] = {}
         for nr in not_rated:
             for g in nr.get("missing") or []:
-                by_reason[g["label"]] = by_reason.get(g["label"], 0) + 1
+                by_reason[live_label(g)] = by_reason.get(live_label(g), 0) + 1
         reasons = "; ".join(f"{n} lack {esc(label.lower())}" for label, n in
                             sorted(by_reason.items(), key=lambda kv: -kv[1]))
         inner = (f'<p class="mm-src">A vendor is rated only when every input was '
                  f'measured. {reasons}.</p>')
         if True:
             inner += '<p class="mm-src">' + "; ".join(
-                f'{esc(nr["vendor"])}: ' + ", ".join(esc(g["label"].lower()) for g in nr["missing"])
+                f'{esc(nr["vendor"])}: ' + ", ".join(esc(live_label(g).lower()) for g in nr["missing"])
                 for nr in not_rated) + '</p>'
         out.append(fold(f"Not rated ({len(not_rated)}) — what each one lacks", inner))
 
@@ -1920,7 +1932,7 @@ def _story_evidence(f: Dict[str, Any]) -> str:
     if not rows:
         if measured:
             return ('<div class="n-support"><strong>Source:</strong> '
-                    f'{esc(measured[0].get("title") or "platform readings")}'
+                    f'{esc(measured[0].get("title") or "platform data")}'
                     '</div>')
         held = int(f.get("evidence_count") or 0)
         if not held:
@@ -2291,16 +2303,16 @@ def _dev_date(dev: Dict[str, Any]) -> str:
     """The event's date as a reader writes it, or an honest absence."""
     if dev.get("date"):
         return _day(dev["date"]) if dev.get("date_established", True) \
-            else f'seen {_day(dev["date"])}, date not established'
+            else f'seen {_day(dev["date"])}, date unknown'
     if dev.get("event_type") == "significant_hiring":
-        return "observed this period"
-    return "date not established"
+        return "this period"
+    return "date unknown"
 
 
 def _dev_sources(dev: Dict[str, Any]) -> str:
     n = int(dev.get("source_count") or 0)
     if dev.get("provenance") == "measured":
-        return "two LinkedIn readings"
+        return "LinkedIn headcount on two dates"
     return f'{n} source{"" if n == 1 else "s"}'
 
 
@@ -2481,11 +2493,10 @@ def _render_hiring_block(devs: List[Dict[str, Any]], *,
             'style="--story:var(--n-green)">'
             '<div class="n-story-tag">Hiring</div>'
             + (f'<h3>Top {len(devs)} of {total} vendors with {massess_min_openings()} '
-               'or more open roles observed</h3>' if total and total > len(devs) else
+               'or more open roles</h3>' if total and total > len(devs) else
                f'<h3>{len(devs)} vendors with {massess_min_openings()} or more open '
-               'roles observed</h3>')
-            + '<div class="n-byline">Job boards · observed this period · '
-            "Vendor sources only</div>"
+               'roles</h3>')
+            + '<div class="n-byline">Job listings · this period</div>'
             + "".join(rows) + "</article>")
 
 
@@ -2911,7 +2922,7 @@ V2_CSS = """
                            .mm-v2 .v2-grid, .mm-v2 .v2-mast { padding-left:16px; padding-right:16px; } }
 """
 
-#: The sections, in page order. ``thing`` completes "No … observed".
+#: The sections, in page order. ``thing`` completes "No … in the last N days".
 V2_SECTIONS: Dict[str, Dict[str, str]] = {
     "analysis": {"heading": "Analysis", "colour": "var(--n-text)",
                  "thing": "analysis",
@@ -2925,25 +2936,25 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                  "thing": "product launch",
                  "subline": "New products, and expansions of existing ones."},
     "hiring": {"heading": "Hiring", "colour": "var(--n-green)",
-               "thing": "hiring above the floor",
+               "thing": "vendor with 5 or more open roles",
                "subline": "Vendors with 5 or more open roles, and LinkedIn "
-                          "headcount moves of 10% or more."},
+                          "headcount changes of 10% or more."},
     "cases": {"heading": "Case studies", "colour": "var(--n-orange)",
               "thing": "case study",
               "subline": "Customer stories where the customer is not named."},
     "voices": {"heading": "Thought leadership", "colour": "var(--n-accent)",
                "thing": "opinion or research",
-               "subline": "Vendors' opinion pieces and research posts, and research "
-                          "papers, not tied to a development."},
+               "subline": "Opinion and research from vendors and researchers that "
+                          "is not about a specific announcement."},
     "social": {"heading": "Social", "colour": "#00749e",
                "thing": "practitioner post",
                "subline": "What practitioners are saying on X, Bluesky, Reddit and "
                           "LinkedIn, newest first, and the most shared posts."},
     "research": {"heading": "Latest research", "colour": "#ab6400",
                  "thing": "analyst report or post",
-                 "subline": "Reports the analyst firms have named vendors in, and what "
-                            "the firms publish in public. The reports themselves are "
-                            "behind paywalls; every item links to its source."},
+                 "subline": "Reports in which analyst firms have named vendors, and the "
+                            "firms' own public posts. The reports are behind paywalls; "
+                            "every item links to its source."},
 }
 _V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
 _V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
@@ -3247,7 +3258,7 @@ def _v2_section(key: str, inner: str, *, count: int, days: int,
             if more_href and count else "")
     if not inner:
         inner = ('<p class="n-empty">' + esc(sec["empty"]) + '</p>' if sec.get("empty") else
-                 f'<p class="n-empty">No {esc(sec["thing"])} observed in the '
+                 f'<p class="n-empty">No {esc(sec["thing"])} in the '
                  f'last {days} days.</p>')
     return (f'<section class="v2-sec{" v2-wide" if wide else ""}" id="v2-{key}" '
             f'style="--sec:{sec["colour"]}">'
@@ -3274,8 +3285,8 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
     openings = int(hiring.get("openings") or 0)
     coverage = hiring.get("coverage") or {}
     if openings:
-        out.append(f'<p class="v2-strip"><strong>{openings}</strong> open roles '
-                   f'observed; {esc(coverage.get("label") or "coverage unknown")}.</p>')
+        out.append(f'<p class="v2-strip"><strong>{openings}</strong> open roles; '
+                   f'{esc(coverage.get("label") or "coverage unknown")}.</p>')
     shown = [d for d in devs if d.get("event_type") == "significant_hiring"]
     out.append(_render_hiring_block(shown, total=total, logos=logos))
     heads = [d for d in devs if d.get("event_type") == "headcount_change"]
@@ -3465,7 +3476,7 @@ def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -
          "articles, posts and pages",
          "Everything we read about this market in the period: news articles, "
          "vendor posts and web pages, practitioner posts, research papers."),
-        ("Open roles observed", str(int(hiring.get("openings") or 0)),
+        ("Open roles", str(int(hiring.get("openings") or 0)),
          coverage.get("label") or "no job listings seen",
          "Live job listings on LinkedIn and on vendors' careers pages. A role "
          "listed in both places counts once."),
@@ -3520,7 +3531,7 @@ def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
 
 def _v2_motion(rows: List[Dict[str, Any]],
                logos: Optional[Dict[str, str]] = None) -> str:
-    """Who caused motion: the vendors whose own posts drew the most reactions,
+    """Who got attention: the vendors whose own posts drew the most reactions,
     and the vendors others wrote about most. ``rows`` are share_of_voice's
     per-vendor rows, already reduced to the vendors the reader may see."""
     by_reactions = sorted((r for r in rows if int(r.get("reactions") or 0) > 0),
@@ -3788,7 +3799,13 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     # set in the shared view, so a withheld vendor's citation is not here.
     from app.services import market_research as mres
     domain_names = _safe(_v2_vendor_domains, conn, market["id"]) or {}
-    buckets["research"] = (mres.group_citations(rows, domain_names)
+    # A firm's own post ("Announcing The Forrester Wave…") is not a vendor
+    # citing a report; it belongs under the firm's posts, not "Cited by".
+    firm_hosts = tuple(mres.analyst_domains(market))
+    def _own_post(r):
+        h = (urlparse(r.get("uri") or "").netloc or "").lower().removeprefix("www.")
+        return any(h == d or h.endswith("." + d) for d in firm_hosts)
+    buckets["research"] = (mres.group_citations([r for r in rows if not _own_post(r)], domain_names)
                            + mres.analyst_posts(rows, market))
     pieces_html: List[str] = []   # rendered apart; put back after the check
 
@@ -3883,7 +3900,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</div></main>")
     else:
         body.append('<header class="v2-mast"><div>'
-                    f'<div class="n-kicker">Future-proof cybersecurity advisory · {esc(period_txt)}</div>'
+                    f'<div class="n-kicker">Cyberfuturists · {esc(period_txt)}</div>'
                     f'<h1>{esc(market["name"])}</h1>'
                     f'<p class="n-sub">Market News and Trends for {esc(market["name"])}</p></div>'
                     f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
@@ -3933,7 +3950,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                     + _v2_moved(assessment.get("main_developments") or [], logos=logos) + "</div>")
         motion = _v2_motion(sov_rows, logos)
         if motion:
-            body.append('<div class="v2-card"><h2>Who caused motion</h2>' + motion + "</div>")
+            body.append('<div class="v2-card"><h2>Who got attention</h2>' + motion + "</div>")
         tracked = _safe_list(_v2_tracked_voices, conn)
         if teaser:
             tracked = ent.drop_text_mentioning(tracked, withheld)
@@ -4279,8 +4296,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 # The publisher's line, then the period; the page is the
                 # rating, and it carries the publisher's name the way a
                 # named research product does.
-                f'<div class="n-kicker">Future-proof cybersecurity advisory · '
-                f'{esc(period_txt)}</div>'
+                f'<div class="n-kicker">Cyberfuturists · {esc(period_txt)}</div>'
                 f'<h1>{esc(market["name"])} Market Maturity Map</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
@@ -4565,7 +4581,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         body.append('<p class="mm-src">Crunchbase\'s own Growth and '
                     'Attention (Heat) scores, 0 to 100, for reference.</p>')
         if comparable and events:
-            body.append("<h4>Crunchbase score changes between two readings</h4>")
+            body.append("<h4>Crunchbase score changes in the period</h4>")
             body.append('<table class="mm-table"><thead><tr><th>Vendor</th>'
                         '<th class="mm-num">Attention/Heat Δ</th>'
                         '<th class="mm-num">Growth Δ</th><th>Last observed</th>'
@@ -4578,8 +4594,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         else:
             body.append(f'<p class="mm-src">Read for {read_n} of '
                         f'{registry_total} vendors. '
-                        + ('Changes will appear after a full period of '
-                           'readings.' if not comparable else
+                        + ('Changes appear once the scores have been collected for a '
+                           'full period.' if not comparable else
                            'No score changed in the period.') + '</p>')
         fm_with_data = [r for r in funding.get("by_month") or []
                         if r.get("avg_heat_score") is not None]
@@ -4630,17 +4646,17 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                     f'{p["avg_pct_vs_baseline"]}%' for p in hc_with_data)
                 body.append(f'<p>We have {len(hc_with_data)} week'
                             f'{"" if len(hc_with_data) == 1 else "s"} of '
-                            f'readings so far: {esc(readings)} against where '
-                            'these vendors started. Three weeks makes a line.</p>')
+                            f'headcount data so far: {esc(readings)} against where '
+                            'these vendors started. A chart needs three.</p>')
             else:
                 body.append('<p class="mm-src">Average change from each '
-                            "vendor's first reading. Weeks covering fewer "
+                            "vendor's first headcount count. Weeks covering fewer "
                             f'than half of the {hc_trend["watching"]} vendors '
                             'are less reliable.</p>')
                 body.append(_line_chart(
                     hc_trend["points"], x_key="week",
                     series=[("avg_pct_vs_baseline", "#475569",
-                             "Average change since first reading")]))
+                             "Average change since first count")]))
         body.append("</section>")
 
     # ---- Vendor announcements

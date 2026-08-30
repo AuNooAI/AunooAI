@@ -40,6 +40,19 @@ BANNED_PATTERNS = [
     r"no signal",
     # Crunchbase's proprietary scores are not market momentum.
     r"[Ff]unding and momentum",
+    # Internal words. A "reading" is a row we collected; a reader is told
+    # what was counted and when. "Shape" is a layout.
+    r"\breadings\b",
+    r"\b(first|fresh|one|two|no|profile|Crunchbase|LinkedIn) reading\b",
+    r"[Mm]ap shape",
+    # "Observed" as a verbal tic, and the phrases the copy pass of 30 August
+    # removed: say what was counted and when, in ordinary words.
+    r"\bobserved (this period|change|scaling|hiring)\b",
+    r"material observed",
+    r"date not established",
+    r"[Ff]uture-proof",
+    r"caused motion",
+    r"rest on the vendor",
 ]
 
 
@@ -291,5 +304,5 @@ def test_the_lead_answers_before_it_shows_evidence(conn, market):
             or 'Reported by multiple independent sources' in html
             or 'No material development' in html)
     # The observation states, never a count of silence.
-    assert 'monitored, no material change observed' in html
-    assert 'with incomplete observation' in html or 'incomplete' in html
+    assert 'watched, no development' in html
+    assert 'partly collected' in html or 'incomplete' in html

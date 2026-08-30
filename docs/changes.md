@@ -2,6 +2,114 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-30 — aisocnews.com and aisoc.aunoo.ai: dotfile probes get a 404 instead of a front-page render; aisoc.aunoo.ai gets feed.json and the news-tip endpoint
+
+### Goal
+A read of the nginx access log for the new site (the log carries `$host` since 21:00 on
+29 August) showed that scanner probes were costing page renders, and that the older name
+aisoc.aunoo.ai lacked two of the paths the front page now links to. All three changes are
+nginx site files outside git; this entry is the record.
+
+### Ops — dotfile probes answered 404 on both hosts (config outside git)
+Both site files (`/etc/nginx/sites-available/aisocnews.com` and `aisoc.aunoo.ai`) end in a
+catch-all `location / { return 302 /; }`. A scanner asking for `/.env` or `/.git/config`
+therefore got a redirect to the front page and followed it, so each probe became a full
+`report.html` render. In the morning of 30 August one Google Cloud address
+(`34.107.97.217`) sent 539 requests to aisocnews.com: 506 probes redirected, 21 renders of
+`/` at 200, 12 at 405; a second (`34.17.159.15`) sent 277; on aisoc.aunoo.ai `93.123.109.10`
+produced one render per probe. Nothing was ever served for the probes themselves — over the
+day only `/` returned 200 on aisocnews.com — so this was cost, not exposure. Each file now
+has, before the catch-all:
+
+```
+location ~ /\. { return 404; }
+```
+
+The `^~ /.well-known/acme-challenge/` prefix location above it still wins for certificate
+renewals. Backups: `<site>.bak-dotfiles-20260830_084825`. Other probe paths (`/contacts`,
+`/imprint`, `/wp-admin`) still redirect to `/`; left as they are.
+
+### Ops — aisoc.aunoo.ai serves feed.json and accepts news tips (config outside git)
+The front page links to `feed.json` (the AI feed, `bf783d19`) and posts news tips to
+`/api/market-monitor/markets/2/news-tip` (`167c2d64`); on aisoc.aunoo.ai both fell into the
+catch-all and redirected to `/`. The site file now has a `location = /feed.json` proxy, the
+same as on aisocnews.com, and `news-tip` in the form-endpoint regex. Backup:
+`aisoc.aunoo.ai.bak-feedjson-20260830_090854`.
+
+### Copy — the front page in ordinary words (not yet committed)
+The user read the public page and objected to internal terms in the copy ("readings",
+"shape") and to its register. Two passes over the strings the page prints, in
+`market_report_html.py`, `market_assessment.py`, `market_horizon.py`, `market_benchmark.py`,
+`market_briefing.py` and `market_publish.py`:
+
+- **"Reading" and "shape".** A reading is a row we collected; the page now says what was
+  counted and when: "LinkedIn headcount (latest count)", "LinkedIn headcount changed +12%
+  between the two dates we collected it", "LinkedIn headcount on two dates", "no Crunchbase
+  data collected", "Crunchbase score changes in the period", "A chart needs three." The
+  Arc/Grid switch is "Map layout". The map caption reads "Vendors placed by size and by
+  growth, from public data we collect: headcount, followers, funding, customers, open roles,
+  launches and mentions. It does not rate product quality, customer satisfaction or strategy."
+- **"Observed" and the rest.** The masthead kicker "Future-proof cybersecurity advisory"
+  is "Cyberfuturists". Empty sections say "No case study in the last 30 days" (no
+  "observed"). Dates: "date unknown", "this period". Hiring: "153 open roles; 21 of 85
+  vendors have public job listings", "Job listings · this period", "N vendors with 5 or
+  more open roles". Highlights: "1 acquisition in the period" (was "Consolidation
+  observed"), "New funding for X" (was "New capital observed", and the filler "This provides
+  additional capital for expansion" is gone), "Vendors announce products far more often
+  than customers" (was "Product activity still exceeds customer evidence"), "42 of 85
+  vendors had a development" (was "showed material observed change"), "For most
+  developments the only source is the vendor" (was "rest on the vendor's own word"), "A few
+  vendors account for most open roles". Development fallbacks: "33 open roles." (was "an
+  observed scaling signal"), "A change at one vendor." Vendor states: "with a development",
+  "watched, no development", "partly collected". Sidebar card "Who caused motion" is "Who
+  got attention"; the section sublines for Hiring, Thought leadership and Latest research
+  are rewritten. The provenance labels ("Vendor sources only", "Also reported
+  independently", "Reported by multiple independent sources") stay: they are plain and
+  several tests pin them.
+- **Two things underneath.** The map caption and the input labels were printed from the
+  stored map (computed 28 August), so a copy edit would have waited for a recompute; the
+  renderer now takes those words from code and the live config and keeps the stored weights
+  and cuts. And a firm's own post ("Announcing The Forrester Wave…") was read as a vendor
+  citing a report and printed "Cited by forrester.com"; rows from analyst-firm hosts are
+  now kept out of `group_citations` and appear only under the firm's posts.
+- **Guard.** `tests/test_market_report_copy.py` `BANNED_PATTERNS` now rejects `readings`,
+  `… reading` (first/fresh/one/two/no/profile/Crunchbase/LinkedIn), `Map shape`,
+  `observed (this period|change|scaling|hiring)`, `material observed`, `date not
+  established`, `Future-proof`, `caused motion` and `rest on the vendor`. Four tests that
+  pinned the old wording were updated (`test_market_report_copy.py`,
+  `test_market_report_v2.py`, `test_market_research.py`).
+
+Verification: 149 passed across the eight Market Monitor suites; the two failures are the
+older ones (`test_the_lead_answers_before_it_shows_evidence`,
+`test_mm20_the_report_names_only_authorized_vendors`). Service restarted three times (guard
+clear each time); the public front page, the Hiring, Market moves, Thought leadership and
+Latest research section pages, the Analyst View and the news river were fetched and grepped:
+none of the removed phrases remains; the only "reading" left is a CSS class name and two
+source headlines.
+
+### Ops — an hourly access watch, this session only
+A script in the session scratchpad (`access_watch.py`) reads the log for the two hosts, keeps
+a state file, and prints only what changed: new readers with referrer, new referrer domains,
+5xx seen by a reader, form posts, and probe bursts against the median hour. It runs hourly
+from a session cron job and is gone when the session ends; nothing durable was installed.
+The morning it was set up, aisocnews.com had 934 requests from 23 addresses by 08:36, about
+8 of them people (one arrived from the LinkedIn Android app). There is no GeoIP database on
+the host, so origin is the raw address and referrer only.
+
+### Verification
+- `sudo nginx -t` clean, `systemctl reload nginx` twice, no downtime.
+- `curl` on both hosts after the dotfile rule: `/.env`, `/.git/config`, `/.env.production`
+  → 404; `/` → 200 (387,529 bytes); a test file placed under
+  `/var/www/letsencrypt/.well-known/acme-challenge/` → 200 with its body on both hosts,
+  then removed.
+- aisoc.aunoo.ai after the second change: `/feed.json` → 200 `application/feed+json`
+  (23,288 bytes, same as aisocnews.com); `/feed.xml` → 200; a POST to `news-tip` with an
+  invalid URL → 422 from the endpoint's own validation (it reached the app; nothing stored).
+
+### Propagation
+nginx only, this host only. Nothing in git; a tenant cloned from canonical does not get a
+site file. The backups named above are the rollback.
+
 ## 2026-08-29 — Market Monitor front page (`?view=v2`): the period laid out like a news site, with section pages; aisocnews.com serves it
 
 ### Goal

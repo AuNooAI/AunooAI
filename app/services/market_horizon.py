@@ -45,7 +45,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "customer_days": 365,
     "inputs": {
         "headcount": {"axis": "scale", "weight": 0.35,
-                      "label": "LinkedIn headcount (latest fresh reading)"},
+                      "label": "LinkedIn headcount (latest count)"},
         "funding": {"axis": "scale", "weight": 0.30,
                     "label": "Disclosed funding total"},
         "followers": {"axis": "scale", "weight": 0.10,
@@ -154,9 +154,10 @@ def band_info(cuts: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
     fmt = {"b1": f"{b1:g}", "b2": f"{b2:g}"}
     return {b: {**info, "means": info["means"].format(**fmt)} for b, info in BANDS.items()}
 
-WHAT_IT_IS_NOT = ("A map of scale against momentum from readings we collect. "
-                  "It does not rate product quality, customer satisfaction "
-                  "or strategy.")
+WHAT_IT_IS_NOT = ("Vendors placed by size and by growth, from public data we collect: "
+                  "headcount, followers, funding, customers, open roles, launches "
+                  "and mentions. It does not rate product quality, customer "
+                  "satisfaction or strategy.")
 
 
 def _now() -> str:
@@ -292,7 +293,7 @@ def gather_inputs(conn, market: Dict[str, Any], cfg: Dict[str, Any]
         if bid in followers:
             put(bid, "followers", followers[bid])
         else:
-            gap(bid, "followers", "no LinkedIn profile reading with a follower count")
+            gap(bid, "followers", "no LinkedIn follower count collected")
 
     # Launches, partnerships and customer evidence come from the reviewed
     # posts and matched news. They are measured for a vendor whenever its
@@ -317,7 +318,7 @@ def gather_inputs(conn, market: Dict[str, Any], cfg: Dict[str, Any]
         if bid in growth:
             put(bid, "cb_growth", growth[bid])
         else:
-            gap(bid, "cb_growth", "no Crunchbase reading")
+            gap(bid, "cb_growth", "no Crunchbase data collected")
 
     # Innovation inputs. Research posts follow the posts collection like
     # launches do; corroborated launches are events with more than the
@@ -331,7 +332,7 @@ def gather_inputs(conn, market: Dict[str, Any], cfg: Dict[str, Any]
             put(bid, "launches_corroborated", float(corroborated.get(bid, 0)))
     for bid, share in _engineering_share(conn, market_id).items():
         if share is None:
-            gap(bid, "engineering_share", "fewer than three open roles observed")
+            gap(bid, "engineering_share", "fewer than three open roles")
         else:
             put(bid, "engineering_share", share)
 

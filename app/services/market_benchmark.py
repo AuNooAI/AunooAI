@@ -67,14 +67,14 @@ METRICS: Dict[str, Dict[str, Any]] = {
         "unit": "people",
         "window": "as_of",
         "source": "linkedin_company_profile",
-        "as_of_note": "latest fresh reading",
+        "as_of_note": "latest count collected",
     },
     "headcount_pct": {
         "label": "Headcount change",
         "unit": "percent",
         "window": "period",
         "source": "linkedin_company_profile",
-        "as_of_note": "between the first and last readings inside the period",
+        "as_of_note": "between the first and last counts collected in the period",
     },
     "posts": {
         "label": "Owned LinkedIn posts",
@@ -196,14 +196,14 @@ def _headcount_values(conn, market_id: int, days: int, pct: bool
             if fresh:
                 values[bid] = float(r["latest"])
             else:
-                unmeasured[bid] = ("the last LinkedIn profile reading is older "
-                                   "than two collection intervals")
+                unmeasured[bid] = ("the last LinkedIn headcount we collected is older "
+                                   "than two collection cycles")
             continue
         # A change needs two readings inside the window. One reading is not a
         # vendor that did not move; it is a vendor we read once.
         if int(r["readings"]) < 2 or not r["earliest"]:
-            unmeasured[bid] = ("only one LinkedIn reading inside this period, "
-                               "so there is nothing to compare it against")
+            unmeasured[bid] = ("only one LinkedIn headcount collected in this period, "
+                               "so there is nothing to compare it with")
             continue
         was = float(r["earliest"])
         values[bid] = round((float(r["latest"]) - was) / was * 100, 1)
@@ -462,7 +462,7 @@ def compare(measured: Dict[str, Any], brand_id: int) -> Dict[str, Any]:
     if out["degraded"]:
         out["notes"].append(
             f"{measured['collection'].get('label') or 'Collection'} for this "
-            f"metric is not current. These are the last good readings, as of "
+            f"metric is not current. These are the last good figures, as of "
             f"{measured['as_of'] or 'an unrecorded date'}, not a recalculation "
             f"from the vendors that did refresh.")
 

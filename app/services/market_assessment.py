@@ -1083,13 +1083,13 @@ def why_it_matters(dev: Dict[str, Any]) -> str:
         return ""
     if kind == "significant_hiring":
         n = (dev.get("attributes") or {}).get("openings")
-        return (f"{n} open roles: " if n else "") + "an observed scaling signal."
+        return f"{n} open roles." if n else "Open roles above the floor."
     if kind == "headcount_change":
         pct = (dev.get("attributes") or {}).get("pct")
-        return ((f"A measured {pct:+.0f}% change in LinkedIn headcount "
-                 "between two readings." if isinstance(pct, (int, float))
-                 else "A measured change in LinkedIn headcount."))
-    return "An observed change in one vendor's position."
+        return ((f"LinkedIn headcount changed {pct:+.0f}% between the two dates "
+                 "we collected it." if isinstance(pct, (int, float))
+                 else "LinkedIn headcount changed between the two dates we collected it."))
+    return "A change at one vendor."
 
 
 def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
@@ -1402,8 +1402,8 @@ def _hiring_candidates(conn, market_id: int, days: int) -> List[Dict[str, Any]]:
             "date": None,
             "date_established": False,
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}],
-            "headline": f"{n} open roles observed",
-            "summary": (f"{n} distinct open roles observed on job boards during "
+            "headline": f"{n} open roles",
+            "summary": (f"{n} distinct open roles on job boards during "
                         f"the period" + (f" ({mix})." if mix else ".")),
             "evidence": evidence,
             "evidence_count": n,
@@ -1448,7 +1448,7 @@ def _headcount_candidates(conn, market: Dict[str, Any], days: int
             "summary": (f"LinkedIn reported {prev} staff on "
                         f"{(m.get('previous_at') or '')[:10]} and {now_n} on "
                         f"{(latest_at or '')[:10]}."),
-            "evidence": [{"uri": None, "title": "LinkedIn company profile readings",
+            "evidence": [{"uri": None, "title": "LinkedIn company profile, two dates",
                           "source": "linkedin", "published": latest_at,
                           "voice": "measured", "social": False,
                           "source_type": "linkedin_profile",
@@ -1522,9 +1522,9 @@ OBSERVATION_STATES = ("material_change", "monitored_no_material_change",
                       "incomplete_coverage", "paused", "not_yet_collected")
 
 OBSERVATION_LABELS = {
-    "material_change": "with material observed change",
-    "monitored_no_material_change": "monitored, no material change observed",
-    "incomplete_coverage": "with incomplete observation",
+    "material_change": "with a development",
+    "monitored_no_material_change": "watched, no development",
+    "incomplete_coverage": "partly collected",
     "paused": "paused",
     "not_yet_collected": "not yet collected",
 }
@@ -1900,19 +1900,19 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     if ownership:
         acq = _devs_of(ownership, "acquisition")
         lines = [f'{d["headline"]} ({d["event_type_label"].lower()}, '
-                 f'{d["date"] or "date not established"}, '
+                 f'{d["date"] or "date unknown"}, '
                  f'{d["provenance_label"].lower()})' for d in ownership]
         if acq:
-            head = (f"Consolidation observed: {len(acq)} acquisition"
+            head = (f"{len(acq)} acquisition"
                     f"{'s' if len(acq) != 1 else ''} in the period.")
         else:
             head = (f"{len(ownership)} change{'s' if len(ownership) != 1 else ''}"
-                    " in who competes in this category.")
+                    " in who is in the market.")
         told = " ".join(_first_sentence(d) for d in ownership[:2])
         out.append(_finding(
             "consolidation", head,
-            told + (" An acquisition brings an existing company's customers "
-                    "and distribution into the category." if acq else ""),
+            told + (" The buyer takes on the acquired company's customers "
+                    "and sales channels." if acq else ""),
             evidence=lines,
             coverage=_partial_posts_note(inputs),
             developments=ownership))
@@ -1922,10 +1922,9 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     if funding:
         out.append(_finding(
             "capital",
-            f"New capital observed for {_name_list(funding)}.",
-            " ".join(_first_sentence(d) for d in funding[:3])
-            + " This provides additional capital for expansion.",
-            evidence=[f'{d["headline"]} ({d["date"] or "date not established"}, '
+            f"New funding for {_name_list(funding)}.",
+            " ".join(_first_sentence(d) for d in funding[:3]),
+            evidence=[f'{d["headline"]} ({d["date"] or "date unknown"}, '
                       f'{d["provenance_label"].lower()})' for d in funding],
             coverage=_partial_posts_note(inputs),
             developments=funding))
@@ -1947,11 +1946,11 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             and post_share is not None and post_share >= MIN_COVERAGE_SHARE):
         named = [d for d in customers_all if _customer_named(d)]
         if len(product_all) > 2 * len(customers_all):
-            head = "Product activity still exceeds customer evidence."
+            head = "Vendors announce products far more often than customers."
         elif len(customers_all) >= len(product_all):
-            head = "Customer evidence keeps pace with product announcements."
+            head = "Customer announcements keep pace with product announcements."
         else:
-            head = "Product announcements and customer evidence are close."
+            head = "Product and customer announcements are about level."
         out.append(_finding(
             "product_vs_customer", head,
             f"Vendors made {len(product_all)} product launch or expansion "
@@ -1972,19 +1971,18 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         if lead:
             out.append(_finding(
                 "dominant_kind",
-                f"{lead['label']} is the most common kind of observed change "
-                f"({lead['n']} of {dist['total']} developments).",
-                "Counts of the deduplicated developments we observed, by "
-                "kind: " + ", ".join(f"{t['label'].lower()} {t['n']}"
+                f"{lead['label']} is the most common kind of development "
+                f"({lead['n']} of {dist['total']}).",
+                "Developments by kind, each counted once: " + ", ".join(f"{t['label'].lower()} {t['n']}"
                                      for t in dist["by_type"]) + ".",
                 evidence=[f"{t['label']}: {_name_list(_devs_of(devs, t['event_type']), 3)}"
                           for t in dist["by_type"][:3]],
-                coverage=(f"Announcements could be read for only "
+                coverage=(f"We could read announcements for only "
                           f"{_pct(post_share)} of vendors, so this describes "
-                          "what was observed rather than the whole market."
+                          "what we saw, not the whole market."
                           if post_share is not None else
-                          "The vendors' own announcements were not read, so "
-                          "this describes outside coverage only."),
+                          "We did not read the vendors' own announcements, so "
+                          "this covers outside reporting only."),
                 developments=devs))
 
     # 4. Customer adoption on its own, when the comparison above was not made.
@@ -1992,7 +1990,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         named = [d for d in customers if _customer_named(d)]
         out.append(_finding(
             "adoption",
-            f"Customer evidence observed for {_name_list(customers)}.",
+            f"Customer announcements from {_name_list(customers)}.",
             f"{len(customers)} customer or deployment announcement"
             f"{'s' if len(customers) != 1 else ''}, "
             f"{len(named)} of them naming the customer.",
@@ -2013,14 +2011,13 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             hire_devs = _devs_of(devs, "significant_hiring")
             out.append(_finding(
                 "hiring_concentration",
-                "Observed hiring is concentrated in a small number of vendors.",
-                f"Of the {openings} open roles observed, {top['vendor']} "
+                "A few vendors account for most open roles.",
+                f"Of the {openings} open roles, {top['vendor']} "
                 f"accounts for {top['openings']} ({_pct(share)}), with "
                 f"{second['vendor']} the next largest at {second['openings']}.",
                 evidence=_vendor_lines(by_vendor, "openings", "open roles"),
-                coverage=(f"Job listings exist for only {len(by_vendor)} of "
-                          f"{registry_total} vendors, so this is an observed "
-                          "hiring signal rather than a market-wide ranking."),
+                coverage=(f"Only {len(by_vendor)} of {registry_total} vendors have job "
+                          "listings we can read, so this is not a market-wide ranking."),
                 developments=hire_devs))
 
     # 6. Concentration of material change across the registry.
@@ -2031,12 +2028,12 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         top3_txt = ", ".join(f"{v['vendor']} {v['n']}" for v in top3)
         out.append(_finding(
             "change_concentration",
-            f"{dist['vendors_with_change']} of {registry_total} vendors showed "
-            "material observed change.",
+            f"{dist['vendors_with_change']} of {registry_total} vendors had a "
+            "development.",
             f"{dist['total']} developments in {days} days. The three most active "
             f"vendors account for {_pct(dist['top3_share'])} of them "
             f"({top3_txt})."
-            + (f" {quiet} vendors were watched and showed no material change."
+            + (f" {quiet} vendors were watched and had none."
                if quiet else ""),
             evidence=_vendor_lines(dist["by_vendor"], "n", "developments",
                                    singular="development", limit=5),
@@ -2050,9 +2047,9 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         indep = (prov.get("independently_reported", 0)
                  + prov.get("multiple_independent_sources", 0))
         share = dist.get("vendor_only_share") or 0
-        head = ("Most observed developments rest on the vendor's own word."
+        head = ("For most developments the only source is the vendor."
                 if share >= 0.6 else
-                "Independent reporting covers a minority of developments."
+                "Outside sources reported fewer than half of the developments."
                 if share >= 0.4 else
                 "Most developments were reported by somebody other than the vendor.")
         out.append(_finding(

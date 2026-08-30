@@ -282,7 +282,7 @@ def _render_facts(facts: Dict[str, Any]) -> str:
         # Two LinkedIn readings, each with its own date. The dates are given to
         # the model because a +1 over two days and a +1 over four months are
         # different facts and it cannot tell them apart otherwise.
-        lines.append("\nHEADCOUNT MOVEMENT (two LinkedIn readings):")
+        lines.append("\nHEADCOUNT MOVEMENT (LinkedIn headcount on two dates):")
         for m in facts["headcount_movers"]:
             lines.append(f"- {m['vendor']}: {m.get('previous')} on "
                          f"{str(m.get('previous_at'))[:10]} -> {m.get('latest')} on "

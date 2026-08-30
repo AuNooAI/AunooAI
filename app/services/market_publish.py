@@ -886,8 +886,8 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
         else:
             insufficient.append({
                 "vendor": row["vendor"], "brand_id": row["brand_id"],
-                "reason": ("only one LinkedIn reading so far, so there is "
-                           "nothing to compare it against"),
+                "reason": ("only one LinkedIn headcount collected so far, so there is "
+                           "nothing to compare it with"),
                 "latest": float(latest),
                 "latest_at": latest_at.isoformat() if latest_at else None,
             })
@@ -924,7 +924,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
         "baseline_comparison": {
             "rows": baseline_rows[:10],
             "total": len(baseline_rows),
-            "source": "imported workbook baseline vs latest LinkedIn reading",
+            "source": "imported workbook baseline vs latest LinkedIn headcount",
             "caution": ("Two different measurements taken months apart. Useful "
                         "as a rough direction, not as observed growth."),
         },
@@ -935,7 +935,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
                 "We add up the most recent employee count each vendor shows on "
                 "LinkedIn. Some companies publish a range instead of a number, "
                 "like 51-200. We leave those out rather than guess, and we "
-                "leave out vendors we have no reading for rather than count "
+                "leave out vendors we have no headcount for rather than count "
                 "them as zero."),
             numerator="the latest exact employee count for each vendor",
             denominator="vendors whose LinkedIn profile we have read recently",
@@ -945,8 +945,8 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
                 "This is a floor, not the real total. Vendors publishing a "
                 "range instead of a number are missing from it.",
                 "LinkedIn headcount is self-reported by each company.",
-                ("Movement needs two readings. %d of %d vendors have only one "
-                 "so far." % (len(insufficient), len(rows))),
+                ("Movement needs the headcount on two dates. %d of %d vendors have "
+                 "it on one so far." % (len(insufficient), len(rows))),
             ]),
     }
 
@@ -1269,8 +1269,8 @@ DATASETS = {
     "articles": "News, vendor blogs and research matched to this market, with "
                 "why each one matched. Vendor posts are in `posts`.",
     "posts": "Vendor LinkedIn posts with the review verdict on each.",
-    "profiles": "LinkedIn company readings: headcount, followers, location.",
-    "funding": "Crunchbase readings: rounds, investors, rank.",
+    "profiles": "LinkedIn company profiles: headcount, followers, location.",
+    "funding": "Crunchbase records: rounds, investors, rank.",
     "jobs": "Open job listings seen at these vendors.",
     "pages": "Vendor web pages watched, and what changed on them.",
     "runs": "Every collection run: source, status, records, latency, error.",

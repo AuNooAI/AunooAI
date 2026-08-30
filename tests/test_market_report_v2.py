@@ -166,7 +166,7 @@ def test_thought_leadership_selection():
 
 def test_empty_section_says_so_and_a_full_one_links_to_its_page():
     empty = html._v2_section("cases", "", count=0, days=30, more_href="?view=v2&section=cases")
-    assert "No case study observed in the last 30 days" in empty
+    assert "No case study in the last 30 days" in empty
     assert "All 0" not in empty
     full = html._v2_section("moves", "<p>x</p>", count=7, days=30, more_href="?view=v2&section=moves")
     assert "All 7" in full and 'id="v2-moves"' in full and "<p>x</p>" in full
@@ -235,7 +235,7 @@ def test_front_page_has_its_sections_and_links(conn, market):
     assert 'id="v2-lead"' in page and 'class="v2-grid"' in page
     assert "<h2>Highlights</h2>" in page and '<details class="v2-hl"><summary>' in page
     assert "Most active vendors" in page
-    assert "Who caused motion" in page and "Most discussed" in page
+    assert "Who got attention" in page and "Most discussed" in page
     # Submit news: the button in the top bar and the panel it jumps to.
     assert 'class="n-tip" href="#mm-tip">Submit news</a>' in page
     # One contact form with a dropdown; the button's anchor lands on it.
