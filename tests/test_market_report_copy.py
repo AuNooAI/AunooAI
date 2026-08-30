@@ -53,6 +53,11 @@ BANNED_PATTERNS = [
     r"[Ff]uture-proof",
     r"caused motion",
     r"rest on the vendor",
+    r"showed a material change|showing material change|Other observed",
+    r"[Oo]bserved activity",
+    r"tracked cohort",
+    r"observation state",
+    r"\{c[123]\}",
 ]
 
 
@@ -290,10 +295,10 @@ def test_the_lead_answers_before_it_shows_evidence(conn, market):
 
     order = [html.index(marker) for marker in (
         '<h2>Executive assessment</h2>',
-        '<h2>Vendors showing material change</h2>',
+        '<h2>Vendors with a development</h2>',
         '<h2>What this says about the market</h2>',
-        '<h2>Material market developments</h2>',
-        '<h2>Observed vendor activity</h2>',
+        '<h2>Developments</h2>',
+        '<h2>Vendor activity</h2>',
         '<details class="mm-drawer" id="mm-analysis">',
     )]
     assert order == sorted(order), 'the lead is out of order'

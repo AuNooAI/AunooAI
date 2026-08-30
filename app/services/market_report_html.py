@@ -1510,8 +1510,12 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                 f'<div class="mm-fold-body">{inner}</div></details>')
 
     tiers_html = []
+    # The stored map carries the descriptions with their "{c1}" placeholders;
+    # the cut scores are written in here.
+    live_tiers = mh.tier_info(cfg.get("tiers") or {})
+    live_bands = mh.band_info(cfg.get("tiers") or {})
     for tier in _TIER_ORDER:
-        info = (horizon.get("tiers") or {}).get(tier) or {}
+        info = {**((horizon.get("tiers") or {}).get(tier) or {}), **live_tiers.get(tier, {})}
         rows = [r for r in rated if r["tier"] == tier]
         if not rows:
             continue
@@ -1535,7 +1539,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                           f'<span class="mm-src">({len(rows)}) — {esc(info.get("means") or "")}</span></h3>')
         tiers_html.append(f'<p>{", ".join(names)}</p>')
     # JSONB hands the bands back in its own key order; fastest first here.
-    bands = horizon.get("bands") or {}
+    bands = {k: {**v, **live_bands.get(k, {})} for k, v in (horizon.get("bands") or {}).items()}
     band_order = [k for k in ("accelerating", "growing", "holding") if k in bands] + \
                  [k for k in bands if k not in ("accelerating", "growing", "holding")]
     for band in band_order:
@@ -1651,8 +1655,8 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                 by_reason[live_label(g)] = by_reason.get(live_label(g), 0) + 1
         reasons = "; ".join(f"{n} lack {esc(label.lower())}" for label, n in
                             sorted(by_reason.items(), key=lambda kv: -kv[1]))
-        inner = (f'<p class="mm-src">A vendor is rated only when every input was '
-                 f'measured. {reasons}.</p>')
+        inner = (f'<p class="mm-src">A vendor is rated only when we have every '
+                 f'input. {reasons}.</p>')
         if True:
             inner += '<p class="mm-src">' + "; ".join(
                 f'{esc(nr["vendor"])}: ' + ", ".join(esc(live_label(g).lower()) for g in nr["missing"])
@@ -2378,12 +2382,12 @@ def _dev_evidence_links(dev: Dict[str, Any]) -> str:
 
 
 def _render_moved_table(devs: List[Dict[str, Any]]) -> str:
-    """Vendors showing material change: the centrepiece table."""
+    """Vendors with a development: the centrepiece table."""
     if not devs:
-        return ('<p class="n-empty">No vendor showed a material change in '
+        return ('<p class="n-empty">No vendor had a development in '
                 'the period, on the sources we collect.</p>')
     out = ['<div class="n-tablewrap"><table class="mm-table n-moved"><thead><tr>'
-           '<th>Vendor</th><th>Material change</th><th>Evidence</th>'
+           '<th>Vendor</th><th>Development</th><th>Evidence</th>'
            '<th>Why it matters</th></tr></thead><tbody>']
     for d in devs:
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
@@ -2421,7 +2425,7 @@ def _render_other_developments(devs: List[Dict[str, Any]]) -> str:
         f'<td class="mm-src">{esc(d["event_type_label"])} · {esc(_dev_date(d))}</td>'
         f'<td class="mm-src">{esc(_dev_sources(d))} · {esc(d["provenance_label"])}</td>'
         "</tr>" for d in devs)
-    return (f'<details class="n-more"><summary>Other observed developments '
+    return (f'<details class="n-more"><summary>Other developments '
             f'({len(devs)})</summary><div class="n-tablewrap">'
             f'<table class="mm-table"><tbody>{rows}</tbody></table></div></details>')
 
@@ -2442,9 +2446,9 @@ def _render_synthesis(paragraphs: List[Dict[str, Any]]) -> str:
 
 
 def _render_observation(observation: Dict[str, Any]) -> str:
-    """Observed vendor activity, as states — never "vendors with no signal"."""
+    """Vendor activity, as states — never "vendors with no signal"."""
     out = ['<section class="n-card" id="mm-observation"><div class="n-card-title">'
-           '<h2>Observed vendor activity</h2>'
+           '<h2>Vendor activity</h2>'
            f'<span class="n-updated">{observation.get("total", 0)} vendors</span>'
            '</div>']
     for s in observation.get("states") or []:
@@ -2459,11 +2463,11 @@ def _render_observation(observation: Dict[str, Any]) -> str:
              "linkedin_jobs": "job listings", "crunchbase_company": "Crunchbase page"}
     required = [names.get(s, s.replace("_", " "))
                 for s in observation.get("required_sources") or []]
-    out.append('<p class="n-note">A vendor counts as showing no material '
-               'change only when its '
+    out.append('<p class="n-note">A vendor counts as having no development '
+               'only when its '
                + (esc(" and ".join(required)) if required else "expected sources")
                + ' were read during the period. Otherwise it is listed as '
-               'incompletely observed.</p>')
+               'partly collected.</p>')
     out.append("</section>")
     return "".join(out)
 
@@ -2593,9 +2597,9 @@ def _render_corpus(clustered: List[Dict[str, Any]], *, collected: int,
                    shown: int) -> str:
     if not clustered:
         return ""
-    head = (f'View underlying coverage: the {shown} most recent of {collected} '
-            'collected records' if collected > shown else
-            f'View underlying coverage: all {shown} collected records')
+    head = (f'Everything we collected: the {shown} most recent of {collected} '
+            'records' if collected > shown else
+            f'Everything we collected: all {shown} records')
     return (f'<details class="n-more"><summary>{esc(head)}</summary>'
             '<p class="n-note">Everything matched to this market in the '
             'period, including general discussion and anything that did not '
@@ -3576,7 +3580,7 @@ def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8,
     front page shows only the top of each section, so a jump link would
     often land nowhere; the entry carries its own detail instead."""
     if not devs:
-        return '<p class="n-empty">No vendor showed a material change in the period.</p>'
+        return '<p class="n-empty">No vendor had a development in the period.</p>'
     rows = []
     for d in devs[:limit]:
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
@@ -4347,11 +4351,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                                       restricted=teaser,
                                       link_params=link_params))
 
-    # 2. Vendors showing material change
+    # 2. Vendors with a development
     main_devs = assessment["main_developments"]
     other_devs = assessment["other_developments"]
     body.append('<section class="n-block" id="mm-moved">'
-                '<div class="n-sec-head"><h2>Vendors showing material change</h2>'
+                '<div class="n-sec-head"><h2>Vendors with a development</h2>'
                 f'<span class="n-updated">{len(developments)} developments · '
                 f'{observation["counts"].get("material_change", 0)} vendors'
                 '</span></div>')
@@ -4379,12 +4383,12 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                '<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/>'
                '<circle cx="5" cy="19" r="1" fill="currentColor"/></svg>'
                '<span>RSS</span></a>')
-    body.append('<div class="n-sec-head"><h2>Material market developments</h2>'
+    body.append('<div class="n-sec-head"><h2>Developments</h2>'
                 f'<div class="n-sec-actions">{rss}'
                 f'<span class="n-updated">{esc(period_txt)}</span></div></div>')
     collected = int(assessment.get("collected_records") or 0)
-    body.append(f'<p class="n-distil">{collected:,} collected records &rarr; '
-                f'{len(developments)} material development'
+    body.append(f'<p class="n-distil">{collected:,} records collected &rarr; '
+                f'{len(developments)} development'
                 f'{"" if len(developments) == 1 else "s"}</p>')
     body.append(_render_developments(developments))
     body.append(_render_corpus(clustered, collected=collected,
@@ -4616,7 +4620,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         if len(top) >= 2:
             body.append(f'<p>{esc(top[0]["vendor"])} accounts for '
                         f'{top[0]["openings"]} of the {hiring["openings"]} '
-                        f'observed openings, with {esc(top[1]["vendor"])} '
+                        f'open roles, with {esc(top[1]["vendor"])} '
                         f'accounting for another {top[1]["openings"]}.</p>')
         body.append(_coverage(hiring.get("coverage")))
         body.append(_bar_chart(hiring["by_function"], label_key="function",
@@ -4836,19 +4840,19 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append(_drawer_open(
         "Tracked vendors",
         f"{len(registry_rows)} companies we watch, with each one's "
-        "observation state, country, founding year, staff, funding and open "
+        "collection state, country, founding year, staff, funding and open "
         "roles.",
         anchor="mm-registry"))
     body.append(section_open("Vendor registry"))
     body.append('<p><a class="mm-btn" href="#mm-missing">Is your company missing?</a></p>')
-    body.append('<p class="mm-src">Sorted by observation state, then by the '
+    body.append('<p class="mm-src">Sorted by collection state, then by the '
                 "date of each vendor's latest development, then by name."
                 + (f' {left_out} vendor{"" if left_out == 1 else "s"} on the '
                    'list are not shown, because collection is off for them or '
                    'we have never read anything about them.' if left_out else "")
                 + '</p>')
     body.append('<table class="mm-table"><thead><tr>'
-                "<th>Vendor</th><th>Observation</th><th>Country</th>"
+                "<th>Vendor</th><th>Status</th><th>Country</th>"
                 "<th>Founded</th>"
                 '<th class="mm-num">LinkedIn headcount</th>'
                 '<th class="mm-num">Disclosed funding</th>'
@@ -4856,7 +4860,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<th class="mm-num">Open roles</th>'
                 "<th>Latest development</th></tr></thead><tbody>")
     short_state = {"material_change": "Changed",
-                   "monitored_no_material_change": "No change observed",
+                   "monitored_no_material_change": "No change",
                    "incomplete_coverage": "Incomplete",
                    "paused": "Paused", "not_yet_collected": "Not collected"}
     for i, row in enumerate(registry_rows):
@@ -4969,10 +4973,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     counts = observation.get("counts") or {}
     body.append(
         f'<p class="mm-src">Of the {registry_total} vendors, '
-        f'{counts.get("material_change", 0)} showed a material change, '
-        f'{counts.get("monitored_no_material_change", 0)} were monitored with '
-        f'no material change observed, {counts.get("incomplete_coverage", 0)} '
-        'were observed incompletely'
+        f'{counts.get("material_change", 0)} had a development, '
+        f'{counts.get("monitored_no_material_change", 0)} were watched and '
+        f'had none, {counts.get("incomplete_coverage", 0)} '
+        'were only partly collected'
         + (f', {counts.get("paused", 0)} are paused' if counts.get("paused") else "")
         + (f' and {counts.get("not_yet_collected", 0)} have not been collected yet'
            if counts.get("not_yet_collected") else "")

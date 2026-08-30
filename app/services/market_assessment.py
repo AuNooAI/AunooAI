@@ -535,6 +535,15 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     shared_words = a["words"] & b["words"]
     union = len(a["words"] | b["words"]) or 1
     short = min(len(a["words"]), len(b["words"])) < SHORT_RECORD_WORDS
+    if va and vb and shared_names:
+        # The same product in both headlines is the same event, however
+        # long the publisher's summary runs: "introduce Intezer Workflows"
+        # and "adds automated response workflows to AI SOC" were two rows
+        # because the second had nine subject words and only one in common.
+        title_a = {t.lower() for t in _tokens(_title_of(a))}
+        title_b = {t.lower() for t in _tokens(_title_of(b))}
+        if shared_names & title_a & title_b:
+            return True
     if not (va and vb):
         # One side names no tracked vendor: a reposted headline, a tweet. It
         # joins on two shared names, or — if it is short — one name plus a
@@ -2098,18 +2107,17 @@ def market_synthesis(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         share = recent / with_year
         if share >= 0.5:
             text_value = (
-                f"The tracked cohort is young: {recent} of the {with_year} "
+                f"Most of the market is new: {recent} of the {with_year} "
                 f"vendors with a known founding year were founded in {cutoff} "
-                "or later. The category therefore still contains a large "
-                "number of companies at an early stage of formation.")
+                "or later.")
         elif share <= 0.25:
             text_value = (
-                f"The tracked cohort is mostly established: only {recent} of "
+                f"Most of the market is established: only {recent} of "
                 f"the {with_year} vendors with a known founding year were "
                 f"founded in {cutoff} or later.")
         else:
             text_value = (
-                f"The tracked cohort mixes new and established companies: "
+                f"The market mixes new and established companies: "
                 f"{recent} of the {with_year} vendors with a known founding "
                 f"year were founded in {cutoff} or later.")
         out.append({"heading": "Market formation", "text": text_value,
@@ -2123,16 +2131,13 @@ def market_synthesis(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         product, adoption = dist.get("product", 0), dist.get("adoption", 0)
         partners = dist.get("partnership", 0)
         if product > 2 * max(adoption, 1):
-            lead = ("Observed activity is weighted toward building and "
-                    "positioning rather than deployment evidence.")
+            lead = "Product news outweighs customer announcements."
         elif adoption >= product:
-            lead = ("Observed activity carries as much deployment evidence "
-                    "as product news.")
+            lead = "Customer announcements keep up with product news."
         else:
-            lead = ("Observed activity splits between product news and "
-                    "deployment evidence.")
+            lead = "Activity splits between product news and customer announcements."
         out.append({
-            "heading": "Product versus adoption evidence",
+            "heading": "Products versus customers",
             "text": (f"{lead} Of {total} developments, {product} were product "
                      f"launches or expansions, {partners} partnerships and "
                      f"{adoption} customer or deployment announcements."),
@@ -2177,13 +2182,13 @@ def market_synthesis(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     concentrated = [m for m, share in measures if share >= CONCENTRATED_TOP3_SHARE]
     if lines:
         if concentrated:
-            lead = ("Observed activity is concentrated in "
+            lead = ("Activity is concentrated in "
                     + ("; ".join(concentrated) + ". "))
             rest = [m for m in lines if m not in concentrated]
             text_value = lead + (("Elsewhere it is spread: " + "; ".join(rest)
                                   + ".") if rest else "")
         else:
-            text_value = ("Observed activity is spread rather than "
+            text_value = ("Activity is spread rather than "
                           "concentrated: " + "; ".join(lines) + ".")
         denominators = []
         if openings >= MIN_OPENINGS_FOR_CONCENTRATION and by_vendor:

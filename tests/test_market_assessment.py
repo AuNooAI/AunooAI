@@ -83,6 +83,30 @@ def test_two_launches_by_one_vendor_in_one_week_stay_separate():
     assert len(ma.dedupe([a, b])) == 2
 
 
+def test_a_product_named_in_both_headlines_is_one_event():
+    """The vendor's post says "introduce Intezer Workflows"; the publisher
+    says "adds automated response workflows". One shared name, in both
+    headlines, and a nine-word summary on the publisher's side: one event,
+    a launch, with the story as its outside source."""
+    intezer = [_vendor("Intezer", 9)]
+    post = _candidate(
+        "product_launch", "That is why we are thrilled to introduce Intezer Workflows!",
+        vendors=intezer, voice="vendor", source_type="linkedin",
+        summary="With Intezer Workflows the escalation logic no longer lives in a "
+                "separate playbook system with its own skillset. Whoever decides "
+                "the verdict reads the forensic evidence in plain language.")
+    story = _candidate(
+        "product_expansion", "Intezer adds automated response workflows to AI SOC",
+        vendors=intezer, key="domain:securitybrief.in",
+        summary="Intezer has introduced automated remediation capabilities within "
+                "its AI SOC platform, enabling security teams to streamline threat "
+                "response without switching between tools and improving detection "
+                "of lower-severity threats.")
+    devs = ma.dedupe([story, post], stop=set())
+    assert len(devs) == 1
+    assert {e["uri"] for e in devs[0]["evidence"]} == {post["evidence"][0]["uri"], story["evidence"][0]["uri"]}
+
+
 def test_records_about_different_vendors_never_merge():
     a = _candidate("product_launch", "Meet Armor Detect, our detection "
                    "engineering agent", vendors=[_vendor("Arambh Labs", 1)])
@@ -434,7 +458,7 @@ def test_synthesis_only_calls_the_cohort_young_when_the_years_say_so():
         "coverage": {"measured": 38},
         "founded_by_year": [{"year": 2019, "vendors": 8},
                             {"year": 2024, "vendors": 30}]}})
-    assert young and "young" in young[0]["text"]
+    assert young and "Most of the market is new" in young[0]["text"]
     assert "30 of the 38" in young[0]["text"] and "2023" in young[0]["text"]
     old = ma.market_synthesis({**base, "formation": {
         "coverage": {"measured": 38},

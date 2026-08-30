@@ -87,6 +87,45 @@ Latest research section pages, the Analyst View and the news river were fetched 
 none of the removed phrases remains; the only "reading" left is a CSS class name and two
 source headlines.
 
+### Copy — the Analyst View in the same words (not yet committed)
+The same pass over the Analyst View (`report.html`, the V1 page): "Vendors showing material
+change" is "Vendors with a development" with a "Development" column; "Other observed
+developments" is "Other developments"; "Material market developments" is "Developments" and
+its line reads "793 records collected → 51 developments"; "Observed vendor activity" is
+"Vendor activity"; "View underlying coverage: the 60 most recent of 793 collected records" is
+"Everything we collected: …"; the registry column "Observation" is "Status" with "No change"
+for a vendor watched without a development, sorted "by collection state"; the sentence under
+the sources table says "29 had a development, 0 were watched and had none, 56 were only partly
+collected"; the map's not-rated note says "A vendor is rated only when we have every input."
+The synthesis paragraphs in `market_assessment.py` lose "the tracked cohort" and "observed
+activity": "Most of the market is new: 64 of the 84 vendors with a known founding year were
+founded in 2023 or later" (the sentence about "an early stage of formation" is cut), "Products
+versus customers" with "Product news outweighs customer announcements", "Activity is spread
+rather than concentrated". The Method section was already plain and is unchanged.
+
+One bug the read turned up: the stage headings printed their placeholders — "Executing (7) —
+the largest vendors: scale of {c3} and over" — because the stored map carries the raw
+description text. The renderer now writes the cut scores in (`mh.tier_info`, `mh.band_info`),
+so the page says "scale of 75 and over". `BANNED_PATTERNS` gained `showed/showing a material
+change`, `Other observed`, `[Oo]bserved activity`, `tracked cohort`, `observation state` and
+`\{c[123]\}`; the heading-order test and the synthesis test were updated to the new words.
+
+### Fix — one product in two headlines is one development (not yet committed)
+The front page listed Intezer twice on 19 August: "Product expansion — Intezer adds automated
+response workflows to AI SOC" (securitybrief.in) and "Product launch — That is why we are
+thrilled to introduce Intezer Workflows!" (the LinkedIn post, with three social records under
+it). Same vendor, same event family, same day, and the code's own comment cites this pair as
+one to merge. It did not, because the merge rule (`same_development` in
+`market_assessment.py`) lets a single shared name carry a record only when that record is
+short (under 8 subject words) or two other words overlap; the publisher's summary has nine
+subject words and shares only "workflows". New rule, before the short-record test: when both
+records name a tracked vendor and a shared name appears as a word in both headlines, they are
+one event. The launches page now shows one Intezer row, "Product launch", headline from the
+outside story, 4 sources, "Reported by multiple independent sources". Test
+`test_a_product_named_in_both_headlines_is_one_event` (the real pair, with the body
+capitalising the product name as the real post does, since the headline itself reads as
+Title Case). Suites: 86 passed, the two older failures unchanged.
+
 ### Ops — an hourly access watch, this session only
 A script in the session scratchpad (`access_watch.py`) reads the log for the two hosts, keeps
 a state file, and prints only what changed: new readers with referrer, new referrer domains,
