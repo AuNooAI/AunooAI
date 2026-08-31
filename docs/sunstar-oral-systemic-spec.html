@@ -253,5 +253,16 @@ td.mono,code.kw{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:0.8
 </ul>
 <h3>TheNewsAPI was searching titles only (found 12:10 UK, fixed)</h3>
 <p>The tenant setting <code>keyword_monitor_settings.search_fields</code> was <code>title,description</code> on every tenant, so the article body was never asked for; and the setting uses NewsAPI vocabulary, where the body is "content", a name TheNewsAPI drops silently (its fields are <code>title,description,keywords,main_text</code>). Measured over 30 days: 歯周病 8 results with the old value against 114 with the right fields, Parodontitis 4 against 23, santé bucco-dentaire 1 against 13. <code>app/collectors/thenewsapi_collector.py</code> now maps <code>content</code> to <code>main_text</code> and adds <code>keywords</code>. Fixed in canonical and propagated to wileytest and wbm the same day; sunstar's setting is now <code>title,description,content</code>. wileytest and wbm keep <code>title,description</code> until someone decides to widen it (more articles, more analysis cost). Every tenant that collects through TheNewsAPI has been searching titles and descriptions only.</p>
+<h3>With body search on (31 August, 12:50 UK)</h3>
+<div class="tablewrap"><table><thead><tr><th>Topic</th><th>Collected</th><th>Approved</th><th>Above the gate</th></tr></thead><tbody>
+<tr><td>Japan</td><td>131</td><td>9</td><td>15</td></tr>
+<tr><td>Germany</td><td>33</td><td>3</td><td>4</td></tr>
+<tr><td>France</td><td>15</td><td>2</td><td>3</td></tr>
+<tr><td>Consumer Voice</td><td>1,234 posts, all scored</td><td>—</td><td>226</td></tr>
+<tr><td>Sunstar (incl. JP group)</td><td>40</td><td>4</td><td>5</td></tr>
+<tr><td>Lion (incl. JP group)</td><td>133</td><td>4</td><td>5</td></tr>
+<tr><td>Kao (incl. JP group)</td><td>115</td><td>5</td><td>5</td></tr>
+</tbody></table></div>
+<p>Japan's TheNewsAPI pass returned 228 results across 13 keywords once the body was searched, against about 30 before. France's two approvals are both Futura-Sciences pieces on Alzheimer's and oral bacteria (0.90). The consumer set's relevant posts come mostly from Bluesky (109 of 226), then Instagram (43) and TikTok (38); Twitter contributes 7. The market topics are still thin for the run of show's 40-per-market floor: Japan is the only non-US market near a usable set, and Germany and France will be shown as what they are.</p>
 <p>Source file: <code>docs/SUNSTAR_ORAL_SYSTEMIC_HEALTH_SPEC.md</code> in the bugfixing tree.</p>
 </main>

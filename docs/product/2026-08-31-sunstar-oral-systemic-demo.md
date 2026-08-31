@@ -65,13 +65,14 @@ language fix is what makes the four-market claim true rather than aspirational.
 
 ## Limits and what's next
 
-- France is thin: 2 articles collected, 0 approved. TheNewsAPI has 13 French articles a month
-  on "santé bucco-dentaire"; the re-run with body search is still queued. Say so on the call
-  rather than pad it.
+- France and Germany are thin even with body search: France 15 collected, 2 approved (both
+  Futura-Sciences on Alzheimer's and oral bacteria); Germany 33 collected, 3 approved. Say so on
+  the call rather than pad it. Japan reached 131 collected, 9 approved.
 - Sunstar's own English coverage is empty in the last 30 days; its news is Japanese.
 - Semantic Scholar still runs without an API key and hits rate limits; the application must be
   submitted by hand (captcha). The research leg is usable but incomplete until then.
-- The consumer view is scored on a cheap model; 200 of 1,024 posts scored so far, 87 relevant.
+- The consumer view is scored on a cheap model: 1,234 posts scored, 226 relevant, most of them
+  from Bluesky, Instagram and TikTok; Twitter contributed 7.
 - Not built: the perspective-gap report that puts researchers, companies and consumers on one
   page per category; LinkedIn collection; any new dashboard. Reasonable week-two items.
 - Brendan Jennings' own questions have not arrived; the two example questions from the 21 August

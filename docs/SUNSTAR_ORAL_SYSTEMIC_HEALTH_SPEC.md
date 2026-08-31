@@ -221,3 +221,17 @@ Also found and fixed: the keyword normaliser caps keywords at 30 characters (`MA
 ### TheNewsAPI was searching titles only (found 12:10 UK, fixed)
 
 The tenant setting `keyword_monitor_settings.search_fields` was `title,description` on every tenant, so the article body was never asked for; and the setting uses NewsAPI vocabulary, where the body is "content", a name TheNewsAPI drops silently (its fields are `title,description,keywords,main_text`). Measured over 30 days: 歯周病 8 results with the old value against 114 with the right fields, Parodontitis 4 against 23, santé bucco-dentaire 1 against 13. `app/collectors/thenewsapi_collector.py` now maps `content` to `main_text` and adds `keywords`. Fixed in canonical and propagated to wileytest and wbm the same day; sunstar's setting is now `title,description,content`. wileytest and wbm keep `title,description` until someone decides to widen it (more articles, more analysis cost). Every tenant that collects through TheNewsAPI has been searching titles and descriptions only.
+
+### With body search on (31 August, 12:50 UK)
+
+| Topic | Collected | Approved | Above the gate |
+|---|---|---|---|
+| Japan | 131 | 9 | 15 |
+| Germany | 33 | 3 | 4 |
+| France | 15 | 2 | 3 |
+| Consumer Voice | 1,234 posts, all scored | — | 226 |
+| Sunstar (incl. JP group) | 40 | 4 | 5 |
+| Lion (incl. JP group) | 133 | 4 | 5 |
+| Kao (incl. JP group) | 115 | 5 | 5 |
+
+Japan's TheNewsAPI pass returned 228 results across 13 keywords once the body was searched, against about 30 before. France's two approvals are both Futura-Sciences pieces on Alzheimer's and oral bacteria (0.90). The consumer set's relevant posts come mostly from Bluesky (109 of 226), then Instagram (43) and TikTok (38); Twitter contributes 7. The market topics are still thin for the run of show's 40-per-market floor: Japan is the only non-US market near a usable set, and Germany and France will be shown as what they are.
