@@ -368,6 +368,18 @@ supports it." "Nothing here is advice." "The site has no accounts, cookies or an
 scripts." The legal substance (Article 50 notice, privacy retention, imprint) is unchanged;
 tests pin only the section IDs, so none needed updating.
 
+### Copy — a key for the map's marks; "on the record, not on the map"; Artemis tips landed
+The user read "…Prophet Security ◌ $, Qevlar…" and asked what the $ was doing on Qevlar —
+the marks trail the name before them, and nothing said so. The "Who is where" fold now opens
+with a key ("Marks after a name: ◌ innovating · ⚒ hiring · $ raised in the last year …
+Each mark belongs to the name before it"), and "Acquired (4) — listed, not placed" reads
+"on the record, not on the map" (Pivoted matches). Separately, Artemis Security's four news
+tips were landed on the user's instruction: the CrowdStrike Project QuiltWorks release as
+outside coverage, and the Lemonade and Cursor case studies as named-customer evidence
+(review fields set by hand, `review_model='manual:news-tip'`, so the provenance is visible).
+Map 23: Artemis Scaling → Executing, Accelerating (scale 86.3) on the strongest customers
+input in the market — the same lever as Wirespeed earlier, no weighting touched.
+
 ### Ops — the observer agent never had email on, and the tenant sent from Resend's test address (config only)
 The user was not getting the observer agent's mail. Agent 6 "SOC Automation Market Watch"
 ran daily at 07:00 as scheduled (15 alerts on the 30th, 6 on the 31st, saved report 50) but

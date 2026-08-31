@@ -1670,13 +1670,13 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                           f'{esc((horizon.get("previous_at") or "")[:10])}</span></h3>')
         tiers_html.append(f'<p>{", ".join(mnames)}</p>')
     if acquired:
-        tiers_html.append(f'<h3>Acquired <span class="mm-src">({len(acquired)}) — listed, not placed</span></h3>')
+        tiers_html.append(f'<h3>Acquired <span class="mm-src">({len(acquired)}) — on the record, not on the map</span></h3>')
         tiers_html.append('<p>' + "; ".join(
             esc(a["vendor"]) + (f' — by {esc(a["acquired_by"])}' if a.get("acquired_by") else "")
             + (f', {esc(a["status_date"])}' if a.get("status_date") else "")
             for a in acquired if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
     if pivoted:
-        tiers_html.append(f'<h3>Pivoted <span class="mm-src">({len(pivoted)}) — left this market for another; listed, not placed</span></h3>')
+        tiers_html.append(f'<h3>Pivoted <span class="mm-src">({len(pivoted)}) — left this market for another; on the record, not on the map</span></h3>')
         tiers_html.append('<p>' + "; ".join(
             esc(a["vendor"]) + (f' — {esc(a["note"])}' if a.get("note") else "")
             + (f' ({esc(a["status_date"])})' if a.get("status_date") else "")
@@ -1687,6 +1687,9 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     band_summary = ", ".join(
         f'{binfo.get("label", band).lower()} {sum(1 for r in rated if r.get("band") == band)}'
         for band, binfo in ((k, bands[k]) for k in band_order))
+    marks_key = ('<p class="mm-src">Marks after a name: ◌ innovating · ⚒ hiring · '
+                 '$ raised in the last year · "(was …)" moved stage since the previous map. '
+                 'Each mark belongs to the name before it.</p>')
     out.append(fold(f"Who is where — {esc(tier_summary)}"
                     + (f"; {esc(band_summary)}" if band_summary else "")
                     + (f", innovating {len(innovating)}" if innovating else "")
@@ -1695,7 +1698,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                     + (f", moved {len(moves)}" if moves else "")
                     + (f", acquired {len(acquired)}" if acquired else "")
                     + (f", pivoted {len(pivoted)}" if pivoted else ""),
-                    "".join(tiers_html)))
+                    marks_key + "".join(tiers_html)))
 
     if full_view:
         noted = [r for r in rated if r.get("analyst_note") or r.get("multipliers")]

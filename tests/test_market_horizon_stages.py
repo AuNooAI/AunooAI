@@ -84,7 +84,7 @@ def test_a_pivoted_vendor_is_listed_apart_from_the_acquired():
     horizon = {"config": {"tiers": {}}, "rated": rated, "not_rated": [], "acquired": listed,
                "tiers": hz.tier_info({}), "bands": hz.band_info({}), "computed_at": "2026-08-31", "days": 90}
     out = html._horizon_section(horizon, None)
-    assert "Acquired <span" in out and "(1) — listed, not placed" in out and "Kenzo — by Rapid7" in out
+    assert "Acquired <span" in out and "(1) — on the record, not on the map" in out and "Kenzo — by Rapid7" in out
     assert "Pivoted <span" in out and "Zaun — now security for AI, not AI for security" in out
     assert ", acquired 1, pivoted 1" in out
     assert "Zaun" not in out.split("Who is where")[0]  # not on the map itself
