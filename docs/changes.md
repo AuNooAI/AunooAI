@@ -2,6 +2,42 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-31 — Market 2 registry: Wirespeed in (vendor request), Zaun out; map recomputed
+
+### Ops/config — registry changes (database only, nothing in code)
+Two leads came through the front-page forms overnight: a trial request from Intezer's CMO
+(01:29) and a vendor request for Wirespeed from a Coalition address (21:54); both were
+emailed to the editors at the time (`notified` set on `market_trial_requests` row 4 and
+`market_vendor_requests` row 13). On the user's instruction:
+
+- **Wirespeed added** as brand 49060 to market 2, role vendor, collection and social
+  collection on, the same switches as the other 84 vendors. Identifiers: domain
+  `wirespeed.co`, website, LinkedIn company page
+  `linkedin.com/company/wirespeedsecurity`, and a Crunchbase URL guessed from the name
+  (unverified, like the others). Inserted with the same statements as
+  `POST /markets/{id}/vendors` plus the identifier route, provenance
+  `{"source": "manual", "requested_by": "vendor-request 13"}`. Three per-vendor reads were
+  queued in `bw_collection_runs` (1062–1064: LinkedIn profile, LinkedIn posts, Crunchbase)
+  for the collector's next pass; feed and jobs-board discovery pick the vendor up on their
+  next market-wide sweep. The site publishes no RSS link. The news keyword group searches
+  by name for funded vendors only (`vendor_names: "funded"`), so "Wirespeed" is not a news
+  term until a funding record exists.
+- **Zaun excluded**: `bw_market_brands` brand 124 set to role `excluded`, collection, brand
+  monitoring and social collection off (the Edge Delta shape). Rows and history kept; it had
+  no feed registered.
+- **Map recomputed** and stored as map 11 (`mh.compute` + `mh.store`, the same as
+  `POST /markets/2/horizon/compute`): 39 rated, 45 not rated, 2 acquired; Zaun gone from
+  Emerging and the Hiring marker (4, was 5); Wirespeed under Not rated lacking headcount,
+  followers, funding and open roles. The recompute draws "since previous map" trails
+  against the 28 August map.
+
+Verification: live front page reads "28 of 85 vendors had a development", "153 open roles;
+20 of 85 vendors have public job listings", "39 of 85 vendors mapped"; the in-process full
+Analyst View lists Wirespeed under Not rated and Zaun nowhere.
+
+### Propagation
+Database rows on bugfixing only; Market Monitor exists on no other tenant.
+
 ## 2026-08-31 — Briefing desk: entries whose name has a slash would not delete
 
 ### Goal
