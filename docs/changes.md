@@ -2,13 +2,19 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-08-30 — aisocnews.com and aisoc.aunoo.ai: dotfile probes get a 404 instead of a front-page render; aisoc.aunoo.ai gets feed.json and the news-tip endpoint
+## 2026-08-30 — The public page in ordinary words: no internal terms on the front page or the Analyst View; one product in two headlines is one development; dotfile probes get a 404; first day of readers from LinkedIn
 
 ### Goal
-A read of the nginx access log for the new site (the log carries `$host` since 21:00 on
-29 August) showed that scanner probes were costing page renders, and that the older name
-aisoc.aunoo.ai lacked two of the paths the front page now links to. All three changes are
-nginx site files outside git; this entry is the record.
+The page went public under its own name yesterday and got its first real readers today
+(a LinkedIn post at about 09:00 brought a hundred people by early afternoon). The user read
+it as one of them and objected to the copy: internal words ("readings", "shape",
+"observed", "material change") and a register he called "bad fan fiction". Two copy passes
+followed, one over the front page (`e7d5e205`) and one over the Analyst View (`d9abad37`),
+each guarded by the banned-copy test. The same read turned up three defects: analyst firms'
+own posts printed as "Cited by forrester.com", the map's stage headings printing their
+`{c3}` placeholders, and one Intezer launch listed twice. Separately, a read of the nginx
+log showed scanner probes costing page renders, and aisoc.aunoo.ai lacking two paths the
+page links to; those are nginx site files outside git, recorded here.
 
 ### Ops — dotfile probes answered 404 on both hosts (config outside git)
 Both site files (`/etc/nginx/sites-available/aisocnews.com` and `aisoc.aunoo.ai`) end in a
@@ -36,7 +42,7 @@ catch-all and redirected to `/`. The site file now has a `location = /feed.json`
 same as on aisocnews.com, and `news-tip` in the form-endpoint regex. Backup:
 `aisoc.aunoo.ai.bak-feedjson-20260830_090854`.
 
-### Copy — the front page in ordinary words (not yet committed)
+### Copy — the front page in ordinary words (`e7d5e205`)
 The user read the public page and objected to internal terms in the copy ("readings",
 "shape") and to its register. Two passes over the strings the page prints, in
 `market_report_html.py`, `market_assessment.py`, `market_horizon.py`, `market_benchmark.py`,
@@ -87,7 +93,7 @@ Latest research section pages, the Analyst View and the news river were fetched 
 none of the removed phrases remains; the only "reading" left is a CSS class name and two
 source headlines.
 
-### Copy — the Analyst View in the same words (not yet committed)
+### Copy — the Analyst View in the same words (`d9abad37`)
 The same pass over the Analyst View (`report.html`, the V1 page): "Vendors showing material
 change" is "Vendors with a development" with a "Development" column; "Other observed
 developments" is "Other developments"; "Material market developments" is "Developments" and
@@ -110,7 +116,7 @@ so the page says "scale of 75 and over". `BANNED_PATTERNS` gained `showed/showin
 change`, `Other observed`, `[Oo]bserved activity`, `tracked cohort`, `observation state` and
 `\{c[123]\}`; the heading-order test and the synthesis test were updated to the new words.
 
-### Fix — one product in two headlines is one development (not yet committed)
+### Fix — one product in two headlines is one development (`d9abad37`)
 The front page listed Intezer twice on 19 August: "Product expansion — Intezer adds automated
 response workflows to AI SOC" (securitybrief.in) and "Product launch — That is why we are
 thrilled to introduce Intezer Workflows!" (the LinkedIn post, with three social records under
@@ -135,7 +141,32 @@ The morning it was set up, aisocnews.com had 934 requests from 23 addresses by 0
 8 of them people (one arrived from the LinkedIn Android app). There is no GeoIP database on
 the host, so origin is the raw address and referrer only.
 
+The day it watched (`day_overview.py`, same scratchpad, run at 13:35): 102 people had read
+the site since midnight, counted as visiting addresses (129) minus one-to-three-hit fetches
+from AWS/GCP/Azure ranges (27) that look like link previews. 52 came from LinkedIn (37 web,
+15 the Android app), 47 with no referrer, one each from a Notion page, an Eraser document and
+Google Keep. First visits by hour: 20 at 09:00, 27 at 10:00, 25 at 11:00, then 8 and 9. 52
+on phones, 37 on desktop. 56 of the 102 went past the front page: the Analyst View opened by
+10, Market moves 8, Product launches 5, Thought leadership, Hiring and Case studies 4 each,
+the feeds 4, About 1, the news river 1. One person saw the holding page, at 09:25, during
+the restart for the copy pass. By 18:49 the hourly ticks had counted roughly 150 more
+addresses, about ten an hour by evening, first arrivals from Google (14:47) and Bing (17:37),
+two WordPress-path scanners with browser strings, and a nine-address link-preview fan-out in
+one minute at 14:44. Restarts land on real readers now: batch them.
+
 ### Verification
+- Code: `.venv/bin/python -m pytest` over the eight Market Monitor suites
+  (`test_market_report_copy`, `test_market_report_v2`, `test_market_assessment`,
+  `test_market_research`, `test_market_entitlements`, `test_market_horizon_stages`,
+  `test_market_benchmark`, `test_market_metrics`): 149 passed after the front-page pass,
+  86 passed over the four suites run after the Analyst View pass and the merge fix; the two
+  failures each time are the older `test_the_lead_answers_before_it_shows_evidence` and
+  `test_mm20_the_report_names_only_authorized_vendors`. Service restarted five times, the
+  journal guard clear each time, up in 10–14 s. After each restart the public front page, the
+  section pages, the news river and an in-process render of the full Analyst View were
+  fetched and grepped for the removed phrases: none left except a CSS class name
+  (`.mm-reading`) and source headlines ("Dark Reading"). The launches page shows one Intezer
+  row with 4 sources after the merge fix.
 - `sudo nginx -t` clean, `systemctl reload nginx` twice, no downtime.
 - `curl` on both hosts after the dotfile rule: `/.env`, `/.git/config`, `/.env.production`
   → 404; `/` → 200 (387,529 bytes); a test file placed under
@@ -146,8 +177,22 @@ the host, so origin is the raw address and referrer only.
   invalid URL → 422 from the endpoint's own validation (it reached the app; nothing stored).
 
 ### Propagation
-nginx only, this host only. Nothing in git; a tenant cloned from canonical does not get a
-site file. The backups named above are the rollback.
+The code (`e7d5e205`, `d9abad37`) is committed on bugfixing (canonical) and live there.
+Market Monitor exists on no other tenant, so nothing propagates. The nginx changes are this
+host only and outside git; a tenant cloned from canonical does not get a site file. The
+backups named above are the rollback. The access watch is a session cron job and dies with
+the session; the two scripts live in the session scratchpad and are not in the tree.
+
+### Lessons
+- Copy is code: a caption or label printed from a stored row (the map's `what_it_is_not`,
+  its input labels, its stage descriptions) waits for the next recompute after a copy edit,
+  and can print a placeholder. Render words from code; store numbers.
+- Add each rejected phrase to `BANNED_PATTERNS` in `tests/test_market_report_copy.py` as it
+  is removed. The test renders the real report, so it catches strings the grep of the source
+  misses (the stored-map labels were found that way).
+- A merge rule with a word-count threshold fails by one word on real records. The code's own
+  comment named the Intezer pair as the case to handle; a test with the real pair would have
+  caught it the day the rule was written.
 
 ## 2026-08-29 — Market Monitor front page (`?view=v2`): the period laid out like a news site, with section pages; aisocnews.com serves it
 
