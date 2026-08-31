@@ -23,6 +23,15 @@ word if it is ever described externally.
   Japanese-language watching for the three Japanese companies.
 - Research summaries, explanations and tags now come out in English whatever language the
   article was written in.
+- The first three analysis reports for the demo: what researchers agree on (oral frailty,
+  gum-disease-and-heart mechanisms, a brain link with weak causal evidence), what the US press
+  says (including a competitor's survey showing 76% of Americans care about oral health while 3%
+  connect it to whole-body health), and what the Japanese press says (disaster oral care after
+  the Kumamoto earthquake, oral frailty, competitor product news). All three exported as
+  standalone pages ready as leave-behinds.
+- A platform fix found on the way: analysis reports on the current model line-up were being cut
+  short without any error, on every site. A 90-paper analysis came back with one section and
+  said "success". Reports now get the full output length.
 
 ## Why it matters
 
@@ -75,5 +84,7 @@ language fix is what makes the four-market claim true rather than aspirational.
   from Bluesky, Instagram and TikTok; Twitter contributed 7.
 - Not built: the perspective-gap report that puts researchers, companies and consumers on one
   page per category; LinkedIn collection; any new dashboard. Reasonable week-two items.
+- Japan's press analysis rests on 13 articles, so its categories are directional; the German
+  and French sets are smaller still and were not analysed.
 - Brendan Jennings' own questions have not arrived; the two example questions from the 21 August
   email stand in.

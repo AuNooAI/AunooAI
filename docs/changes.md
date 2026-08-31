@@ -83,6 +83,26 @@ newsrooms publish no feed at the URLs tried). Consumer group `default_llm_model=
 `SOCIAL_EVAL_MODEL=nova-lite` because the template's social evaluator default `gemma3:4b` is not
 on the Bedrock yaml and had scored 0 of 1,021 posts.
 
+### Ops — first analysis runs (afternoon)
+Three Consensus runs on sunstar, all Sonnet 5 with the Sunstar org profile, analyst persona,
+cache bypassed after the limits fix above: research topic `40bb2aa6` (90 papers → 3 categories:
+oral frailty 46 papers at 88% confidence, periodontitis–neurodegeneration "strong association,
+weak causation" at 72%, periodontitis–cardiovascular mechanistic consensus at 80%; 6 key
+insights, among them that only 2 of 90 papers touch policy/reimbursement); US topic `fce3b699`
+(35 articles → 4 categories, incl. the P&G/AAFP survey's 76%-care vs 3%-connect awareness gap at
+90%); Japan topic `4224ee74` (13 articles → 4 categories, led by Kumamoto disaster oral care at
+88%). Self-contained HTML exports in `sunstar.aunoo.ai/exports/` (three files, dated 2026-08-31).
+The spec carries the analysis notes (commits `518cdd13`, `9d0b73ac`). The truncated first two
+research runs (`1286e34e`, `22f3cecb`) remain stored as earlier versions.
+
+End-of-day collection state on sunstar with body search on (`search_fields =
+title,description,content`, sunstar only by user decision): research 210 collected / 120
+enriched-approved, US 324 / 32, Japan 131 / 9, Germany 33 / 3, France 15 / 2, regenerative
+269 / 29, consumer 1,234 posts all scored on nova-lite / 226 relevant, Colgate 135 / 54,
+P&G Oral-B 55 / 17, Kao 115 / 5, Lion 133 / 4, Sunstar 40 / 4 (Japanese-language brand groups
+13–15 supply the real Lion/Kao/Sunstar coverage). Open: Semantic Scholar API key (old key 403,
+form needs a browser), Brendan's questions due 1 Sep.
+
 ### Verification
 `py_compile` on every changed module; `pytest tests/test_market_horizon_stages.py` 5 passed
 (the market-horizon changes riding along in the commit). Live on sunstar after the first passes:
