@@ -72,6 +72,11 @@ SOURCE_FOLLOW = "watchlist_posts"   # followed accounts' timelines, kept when th
 # Reads vendor posts we already collected and judges each one.
 # Costs a cheap model call per 20 posts, not a provider fetch.
 SOURCE_POST_REVIEW = "post_review"
+# Turns reviewed posts, profile readings, funding, page changes and job
+# postings into entity events, which the Findings view reads. Local, free;
+# gated by ENTITY_INTELLIGENCE_EVENTS_ENABLED. Until 31 August 2026 nothing
+# scheduled the extractors, so Findings froze on the backfill's last day.
+SOURCE_EVENTS = "entity_events"
 # Writes the previous month's briefing, once that month is over.
 SOURCE_BRIEFING = "monthly_briefing"
 
@@ -170,6 +175,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_CORPUS: slow,          # daily — also free, also local
         SOURCE_FOLLOW: fast,          # followed accounts: a timeline read per account
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
+        SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
@@ -397,6 +403,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _discover_candidates(conn, market, now)
     runs += _match_corpus(conn, market, now)
     runs += await _review_posts(conn, market, now)
+    runs += _extract_events(conn, market, now)
     runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
@@ -700,6 +707,45 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s post review failed: %s", market_id, exc)
+    return 1
+
+
+def _extract_events(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Run the entity-event extractors, which feed the Findings view.
+
+    Events are per vendor, not per market, so one pass covers every brand;
+    the run is recorded against the market whose cadence triggered it. The
+    extractors are idempotent (fingerprint upserts), so a second market
+    running the pass the same day costs time and creates nothing.
+    """
+    from app.services import entity_flags
+    if not entity_flags.events_enabled():
+        return 0
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_EVENTS, now) is None:
+        return 0
+    from app.services.entity_event_extractors import run_all
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_EVENTS, provider="local")
+    conn.commit()
+    try:
+        summary = run_all(conn)
+        errors = [k for k, v in summary["by_extractor"].items() if v.get("error")]
+        candidates = sum(int(v.get("candidates") or v.get("readings_compared")
+                             or v.get("pages_examined") or v.get("postings_read") or 0)
+                         for v in summary["by_extractor"].values())
+        mc.close_run(conn, run_id,
+                     status="partial" if errors else "succeeded",
+                     received=candidates, new=summary["events_created"],
+                     skipped=summary["events_merged"],
+                     error=(f"extractors failed: {', '.join(errors)}" if errors else None))
+        conn.commit()
+        logger.info("market %s entity events: %d created, %d merged",
+                    market_id, summary["events_created"], summary["events_merged"])
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s entity events failed: %s", market_id, exc)
     return 1
 
 

@@ -461,6 +461,10 @@ t_keyword_groups = Table(
     Column('search_date_range', Integer, nullable=True),
     Column('providers', Text, nullable=True),  # JSON array e.g., '["thenewsapi", "arxiv"]'
     Column('social_platforms', Text, nullable=True),  # JSON array of xpoz platforms; NULL = XPOZ_PLATFORMS env default
+    # Collection language/country for this group (ISO 639-1 / ISO 3166-1 alpha-2).
+    # NULL = the tenant-wide keyword_monitor_settings.language, and no country filter.
+    Column('language', Text, nullable=True),
+    Column('country', Text, nullable=True),
     # Processing settings
     Column('auto_ingest_enabled', Boolean, nullable=True),
     Column('min_relevance_threshold', REAL, nullable=True),

@@ -380,6 +380,10 @@ tr.mm-teaser-row td { filter: blur(5px); user-select: none; pointer-events: none
 .mm-hz-chips button b { font-weight: 600; }
 .mm-hz-chips button[aria-pressed="true"] { background: var(--mm-hl); border-color: var(--mm-hl); color: #fff; }
 .mm-hz-pt.mm-dim { opacity: .3; }
+.mm-hz-show { display: inline-flex; gap: 4px; align-items: center; margin-left: 14px; font-size: 11px; color: #64748b; }
+.mm-hz-show button[aria-pressed="true"] { background: #334155; border-color: #334155; color: #fff; }
+.mm-hz.mm-top .mm-hz-pt[data-tail], .mm-hz.mm-top .mm-hz-trail[data-tail] { display: none; }
+.mm-hz.mm-top .mm-lbl-all, .mm-hz:not(.mm-top) .mm-lbl-top { display: none; }
 .mm-hz-pt.mm-on .mm-core { fill: var(--mm-hl); fill-opacity: 1; }
 .mm-hz-pt.mm-on .mm-lbl { font-weight: 600; }
 .mm-hz-tip { position: absolute; z-index: 5; background: #fff; border: 1px solid #e2e8f0;
@@ -786,7 +790,7 @@ def _horizon_tip(r: Dict[str, Any], tiers: Dict[str, Any], *, with_inputs: bool)
         marks.append(f'hiring — {int(d["open_roles"])} open roles, {float(d["per_100"]):.0f} per 100 staff')
     if r.get("funded"):
         f = r["funded"]
-        marks.append(f'funded — {f.get("round") or "round not stated"}, {(f.get("date") or "")[:7]}')
+        marks.append(f'raised in the last year — {f.get("round") or "round not stated"}, {(f.get("date") or "")[:7]}')
     if marks:
         out.append("<div>" + "; ".join(esc(m) for m in marks) + "</div>")
     sh = r.get("shift")
@@ -934,6 +938,9 @@ _STAGE_ICONS = {
 
 # The three markers a reader can highlight, with the colour of their ring.
 _MARKER_COLOURS = (("innovating", "#0f172a"), ("hiring", "#b45309"), ("funded", "#1d4ed8"))
+#: The word the reader sees for each marker key. "funded" is a round dated
+#: inside the last year, not a vendor that has ever raised, so it says so.
+_MARKER_LABELS = {"innovating": "innovating", "hiring": "hiring", "funded": "raised in the last year"}
 
 
 def _stage_icon(key: str, cx: float, cy: float, size: float = 16) -> str:
@@ -966,7 +973,7 @@ def _horizon_legend(left: float, y: float, has_trails: bool) -> List[str]:
              f'<circle cx="{left + 224:.0f}" cy="{y:.0f}" r="6" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="1 2.2"/>',
              f'<text x="{left + 234:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">hiring — top third by open roles per head</text>',
              f'<circle cx="{left + 466:.0f}" cy="{y:.0f}" r="6" fill="none" stroke="#1d4ed8" stroke-width="1"/>',
-             f'<text x="{left + 476:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">funded — a round in the last year</text>']
+             f'<text x="{left + 476:.0f}" y="{y + 4:.0f}" font-size="10" fill="#64748b">raised in the last year</text>']
     if has_trails:
         parts.append(f'<line x1="{left + 18:.0f}" y1="{y + 14:.0f}" x2="{left + 36:.0f}" y2="{y + 14:.0f}" '
                      'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#mm-hz-arrow)"/>')
@@ -987,45 +994,82 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
     between them."""
     # A large move since the previous map is a trail from where the vendor
     # was, drawn under the dots so it never hides one.
+    # ``order`` is largest and fastest first; a vendor's place in it is its
+    # rank, and the ones past the top N carry ``data-tail`` so the map can
+    # open on the top N and show the rest on request.
+    rank = {r["brand_id"]: i + 1 for i, r in enumerate(order)}
+    def tail(r: Dict[str, Any]) -> str:
+        return ' data-tail="1"' if rank.get(r["brand_id"], 0) > _HORIZON_TOP else ''
     trails = []
     for r in rated:
         if not (r.get("big_move") and r.get("previous")):
             continue
         px, py = place(r["previous"])
         x, y = spread[r["brand_id"]]
-        trails.append(f'<line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
+        trails.append(f'<g class="mm-hz-trail"{tail(r)}><line x1="{px:.1f}" y1="{py:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
                       f'stroke="#94a3b8" stroke-width="1.2" marker-end="url(#{arrow})"/>'
-                      f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/>')
+                      f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#94a3b8"/></g>')
     dots = [(r, *spread[r["brand_id"]]) for r in order]
     def ring(r: Dict[str, Any]) -> float:
         return 10.5 if r.get("funded") else 9.0 if r.get("hiring") else 7.5 if r.get("innovating") else 6.0
     shown = [allowed is None or r["vendor"] in allowed for r, _, _ in dots]
-    if labels:
+
+    def place_labels(idx: List[int]) -> Dict[int, Any]:
+        """Label spots for the dots at ``idx``, placed among those dots only."""
+        if not labels:
+            return {}
         # ``order`` puts the largest and fastest first, so a number labels
         # the vendors a reader would look for first.
         limit = len(dots) if labels is True else int(labels)
-        spots = _label_spots([(x, y, ring(r),
-                               _label_width(r["vendor"]) * 1.1 * label_scale
-                               if (s and i < limit) else 0.0)
-                              for i, ((r, x, y), s) in enumerate(zip(dots, shown))],
+        spots = _label_spots([(dots[i][1], dots[i][2], ring(dots[i][0]),
+                               _label_width(dots[i][0]["vendor"]) * 1.1 * label_scale
+                               if (shown[i] and i < limit) else 0.0)
+                              for i in idx],
                              12.0 * label_scale, width, max_y, obstacles=obstacles)
-    else:
-        spots = [None] * len(dots)
+        return dict(zip(idx, spots))
+
+    # Labels are placed twice on a crowded map: among the top N dots for the
+    # view the map opens on, and among all of them for "All". Placing them
+    # once, among all, put the top-view labels far from their dots with
+    # leader lines crossing the arc.
+    crowd = len(dots) > _HORIZON_TOP
+    spots_all = place_labels(list(range(len(dots))))
+    spots_top = place_labels([i for i in range(len(dots)) if i < _HORIZON_TOP]) if crowd else spots_all
+
+    def leader(spot) -> str:
+        if not (spot and spot["leader"]):
+            return ""
+        # The label had to move away from its dot: a leader line says
+        # which dot it belongs to. Drawn first, so it sits under the dot.
+        (x1, y1), (x2, y2) = spot["leader"]
+        return (f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                'stroke="#64748b" stroke-width="1"/>'
+                f'<circle cx="{x2:.1f}" cy="{y2:.1f}" r="1.8" fill="#64748b"/>')
+
+    def label(spot, name: str) -> str:
+        if spot is None:
+            return ""
+        return (f'<text class="mm-lbl" x="{spot["tx"]:.1f}" y="{spot["by"] + 10 * label_scale:.1f}" '
+                f'text-anchor="{spot["anchor"]}" font-size="11" fill="#0f172a">{esc(name)}</text>')
+
+    def layers(i: int, r: Dict[str, Any], part) -> str:
+        if not crowd:
+            return part(spots_all.get(i), r["vendor"]) if part is label else part(spots_all.get(i))
+        a = part(spots_all.get(i), r["vendor"]) if part is label else part(spots_all.get(i))
+        t = part(spots_top.get(i), r["vendor"]) if part is label else part(spots_top.get(i))
+        return ((f'<g class="mm-lbl-all">{a}</g>' if a else "")
+                + (f'<g class="mm-lbl-top">{t}</g>' if t else ""))
+
     parts = []
-    for (r, x, y), is_shown, spot in zip(dots, shown, spots):
+    for i, ((r, x, y), is_shown) in enumerate(zip(dots, shown)):
         colour = _TIER_COLOUR.get(r.get("tier") or "", "#475569")
         # The hover panel names the vendor, so it is withheld with the label.
         tip = (f' data-tip="{esc(_horizon_tip(r, tiers or {}, with_inputs=with_inputs))}"'
                if is_shown else '')
         marks = " ".join(k for k, _ in _MARKER_COLOURS if r.get(k))
-        parts.append(f'<g class="mm-hz-pt{" mm-hz-dot" if is_shown else ""}" data-m="{marks}"{tip}>')
-        if spot is not None and spot["leader"]:
-            # The label had to move away from its dot: a leader line says
-            # which dot it belongs to. Drawn first, so it sits under the dot.
-            (x1, y1), (x2, y2) = spot["leader"]
-            parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
-                         'stroke="#64748b" stroke-width="1"/>'
-                         f'<circle cx="{x2:.1f}" cy="{y2:.1f}" r="1.8" fill="#64748b"/>')
+        parts.append(f'<g class="mm-hz-pt{" mm-hz-dot" if is_shown else ""}" data-m="{marks}" '
+                     f'data-rank="{rank.get(r["brand_id"], 0)}"{tail(r)}{tip}>')
+        parts.append(layers(i, r, leader))
         if r.get("innovating"):
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="7.5" fill="none" '
                          'stroke="#0f172a" stroke-width="1.1" stroke-dasharray="2 2"/>')
@@ -1036,9 +1080,7 @@ def _horizon_dot_layer(rated: List[Dict[str, Any]], allowed: Optional[set],
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="10.5" fill="none" '
                          'stroke="#1d4ed8" stroke-width="1"/>')
         parts.append(f'<circle class="mm-core" cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colour}" fill-opacity=".85"/>')
-        if spot is not None:
-            parts.append(f'<text class="mm-lbl" x="{spot["tx"]:.1f}" y="{spot["by"] + 10 * label_scale:.1f}" text-anchor="{spot["anchor"]}" '
-                         f'font-size="11" fill="#0f172a">{esc(r["vendor"])}</text>')
+        parts.append(layers(i, r, label))
         parts.append('</g>')
     return trails, parts
 
@@ -1423,6 +1465,10 @@ _HORIZON_SLOT = "<!--mm-horizon-slot-->"
 # The hover panel on the horizon. Each dot carries its own panel as HTML in
 # a data attribute, so the page needs no data beyond what it already shows;
 # a tap holds the panel open on a touch screen.
+#: The map opens on the top N vendors by scale plus momentum; a switch shows
+#: all of them. Eighty dots on one arc is a crowd; forty reads.
+_HORIZON_TOP = 40
+
 _HORIZON_JS = """
 (function(){var box=document.querySelector('.mm-hz');if(!box)return;
 var tip=box.querySelector('.mm-hz-tip');var held=null;
@@ -1448,7 +1494,10 @@ var k=b.getAttribute('aria-pressed')==='true'?null:b.getAttribute('data-hl');
 [].forEach.call(chips,function(o){o.setAttribute('aria-pressed',o.getAttribute('data-hl')===k?'true':'false');});
 if(k)box.style.setProperty('--mm-hl',b.style.getPropertyValue('--mm-hl'));
 [].forEach.call(box.querySelectorAll('.mm-hz-pt'),function(g){var on=k&&(' '+g.getAttribute('data-m')+' ').indexOf(' '+k+' ')>=0;
-g.classList.toggle('mm-on',!!on);g.classList.toggle('mm-dim',!!k&&!on);});});});})();
+g.classList.toggle('mm-on',!!on);g.classList.toggle('mm-dim',!!k&&!on);});});});
+[].forEach.call(box.querySelectorAll('.mm-hz-show button'),function(b){b.addEventListener('click',function(){
+var v=b.getAttribute('data-show');held=null;tip.hidden=true;box.classList.toggle('mm-top',v==='top');
+[].forEach.call(box.querySelectorAll('.mm-hz-show button'),function(o){o.setAttribute('aria-pressed',o===b?'true':'false');});});});})();
 """
 
 
@@ -1485,15 +1534,20 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     # picks; the arc is the one shown first.
     draw = dict(tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
                 with_inputs=full_view)
-    out.append('<div class="mm-hz">'
+    crowd = len(rated) > _HORIZON_TOP
+    show = ('' if not crowd else
+            '<span class="mm-hz-show" role="group" aria-label="Vendors shown">Show '
+            f'<button type="button" aria-pressed="true" data-show="top">Top {_HORIZON_TOP}</button>'
+            f'<button type="button" aria-pressed="false" data-show="all">All {len(rated)}</button></span>')
+    out.append(f'<div class="mm-hz{" mm-top" if crowd else ""}">'
                '<div class="mm-hz-switch" role="tablist" aria-label="Map layout">'
                '<button type="button" role="tab" aria-selected="true" data-view="arc">Arc</button>'
                '<button type="button" role="tab" aria-selected="false" data-view="grid">Grid</button>'
                '<span class="mm-hz-chips">Highlight '
                + "".join(f'<button type="button" aria-pressed="false" data-hl="{k}" style="--mm-hl:{c}">'
-                         f'{k} <b>{sum(1 for r in rated if r.get(k))}</b></button>'
+                         f'{_MARKER_LABELS.get(k, k)} <b>{sum(1 for r in rated if r.get(k))}</b></button>'
                          for k, c in _MARKER_COLOURS)
-               + '</span></div>'
+               + '</span>' + show + '</div>'
                '<div class="mm-hz-view" data-view="arc">'
                + _horizon_svg(rated, names_allowed, cfg.get("tiers") or {}, **draw)
                + '</div><div class="mm-hz-view" data-view="grid" hidden>'
@@ -1529,7 +1583,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
             if r.get("hiring"):
                 name += ' <span class="mm-src" title="hiring">⚒</span>'
             if r.get("funded"):
-                name += ' <span class="mm-src" title="funded">$</span>'
+                name += ' <span class="mm-src" title="raised in the last year">$</span>'
             if r.get("moved") and (r.get("previous") or {}).get("tier") != tier:
                 name += f' <span class="mm-src">(was {esc((r["previous"] or {}).get("tier", ""))})</span>'
             names.append(name)
@@ -1587,7 +1641,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
         fhidden = len(funded) - len(fnames)
         if fhidden:
             fnames.append(f'{fhidden} vendor{"s" if fhidden > 1 else ""} not shown in this view')
-        tiers_html.append(f'<h3>Funded <span class="mm-src">({len(funded)}) — a round dated inside '
+        tiers_html.append(f'<h3>Raised in the last year <span class="mm-src">({len(funded)}) — a round dated inside '
                           f'the last {markers.get("funded_days", 365)} days, from the vendor\'s own '
                           'post, a matched news event or the Crunchbase news list</span></h3>')
         tiers_html.append(f'<p>{", ".join(fnames)}</p>')
@@ -1626,7 +1680,7 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                     + (f"; {esc(band_summary)}" if band_summary else "")
                     + (f", innovating {len(innovating)}" if innovating else "")
                     + (f", hiring {len(hiring)}" if hiring else "")
-                    + (f", funded {len(funded)}" if funded else "")
+                    + (f", raised in the last year {len(funded)}" if funded else "")
                     + (f", moved {len(moves)}" if moves else "")
                     + (f", acquired {len(acquired)}" if acquired else ""),
                     "".join(tiers_html)))

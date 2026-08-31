@@ -2,6 +2,105 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-31 — Sunstar demo site built; topics collect in their own language; TheNewsAPI had been searching titles only
+
+### Goal
+Brendan Jennings (Sunstar) has a demo on Thursday 3 September, 16:30 UK, built around one
+question: how understanding of the link between oral health and whole-body health is developing
+across Japan, the US, Germany and France, compared across researchers, companies and consumers.
+Nothing existed for it on 31 August morning. The spec is `docs/SUNSTAR_ORAL_SYSTEMIC_HEALTH_SPEC.md`
+(HTML copy alongside); this entry records the code changes and what the first collection passes
+measured. Commit `7c697083`.
+
+### Feature — a topic can collect in its own language and country (`kg_lang_001`)
+Scheduled collection read one tenant-wide language (`keyword_monitor_settings.language`, default
+`en`) and passed it to every collector, so a Japanese or German topic asked TheNewsAPI and
+NewsData for English articles and got nothing. **`alembic/versions/kg_lang_001_group_language.py`**
+adds nullable `language` and `country` to `keyword_groups`; **`app/database_models.py`** and the
+`get_due_keyword_groups` query in **`app/database_query_facade.py`** carry them;
+**`app/tasks/keyword_monitor.py`** sets `self.language`/`self.country` per group in
+`_check_group` (tenant setting as fallback, restored in `finally`) and passes `country` only to
+collectors whose `search_articles` signature has it (NewsData does; TheNewsAPI, the firehose and
+the social collectors do not and would raise). No UI; set by SQL for now.
+
+### Fix — TheNewsAPI never searched the article body
+Two causes stacked. The tenant setting `keyword_monitor_settings.search_fields` is
+`title,description` on bugfixing, wileytest, wbm and the template, so the body was never asked
+for; and the setting uses NewsAPI vocabulary, where the body is "content", a name TheNewsAPI
+drops silently (its fields are `title,description,keywords,main_text`), so adding "content"
+would not have helped either. Measured against the live API over 30 days: 歯周病
+8 results with the old value, 114 with the right fields; Parodontitis 4 against 23; santé
+bucco-dentaire 1 against 13. **`app/collectors/thenewsapi_collector.py`** now maps `content` to
+`main_text` and adds `keywords`; sunstar's setting is `title,description,content` (read once at
+start-up, so a restart followed). wileytest and wbm have the collector fix but still
+`title,description`: their volume does not change until someone widens the setting, which is a
+cost decision (more articles reach the AI analysis step). Every tenant collecting through
+TheNewsAPI has been searching titles and descriptions only for as long as the setting has existed.
+
+### Fix — Semantic Scholar gave up on the first 429
+No tenant has a Semantic Scholar API key; unauthenticated calls from this host answer 429 on the
+first request, and the collector returned an empty list. **`app/collectors/semantic_scholar_collector.py`**
+retries at 2 s, 4 s, 8 s before giving up, and maps the two oral-health research topics to
+`Medicine`/`Biology`. On the first sunstar pass 8 of 12 keywords retried and 7 still ended in
+429; the research topic still reached 120 enriched papers. The key application form is a
+HubSpot form with captcha; scripted submission was refused (`FORM_HAS_RECAPTCHA_ENABLED`). The
+old key found in `~/.bash_history` answers 403. Still open.
+
+### Fix — summaries in the article's language
+One approved Japanese article came back with a Japanese summary. **`app/analyzers/prompt_templates.py`**
+now asks for the summary, every explanation and the tags in English whatever the article's
+language. Re-running that article produced an English summary; the six later Japanese approvals
+were all English.
+
+### Ops — sunstar.aunoo.ai
+Provisioned from the bwtemplate dump with `scripts/provision_brand_tenant.py` (port 10019, DB
+`sunstar`, credentials `/var/tmp/sunstar_credentials.txt`), flipped to full platform
+(`BW_DEDICATED_MODE=0`, `ENABLED_MODULES=*`), resynced `app/ alembic/ static/ templates/ scripts/`
+from bugfixing with `--exclude='/config/'`, migrated `tl_001 → kg_lang_001`, ibaset's Bedrock-only
+`litellm_config.yaml`, `default_llm_model=bedrock-kimi-k2-5`, `page_size=50`, NewsData key
+copied from wileytest (bugfixing's is empty), Bluesky credentials from bugfixing, a Sunstar org
+profile (id 8, default; unconfirmed fields left NULL). Seven topics (groups 2–8) through
+`save-topic`; five brands (Sunstar primary, Lion, Kao, Colgate-Palmolive, P&G Oral-B) with
+scoped keywords and `setup-monitoring` (groups 9–12); Japanese-language brand groups 13–15 for
+the three Japanese companies on the same brand topics; RSS feeds for EFP news and Colgate
+investor releases (the Wiley journal feeds sit behind Cloudflare; Sunstar, Lion, Kao and P&G
+newsrooms publish no feed at the URLs tried). Consumer group `default_llm_model=nova-lite` and
+`SOCIAL_EVAL_MODEL=nova-lite` because the template's social evaluator default `gemma3:4b` is not
+on the Bedrock yaml and had scored 0 of 1,021 posts.
+
+### Verification
+`py_compile` on every changed module; `pytest tests/test_market_horizon_stages.py` 5 passed
+(the market-horizon changes riding along in the commit). Live on sunstar after the first passes:
+research 210 collected / 120 enriched and approved (17 have no abstract and cannot be enriched);
+US 324 / 32; regenerative 269 / 29; Japan 43 / 9; Germany 7 / 4 (FAZ "how inflamed gums burden
+the whole body" at 0.90); France 2 / 0; Colgate 135 / 54; P&G Oral-B 55 / 17; Kao 104 / 4 (all
+skincare or earnings); Lion 108 / 3 (all from the Japanese group: Clinica tops a repeat-purchase
+ranking, NONIO leads dental-product sales); Sunstar 26 / 4 (one real: the Ora² Feels launch);
+consumer 1,024 posts, 200 scored so far, 87 relevant. The German early filter scored a dog-dental
+article 0.1 and the FAZ piece 0.9, so relevance on non-English text holds.
+
+### Propagation
+bugfixing canonical (committed, service NOT restarted). sunstar: all of it. wileytest and wbm:
+`thenewsapi_collector.py` only, copied after a byte-identical diff against canonical HEAD, with
+`.pre-searchfields-*` backups; wbm restarted idle, wileytest restarted after its 12:00
+Geopolitical Hotspots ingest completed; both healthy. wiley prod untouched. The per-group
+language change and the Scholar backoff reach the other tenants at the next code sync plus
+`alembic upgrade head`.
+
+### Lessons
+- NEVER assume a collector's `language` parameter means coverage: check the source's own
+  language list. Our firehose reports one language (English, 4.25M articles).
+- The tenant `search_fields` value is per collector vocabulary; a wrong field name is dropped
+  silently and looks like thin coverage.
+- Every restart interrupts the running group; it re-runs, so a never-checked research group
+  with rate-limited Scholar calls blocks the queue for minutes each time. Restart between
+  groups, not during.
+- `app/utils/keyword_normalizer.py` caps keywords at 30 characters; German compounds and
+  research phrases lost their tails ("Mundgesundheit Allgemeingesund"). Check
+  `length(keyword) >= 30` after seeding.
+- A Bedrock-only clone must set `SOCIAL_EVAL_MODEL`; the template default is a local Ollama
+  model and the social evaluator fails silent.
+
 ## 2026-08-31 — Market 2 registry: Wirespeed in (vendor request), Zaun out; map recomputed
 
 ### Ops/config — registry changes (database only, nothing in code)

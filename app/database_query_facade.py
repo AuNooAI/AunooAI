@@ -3963,7 +3963,8 @@ class DatabaseQueryFacade:
             SELECT
                 kg.id, kg.name, kg.topic, kg.is_active,
                 kg.check_interval, kg.interval_unit, kg.search_date_range,
-                kg.providers, kg.social_platforms, kg.auto_ingest_enabled, kg.min_relevance_threshold,
+                kg.providers, kg.social_platforms, kg.language, kg.country,
+                kg.auto_ingest_enabled, kg.min_relevance_threshold,
                 kg.quality_control_enabled, kg.auto_save_approved_only,
                 kg.default_llm_model, kg.llm_temperature, kg.llm_max_tokens,
                 kg.last_checked_at, kg.next_check_at, kg.last_error,

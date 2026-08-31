@@ -4,6 +4,10 @@
     "headcount_pct": {
       "optional": true,
       "_why": "Needs two profile readings inside the window. Profile collection on AI in the SOC began 19 August 2026 and polls weekly, so requiring it left one vendor on the map. Optional until the second readings exist; it counts wherever present."
+    },
+    "funding": {
+      "optional": true,
+      "_why": "The disclosed total is the imported baseline and 42 of 85 vendors have none (Undisclosed, Bootstrapped, or nothing on file), so requiring it kept half the market off the map. Made optional on 31 August 2026 at the user's instruction; it counts wherever present. A vendor with no total is placed on headcount, followers and customer evidence alone."
     }
   }
 }
