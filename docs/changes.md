@@ -380,6 +380,13 @@ outside coverage, and the Lemonade and Cursor case studies as named-customer evi
 Map 23: Artemis Scaling → Executing, Accelerating (scale 86.3) on the strongest customers
 input in the market — the same lever as Wirespeed earlier, no weighting touched.
 
+Simbian's tipped research followed the same path later that evening (database only): the
+Cyber Defense Benchmark page ("25 LLMs Tested, None Pass", simbian.ai, 28 April) and its
+arXiv paper (2604.19533) landed as vendor research, `review_kind='research'`,
+`manual:news-tip` provenance, tied to brand 37807. April dates, so they sit on the vendor's
+record without touching the 90-day momentum or innovation inputs, and the front page's
+"Latest research" section stays analyst-only by design.
+
 ### Ops — the observer agent never had email on, and the tenant sent from Resend's test address (config only)
 The user was not getting the observer agent's mail. Agent 6 "SOC Automation Market Watch"
 ran daily at 07:00 as scheduled (15 alerts on the 30th, 6 on the 31st, saved report 50) but
