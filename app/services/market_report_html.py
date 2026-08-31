@@ -1554,7 +1554,12 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                + _horizon_grid_svg(rated, names_allowed, cfg.get("tiers") or {}, **draw)
                + '</div><div class="mm-hz-tip" hidden></div></div>'
                + f'<script>{_HORIZON_JS}</script>')
-    acquired = horizon.get("acquired") or []
+    # The stored list holds every vendor listed-not-placed; pivoted ones get
+    # their own line, since "bought" and "left for another market" are
+    # different facts about a name that has gone from the map.
+    listed = horizon.get("acquired") or []
+    pivoted = [a for a in listed if a.get("status") == "pivoted"]
+    acquired = [a for a in listed if a.get("status") != "pivoted"]
     innovating = [r for r in rated if r.get("innovating")]
 
     def fold(summary: str, inner: str) -> str:
@@ -1670,6 +1675,12 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
             esc(a["vendor"]) + (f' — by {esc(a["acquired_by"])}' if a.get("acquired_by") else "")
             + (f', {esc(a["status_date"])}' if a.get("status_date") else "")
             for a in acquired if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
+    if pivoted:
+        tiers_html.append(f'<h3>Pivoted <span class="mm-src">({len(pivoted)}) — left this market for another; listed, not placed</span></h3>')
+        tiers_html.append('<p>' + "; ".join(
+            esc(a["vendor"]) + (f' — {esc(a["note"])}' if a.get("note") else "")
+            + (f' ({esc(a["status_date"])})' if a.get("status_date") else "")
+            for a in pivoted if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
     tier_summary = ", ".join(
         f'{(horizon.get("tiers") or {}).get(t, {}).get("label", t)} {sum(1 for r in rated if r["tier"] == t)}'
         for t in _TIER_ORDER)
@@ -1682,12 +1693,13 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                     + (f", hiring {len(hiring)}" if hiring else "")
                     + (f", raised in the last year {len(funded)}" if funded else "")
                     + (f", moved {len(moves)}" if moves else "")
-                    + (f", acquired {len(acquired)}" if acquired else ""),
+                    + (f", acquired {len(acquired)}" if acquired else "")
+                    + (f", pivoted {len(pivoted)}" if pivoted else ""),
                     "".join(tiers_html)))
 
     if full_view:
         noted = [r for r in rated if r.get("analyst_note") or r.get("multipliers")]
-        noted += [a for a in acquired if a.get("note")]
+        noted += [a for a in acquired + pivoted if a.get("note")]
         if noted:
             lines = []
             for r in noted:
@@ -3653,18 +3665,21 @@ def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8,
 
 
 def _v2_horizon(horizon: Dict[str, Any], full_href: str) -> str:
-    """The arc for the sidebar: every dot, and the names of the largest and
+    """The arc for the sidebar: the top forty dots when the map is crowded
+    (the same cut as the full map opens on), and the names of the largest and
     fastest few. Hovering any dot names its vendor; the full map with every
-    name is one link away."""
+    name and the switch to all is one link away."""
     cfg = horizon.get("config") or {}
     rated = horizon.get("rated") or []
     counts = horizon.get("counts") or {}
     svg = _horizon_svg(rated, None, cfg.get("tiers") or {},
                        tiers=horizon.get("tiers") or {}, bands=horizon.get("bands") or {},
                        with_inputs=False, labels=_V2_HORIZON_NAMES, label_scale=2.0)
-    return ('<div class="mm-hz v2-hz">' + svg + '<div class="mm-hz-tip" hidden></div></div>'
+    crowd = len(rated) > _HORIZON_TOP
+    return (f'<div class="mm-hz v2-hz{" mm-top" if crowd else ""}">' + svg + '<div class="mm-hz-tip" hidden></div></div>'
             f'<p class="n-note">{counts.get("rated", len(rated))} of '
-            f'{counts.get("eligible", "")} vendors mapped by scale and momentum. '
+            f'{counts.get("eligible", "")} vendors mapped by scale and momentum'
+            + (f'; the {_HORIZON_TOP} largest and fastest shown here' if crowd else '') + '. '
             f'<a href="{full_href}">Full map with names</a>.</p>')
 
 

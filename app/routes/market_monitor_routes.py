@@ -2680,7 +2680,7 @@ async def market_horizon_compute(market_id: int,
 class HorizonControls(BaseModel):
     multipliers: Dict[str, float] = Field(default_factory=dict)
     note: Optional[str] = Field(None, max_length=4000)
-    status: str = Field("active", pattern="^(active|acquired|closed)$")
+    status: str = Field("active", pattern="^(active|acquired|closed|pivoted)$")
     acquired_by: Optional[str] = Field(None, max_length=200)
     status_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
@@ -3722,6 +3722,14 @@ async def vendor_detail(market_id: int, brand_id: int,
                 WHERE brand_id = :b AND snapshot_type = 'funding'
                 ORDER BY observed_at DESC LIMIT 1
             """), {"b": brand_id}).scalar()
+            # Bright Data's Crunchbase record gives the acquirer as an object
+            # ({acquirer, transaction_name, acquirer_permalink}); the vendor
+            # page prints it as text, and React refuses an object as a child
+            # (the Explore page went blank on 31 August after the first full
+            # Crunchbase sweep). Hand the page the name.
+            acq = (vendor["funding"] or {}).get("acquired_by") if isinstance(vendor["funding"], dict) else None
+            if isinstance(acq, dict):
+                vendor["funding"]["acquired_by"] = acq.get("acquirer") or acq.get("transaction_name") or None
 
             # Latest state per watched page, with whatever changed last time.
             vendor["pages"] = [dict(r) for r in conn.execute(text("""

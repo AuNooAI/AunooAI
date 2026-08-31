@@ -296,7 +296,7 @@ def test_shared_view_names_only_authorized_vendors(conn, market):
     # is put back after the production check, so it is taken out here the
     # same way the check never saw it.
     import re
-    checked = re.sub(r'<div class="mm-hz v2-hz">.*?<div class="mm-hz-tip" hidden></div></div>',
+    checked = re.sub(r'<div class="mm-hz v2-hz[^"]*">.*?<div class="mm-hz-tip" hidden></div></div>',
                      "", page, flags=re.S)
     ent.assert_no_withheld(checked, withheld, context="front page")
     shown = ent.vendor_names(conn, market["id"], allowed).values()

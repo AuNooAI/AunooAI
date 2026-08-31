@@ -186,9 +186,18 @@ def cadence(source: str) -> timedelta:
 # ---------------------------------------------------------------------------
 
 def _last_success(conn, market_id: int, source: str) -> Optional[datetime]:
+    """When the market-wide sweep for this source last succeeded.
+
+    Market-wide only (``brand_id IS NULL``). A vendor's own "Fetch now" is a
+    run for the same source, and counting it here restarted the weekly clock
+    every time somebody read one vendor by hand: the Crunchbase sweep ran on
+    20 August and then never, because a single-vendor read landed inside
+    every following week, and 66 of 86 vendors were never read at all.
+    """
     return conn.execute(text("""
         SELECT MAX(started_at) FROM bw_collection_runs
         WHERE market_id = :m AND source = :s AND status = 'succeeded'
+          AND brand_id IS NULL
     """), {"m": market_id, "s": source}).scalar()
 
 
@@ -830,7 +839,21 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
 
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_DISCOVERY, now) is None:
-            return 0
+            # The sweep is monthly, but a vendor added between sweeps has no
+            # watched pages and no feed for up to four weeks ("Site changes:
+            # no monitored pages" on its vendor page, 31 August 2026). A
+            # collecting vendor the sweep has never probed makes it due now;
+            # the probe stamps web_discovered_at, so this fires once per
+            # new vendor and the monthly cadence is otherwise untouched.
+            unprobed = conn.execute(text("""
+                SELECT 1 FROM bw_market_brands mb
+                WHERE mb.market_id = :m AND mb.role = 'vendor'
+                  AND mb.collection_enabled
+                  AND COALESCE(mb.baseline->>'web_discovered_at', '') = ''
+                LIMIT 1
+            """), {"m": market["id"]}).first()
+            if not unprobed or _in_flight(conn, market["id"], SOURCE_DISCOVERY):
+                return 0
         run_id = mc.open_run(conn, market_id=market["id"],
                              source=SOURCE_DISCOVERY, provider=PROVIDER_INTERNAL)
     else:
@@ -1667,10 +1690,44 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _close_stranded_runs(conn) -> int:
+    """Fail the in-process runs a restart killed, so their sources can run.
+
+    A run in ``running`` with no provider ``job_id`` is an in-process sweep
+    (site checks, discovery, corpus match, post review); the process is the
+    only thing that could finish it, and this is a new process. Twice on
+    31 August 2026 such a row sat for days and ``_in_flight`` blocked its
+    source the whole time. A running row *with* a ``job_id`` is a Bright
+    Data batch: the provider still has it and the callback can still land,
+    so those stay open. Scheduler claims held by the dead sweep release
+    themselves after CLAIM_TIMEOUT (two hours).
+    """
+    rows = conn.execute(text("""
+        UPDATE bw_collection_runs
+           SET status = 'failed', completed_at = NOW(),
+               error = 'found running at startup with no provider job; the '
+                       'process that ran it is gone (closed by the monitor)'
+         WHERE status = 'running' AND job_id IS NULL
+        RETURNING id, source
+    """)).fetchall()
+    conn.commit()
+    for run_id, source in rows:
+        logger.warning("closed stranded run %s (%s) at startup", run_id, source)
+    return len(rows)
+
+
 async def run_market_monitor():
     """Background task registered by the module registry."""
     logger.info("Market Monitor background task started")
     _background_task_status["running"] = True
+    try:
+        conn = get_database_instance()._temp_get_connection()
+        try:
+            _close_stranded_runs(conn)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — cleanup must never keep the monitor down
+        logger.exception("stranded-run cleanup failed; continuing")
     while True:
         try:
             if _enabled():

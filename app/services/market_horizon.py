@@ -101,7 +101,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "movement": {"large_shift": 10},
 }
 
-STATUSES = ("active", "acquired", "closed")
+STATUSES = ("active", "acquired", "closed", "pivoted")
 
 # The stages, largest first. The keys are older than the names and stay as
 # they are, because stored maps carry them; a vendor moves through them in
@@ -118,6 +118,9 @@ TIERS: Dict[str, Dict[str, str]] = {
     # Not a region: an acquired vendor is listed, not placed.
     "acquired": {"label": "Acquired",
                  "means": "bought, so no longer rated as an independent vendor"},
+    # Nor this: a vendor that left this market for another is listed, not placed.
+    "pivoted": {"label": "Pivoted",
+                "means": "moved to another market, so no longer rated in this one"},
 }
 STAGE_ORDER = ("emerging", "established", "innovators", "executors")
 
@@ -602,8 +605,8 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
     eligible, values, missing = gather_inputs(conn, market, cfg)
     controls = load_controls(conn, int(market["id"]))
 
-    # An acquired or closed vendor is listed, not placed, and leaves the
-    # cohort every percentile is ranked in.
+    # An acquired, closed or pivoted vendor is listed, not placed, and leaves
+    # the cohort every percentile is ranked in.
     # Listed whatever the vendor's role on the market: one excluded after
     # being bought is still an acquisition the reader should see.
     names = {int(r[0]): r[1] for r in conn.execute(text("""
@@ -613,7 +616,7 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
     """), {"m": int(market["id"])}).fetchall()}
     acquired = []
     for bid, ctl in controls.items():
-        if bid in names and ctl.get("status") in ("acquired", "closed"):
+        if bid in names and ctl.get("status") in ("acquired", "closed", "pivoted"):
             acquired.append({"brand_id": bid, "vendor": names[bid],
                              "status": ctl["status"], "acquired_by": ctl.get("acquired_by"),
                              "status_date": ctl.get("status_date"),
@@ -742,7 +745,9 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
     acquired.sort(key=lambda a: a["vendor"])
 
     tier_counts = {t: sum(1 for r in rated if r["tier"] == t) for t in TIERS}
-    tier_counts["acquired"] = len(acquired)
+    pivoted_n = sum(1 for a in acquired if a["status"] == "pivoted")
+    tier_counts["acquired"] = len(acquired) - pivoted_n
+    tier_counts["pivoted"] = pivoted_n
     try:
         hints = [h for h in acquisition_hints(conn, int(market["id"]))
                  if h["brand_id"] not in out_of_cohort]
@@ -767,7 +772,8 @@ def compute(conn, market: Dict[str, Any], cfg: Optional[Dict[str, Any]] = None
                     "funded_days": int((markers_cfg.get("funded") or {}).get("days") or 365)},
         "acquisition_hints": hints,
         "counts": {"eligible": len(eligible), "rated": len(rated),
-                   "not_rated": len(not_rated), "acquired": len(acquired),
+                   "not_rated": len(not_rated), "acquired": len(acquired) - pivoted_n,
+                   "pivoted": pivoted_n,
                    "innovating": sum(1 for r in rated if r["innovating"]),
                    "hiring": len(hiring_list), "funded": len(funded_list)},
         "what_it_is_not": WHAT_IT_IS_NOT,

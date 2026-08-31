@@ -6,7 +6,8 @@ _2026-08-31 · Market Monitor: the Market Maturity Map on aisocnews.com and the 
 - **80 of 85 vendors are on the map**, up from 39. A vendor no longer needs a published
   funding total to be placed; where a total exists it still counts.
 - **The map opens on the top 40** by scale and momentum, with a switch to show all 80. Labels
-  sit beside their dots in both views.
+  sit beside their dots in both views. The small map in the front-page sidebar shows the same
+  forty.
 - **The marker that said "funded" now says "raised in the last year"**, which is what it
   measures: a round in the last 365 days, not a vendor that has ever raised.
 - **Findings update daily again.** They had stopped on 24 August. Sixty-six findings now
@@ -59,7 +60,8 @@ for the same reason: a marker a reader can check is worth more than one that sou
 
 ## Limits and what's next
 
-- The small map in the front-page sidebar still draws all 80 dots; it has no switch.
+- The small map in the front-page sidebar also opens on the top 40 and says so; it has no
+  switch of its own, the full map's is one link away.
 - A vendor with no published funding total is placed without that input, which favours
   headcount and followers. The weights table says so, but a reader who skips it will not know.
 - Wirespeed is rated as an independent although Coalition owns it; that was a deliberate

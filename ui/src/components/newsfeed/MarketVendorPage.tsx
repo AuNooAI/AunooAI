@@ -352,7 +352,7 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
             {cb.acquired_by && (
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500 dark:text-gray-400">Acquired by</dt>
-                <dd className="text-slate-800 dark:text-gray-100">{cb.acquired_by}</dd>
+                <dd className="text-slate-800 dark:text-gray-100">{typeof cb.acquired_by === 'string' ? cb.acquired_by : (cb.acquired_by as any)?.acquirer ?? ''}</dd>
               </div>
             )}
           </dl>

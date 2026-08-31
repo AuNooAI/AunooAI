@@ -64,5 +64,27 @@ def test_a_crowded_map_opens_on_the_top_forty_with_a_switch_to_all():
     assert 'data-show="top">Top 40<' in out and 'data-show="all">All 45<' in out
     assert out.count('data-tail="1"') == 10  # five vendors past forty, on two shapes
     assert 'data-rank="1"' in out and 'data-rank="45"' in out
+    side = html._v2_horizon({**horizon, "counts": {"rated": 45, "eligible": 50}}, "?view=report")
+    assert '<div class="mm-hz v2-hz mm-top">' in side and 'the 40 largest and fastest shown here' in side
+    assert side.count('data-tail="1"') == 5
     small = html._horizon_section({**horizon, "rated": rated[:3]}, None)
     assert 'class="mm-hz-show"' not in small and 'data-tail' not in small and '<div class="mm-hz">' in small
+
+
+def test_a_pivoted_vendor_is_listed_apart_from_the_acquired():
+    """A vendor that left the market for another is listed under its own
+    heading with the note saying where it went, counted apart from the
+    acquired, and never placed."""
+    from app.services import market_report_html as html
+    assert "pivoted" in hz.STATUSES and hz.TIERS["pivoted"]["label"] == "Pivoted"
+    rated = [{"brand_id": 1, "vendor": "V1", "scale": 60, "momentum": 50, "tier": "innovators", "band": "growing"}]
+    listed = [{"brand_id": 2, "vendor": "Kenzo", "status": "acquired", "acquired_by": "Rapid7", "status_date": "2026-03-26", "note": None},
+              {"brand_id": 3, "vendor": "Zaun", "status": "pivoted", "acquired_by": None, "status_date": None,
+               "note": "now security for AI, not AI for security"}]
+    horizon = {"config": {"tiers": {}}, "rated": rated, "not_rated": [], "acquired": listed,
+               "tiers": hz.tier_info({}), "bands": hz.band_info({}), "computed_at": "2026-08-31", "days": 90}
+    out = html._horizon_section(horizon, None)
+    assert "Acquired <span" in out and "(1) — listed, not placed" in out and "Kenzo — by Rapid7" in out
+    assert "Pivoted <span" in out and "Zaun — now security for AI, not AI for security" in out
+    assert ", acquired 1, pivoted 1" in out
+    assert "Zaun" not in out.split("Who is where")[0]  # not on the map itself

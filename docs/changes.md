@@ -224,6 +224,103 @@ one does the work and the rest find nothing new. `.env` gained
 `ENTITY_INTELLIGENCE_EVENTS_ENABLED=true`. First scheduled run: 1068 at 12:05, succeeded,
 1,235 candidates read, 0 created, 381 merged, as expected nine minutes after the hand run.
 
+### Feature — a "pivoted" status beside acquired and closed; Zaun listed there (not yet committed)
+The user wanted Zaun back on the page under a category of its own: it now does security for
+AI, not AI for security. `market_horizon.STATUSES` gains `pivoted`, with a `TIERS` entry
+("moved to another market, so no longer rated in this one"); `compute` takes a pivoted vendor
+out of the cohort the same way as an acquired one and keeps it in the stored `acquired` list
+with its status, counting `acquired` and `pivoted` apart. The renderer splits the list: an
+"Acquired (n)" fold as before and a "Pivoted (n) — left this market for another; listed, not
+placed" fold that prints the vendor and its note; "Who is where" ends "…acquired 2, pivoted
+1". The horizon-controls route accepts the status; the Analyst-view panel offers "pivoted
+(left this market; say where in the note)" and lists it as "pivoted: <note>" (UI rebuilt with
+`./ui/deploy-react-ui.sh`). Zaun (brand 124, still role `excluded` with collection off) has
+control status `pivoted` and the note "now security for AI (securing AI systems and agents),
+no longer AI for security operations". Map 18. Test
+`test_a_pivoted_vendor_is_listed_apart_from_the_acquired`.
+
+Also in the same pass: **Bricklayer AI** added as brand 49062 after vendor request 14 (Neil
+Cohen, bricklayer.ai, 14:51): identifiers from the real LinkedIn and Crunchbase pages found by
+search (the site is behind Cloudflare and refuses this server), a disclosed funding total of
+$7.5M recorded in the baseline with its sources, three reads queued and completed by 15:45.
+Rated on the first recompute after them: Building, Growing. Registry 86 vendors; the front
+page reads "81 of 86 vendors mapped".
+
+### Fix — a vendor's "Fetch now" restarted the weekly sweep clock, so the market-wide Crunchbase sweep never ran again; two stranded runs blocked site checks (not yet committed)
+Simbian's team asked to be listed while Simbian was already in the registry, unrated because
+its LinkedIn profile, posts and Crunchbase had never been read. The trail led to two things.
+
+**The weekly clock.** `_is_due` measures a source's cadence from `_last_success`, which took
+the newest succeeded run for the source, whether market-wide or a single vendor's "Fetch
+now" (`brand_id` set). Every by-hand read of one vendor therefore pushed the market-wide
+sweep another week out. The Crunchbase sweep ran on 20 August (20 vendors) and never again;
+single-vendor reads on the 22nd, 24th, 27th and 31st kept it "not due", and 66 of 86 collecting
+vendors were never read (`bw_entity_source_policies` shows 84 due). The LinkedIn profile
+sweep (26 August, 62 vendors) was heading the same way: today's per-vendor reads had moved it
+to 7 September. `_last_success` now counts market-wide runs only (`brand_id IS NULL`).
+`_in_flight` still counts a per-vendor batch, which only delays a sweep by one tick. A vendor
+added after a sweep (Simbian on the 26th, Anvilogic on the 27th, Wirespeed and Bricklayer AI
+today) is not read until the next sweep or a by-hand read; the policies are seeded at
+startup, so the row exists and is due at once.
+
+**Stranded runs.** `ats_discovery` run 1025 and `vendor_web` run 1033 had sat in `running`
+since 27 August 17:13 and 20:35 (the service was restarted mid-sweep), and `_in_flight`
+treats a running row as a batch with the provider, so vendor site-change checks and jobs-board
+discovery had not run for four days (87 and 4 policies due). Both rows closed as `failed`
+with the reason in `error`.
+
+Also found on the way, not changed: Variance (was Intrinsic) has a LinkedIn URL under the old
+name (`/company/intrinsicsafety`), so its profile read "succeeds" and stores nothing; SOCAI has
+no LinkedIn URL; Vinci Logic's page gives a band, not a count. Those three plus Simbian were
+the four "not rated" for lack of a headcount; Simbian is read now (68 staff, 20,794
+followers) and will be rated on the next recompute.
+
+### Ops/config — the Crunchbase sweep ran; AquilaI and Redblock marked (database only)
+With the clock fixed, the first pass after the restart (16:13) sent the Crunchbase sweep:
+run 1079, 83 vendors asked, 61 records stored, 22 with no Crunchbase match, $0.12; vendors
+with Crunchbase data 25 → 68, 46 with a dated last round. Map 20: "raised in the last year"
+14 → 20; three small vendors slipped from Growing to Holding as their momentum inputs filled
+in. Crunchbase's records also said AquilaI was acquired by Egress Software and is closed, and
+Redblock is closed with no acquirer; on the user's instruction both were marked through the
+horizon controls (acquired by Egress Software; closed), map 21: 80 rated, 4 acquired/closed,
+1 pivoted. Caution on Redblock: Crunchbase's news list still carries a March 2026 product
+announcement, so "closed" rests on Crunchbase's operating status alone. The jobs-board
+discovery also ran (84 vendors, 1 new board). The `vendor_web` site-check sweep had not
+started by the 16:13 tick.
+
+### Fix — the Explore page went blank after the Crunchbase sweep (React error #31)
+Minutes after the sweep, the Explore tab threw "Objects are not valid as a React child
+(object with keys {acquirer, transaction_name, acquirer_permalink})" and rendered nothing.
+Bright Data's Crunchbase record gives `acquired_by` as an object; the vendor page
+(`MarketVendorPage.tsx`) printed `cb.acquired_by` as text, and the vendor route
+(`market_monitor_routes.py`, the funding block of the vendor detail) passed the snapshot
+through raw. Before today only a handful of vendors had Crunchbase data and none of those
+was acquired, so the shape never reached the page. The route now hands the page the
+acquirer's name (`acquirer`, else `transaction_name`), and the page guards the field
+(string, else `.acquirer`). `acquisition_hints` already handled the object. UI rebuilt,
+typecheck at the 246 baseline, service restarted. Not yet committed.
+
+### Fix — a new vendor's site is probed at once, not at the next monthly sweep (not yet committed)
+"Site changes: no monitored pages" on a vendor page led here. The site-discovery sweep
+(`vendor_web_discovery`) that finds a vendor's blog, news and press pages and its feed runs
+monthly; a vendor added between sweeps had nothing watched for up to four weeks (Anvilogic,
+Intezer, Wirespeed and Bricklayer AI were all in that state). `_discover_feeds` now also runs
+when any collecting vendor has never been probed (`baseline.web_discovered_at` empty), which
+fires once per new vendor; the pages found are then checked by the 12-hourly `vendor_web`
+pass like everyone else's. Separately, the sixteen vendors the 26 August sweep probed and
+found nothing for (bot walls, script-only sites, or genuinely no blog) were made due again
+by hand for one retry.
+
+### Fix — stranded in-process runs close themselves at startup (not yet committed)
+Twice today a restart killed an in-process sweep and left its `bw_collection_runs` row in
+`running`, and `_in_flight` blocked that source until someone noticed (site checks and ATS
+discovery sat four days behind run 1025/1033; the discovery retry died the same way as run
+1082 within the hour). The monitor now fails any `running` row with no provider `job_id` when
+it starts — the process was the only thing that could finish those, and it is a new process —
+logging each one. Bright Data batches keep their rows: the provider still holds the job and
+the callback can land after a restart. Scheduler claims held by a dead sweep still release on
+the two-hour claim timeout.
+
 ### Ops — the observer agent never had email on, and the tenant sent from Resend's test address (config only)
 The user was not getting the observer agent's mail. Agent 6 "SOC Automation Market Watch"
 ran daily at 07:00 as scheduled (15 alerts on the 30th, 6 on the 31st, saved report 50) but
