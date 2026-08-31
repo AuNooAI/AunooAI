@@ -101,7 +101,7 @@ language change and the Scholar backoff reach the other tenants at the next code
 - A Bedrock-only clone must set `SOCIAL_EVAL_MODEL`; the template default is a local Ollama
   model and the social evaluator fails silent.
 
-## 2026-08-31 — Market 2 registry: Wirespeed in (vendor request), Zaun out; map recomputed
+## 2026-08-31 — Market 2: Wirespeed in, Zaun out; funding optional on the map, Top 40 switch, "raised in the last year"; Findings had frozen on 24 August (extractors never scheduled); the tenant's mail sender
 
 ### Ops/config — registry changes (database only, nothing in code)
 Two leads came through the front-page forms overnight: a trial request from Intezer's CMO
@@ -134,8 +134,137 @@ Verification: live front page reads "28 of 85 vendors had a development", "153 o
 20 of 85 vendors have public job listings", "39 of 85 vendors mapped"; the in-process full
 Analyst View lists Wirespeed under Not rated and Zaun nowhere.
 
+Later the same morning, also database only: the three Wirespeed reads completed at 08:10–08:12
+(runs 1062–1064, about 4 cents): 5 staff, 2,058 followers, St Louis; 25 LinkedIn posts; a
+seed round with six investors led by Mairs & Power, amount undisclosed, and Crunchbase's
+record that **Coalition bought Wirespeed** in November 2025 (the vendor request had come from
+a coalitioninc.com address: a founder writing from the acquirer). It was marked acquired
+(map 12) and, on the user's ruling that the brand still exists as a firm unlike Radiant,
+set back to active with the ownership in the analyst note (map 13). Its funding is recorded
+in `bw_market_brands.baseline.funding_baseline` as `Undisclosed` with the round details; no
+public figure exists (press release, Pulse 2.0, FinSMEs, Crunchbase). A "Spektrum Labs"
+(spektrum.ai) was added and Spectrum Security excluded on a misread, then reversed within
+minutes when the user confirmed spectrum.security is the right firm: the Spektrum rows were
+deleted outright (its three queued reads cancelled before any provider call), Spectrum
+Security restored, map 16 stored. Net: registry 85 vendors, 3 excluded, 2 acquired.
+
+### Config — funding is optional on the map (`app/config/market_horizon.json`, in `4388f329`)
+42 of 85 vendors have no disclosed funding total (Undisclosed, Bootstrapped or nothing on
+file), and the map rated a vendor only when every input had a value, so half the market sat
+under "Not rated". On the user's instruction `funding` is now `"optional": true` in the
+override file, with a `_why`. The compute reads the file live: map 14 rated 80 of 85 (was
+39), 4 not rated (all lacking a LinkedIn headcount), 2 acquired. Because percentiles are
+ranked within the rated set, 18 of the 39 previously rated vendors changed stage or band,
+mostly upward (Intezer and Cantina to Executing; System Two Security from Emerging to
+Building and Accelerating), and the Innovating marker doubled to 28 as the top third of a set
+twice the size. The weights table prints "(optional)" beside the input. Note the trade: a
+vendor without a total is placed on headcount and followers alone.
+
+### Feature — the map opens on the top 40, with a switch to all (`market_report_html.py`, in `4388f329`)
+Eighty dots on one arc is a crowd. `_HORIZON_TOP = 40`: `_horizon_dot_layer` gives every dot
+`data-rank` (its place in the largest-and-fastest-first drawing order) and marks dots past
+the top N `data-tail`, on both shapes and on their movement trails; `_horizon_section` adds
+"Show: Top 40 | All N" beside Arc/Grid and the highlight chips when a map has more than 40
+rated vendors, opens with `mm-top` on the container, and CSS hides tailed dots. Labels are
+placed **twice**: the first cut placed them once among all 80 dots, which in the Top 40 view
+left labels far from their dots with leader lines crossing the arc (screenshot); now
+`place_labels` runs for the top-N set and for all, emitted as `mm-lbl-top` / `mm-lbl-all`
+groups the switch chooses between. Test
+`test_a_crowded_map_opens_on_the_top_forty_with_a_switch_to_all`. The front-page compact map
+still draws all 80 dots (no controls there).
+
+### Wording — the "funded" marker is "raised in the last year" (`market_report_html.py`, in `4388f329`)
+The marker is a round dated inside the last 365 days, not a vendor that has ever raised; the
+user asked what it meant and had it relabelled. `_MARKER_LABELS` maps the key to the words in
+the chip, the legend, the hover panel ("raised in the last year — Series A, 2026-08"), the
+`$` mark's tooltip, the fold heading and the "Who is where" line. The key `funded` is
+unchanged in data and stored maps. "Best-funded" and "Disclosed funding totals" keep the
+ever-raised sense and were left.
+
+### Fix — Findings had frozen on 24 August: nothing ran the entity-event extractors (`app/tasks/market_monitor.py`, in `4388f329`)
+The user saw no Findings after the 24th. The view reads `bw_entity_events`; those come from
+the five extractors under `app/services/entity_event_extractors/` (owned posts, profile,
+funding, web diff, jobs), and **nothing in the app called them**: the 174 events on file came
+from the one-off `scripts/entity_intelligence_backfill.py` on 25–26 August. The review pass
+had kept judging 40–90 "signal" posts a day and `entity_ingest` kept creating their content
+links (262 signal posts since the 26th, every one linked), so the input was there and
+unread. A second gate: `ENTITY_INTELLIGENCE_EVENTS_ENABLED` defaults to false and was not in
+this tenant's `.env`, so `run_all` would have skipped everything anyway.
+
+Fix in two parts. A one-off run of `run_all` with the flag set for that run: 499 candidate
+posts, 166 events created, 198 merged into existing ones, 14 hiring events from 193 job
+postings, nothing from profile (297 readings), funding (147) or web diff (99 pages, 97 below
+threshold); 198 → 378 events; the Findings view for market 2 then carried 66 findings in 30
+days with dates through 30 August. Then the schedule: `SOURCE_EVENTS = "entity_events"`, daily
+in the cadence table, `_extract_events()` called right after `_review_posts()` in the market
+pass, recording a `bw_collection_runs` row (`provider local`, received = candidates read,
+new = created, skipped = merged, partial if an extractor raised) and returning quietly when
+the flag is off. Events are per vendor, not per market; with several markets the first due
+one does the work and the rest find nothing new. `.env` gained
+`ENTITY_INTELLIGENCE_EVENTS_ENABLED=true`. First scheduled run: 1068 at 12:05, succeeded,
+1,235 candidates read, 0 created, 381 merged, as expected nine minutes after the hand run.
+
+### Ops — the observer agent never had email on, and the tenant sent from Resend's test address (config only)
+The user was not getting the observer agent's mail. Agent 6 "SOC Automation Market Watch"
+ran daily at 07:00 as scheduled (15 alerts on the 30th, 6 on the 31st, saved report 50) but
+its config was `{"days_back": 30}`: no `send_email`, no `email_recipient`, and no
+`DEFAULT_OBSERVER_EMAIL` fallback in `.env`, so the runner saved the report and mailed nobody.
+The wileytest agents carry `send_email` and `email_recipient`. Agent 6 now has
+`"send_email": true, "email_recipient": "oliver.rochford@gmail.com"`, and report 50 was sent
+by hand through the same `send_signal_alert_email` call (Resend id `1805aff9…`, 6 alerts,
+download link).
+
+Separately, bugfixing's `.env` had the shared `RESEND_API_KEY` but no `RESEND_FROM_EMAIL`,
+so everything it sent (the three form notifications, Resend ids `b0452dae…`, `866668a7…`,
+`832b7d31…`, all accepted) went out as `onboarding@resend.dev`, which Resend only delivers
+to the account owner; wileytest, wiley and wbm send as `noreply@aunoo.ai`. Added
+`RESEND_FROM_EMAIL=noreply@aunoo.ai` (backup `.env.bak-resendfrom-20260831_*`) and put the
+gmail address beside `orochford@aunoo.ai` on `MARKET_TRIAL_NOTIFY_EMAIL`. Test mail from the
+new sender to both addresses: Resend id `f57c2934…`. The Resend key is send-only, so
+delivery status cannot be read back through the API (401 `restricted_api_key`).
+
+### Ops — a local visitor dashboard (files only, served by nothing)
+`docs/visitors-dashboard.html` (201 KB, data embedded) and its generator
+`docs/visitors_data.py`: day tabs, a class filter (people / link previews / scanners /
+declared bots), referrer, device, page, search; six tiles, first visits by hour, referrer,
+page and device bars, and the full address log with the pages each opened. Classes from the
+address alone: a cloud address with no referrer and one to three loads is a preview; with
+four or more distinct pages it is a scripted browser (the Google Cloud Android walkers) and
+counted as a bot; `robots.txt`/`sitemap.xml` askers are bots. Untracked, not in git, opened
+from disk; a snapshot as of 09:43 on 31 August. The user's instruction: internal, never on
+the site.
+
+### Verification
+- Suites over the map, front page and copy after the switch and relabel:
+  `test_market_horizon_stages`, `test_market_report_v2`, `test_market_report_copy`,
+  `test_market_follow_judge`, `test_market_entitlements`: 55 passed, the two older failures
+  unchanged (`test_the_lead_answers_before_it_shows_evidence`,
+  `test_mm20_the_report_names_only_authorized_vendors`). Service restarted after each change,
+  journal guard clear each time (one restart waited out an in-flight model call).
+- Map: in-process render shows "Show Top 40 | All 80", `mm-top` set, 86 `data-tail` marks
+  (80 dots over two shapes plus 6 trails), 160 ranked dots; screenshot of the Top 40 view
+  shows labels beside their dots. Live: "80 of 85 vendors mapped".
+- Findings: `mf.findings(conn, 2, days=30)` 66 rows, `occurred_at` through 2026-08-30;
+  run 1068 in `bw_collection_runs`.
+- Mail: Resend accepted the test and the report (ids above); inbox delivery not verifiable
+  from the server.
+
 ### Propagation
-Database rows on bugfixing only; Market Monitor exists on no other tenant.
+Code (`market_monitor.py`, `market_report_html.py`, `market_horizon.json`, the test) went in
+under `4388f329`, a commit made by another session in this tree at 12:13 whose subject
+describes different work (per-topic collection language, TheNewsAPI); `git add -u` swept
+these four files along. Market Monitor exists on no other tenant, so nothing propagates.
+The `.env` lines (`RESEND_FROM_EMAIL`, the second notify address,
+`ENTITY_INTELLIGENCE_EVENTS_ENABLED`), the agent config row, the registry and map rows and
+the dashboard files are this checkout and this database only; a tenant cloned from
+canonical gets none of them and this entry is their record.
+
+### Lessons
+- A view fed by a backfill freezes on the backfill's last day. When a table is written by a
+  script, ask what schedules the writer before shipping the reader.
+- Two flags gate one feature: check the env for each tenant, not the code default.
+- Another session committing in the same tree with `git add -u` will take your working files
+  under its subject. Document by file path and the SHA that actually carries the change.
 
 ## 2026-08-31 — Briefing desk: entries whose name has a slash would not delete
 
