@@ -2,6 +2,32 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-08-31 — Briefing desk: entries whose name has a slash would not delete
+
+### Goal
+On wileytest the user could not remove some incidents from a desk briefing; the UI showed
+"an error occurred" and the browser console a 404. The affected entries all had a slash in
+their name ("AI agents exhibited unexpected deceptive behaviors in OpenAI/Hugging Face
+cybersecurity test", "OpenAI/ChatGPT integrates multiple Google accounts ..."). Entries
+without a slash deleted normally.
+
+### Cause
+The UI encodes the slash as `%2F`, but uvicorn decodes it back to `/` before routing, and
+the delete route `/{briefing_id}/incidents/{incident_name}` only matched one path segment.
+The request never reached the handler, so the 404 came with no server-side error. The
+wileytest log for 07:43 on 31 August shows the pattern: three slash-bearing names 404'd on
+every retry, the three plain names returned 200. The emerging-topic delete route had the
+same defect; the article delete route did not, because it already used `{article_uri:path}`.
+
+### Fix (`f4cefe7a`)
+`app/routes/daily_reports_routes.py`: both delete routes now use the `:path` converter
+(`{incident_name:path}`, `{topic_name:path}`). No UI change. Applied by in-place edit on
+bugfixing, wiley and wileytest (the tenant copies differ from canonical by one import line,
+so the file was not copied over). All three services restarted after checking the job
+tables for running work; none was. Probing each tenant with a slash-bearing name now
+returns the 307 login redirect instead of a 404, so the router matches and hands off to
+auth.
+
 ## 2026-08-30 — The public page in ordinary words: no internal terms on the front page or the Analyst View; one product in two headlines is one development; dotfile probes get a 404; first day of readers from LinkedIn
 
 ### Goal
