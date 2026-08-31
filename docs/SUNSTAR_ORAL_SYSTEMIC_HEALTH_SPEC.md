@@ -235,3 +235,8 @@ The tenant setting `keyword_monitor_settings.search_fields` was `title,descripti
 | Kao (incl. JP group) | 115 | 5 | 5 |
 
 Japan's TheNewsAPI pass returned 228 results across 13 keywords once the body was searched, against about 30 before. France's two approvals are both Futura-Sciences pieces on Alzheimer's and oral bacteria (0.90). The consumer set's relevant posts come mostly from Bluesky (109 of 226), then Instagram (43) and TikTok (38); Twitter contributes 7. The market topics are still thin for the run of show's 40-per-market floor: Japan is the only non-US market near a usable set, and Germany and France will be shown as what they are.
+
+### First analysis run (31 August, 13:15 UK)
+
+Consensus on the research topic (Sonnet 5, 5-year window, Sunstar profile, analyst persona) over 90 papers gave three categories: oral frailty as a validated, reversible geriatric syndrome (46 papers, 88% confidence, Japan leads the field), periodontitis and neurodegeneration as strong association but weak causation (21 papers, 72%; a failed gingipain drug trial and a null 15-year cohort against umbrella-review risk ratios of 1.5–1.65), and periodontitis and cardiovascular disease as converging mechanistic consensus (19 papers, 80%; shared NF-κB/NLRP3 inflammatory pathways, against a Mendelian randomisation study finding no causal link). Six key insights, including that only 2 of 90 papers touch policy or reimbursement. Export: `sunstar.aunoo.ai/exports/sunstar-research-consensus-2026-08-31.html`. Two earlier runs were truncated by a model-limit table bug, now fixed (see changes.md).
+

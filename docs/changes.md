@@ -52,6 +52,21 @@ now asks for the summary, every explanation and the tags in English whatever the
 language. Re-running that article produced an English summary; the six later Japanese approvals
 were all English.
 
+### Fix — foresight analyses silently shrank on Bedrock model aliases
+The first Consensus run on sunstar's research topic came back with one category out of 90 papers
+and the run logged success. The log had the cause: `Model: claude-sonnet-5, Context limit: 16385,
+Max output limit: 4096 ... Final max_tokens: 500`. Three per-model tables —
+`_get_model_context_limit` and `_get_model_output_limit` in **`app/services/auspex_service.py`**,
+`CONTEXT_LIMITS` in **`app/routes/trend_convergence_routes.py`** and **`app/routes/futures_cone_routes.py`**
+— knew `claude-4-sonnet` but none of the aliases the Bedrock yamls serve (`claude-sonnet-5`,
+`claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-5`, `nova-pro`, `nova-lite`,
+`bedrock-kimi-k2-5`), so every one fell to the 16k/4k defaults, the 29k-token input "exceeded" the
+window and the output was squeezed to 500 tokens; `json_repair` salvaged what it could. Added the
+aliases (Claude 200k context / 64k output, Nova 300k / 5k, Kimi 256k / 16k). Third run: `Final
+max_tokens: 64000`, clean parse, three categories with confidence, timelines and outliers, six key
+insights (analysis `40bb2aa6…`; the two truncated versions `1286e34e…` and `22f3cecb…` remain stored).
+Any tenant running foresight on these aliases had the same silent shrinkage.
+
 ### Ops — sunstar.aunoo.ai
 Provisioned from the bwtemplate dump with `scripts/provision_brand_tenant.py` (port 10019, DB
 `sunstar`, credentials `/var/tmp/sunstar_credentials.txt`), flipped to full platform
@@ -170,8 +185,13 @@ placed **twice**: the first cut placed them once among all 80 dots, which in the
 left labels far from their dots with leader lines crossing the arc (screenshot); now
 `place_labels` runs for the top-N set and for all, emitted as `mm-lbl-top` / `mm-lbl-all`
 groups the switch chooses between. Test
-`test_a_crowded_map_opens_on_the_top_forty_with_a_switch_to_all`. The front-page compact map
-still draws all 80 dots (no controls there).
+`test_a_crowded_map_opens_on_the_top_forty_with_a_switch_to_all`. Later the same day, at the
+user's request, the front-page compact map (`_v2_horizon`) got the same default: `mm-top` on
+its container when the map is crowded, so it draws the top 40 with the top-view labels, and
+its caption reads "80 of 85 vendors mapped by scale and momentum; the 40 largest and fastest
+shown here"; the full map's switch is one link away. The shared-view entitlement test strips
+the sidebar map by its opening tag, so its pattern now allows extra classes
+(`test_market_report_v2.py`); the crowded-map test covers the sidebar too. Not yet committed.
 
 ### Wording — the "funded" marker is "raised in the last year" (`market_report_html.py`, in `4388f329`)
 The marker is a round dated inside the last 365 days, not a vendor that has ever raised; the

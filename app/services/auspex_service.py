@@ -4088,6 +4088,17 @@ Article Details (First {detail_limit}):
             "claude-4-opus": 200000,
             "claude-4-sonnet": 200000,
             "claude-4-haiku": 200000,
+            # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
+            # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
+            "claude-sonnet-5": 200000,
+            "claude-opus-5": 200000,
+            "claude-sonnet-4-5": 200000,
+            "claude-haiku-4-5": 200000,
+            "bedrock-claude-sonnet": 200000,
+            "bedrock-claude-haiku": 200000,
+            "nova-pro": 300000,
+            "nova-lite": 300000,
+            "bedrock-kimi-k2-5": 256000,
             "gemini-pro": 32768,
             "gemini-1.5-pro": 2097152,
             "llama-2-70b": 4096,
@@ -4143,6 +4154,18 @@ Article Details (First {detail_limit}):
             "claude-4-opus": 8192,
             "claude-4-sonnet": 8192,
             "claude-4-haiku": 8192,
+            # Bedrock aliases (2026-08-31). Sonnet 4.5 / Sonnet 5 / Opus 5 / Haiku 4.5 allow
+            # 64k output on Bedrock (capped below); Nova stops at ~5k; Kimi K2.5 at 16k. Without
+            # these the 4096 default cut a 13-category consensus off after two categories.
+            "claude-sonnet-5": 64000,
+            "claude-opus-5": 64000,
+            "claude-sonnet-4-5": 64000,
+            "claude-haiku-4-5": 64000,
+            "bedrock-claude-sonnet": 64000,
+            "bedrock-claude-haiku": 64000,
+            "nova-pro": 5000,
+            "nova-lite": 5000,
+            "bedrock-kimi-k2-5": 16000,
             "gemini-pro": 8192,
             "gemini-1.5-pro": 8192,
             "llama-2-70b": 2048,

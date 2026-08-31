@@ -51,6 +51,17 @@ CONTEXT_LIMITS = {
     'claude-4-opus': 200000,
     'claude-4-sonnet': 200000,
     'claude-4-haiku': 200000,
+    # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
+    # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
+    'claude-sonnet-5': 200000,
+    'claude-opus-5': 200000,
+    'claude-sonnet-4-5': 200000,
+    'claude-haiku-4-5': 200000,
+    'bedrock-claude-sonnet': 200000,
+    'bedrock-claude-haiku': 200000,
+    'nova-pro': 300000,
+    'nova-lite': 300000,
+    'bedrock-kimi-k2-5': 256000,
     'gemini-pro': 32768,
     'gemini-1.5-pro': 2097152,
     'llama-2-70b': 4096,
