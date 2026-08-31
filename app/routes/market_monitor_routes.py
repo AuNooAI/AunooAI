@@ -3875,6 +3875,119 @@ async def vendor_benchmarks(market_id: int, brand_id: int,
     return await asyncio.to_thread(_work)
 
 
+_VENDOR_EXPORT_FMTS = ("md", "csv", "pdf")
+
+
+def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any]) -> str:
+    """The vendor page as a Markdown dossier, same data as the screen."""
+    from app.services import market_horizon as mh
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [f"# {v['display_name']} — vendor dossier",
+             f"_Market: {market['name']} · compiled {stamp} from collected public data_", ""]
+    base = (v.get("baseline") or {})
+    idents = [i for i in v.get("identifiers") or [] if i.get("live")]
+    lines += ["## Registry",
+              f"- Role {v.get('role')}; collection {'on' if v.get('collection_enabled') else 'off'}.",
+              "- Identifiers: " + ("; ".join(f"{i['kind']} = {i['display_value']}" for i in idents) or "none"), ""]
+    fund = base.get("funding_baseline") or {}
+    if fund:
+        total = fund.get("total_musd")
+        lines += ["## Funding (registry baseline)",
+                  f"- {fund.get('status')}" + (f", ${total}M total" if isinstance(total, (int, float)) else "")
+                  + (f". {fund.get('notes')}" if fund.get("notes") else ""), ""]
+    series = v.get("profile_series") or []
+    if series:
+        last = series[-1]
+        lines += ["## LinkedIn profile",
+                  f"- Latest: {last.get('employee_count')} employees, {last.get('followers')} followers "
+                  f"({str(last.get('observed_at'))[:10]}); {len(series)} reading(s) on file.", ""]
+    cb = v.get("funding") or {}
+    if cb:
+        inv = ", ".join(cb.get("investors") or [])
+        lines += ["## Crunchbase",
+                  f"- Rounds {cb.get('num_funding_rounds')}, last {cb.get('last_funding_type')}; "
+                  f"rank {cb.get('cb_rank')}, growth {cb.get('growth_score')}, heat {cb.get('heat_score')}."
+                  + (f" Acquired by {cb.get('acquired_by')}." if cb.get("acquired_by") else "")
+                  + (f" Investors: {inv}." if inv else ""), ""]
+    jobs = v.get("jobs") or []
+    if jobs:
+        lines += [f"## Open roles ({len(jobs)})"] + [
+            f"- {j.get('title')} — {j.get('location') or ''} {('(' + j['function'] + ')') if j.get('function') else ''}".rstrip()
+            for j in jobs[:25]] + [""]
+    ann = v.get("announcements") or []
+    if ann:
+        lines += [f"## Announcements the review pass kept ({len(ann)})"] + [
+            f"- {str(a.get('publication_date') or '')[:10]} · {a.get('review_kind') or ''} — {(a.get('title') or '')[:120]}"
+            for a in ann] + [""]
+    posts = v.get("posts") or []
+    if posts:
+        lines += ["## Latest own LinkedIn posts"] + [
+            f"- {str(p.get('publication_date') or '')[:10]} — {(p.get('title') or '')[:120]}" for p in posts] + [""]
+    cov = v.get("coverage_by_category") or []
+    if cov:
+        lines += ["## Coverage by category",
+                  "; ".join(f"{c['category']} {c['n']}" for c in cov), ""]
+    try:
+        conn2 = _conn()
+        try:
+            maps = mh.latest(conn2, market["id"], n=1)
+        finally:
+            conn2.close()
+        if maps:
+            m0 = maps[0]
+            r = next((x for x in m0.get("rated") or [] if x.get("brand_id") == v["brand_id"]), None)
+            if r:
+                lines += ["## Market Maturity Map",
+                          f"- Stage {mh.TIERS.get(r['tier'], {}).get('label', r['tier'])}, band {r['band']}; "
+                          f"scale {r['scale']:.1f}, momentum {r['momentum']:.1f} "
+                          f"(map computed {str(m0.get('computed_at'))[:10]}).", ""]
+    except Exception:  # noqa: BLE001 — the dossier is still useful without the map
+        pass
+    return "\n".join(lines)
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}/export")
+async def vendor_export(market_id: int, brand_id: int,
+                        fmt: str = Query("md", pattern="^(md|csv|pdf)$"),
+                        session=Depends(verify_session_api)):
+    """The vendor page as a file: Markdown, CSV or PDF, from the same
+    payload the screen renders, so an export cannot disagree with it."""
+    from fastapi.responses import Response
+    from app.services import market_lists as ml
+    vendor = await vendor_detail(market_id, brand_id, session)
+
+    def _market():
+        conn = _conn()
+        try:
+            return _load_market(conn, market_id)
+        finally:
+            conn.close()
+    market = await asyncio.to_thread(_market)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    slug = vendor.get("slug") or str(brand_id)
+    if fmt == "csv":
+        sections = []
+        for name, rows in (("announcements", vendor.get("announcements")),
+                           ("posts", vendor.get("posts")),
+                           ("jobs", vendor.get("jobs")),
+                           ("profile_series", vendor.get("profile_series")),
+                           ("identifiers", [i for i in vendor.get("identifiers") or [] if i.get("live")])):
+            if rows:
+                sections.append(f"# {name}\r\n" + ml.csv_of([dict(r) for r in rows]))
+        body = "\r\n".join(sections) or "# empty\r\n"
+        return Response(content=body, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.csv"'})
+    md = await asyncio.to_thread(_vendor_markdown, market, vendor)
+    if fmt == "pdf":
+        from app.services.report_pdf import markdown_report_to_pdf
+        pdf = await asyncio.to_thread(markdown_report_to_pdf,
+                                      f"{vendor['display_name']} — vendor dossier", md)
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.pdf"'})
+    return Response(content=md, media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.md"'})
+
+
 class SetIdentifier(BaseModel):
     kind: str
     value: str = Field(..., min_length=1, max_length=500)

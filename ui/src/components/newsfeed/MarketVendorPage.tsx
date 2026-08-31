@@ -174,7 +174,14 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">{v.display_name}</h2>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">{v.display_name}
+            <span className="ml-3 text-xs font-normal text-slate-500 dark:text-gray-400">Download{' '}
+              {(['md', 'csv', 'pdf'] as const).map((f, i) => (
+                <span key={f}>{i > 0 && ' · '}<a className="underline hover:text-slate-800 dark:hover:text-gray-200"
+                  href={`/api/market-monitor/markets/${marketId}/vendors/${brandId}/export?fmt=${f}`}>{f.toUpperCase()}</a></span>
+              ))}
+            </span>
+          </h2>
           <p className="text-sm text-slate-600 mt-0.5 dark:text-gray-400">
             {[tax.sub_category, base.hq_country,
               base.founded_year ? `founded ${base.founded_year}` : null]

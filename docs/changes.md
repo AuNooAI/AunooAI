@@ -341,6 +341,33 @@ logging each one. Bright Data batches keep their rows: the provider still holds 
 the callback can land after a restart. Scheduler claims held by a dead sweep still release on
 the two-hour claim timeout.
 
+### Feature — the vendor page downloads as Markdown, CSV or PDF (not yet committed)
+`GET /markets/{id}/vendors/{brand_id}/export?fmt=md|csv|pdf`
+(`market_monitor_routes.py`), built from the same payload the screen renders so an export
+cannot disagree with it: registry and live identifiers, the funding baseline with its notes,
+the latest LinkedIn profile reading and series length, the Crunchbase record, open roles,
+the announcements the review pass kept, the latest own posts, coverage by category, and the
+vendor's position on the latest map. CSV is the tabular sections (announcements, posts,
+jobs, profile series, identifiers) concatenated with `# section` headers via `ml.csv_of`;
+PDF renders the Markdown through `report_pdf`. Small "Download MD · CSV · PDF" links sit
+beside the vendor name on the page (`MarketVendorPage.tsx`); the session cookie rides the
+plain link. Verified in-process for Wirespeed: 2.4 KB Markdown, 12.9 KB CSV, a well-formed
+PDF. Prompted by the user asking for "Wirespeed md and xls download" — the one-off files
+sent earlier are superseded by this.
+
+### Copy — the About page loses its AI-writing tells (not yet committed)
+The user read the About page against Wikipedia's "Signs of AI writing" and called it slop.
+The tells were structural: parallel four-item runs ("buy, build, invest in or compete";
+"set the rules, review the output, decide, write"), antithesis ("on evidence, not on
+request"; "information, not advice"; "states a fact or is promotion") and anaphora ("no
+account, no login, no cookie and no analytics"). Rewritten in `_v2_about_page`
+(`market_report_html.py`) as plain declaratives: "AI models read what comes in. They match
+each item to a vendor, decide whether it is an announcement, commentary or marketing, and
+draft the summaries." "Nobody pays to be listed. We add a vendor when the public record
+supports it." "Nothing here is advice." "The site has no accounts, cookies or analytics
+scripts." The legal substance (Article 50 notice, privacy retention, imprint) is unchanged;
+tests pin only the section IDs, so none needed updating.
+
 ### Ops — the observer agent never had email on, and the tenant sent from Resend's test address (config only)
 The user was not getting the observer agent's mail. Agent 6 "SOC Automation Market Watch"
 ran daily at 07:00 as scheduled (15 alerts on the 30th, 6 on the 31st, saved report 50) but
