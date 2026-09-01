@@ -3878,7 +3878,42 @@ async def vendor_benchmarks(market_id: int, brand_id: int,
 _VENDOR_EXPORT_FMTS = ("md", "csv", "pdf")
 
 
-def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any]) -> str:
+def _fmt_bench(val, unit: str) -> str:
+    if val is None:
+        return "—"
+    if unit == "musd":
+        return f"${val:g}M"
+    if unit == "percent":
+        return f"{val:+.1f}%"
+    return f"{val:g}"
+
+
+def _bench_rows(bench: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The benchmark metrics flattened for the exports, suppressed ones out."""
+    rows = []
+    for m in (bench or {}).get("metrics") or []:
+        if m.get("suppressed"):
+            continue
+        unit = (m.get("metric") or {}).get("unit") or ""
+        rows.append({
+            "metric": (m.get("metric") or {}).get("label"),
+            "unit": unit,
+            "vendor_value": m.get("vendor_value"),
+            "unmeasured_because": m.get("vendor_unmeasured_because"),
+            "market_median": m.get("market_median"),
+            "market_average": m.get("market_average"),
+            "top10_median": m.get("top_median"),
+            "vendor_percentile": m.get("vendor_percentile"),
+            "delta_from_market_median": m.get("delta_from_market_median"),
+            "measured": f'{m.get("measured_count")} of {m.get("eligible_count")}',
+            "as_of": (m.get("metric") or {}).get("as_of_note"),
+            "degraded": bool(m.get("degraded")),
+        })
+    return rows
+
+
+def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any],
+                     bench: Optional[Dict[str, Any]] = None) -> str:
     """The vendor page as a Markdown dossier, same data as the screen."""
     from app.services import market_horizon as mh
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -3923,6 +3958,24 @@ def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any]) -> str:
     if posts:
         lines += ["## Latest own LinkedIn posts"] + [
             f"- {str(p.get('publication_date') or '')[:10]} — {(p.get('title') or '')[:120]}" for p in posts] + [""]
+    brows = _bench_rows(bench)
+    if brows:
+        lines += [f"## Benchmarks (last {bench.get('period_days')} days, against "
+                  f"{bench.get('metrics')[0].get('eligible_count')} vendors)"]
+        for b in brows:
+            if b["vendor_value"] is None:
+                lines.append(f"- {b['metric']}: not measured — {b['unmeasured_because']}")
+                continue
+            u = b["unit"]
+            lines.append(
+                f"- {b['metric']}: {_fmt_bench(b['vendor_value'], u)}"
+                + (f" (p{b['vendor_percentile']:.0f})" if b.get("vendor_percentile") is not None else "")
+                + f" — market median {_fmt_bench(b['market_median'], u)}"
+                + (f", top-{bench.get('metrics')[0].get('top_peer_count') or 10} median {_fmt_bench(b['top10_median'], u)}"
+                   if b.get("top10_median") is not None else "")
+                + (f"; measured for {b['measured']}" if b.get("measured") else "")
+                + (" (collection degraded)" if b["degraded"] else ""))
+        lines.append("")
     cov = v.get("coverage_by_category") or []
     if cov:
         lines += ["## Coverage by category",
@@ -3955,19 +4008,27 @@ async def vendor_export(market_id: int, brand_id: int,
     from fastapi.responses import Response
     from app.services import market_lists as ml
     vendor = await vendor_detail(market_id, brand_id, session)
+    from app.services import market_benchmark as mbench
 
-    def _market():
+    def _market_and_bench():
         conn = _conn()
         try:
-            return _load_market(conn, market_id)
+            market = _load_market(conn, market_id)
+            try:
+                bench = mbench.benchmarks(conn, market, brand_id, days=90,
+                                          metric_keys=None, include_cohort=True)
+            except Exception:  # noqa: BLE001 — the dossier is useful without it
+                bench = None
+            return market, bench
         finally:
             conn.close()
-    market = await asyncio.to_thread(_market)
+    market, bench = await asyncio.to_thread(_market_and_bench)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slug = vendor.get("slug") or str(brand_id)
     if fmt == "csv":
         sections = []
-        for name, rows in (("announcements", vendor.get("announcements")),
+        for name, rows in (("benchmarks", _bench_rows(bench)),
+                           ("announcements", vendor.get("announcements")),
                            ("posts", vendor.get("posts")),
                            ("jobs", vendor.get("jobs")),
                            ("profile_series", vendor.get("profile_series")),
@@ -3977,7 +4038,7 @@ async def vendor_export(market_id: int, brand_id: int,
         body = "\r\n".join(sections) or "# empty\r\n"
         return Response(content=body, media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.csv"'})
-    md = await asyncio.to_thread(_vendor_markdown, market, vendor)
+    md = await asyncio.to_thread(_vendor_markdown, market, vendor, bench)
     if fmt == "pdf":
         from app.services.report_pdf import markdown_report_to_pdf
         pdf = await asyncio.to_thread(markdown_report_to_pdf,

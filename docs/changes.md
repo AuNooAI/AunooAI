@@ -2,6 +2,45 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-01 — Incident: keyword collection on bugfixing was down 21 hours after a restart loaded code ahead of its migration
+
+### Incident — `column kg.language does not exist`, 31 Aug 11:36 → 1 Sep 08:41
+The keyword monitor's group query (`app/tasks/keyword_monitor.py`, from `4388f329`, the
+other session's per-topic language work) reads `keyword_groups.language`, which migration
+`kg_lang_001` adds. The code was in this working tree from the morning of 31 August; my
+11:36 restart (for the Resend sender) loaded it, and bugfixing's schema was still at
+`mm_022`. From that minute every monitor cycle failed with
+`psycopg2.errors.UndefinedColumn: column kg.language does not exist` — 2,976 tracebacks,
+two a minute, until 08:41 on 1 September. Keyword-driven news and social collection for
+every topic on bugfixing (the SOC market's "agentic SOC" search terms, the brand groups)
+stopped for 21 hours; RSS feeds, the market's LinkedIn reads and the corpus scan carried on,
+so articles kept arriving and nothing looked dead. Nobody saw it because the error is
+INFO-level noise to the journal and no alert reads the monitor's error rate. The morning
+access watch found it by accident, chasing ten holding-page hits.
+
+Fix: `.venv/bin/alembic upgrade head` on bugfixing (mm_022 → kg_lang_001, additive: two
+nullable columns). No restart needed; the next cycle at 08:42 ran clean ("Checking keyword:
+agentic SOC … requests_today 1/100"), zero errors since. Only bugfixing was affected: the
+commit says the code was propagated to sunstar, wileytest and wbm, and sunstar has the
+migration; wileytest, wiley and wbm neither have the column nor the code that reads it (0
+matches in their `keyword_monitor.py`, 0 errors in their journals).
+
+The holding-page hits themselves: at 06:15:47 and again at 06:20:14 every tenant service on
+the host was restarted at once (bugfixing, sunstar, wbm, the saas side services), not by this
+session; four readers on bugfixing got the 503 holding page during a cluster of arrivals
+from India at 06:20.
+
+### Lessons
+- ALWAYS check for unapplied migrations before restarting a tenant whose tree has changed
+  under you: `.venv/bin/alembic history -r current:heads` (or compare `alembic_version` with
+  `alembic heads`). A restart that loads code ahead of its schema fails silently in a
+  background task.
+- A collector that errors every minute at INFO level is invisible; the collector health check
+  should count `Error executing query` lines per tenant, or the monitor should raise its own
+  error rate to WARNING with a summary.
+- Another session working in the same tree means restarts deploy their half-finished work
+  too. Before restarting, `git status` and `git log -3` tell you what you are about to load.
+
 ## 2026-08-31 — Sunstar demo site built; topics collect in their own language; TheNewsAPI had been searching titles only
 
 ### Goal
@@ -349,7 +388,11 @@ the latest LinkedIn profile reading and series length, the Crunchbase record, op
 the announcements the review pass kept, the latest own posts, coverage by category, and the
 vendor's position on the latest map. CSV is the tabular sections (announcements, posts,
 jobs, profile series, identifiers) concatenated with `# section` headers via `ml.csv_of`;
-PDF renders the Markdown through `report_pdf`. Small "Download MD · CSV · PDF" links sit
+PDF renders the Markdown through `report_pdf`. Later the same evening the exports gained
+the vendor's benchmarks (last 90 days, from `market_benchmark.benchmarks`): per metric the
+vendor's value or the reason it is unmeasured, its percentile, the market median and the
+top-cohort median, and the measured-of-eligible denominator — a `## Benchmarks` section in
+the Markdown and PDF, a `# benchmarks` table in the CSV. Small "Download MD · CSV · PDF" links sit
 beside the vendor name on the page (`MarketVendorPage.tsx`); the session cookie rides the
 plain link. Verified in-process for Wirespeed: 2.4 KB Markdown, 12.9 KB CSV, a well-formed
 PDF. Prompted by the user asking for "Wirespeed md and xls download" — the one-off files
