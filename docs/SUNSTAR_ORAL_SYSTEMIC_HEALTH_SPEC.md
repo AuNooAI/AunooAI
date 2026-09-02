@@ -273,3 +273,23 @@ where narratives run ahead of the evidence — and swapped Kao for Haleon/Sensod
   consumer 1,545 posts scored / 272 relevant (Bluesky 118, Instagram 55, TikTok 51);
   brands: Colgate 74, Haleon 39, P&G 20, Lion 6, Sunstar 5 enriched. Floors met for
   research/US/consumer; Japan is directional; DE/FR stay "say so on the call".
+
+### Rehearsal (2 September, 15:00 UK)
+
+Every run-of-show view checked against the live tenant; overlay approved
+(action windows re-aimed at Sunstar's remit, `human_reviewed`). Floors:
+research 120 enriched (floor 60), US 61 (40), consumer 296 relevant (25) — met.
+Japan press 15, Germany 4, France 3 — below floor: show Japan through the
+consensus report and research frame, say DE/FR are thin, cut nothing else in.
+Category contrast for step 2: periodontal–cardiovascular US 21 vs JP 1; brain
+link US 10 vs JP 2; aspiration pneumonia/older adults JP 5 vs US 0 — the
+market-frame slide writes itself. All five Anticipate tabs load saved samples
+(tab-aware /previous verified 200 on all seven topic/tab pairs). Emerging
+Topics: 7 rows. Futures Cone on Regenerative Dentistry: 13 scenarios, 5
+timeline points (gpt-5.4 — the cone passes `temperature`, Claude 5 refuses
+it, same as Emerging Topics). Brand Watcher: Colgate 70 / Haleon 54 / P&G 12 /
+Lion 5 / Sunstar 2 categorised; glassdoor live (Sunstar 3.5★/161 vs Colgate
+4.1, Lion 3.7, Haleon 3.4); brand social first passes: Colgate 428, P&G 313,
+Lion 280 posts (Sunstar 0 so far — next cycles). Deck "Oral-Systemic Health"
+active. Seven leave-behinds dated 09-02. Observer agents fire 06:40–07:00
+tomorrow, email verified.
