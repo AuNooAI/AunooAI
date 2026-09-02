@@ -114,6 +114,18 @@ restarted (11:01); wiley/wileytest/wbm not yet updated.
   the user; first run: 105 articles analysed, 14 flagged. `next_run_at` set to
   tomorrow so a restart cannot mass-fire them.
 
+### Feature — the Explore Overview tab now explains itself
+User verdict on v1: "the overview sucks. no explanation of the taxonomies or why we
+collect topics" — and its reports card pointed at "Anticipate → Reports", a tab that
+is actually labelled "Topic Reports" and may be hidden. New endpoint
+`GET /api/news-feed/workspace/topics-overview` merges config.json topics (description,
+categories) with keyword_groups (languages, countries, providers, active) and article
+counts ("analysed" includes social posts passing the relevance gate, so the consumer
+topic shows 297/1,914 rather than a misleading 4). The tab now renders each topic with
+why it is collected, its collection languages and providers, and an expandable taxonomy,
+with a line explaining the shared classification structure; brand streams sit under the
+brands card; the reports card names the exact tab labels and the tab-settings gear.
+
 ### Fix — consensus HTML export: inline citations were dead text, and the cover said WILEY
 The standalone consensus download escaped the narrative's [n] citation markers
 as plain text (the in-app view links them via `renderCitations`), so a reader

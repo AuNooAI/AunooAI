@@ -2680,6 +2680,74 @@ async def get_filter_options(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.get("/workspace/topics-overview", dependencies=[Depends(verify_session_api)])
+async def get_workspace_topics_overview():
+    """One row per topic for the Explore Overview tab: why it is collected
+    (description), its classification taxonomy (categories), how it collects
+    (languages, countries, providers from its keyword groups), and how much
+    it holds (collected / enriched article counts). Topics with no active
+    group and no articles are omitted."""
+    from app.config.config import load_config
+    from sqlalchemy import text as sa_text
+    from app.database import get_database_instance
+
+    config = load_config()
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        group_rows = conn.execute(sa_text("""
+            SELECT topic, language, country, providers, is_active
+            FROM keyword_groups
+        """)).fetchall()
+        count_rows = conn.execute(sa_text("""
+            SELECT topic,
+                   COUNT(*) AS collected,
+                   COUNT(*) FILTER (WHERE (sentiment IS NOT NULL AND category IS NOT NULL)
+                                       OR topic_alignment_score >= 0.4) AS enriched
+            FROM articles WHERE topic IS NOT NULL GROUP BY topic
+        """)).fetchall()
+    finally:
+        conn.close()
+
+    groups_by_topic: dict = {}
+    for r in group_rows:
+        m = r._mapping
+        g = groups_by_topic.setdefault(m["topic"], {
+            "languages": set(), "countries": set(), "providers": set(), "active": False,
+        })
+        if m["language"]:
+            g["languages"].add(m["language"])
+        if m["country"]:
+            g["countries"].add(m["country"])
+        try:
+            for p in json.loads(m["providers"] or "[]"):
+                g["providers"].add(p)
+        except Exception:
+            pass
+        g["active"] = g["active"] or bool(m["is_active"])
+    counts = {r._mapping["topic"]: r._mapping for r in count_rows}
+
+    topics = []
+    for t in config.get("topics", []):
+        name = t.get("name")
+        g = groups_by_topic.get(name)
+        c = counts.get(name)
+        if not g and not c:
+            continue  # template entries with neither a group nor articles
+        topics.append({
+            "name": name,
+            "description": t.get("description") or "",
+            "categories": t.get("categories") or [],
+            "languages": sorted(g["languages"]) if g else [],
+            "countries": sorted(g["countries"]) if g else [],
+            "providers": sorted(g["providers"]) if g else [],
+            "active": g["active"] if g else False,
+            "collected": int(c["collected"]) if c else 0,
+            "enriched": int(c["enriched"]) if c else 0,
+        })
+    return {"topics": topics}
+
+
 @router.get("/topic/{topic_name}/categories", dependencies=[Depends(verify_session_api)])
 async def get_topic_categories(
     topic_name: str,
