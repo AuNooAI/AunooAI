@@ -125,6 +125,13 @@ topic shows 297/1,914 rather than a misleading 4). The tab now renders each topi
 why it is collected, its collection languages and providers, and an expandable taxonomy,
 with a line explaining the shared classification structure; brand streams sit under the
 brands card; the reports card names the exact tab labels and the tab-settings gear.
+Round two, from the next pass of feedback: taxonomies render once per distinct set
+("shared by all 7 topics above") instead of repeating an identical list under every
+topic — which had read as a bug when it is the comparability design — and each block
+now shows the future-signal vocabulary alongside the categories. The inert bare
+"Brand Monitoring" template entry came out of sunstar's config.json: nothing in code
+reads it, and its empty corpus sat in the Anticipate dropdown (it was the topic the
+fetch storm span on).
 
 ### Fix — consensus HTML export: inline citations were dead text, and the cover said WILEY
 The standalone consensus download escaped the narrative's [n] citation markers

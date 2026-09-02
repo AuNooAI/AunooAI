@@ -2738,6 +2738,7 @@ async def get_workspace_topics_overview():
             "name": name,
             "description": t.get("description") or "",
             "categories": t.get("categories") or [],
+            "future_signals": t.get("future_signals") or [],
             "languages": sorted(g["languages"]) if g else [],
             "countries": sorted(g["countries"]) if g else [],
             "providers": sorted(g["providers"]) if g else [],

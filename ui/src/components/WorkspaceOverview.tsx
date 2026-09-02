@@ -30,6 +30,7 @@ interface OverviewTopic {
   name: string;
   description: string;
   categories: string[];
+  future_signals?: string[];
   languages: string[];
   countries: string[];
   providers: string[];
@@ -60,7 +61,6 @@ const LANG_NAMES: Record<string, string> = {
 };
 
 function TopicCard({ topic }: { topic: OverviewTopic }) {
-  const [showTaxonomy, setShowTaxonomy] = useState(false);
   const langs = topic.languages.map(l => LANG_NAMES[l] || l).join(', ');
   return (
     <div className={`rounded border border-gray-100 dark:border-gray-700 px-4 py-3 ${topic.active ? '' : 'opacity-60'}`}>
@@ -86,23 +86,67 @@ function TopicCard({ topic }: { topic: OverviewTopic }) {
           <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">collection paused</span>
         )}
       </div>
-      {topic.categories.length > 0 && (
-        <div className="mt-2">
-          <button
-            type="button"
-            onClick={() => setShowTaxonomy(v => !v)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-pink-600 dark:text-pink-400 hover:underline"
-          >
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTaxonomy ? 'rotate-180' : ''}`} />
-            Taxonomy — {topic.categories.length} categories
-          </button>
-          {showTaxonomy && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {topic.categories.map(c => (
-                <span key={c} className="text-xs px-2 py-0.5 rounded bg-gray-50 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300">
-                  {c}
-                </span>
+    </div>
+  );
+}
+
+/** One expandable block per distinct taxonomy among *topics* — the streams
+ * deliberately share taxonomies so their results compare side by side, and
+ * repeating an identical list under every topic hid that. */
+function TaxonomyBlocks({ topics }: { topics: OverviewTopic[] }) {
+  const groups = new Map<string, { cats: string[]; signals: string[]; names: string[] }>();
+  for (const t of topics) {
+    if (!t.categories.length) continue;
+    const key = JSON.stringify([t.categories, t.future_signals || []]);
+    const g = groups.get(key) || { cats: t.categories, signals: t.future_signals || [], names: [] };
+    g.names.push(t.name);
+    groups.set(key, g);
+  }
+  if (groups.size === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {[...groups.values()].map((g, i) => (
+        <TaxonomyBlock key={i} group={g} total={topics.length} />
+      ))}
+    </div>
+  );
+}
+
+function TaxonomyBlock({ group, total }: { group: { cats: string[]; signals: string[]; names: string[] }; total: number }) {
+  const [open, setOpen] = useState(false);
+  const scope = group.names.length === total
+    ? `shared by all ${total} topics above`
+    : group.names.length === 1
+      ? group.names[0]
+      : `shared by ${group.names.join(', ')}`;
+  return (
+    <div className="rounded border border-dashed border-gray-200 dark:border-gray-600 px-4 py-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-pink-600 dark:text-pink-400 hover:underline"
+      >
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+        Taxonomy ({scope}) — {group.cats.length} categories, {group.signals.length} future signals
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Categories</p>
+            <div className="flex flex-wrap gap-1.5">
+              {group.cats.map(c => (
+                <span key={c} className="text-xs px-2 py-0.5 rounded bg-gray-50 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300">{c}</span>
               ))}
+            </div>
+          </div>
+          {group.signals.length > 0 && (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Future signals</p>
+              <div className="flex flex-wrap gap-1.5">
+                {group.signals.map(c => (
+                  <span key={c} className="text-xs px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300">{c}</span>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -218,13 +262,14 @@ export function WorkspaceOverview() {
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
             Each topic below is a continuously collected stream. Every article that passes the
-            relevance gate is classified into the topic's taxonomy (expand it under each topic),
+            relevance gate is classified into a taxonomy (expand it below the topic list — topics share one deliberately, so markets compare side by side),
             plus sentiment, future signal, time to impact and driver type — that shared structure
             is what makes topics comparable side by side.
           </p>
           <div className="space-y-2">
             {questionTopics.map(t => <TopicCard key={t.name} topic={t} />)}
           </div>
+          <TaxonomyBlocks topics={questionTopics} />
         </div>
       )}
 
@@ -257,9 +302,12 @@ export function WorkspaceOverview() {
             ))}
           </div>
           {brandTopics.length > 0 && (
-            <div className="space-y-2">
-              {brandTopics.map(t => <TopicCard key={t.name} topic={t} />)}
-            </div>
+            <>
+              <div className="space-y-2">
+                {brandTopics.map(t => <TopicCard key={t.name} topic={t} />)}
+              </div>
+              <TaxonomyBlocks topics={brandTopics} />
+            </>
           )}
         </div>
       )}
