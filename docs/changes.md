@@ -180,6 +180,11 @@ leave-behinds in sunstar `exports/`.
 
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
 
+### Ops — Radiant Security feed disabled
+`rss_feeds` row 2 (`https://radiantsecurity.ai/feed/`) set `is_active = FALSE` on the
+user's instruction: the vendor was acquired by Cribl and the feed URL has 404d on
+every hourly check. Database row only, no code change; re-enable by flipping the flag.
+
 ### Fix — page loads were 3–5 s; now ~2 s once and ~20 ms from cache
 Three causes, three changes. (1) `assert_no_withheld`
 (`app/services/market_entitlements.py`) scanned the finished 414 KB page once per
