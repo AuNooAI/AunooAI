@@ -1328,6 +1328,7 @@ async def market_report(
     section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social, research)."),
     piece: Optional[int] = Query(None, description="view=v2: one of our own pieces (an approved analysis or note) as a page."),
     page: Optional[str] = Query(None, description="view=v2: a page of the site that is not a section (about)."),
+    sort: Optional[str] = Query(None, description="view=v2 section pages: newest first by default; 'rank' restores the front page's order."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     session=Depends(verify_session_optional),
 ):
@@ -1407,7 +1408,7 @@ async def market_report(
                 try:
                     return build_market_report_v2(
                         conn, market, days=days, section=section, piece=piece, page=page,
-                        allowed_brand_ids=allowed, link_params=params)
+                        sort=sort, allowed_brand_ids=allowed, link_params=params)
                 except LookupError:
                     raise HTTPException(status_code=404, detail="Piece not found")
             builder = (build_market_news_page if view == "news"

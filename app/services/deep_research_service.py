@@ -2082,6 +2082,11 @@ Format inline citations as: [Article Title](URL)
                     if r.get("changed") and candidate.count("](") < text.count("]("):
                         candidate = text
                     elif r.get("changed"):
+                        # humanize_text strips its result; restore the chunk's
+                        # own margins or headings glue onto adjacent prose.
+                        lead = text[:len(text) - len(text.lstrip())]
+                        trail = text[len(text.rstrip()):]
+                        candidate = lead + candidate.strip() + trail
                         total_before += r.get("tells_before", 0)
                         total_after += r.get("tells_after", 0)
                     rebuilt.append(candidate)

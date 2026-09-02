@@ -3760,6 +3760,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                            section: Optional[str] = None,
                            piece: Optional[int] = None,
                            page: Optional[str] = None,
+                           sort: Optional[str] = None,
                            allowed_brand_ids: Optional[List[int]] = None,
                            link_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
@@ -3949,12 +3950,34 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     elif section:
         sec = V2_SECTIONS[section]
         items = buckets[section]
+        # A section page lists newest first by default (user, 2 Sep 2026);
+        # ``?sort=rank`` keeps the front page's order — importance bands for
+        # the development sections, biggest recruiters for hiring. The sort
+        # is stable, so equal dates keep their rank order.
+        if sort != "rank":
+            def _item_day(it: Any) -> str:
+                if section == "research":
+                    payload = it[1] if isinstance(it, tuple) else {}
+                    return str(payload.get("latest") or payload.get("published") or "")
+                if section == "analysis":
+                    stamp = it.get("published_at") or it.get("updated_at")
+                    return (stamp.isoformat() if hasattr(stamp, "isoformat")
+                            else str(stamp or ""))
+                if section in ("voices", "social"):
+                    return str(it.get("published") or "")
+                return str(it.get("date") or "")
+            items = sorted(items, key=_item_day, reverse=True)
         count = len(items) + (len(parts["highlights"]) if section == "social" else 0)
         body.append('<header class="v2-mast"><div>'
                     f'<div class="n-kicker">{esc(market["name"])} · {esc(period_txt)}</div>'
                     f'<h1>{esc(sec["heading"])}</h1>'
                     f'<p class="n-sub">{esc(sec["subline"])} {count} in the period.</p></div>'
                     f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
+                    '<nav class="n-periods" aria-label="Order">'
+                    f'<a href="?{_relink(link_params, days=days, view="v2", section=section)}"'
+                    + ("" if sort == "rank" else ' aria-current="page"') + '>Newest first</a>'
+                    f'<a href="?{_relink(link_params, days=days, view="v2", section=section, sort="rank")}"'
+                    + (' aria-current="page"' if sort == "rank" else "") + '>Ranked</a></nav>'
                     f'<div class="n-period">Generated {generated.strftime("%d %B %Y, %H:%M UTC")}'
                     '</div></div></header>')
         body.append('<main class="v2-grid"><div class="v2-main v2-one">')

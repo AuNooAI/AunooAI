@@ -167,6 +167,38 @@ leave-behinds in sunstar `exports/`.
 
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
 
+### Fix — page loads were 3–5 s; now ~2 s once and ~20 ms from cache
+Three causes, three changes. (1) `assert_no_withheld`
+(`app/services/market_entitlements.py`) scanned the finished 414 KB page once per
+withheld vendor name — ~77 passes, ~0.7 s per render. It now makes one combined
+alternation pass and only falls back to per-name matching when something matched,
+which is the error path; the message is unchanged. (2) The public page was rebuilt
+for every reader — ~135 SQL queries and a 414 KB render per request, with one uvicorn
+worker serialising them. nginx now micro-caches the front-page proxy for 90 s
+(`proxy_cache aisocnews` in `/etc/nginx/sites-available/aisocnews.com`, zone defined
+atop the file, cache dir `/var/cache/nginx/aisocnews`): the first request each 90 s
+pays the build, everyone else gets it in ~20 ms; `proxy_cache_lock` collapses
+stampedes; `proxy_cache_use_stale` keeps serving the last page through restarts,
+which also softens the holding-page window. `proxy_ignore_headers Cache-Control` is
+required because the app marks the page private. `add_header X-Cache` exposes
+HIT/MISS. (3) The remaining ~1.6 s of queries is mostly host load (load average 24 on
+20 cores from other tenants' workers) and left alone.
+
+### Feature — section pages list newest first, with a Ranked toggle
+On a section page (`?view=v2&section=moves` etc.) the items now come newest first by
+default (user request, 2 Sep); `?sort=rank` restores the front page's order —
+importance bands for the development sections, biggest recruiters for hiring. A
+"Newest first / Ranked" toggle sits beside the period links. The front page itself
+keeps its ranked order. `build_market_report_v2` takes `sort`; the route passes it
+(`app/routes/market_monitor_routes.py`). The sort is stable, so equal dates keep
+rank order.
+
+Verification: `pytest tests/test_market_report_v2.py tests/test_market_report_copy.py`
+— 27 passed, 1 failed (the known copy failure). Restarted 15:59 under the guard;
+nginx tested and reloaded. Live: front page 2.32 s (MISS), then 0.05 s / 0.016 s
+(HIT); `section=moves` runs 31, 31, 28, 27, 25 Aug by default and 20, 18, 31 Aug
+under `sort=rank`; toggle renders. Bugfixing + this host's nginx only.
+
 ### Fix — the public full report 500d when a withheld vendor's headcount moved
 Every request for https://aisocnews.com/?days=30&view=report returned 500 from 13:30 on
 2 September. Root cause: `build_market_report` fetches its section payloads above the
