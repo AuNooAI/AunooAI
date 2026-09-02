@@ -236,6 +236,27 @@ development from the last `_V2_LEAD_MAX_AGE_DAYS` (7) days first and falls back 
 the full ranked list only when that window is empty; an undated development cannot
 lead. A fresh approved piece (3 days) still overrides everything.
 
+### Ops — Eventus Security and D3 Security added to market 2 (database only)
+Both asked through the front page's vendor-request form (rows 18 and 20 in
+`market_vendor_requests`); the user approved both. Added with the same SQL the
+`add_vendor` route runs: new `bw_brands` rows 49824 (Eventus Security,
+eventussecurity.com) and 49825 (D3 Security, d3security.com), registry rows with
+role `vendor` and collection on, domain identifiers with provenance
+`{"source": "manual", "via": "vendor_request"}`. The market now tracks 89 vendors.
+
+Follow-up the same evening, after checking what "fully added" means against
+Dropzone AI's wiring: `brand_monitoring_enabled` turned on for both (the subset is
+now 15 of 89), and `linkedin_company_url` + `website_url` identifiers added by hand
+— nothing discovers the LinkedIn page, and headcount tracking is ineligible without
+it. Eventus: linkedin.com/company/eventus-security (the in.linkedin page; NOT
+eventus-systems-inc, a different company). D3: linkedin.com/company/
+d3-security-management-systems. Both confirmed by web search, provenance says so.
+The 10-minute tick then seeded 8 `bw_entity_source_policies` rows each, eligible for
+everything except ats_jobs (waits on ats_discovery finding the board) and
+crunchbase_company (waits on the slug-guess sweep — verify that guess by hand, see
+AquilaI 31 Aug). Neither vendor is in the public ten. The full procedure is now
+written down in **`docs/MARKET_VENDOR_ONBOARDING.md`**.
+
 ### Fix — withheld recruiters' figures are now scrubbed and blurred, not printed
 The masked hiring rows still printed their real figures — "a vendor not shown in this
 view · engineering 19, sales 3, marketing 1 · 23 open roles" — and a role mix plus a
