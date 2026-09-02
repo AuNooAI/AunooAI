@@ -49,6 +49,31 @@ existing JSON-fallback path when the result is neither list nor dict, and synthe
 search queries from the objectives when the model omits them. Copied to sunstar and
 restarted (11:01); wiley/wileytest/wbm not yet updated.
 
+### Fixes — four things the user found clicking through sunstar (afternoon)
+- **Brand Watcher was nearly empty.** The clone inherited bwtemplate's run history
+  (129 runs on the `incremental_since_last` schedule), so the first full pass over
+  the backlog never ran — 5 categorised articles against ~150 enriched. A manual
+  full classification (90 days, all brands) categorised 113 of 121: Colgate 70,
+  Haleon 54, P&G 12, Lion 5, Sunstar 2. The known clone gotcha; check it on every
+  new tenant.
+- **The org profile screen showed no profiles.** The profiles API `json.loads`es
+  five fields; profile 8 (Sunstar) was seeded with prose strings, so the endpoint
+  500'd and the UI blanked the whole list, template profiles included. Fields
+  converted to JSON arrays (and the competitive landscape now names Haleon, not
+  Kao). Data fix only.
+- **Glassdoor.** Per-brand switch: `bw_brands.config.extra_sources` must contain
+  `"glassdoor"`; the OPENWEBNINJA key was already set. Enabled on the five active
+  brands — Sunstar 3.5★/161 reviews against Colgate 4.1, Lion 3.7, Haleon 3.4.
+  "P&G Oral-B" doesn't resolve as a Glassdoor employer (product line, not a
+  company); needs a `glassdoor_company_id` override if wanted.
+- **Submit Articles voice presets were security-flavoured** (CISO, Principal
+  Security Engineer, nothing for consumer health). Added Market Researcher,
+  Brand & Communications Lead and Science Journalist in canonical
+  `ui/src/SubmitArticlesApp.tsx`; UI rebuilt and rsynced to sunstar. The value
+  feeds the summary prompt as free text, so no backend change.
+- **Sunstar is the primary brand** (`is_primary` was already set); its own EN
+  press is thin, so groups 1 and 13 widened to a 90-day window and re-queued.
+
 ### Ops — Auspex answers to both questions, verbatim, cross-topic internal search
 With the fix in, both questions ran end to end (topic `__all__`, internal corpus only).
 Q1 (whitespace): 38.9k-character report, 32 articles deeply analysed from 99 sources;
