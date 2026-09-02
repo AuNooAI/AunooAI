@@ -143,6 +143,19 @@ source attribution: paragraph chunks up to 5k chars through the shared
 skipping References/Methodology, chart markers and short fragments, and
 reverting any chunk whose rewrite loses citation links. Same `WILEY_HUMANIZE`
 gate, non-fatal on any failure; the stream reports a "humanizing" stage.
+Follow-up (`f1404022`): restore chunk margins after rewrite — `humanize_text`
+strips its result, which glued markdown headings onto adjacent prose.
+Verified end to end on sunstar: humanizing stage in the SSE stream, no glued
+headings, all citation links intact, flagged chunks 19 → 15 tells. The
+practical floor is ~65–70 tells on a 40k-character report: the rewrite model
+reintroduces tells at roughly its removal rate, and much of the residue is
+rule-of-three and AI vocabulary (a writing-prompt problem, not a cleanup one),
+heading style, and false positives on Japanese source titles. The two Sunstar
+question reports were cleaned offline from the stronger original generations
+(Q1 72→69, Q2 81→68, links and structure intact) and re-shipped to exports/.
+Propagated: sunstar, wiley, wbm restarted; wileytest on a quiet-window
+restart (prod, mid-ingest at the time); ibaset and bwtemplate file-copied;
+pearson excluded (tree lags the helpers this file imports).
 
 ### Fix — consensus HTML export: inline citations were dead text, and the cover said WILEY
 The standalone consensus download escaped the narrative's [n] citation markers
