@@ -23,7 +23,7 @@ import logging
 import os
 import re
 from urllib.parse import urlparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
@@ -3036,6 +3036,12 @@ _V2_CAPS = {"analysis": 3, "research": 4, "moves": 4, "launches": 4, "hiring": 5
             "voices": 6, "social": 6}
 #: A new piece of ours leads the front page for this many days after publication.
 _V2_PIECE_LEAD_DAYS = 3
+# The lead should be news: a development from the last week outranks an older
+# one however well the older ranks (user, 2 Sep 2026 — the Cribl-Radiant
+# acquisition led for two weeks). A quiet market keeps its best older story
+# rather than an empty slot: small markets won't have many large signal
+# events (user, same day).
+_V2_LEAD_MAX_AGE_DAYS = 7
 _PIECES_SLOT = "<!--mm-pieces-slot-->"
 _V2_HIGHLIGHTS = 3
 #: Vendors named on the sidebar map, and on the most-active list.
@@ -3084,10 +3090,18 @@ def _v2_sections(developments: List[Dict[str, Any]],
     """
     lead = None
     if lead_from_developments:
-        lead = next((d for d in developments
-                     if d.get("event_type") not in _V2_HIRING_TYPES), None)
-        if lead is None and developments:
-            lead = developments[0]
+        cutoff = (datetime.now(timezone.utc)
+                  - timedelta(days=_V2_LEAD_MAX_AGE_DAYS)).strftime("%Y-%m-%d")
+        # Rank order, but only among developments young enough to lead; an
+        # undated development cannot show it is fresh, so it cannot lead.
+        fresh = [d for d in developments if str(d.get("date") or "") >= cutoff]
+        for pool in (fresh, developments):
+            lead = next((d for d in pool
+                         if d.get("event_type") not in _V2_HIRING_TYPES), None)
+            if lead is None and pool:
+                lead = pool[0]
+            if lead is not None:
+                break
     buckets: Dict[str, List[Dict[str, Any]]] = {k: [] for k in V2_SECTIONS}
     for d in developments:
         if d is lead:
@@ -3109,6 +3123,12 @@ def _v2_sections(developments: List[Dict[str, Any]],
             return (0, -int(attrs.get("openings") or 0))
         return (1, -abs(float(attrs.get("pct") or 0)))
     buckets["hiring"].sort(key=hiring_key)
+    # The development sections read newest first everywhere (user, 2 Sep
+    # 2026, superseding the ranked front-page order chosen that morning).
+    # Stable, so equal days keep their rank order; an undated item goes
+    # last. Hiring stays ranked by open roles on the front page by design.
+    for key in ("moves", "launches", "cases"):
+        buckets[key].sort(key=lambda d: str(d.get("date") or ""), reverse=True)
     used = {e.get("uri") for d in developments for e in (d.get("evidence") or [])}
     voices: Dict[str, Dict[str, Any]] = {}
     for row in [r for r in (corpus_rows or []) if _v2_is_voice(r)] + list(discussion or []):

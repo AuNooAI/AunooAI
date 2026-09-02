@@ -202,6 +202,41 @@ required because the app marks the page private. `add_header X-Cache` exposes
 HIT/MISS. (3) The remaining ~1.6 s of queries is mostly host load (load average 24 on
 20 cores from other tenants' workers) and left alone.
 
+### Fix — the lead story prefers the last 7 days
+The Cribl–Radiant acquisition (19 Aug, 8 independent sources) held the front page's
+lead for two weeks because the lead is the top-ranked development and nothing
+outranked it. Decision (user, 2 Sep): the lead must not be older than 7 days — with
+the caveat, also the user's, that small markets won't have many large signal events,
+so a market with nothing fresh keeps its best older story rather than an empty slot.
+`_v2_sections` (`app/services/market_report_html.py`) now picks the top-ranked
+development from the last `_V2_LEAD_MAX_AGE_DAYS` (7) days first and falls back to
+the full ranked list only when that window is empty; an undated development cannot
+lead. A fresh approved piece (3 days) still overrides everything.
+
+### Fix — the public hiring list masks withheld recruiters instead of dropping them
+The Hiring card said "157 open roles; 20 of 87 vendors have public job listings" and
+then listed 3 vendors. The header counts the whole market on purpose, but `assess()`
+(`app/services/market_assessment.py`) dropped every development whose vendor is
+outside the ten the public view may name — 7 of the 10 recruiters above the 5-role
+floor, including the largest but one (23 roles). Decision (user, 2 Sep, offered
+name-everyone / mask / shrink-the-header): masked rows. Hiring and headcount
+developments now stay in the shared view with the vendor name replaced by the
+standard withheld label and the evidence emptied — the job-board links would have
+identified the vendor — while the counts keep their place in the list. Other
+development types are still dropped as before. Ranking fields were computed before
+this point, so the mask cannot re-rank.
+
+### Fix — the front page's development cards read newest first too
+Follow-up the same evening (user: "articles are still not shown in order of date"):
+the section pages were date-ordered but the front page's cards still ranked by
+importance, so Market moves opened 20 Aug before 31 Aug. The moves, launches and
+cases buckets are now sorted newest-first at construction in `_v2_sections`
+(`app/services/market_report_html.py`), superseding the ranked front-page order
+chosen that morning. Hiring keeps biggest-recruiters-first on the front card by
+design; Voices and Social were already newest-first; the ranked order remains
+reachable through the section pages' `?sort=rank` toggle, and the lead is still
+chosen by rank. The news river was checked and was already in day order.
+
 ### Feature — section pages list newest first, with a Ranked toggle
 On a section page (`?view=v2&section=moves` etc.) the items now come newest first by
 default (user request, 2 Sep); `?sort=rank` restores the front page's order —

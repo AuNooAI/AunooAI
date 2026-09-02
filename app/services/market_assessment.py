@@ -2238,9 +2238,31 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
     every_dev = devs
     if allowed_brand_ids is not None:
         allowed = {int(b) for b in allowed_brand_ids}
-        devs = [d for d in devs if all(
-            v.get("brand_id") is None or int(v["brand_id"]) in allowed
-            for v in d["vendors"]) and d["vendors"]]
+
+        def _in(v: Dict[str, Any]) -> bool:
+            return v.get("brand_id") is None or int(v["brand_id"]) in allowed
+
+        kept = []
+        for d in devs:
+            if not d["vendors"]:
+                continue
+            if all(_in(v) for v in d["vendors"]):
+                kept.append(d)
+                continue
+            # Hiring and headcount stay, masked, not dropped (user decision,
+            # 2 Sep 2026): the public hiring list showed 3 of 10 qualifying
+            # recruiters while its header counted the whole market's 157
+            # roles. The counts keep their place in the list; the name — and
+            # the evidence, whose job-board links identify the vendor — are
+            # withheld. Ranking fields (source_count etc.) were computed
+            # before this point, so emptying the evidence cannot re-rank.
+            if d.get("event_type") in ("significant_hiring", "headcount_change"):
+                kept.append({**d, "withheld": True, "evidence": [],
+                             "vendors": [v if _in(v) else
+                                         {**v, "vendor": ent.WITHHELD_LABEL,
+                                          "withheld": True}
+                                         for v in d["vendors"]]})
+        devs = kept
         material["developments"] = devs
         material["total"] = len(devs)
 
