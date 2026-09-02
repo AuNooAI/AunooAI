@@ -140,7 +140,12 @@ The one thing no existing feature does is put the three cohorts on one page for 
 1. Two minutes: the question, the four markets, the three perspectives, on the Explore dashboard with the seven topics visible.
 2. Eight minutes: the market comparison. T2-JP against T2-US on the same category (periodontal–systemic), then oral frailty as the Japan-only frame.
 3. Eight minutes: research versus public narrative. Consensus Analysis on T1 next to T2-US; then the Auspex answer to the periodontal–cardiovascular question with citations from both.
-4. Five minutes: regenerative dentistry (T3) with Emerging Topics and the Futures Cone.
+4. Five minutes: momentum and risk (Brendan's Q2). Emerging Topics across the corpus for
+   what is accelerating, then the Q2 Auspex report's overclaiming case (the enamel-regrowth
+   gel promoted on extracted-teeth evidence) as the reputational-risk exhibit. ~~Regenerative
+   dentistry (T3) with the Futures Cone~~ — CUT 2 Sep: Brendan wrote "tooth regeneration is
+   not relevant to us"; T3 keeps collecting only as Q2 evidence of product claims outpacing
+   science, and no regeneration-led view or leave-behind goes in front of him.
 5. Five minutes: Sunstar and the four competitors in Brand Watcher, then the leave-behinds.
 6. Two minutes: what a live site would add (LinkedIn, the perspective-gap report, French depth).
 
