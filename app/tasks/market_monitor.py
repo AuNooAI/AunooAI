@@ -837,23 +837,34 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
     from app.collectors import vendor_web_collector as vw
     from app.services import entity_scheduler as sch
 
+    only: Optional[set] = None
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_DISCOVERY, now) is None:
             # The sweep is monthly, but a vendor added between sweeps has no
             # watched pages and no feed for up to four weeks ("Site changes:
             # no monitored pages" on its vendor page, 31 August 2026). A
-            # collecting vendor the sweep has never probed makes it due now;
-            # the probe stamps web_discovered_at, so this fires once per
-            # new vendor and the monthly cadence is otherwise untouched.
-            unprobed = conn.execute(text("""
-                SELECT 1 FROM bw_market_brands mb
-                WHERE mb.market_id = :m AND mb.role = 'vendor'
-                  AND mb.collection_enabled
-                  AND COALESCE(mb.baseline->>'web_discovered_at', '') = ''
-                LIMIT 1
-            """), {"m": market["id"]}).first()
-            if not unprobed or _in_flight(conn, market["id"], SOURCE_DISCOVERY):
+            # collecting vendor never tried makes a run due now, and that run
+            # probes only those vendors, so the monthly cadence is untouched.
+            #
+            # "Never tried" is the scheduler's policy row, not the baseline
+            # stamp. The stamp version of this rule (31 August) looped: a
+            # vendor with no domain, or one cut off by the per-run cap, never
+            # got stamped, so every tick started another full sweep of the
+            # other 84 sites -- 18 runs in six hours on 1 September. The
+            # policy row is eligible only with a domain on file, and a failed
+            # probe backs it off, so neither case can fire this again.
+            fresh = [int(r[0]) for r in conn.execute(text("""
+                SELECT p.brand_id
+                FROM bw_entity_source_policies p
+                JOIN bw_market_brands mb
+                  ON mb.brand_id = p.brand_id AND mb.market_id = :m
+                WHERE p.source = :s AND p.enabled AND p.eligible
+                  AND p.last_attempt_at IS NULL AND p.consecutive_failures = 0
+                  AND mb.role = 'vendor' AND mb.collection_enabled
+            """), {"m": market["id"], "s": SOURCE_DISCOVERY}).fetchall()]
+            if not fresh or _in_flight(conn, market["id"], SOURCE_DISCOVERY):
                 return 0
+            only = set(fresh)
         run_id = mc.open_run(conn, market_id=market["id"],
                              source=SOURCE_DISCOVERY, provider=PROVIDER_INTERNAL)
     else:
@@ -876,6 +887,21 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
     # each transaction to milliseconds of database work and makes a failure cost
     # one vendor instead of eighty-five.
     conn.commit()
+
+    # Never-probed vendors first, then the oldest probe, so the per-run cap
+    # paces a sweep across runs instead of dropping whoever sorts last. With
+    # the list in registry order and the cap at 85, the 86th and 87th vendors
+    # (Bricklayer AI and StrikeReady, added 31 August) were never reached.
+    stamped = {int(r[0]): r[1] for r in conn.execute(text("""
+        SELECT brand_id, baseline->>'web_discovered_at'
+        FROM bw_market_brands WHERE market_id = :m
+    """), {"m": market["id"]}).fetchall()}
+    conn.commit()
+    if only is not None:
+        vendors = [v for v in vendors if int(v["brand_id"]) in only]
+    vendors = sorted(vendors, key=lambda v: (
+        stamped.get(int(v["brand_id"])) is not None,
+        stamped.get(int(v["brand_id"])) or ""))
 
     found = failed = 0
     try:

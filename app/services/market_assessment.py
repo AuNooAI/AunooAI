@@ -1146,10 +1146,17 @@ def rank_key(dev: Dict[str, Any]) -> Tuple:
     what only the vendor said; then the kind of event, then the sources."""
     imp = {"high": 0, "medium": 1, "low": 2}.get(dev.get("importance"), 3)
     independent = int(dev.get("independent_source_count") or 0)
+    # Newest first within a band: an equally ranked development from
+    # yesterday beats one from three weeks ago. Until 2 September 2026 the
+    # date tie-break sorted the ISO string ascending, so the OLDEST won and
+    # the front page led its sections with weeks-old items. A development
+    # with no date sorts after any dated one.
+    day = _parse_day(dev.get("date"))
     return (imp, 0 if independent else 1,
             _TYPE_RANK.get(dev["event_type"], 99),
             -independent, -int(dev.get("source_count") or 0),
-            dev.get("date") or "", dev.get("headline") or "")
+            -(day.toordinal() if day else 0),
+            dev.get("headline") or "")
 
 
 # ---------------------------------------------------------------------------

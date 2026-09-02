@@ -2,6 +2,25 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
+
+### Fix — the development ranking's date tie-break sorted ascending
+`rank_key` in `app/services/market_assessment.py` orders developments by importance,
+then independent-before-vendor-only, event type and source count — by design (findings
+first) — with the date as the last tie-break. That tie-break sorted the ISO date string
+ascending, so between two equally ranked developments the OLDER one won: the live front
+page on 2 September showed Market moves as 18 Aug, 20 Aug, 13 Aug, 13 Aug and Launches
+as 19 Aug, 26 Aug, 12 Aug, 3 Aug. Changed to a negative day ordinal, so within a band
+the newest development leads and an undated one sorts last. The importance bands
+themselves are unchanged, as are the Hiring sort (biggest recruiters first) and the
+newest-first Thought leadership and Social sections.
+
+Verification: `pytest tests/test_market_assessment.py tests/test_market_report_v2.py
+tests/test_market_report_copy.py` — 64 passed, 1 failed
+(`test_the_lead_answers_before_it_shows_evidence`, the known pre-existing failure).
+Restarted 08:43 after the 08:32 LinkedIn read completed; section dates on the live page
+checked after the restart. Bugfixing only; Market Monitor exists on no other tenant.
+
 ## 2026-09-01 — Incident: keyword collection on bugfixing was down 21 hours after a restart loaded code ahead of its migration
 
 ### Incident — `column kg.language does not exist`, 31 Aug 11:36 → 1 Sep 08:41
@@ -40,6 +59,78 @@ from India at 06:20.
   error rate to WARNING with a summary.
 - Another session working in the same tree means restarts deploy their half-finished work
   too. Before restarting, `git status` and `git log -3` tell you what you are about to load.
+
+### Fix — AquilaI was marked acquired from another company's Crunchbase record (database only)
+At 10:53 a vendor request came in through the site from Aquila I (Aquilai Solutions Pvt
+Ltd, Thane, aquilai.io, row 17 in `market_vendor_requests`). That vendor is already in the
+registry (brand 150) and had been listed as acquired by Egress Software since the Crunchbase
+sweep of 31 August. The Crunchbase link behind that mark was a slug guess
+(`bw_vendor_identifiers` 43676, provenance `slug_guess`, never verified) and it resolved to
+a different company: Aquilai of Cheltenham (aquil.ai, founders Jack and Paul Chapman), which
+Egress bought in June 2021. Everything read from that page — acquired, closed, HQ United
+Kingdom, funding — belonged to the wrong firm.
+
+Undone by hand in one transaction: identifier 43676 closed (`valid_to` set, reason in its
+provenance) and replaced with the verified page `crunchbase.com/organization/aquila-i`
+(Crunchbase lists www.aquilai.io; LinkedIn `in.linkedin.com/company/aquilai` matches the
+identifier we already hold); snapshot 2448 and its three observations (operating_status,
+description, hq_country) deleted; the canonical `hq_country` repointed to the LinkedIn
+reading (India, observation 3874) and the canonical `operating_status` row dropped, since
+no other source had one; `baseline.funding_crunchbase` removed; controls row 7 set back to
+active with the reason in its note; one `crunchbase_company` read queued against the right
+page (run 1169, about one cent). Map 24 recomputed: 82 rated (was 81), 3 acquired/closed,
+1 pivoted; AquilaI places in the innovators tier, holding band, scale 70.5, momentum 31.1,
+with no funding input until run 1169 lands.
+
+Why the guess was not caught: `seed_crunchbase_urls` records the guess as unverified but
+nothing reads that flag before the sweep stores the record, and the acquired mark on
+31 August was applied on the record's word alone. Redblock's "closed" (same sweep) rests on
+the same kind of evidence and is unverified in the same way; its identifier is also a slug
+guess.
+
+### Fix — page discovery ran every twenty minutes all afternoon; the two newest vendors were never probed
+The "a vendor never probed makes the sweep due now" rule added on 31 August
+(`app/tasks/market_monitor.py`, `_discover_feeds`) judged "never probed" by the
+`web_discovered_at` stamp in the vendor's baseline. Two things kept three vendors unstamped:
+the sweep takes the registry in `sort_order` and cuts it at `MARKET_MAX_VENDORS_PER_RUN=85`,
+and the market has 87 collecting vendors, so Bricklayer AI (86th) and StrikeReady (87th)
+were dropped from every run; and Intezer, entered by hand on 22 August with only LinkedIn
+and a guessed Crunchbase page, has had no domain on file since (noted on 26, 27 and 29
+August, never fixed), so the loop skipped it on `if not domain: continue` without a stamp.
+The rule then saw three unstamped vendors on every tick and started another full sweep:
+runs 1160–1182, 18 of them between 11:52 and 17:58, each re-probing the same 84 sites,
+about 1,500 fetches for nothing. Internal source, no spend, but it hit every vendor's site
+every twenty minutes and reset every vendor's policy cadence each time.
+
+Three changes:
+- **`_discover_feeds` due rule** now reads the scheduler's policy rows
+  (`bw_entity_source_policies`, source `vendor_web_discovery`): due when an enabled,
+  eligible row for a collecting vendor has `last_attempt_at IS NULL`. A vendor with no
+  domain is ineligible there ("no active domain identifier on file"), so it cannot fire the
+  rule; a failed probe backs its row off, so it cannot either. The run this rule opens
+  probes only those vendors, which is what the 31 August comment promised and the code did
+  not do. The sweep list is also ordered never-probed first, then oldest probe first, so the
+  cap paces a sweep across runs instead of excluding whoever sorts last.
+- **`entity_scheduler.record_failure`** sets `last_attempt_at` (it only set failure count,
+  error and back-off before; success and claim were the only writers), so "never tried"
+  means what it says.
+- **`.env`** `MARKET_MAX_VENDORS_PER_RUN` 85 → 100 (backup `.env.bak-vendorcap-*`); the
+  registry was already past the cap. Database: Intezer (brand 173) given `domain`
+  `intezer.com` and `website_url` `https://intezer.com`, its discovery policy row set
+  eligible.
+
+Verification: `py_compile` both files; `pytest tests/test_entity_scheduler.py
+tests/test_market_collection.py` — 96 passed, 4 failed, and the same four fail on the
+committed code with the patch stashed (`test_trigger_records_the_snapshot_id`,
+`test_provider_errors_are_classified_as_retryable_or_not`,
+`test_sync_scrape_refuses_an_oversized_batch`,
+`test_the_callback_declares_no_session_and_the_rest_do`), so they are not this change.
+Restart 18:10 after run 1182 finished; schema confirmed at `kg_lang_001 (head)`. First tick
+after the restart: run 1183 (18:11–18:16) probed Bricklayer AI (5 pages, 1 feed) and
+StrikeReady (site yields nothing, like ten others) and nothing else; Intezer had been reached
+by run 1182 minutes after its domain went in (9 pages). All three policy rows now carry
+`last_attempt_at`; no run opened for the rest of the hour.
+Bugfixing only; Market Monitor exists on no other tenant.
 
 ## 2026-08-31 — Sunstar demo site built; topics collect in their own language; TheNewsAPI had been searching titles only
 

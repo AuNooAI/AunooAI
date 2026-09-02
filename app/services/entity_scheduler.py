@@ -333,12 +333,16 @@ def record_failure(conn, source: str, brand_ids: List[int],
 
     ``last_success_at`` is deliberately untouched: the vendor's data is as old
     as it was, and pretending otherwise would hide staleness behind a failure.
+    ``last_attempt_at`` is set when a probe fails before anything claimed the
+    row (the discovery sweep calls this directly), so "never tried" means what
+    it says and a vendor whose site throws is not tried again every tick.
     """
     if not brand_ids:
         return 0
     return int(conn.execute(text("""
         UPDATE bw_entity_source_policies
            SET consecutive_failures = consecutive_failures + 1,
+               last_attempt_at = COALESCE(last_attempt_at, NOW()),
                last_error = :err,
                claimed_at = NULL, claimed_by = NULL,
                next_due_at = NOW() + LEAST(
