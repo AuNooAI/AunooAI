@@ -18,11 +18,46 @@ from typing import Optional
 from app.services.html_report_common import (
     esc, html_document, section_open,
 )
+import os
+import re
 
 logger = logging.getLogger(__name__)
 
+#: Branding line on the cover/footer. Wiley's deliverables keep the historical
+#: default; prospect/demo tenants set REPORT_BRAND_EYEBROW in .env.
+_BRAND_EYEBROW = os.getenv("REPORT_BRAND_EYEBROW", "WILEY HORIZONS")
+
+_CITE_RE = re.compile(r"\[(\d{1,3})\]")
+
+
+def _cite(text: str, refs: Optional[dict]) -> str:
+    """Escape *text*, then turn inline [n] citation markers into links to the
+    run's numbered reference articles. Unknown numbers stay plain text."""
+    escaped = esc(text or "")
+    if not refs:
+        return escaped
+
+    def _sub(m: "re.Match[str]") -> str:
+        ref = refs.get(int(m.group(1)))
+        if not (isinstance(ref, dict) and ref.get("url")):
+            return m.group(0)
+        title = esc(ref.get("title") or "")
+        return (f'<a class="cite" href="{esc(ref["url"])}" target="_blank" '
+                f'rel="noopener" title="{title}">{m.group(0)}</a>')
+
+    return _CITE_RE.sub(_sub, escaped)
+
 
 _CONSENSUS_EXTRA_CSS = """
+/* Inline [n] citations + the numbered references list */
+a.cite { color: #d6346c; text-decoration: none; font-weight: 600; }
+a.cite:hover { text-decoration: underline; }
+.refs-list { padding-left: 1.4rem; margin: .8rem 0 0; }
+.refs-list li { margin-bottom: .5rem; font-size: .9rem; }
+.refs-list a { color: #1f2937; }
+.refs-list a:hover { color: #d6346c; }
+.refs-list .ref-meta { color: #6b7280; font-size: .78rem; margin-top: .1rem; }
+
 /* Consensus card — matches the React ConsensusCategoryCard layout */
 .cat-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1.2rem 1.4rem; margin: 0 0 1.2rem 0; border-left: 5px solid #d6346c; }
 .cat-eyebrow { color: #6b7280; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .72rem; }
@@ -152,7 +187,7 @@ def _badge_strength(label: str) -> str:
     return key if key in {"strong", "moderate", "emerging", "high", "medium", "low"} else "moderate"
 
 
-def _render_category(category: dict, idx: int) -> str:
+def _render_category(category: dict, idx: int, refs: Optional[dict] = None) -> str:
     name = category.get("category_name") or f"Category {idx+1}"
     desc = category.get("category_description") or ""
     n_articles = category.get("articles_analyzed")
@@ -179,7 +214,7 @@ def _render_category(category: dict, idx: int) -> str:
     parts.append(f'<div class="cat-eyebrow">CATEGORY {idx + 1}</div>')
     parts.append(f'<h3>{esc(name)}</h3>')
     if desc:
-        parts.append(f'<p style="color:#6b7280;margin:.15rem 0 .55rem">{esc(desc)}</p>')
+        parts.append(f'<p style="color:#6b7280;margin:.15rem 0 .55rem">{_cite(desc, refs)}</p>')
     chips = []
     if n_articles is not None:
         chips.append(f'<span class="cat-articles">{esc(str(int(n_articles)))} ARTICLES</span>')
@@ -197,7 +232,7 @@ def _render_category(category: dict, idx: int) -> str:
     # Consensus summary
     summary_text = consensus_type.get("summary") or ""
     if summary_text:
-        parts.append(f'<p style="margin-top:.85rem">{esc(summary_text)}</p>')
+        parts.append(f'<p style="margin-top:.85rem">{_cite(summary_text, refs)}</p>')
 
     # Consensus Metrics grid — mirrors the React 5-stat row
     metric_cells = []
@@ -247,7 +282,7 @@ def _render_category(category: dict, idx: int) -> str:
     if implications:
         parts.append('<div class="implication" style="margin-top:1.1rem">')
         parts.append('<div class="label">💡 Strategic Implications</div>')
-        parts.append(f'<p>{esc(implications)}</p>')
+        parts.append(f'<p>{_cite(implications, refs)}</p>')
         parts.append('</div>')
 
     # Outlier perspectives — two columns of CARDS (not bullets), each with
@@ -273,7 +308,7 @@ def _render_category(category: dict, idx: int) -> str:
                 parts.append(f'<div class="outlier-card {css}">')
                 parts.append(f'<div class="scenario">{esc(scen)}{yr_html}</div>')
                 if details:
-                    parts.append(f'<div class="details">{esc(details)}</div>')
+                    parts.append(f'<div class="details">{_cite(details, refs)}</div>')
                 ref_bits = []
                 if isinstance(src_pct, (int, float)):
                     ref_bits.append(f'{int(src_pct)}% of sources')
@@ -298,7 +333,7 @@ def _render_category(category: dict, idx: int) -> str:
                 continue
             parts.append(
                 f'<div class="tf-box"><div class="label">{esc(label)}</div>'
-                f'<div class="content">{esc(content)}</div></div>'
+                f'<div class="content">{_cite(content, refs)}</div></div>'
             )
         parts.append('</div>')
         milestones = timeframe.get("key_milestones") or []
@@ -317,7 +352,7 @@ def _render_category(category: dict, idx: int) -> str:
                 if title:
                     parts.append(f'<div class="title">{esc(title)}</div>')
                 if sig:
-                    parts.append(f'<div class="significance">{esc(sig)}</div>')
+                    parts.append(f'<div class="significance">{_cite(sig, refs)}</div>')
                 parts.append('</div></li>')
             parts.append('</ul></div>')
 
@@ -345,7 +380,7 @@ def _render_category(category: dict, idx: int) -> str:
             if meta_bits:
                 parts.append(f'<div class="meta">{" · ".join(meta_bits)}</div>')
             if rationale:
-                parts.append(f'<div class="rationale">{esc(rationale)}</div>')
+                parts.append(f'<div class="rationale">{_cite(rationale, refs)}</div>')
             parts.append('</li>')
         parts.append('</ul>')
 
@@ -397,7 +432,7 @@ def _render_category(category: dict, idx: int) -> str:
     return "\n".join(parts)
 
 
-def _render_key_insights(insights: list) -> str:
+def _render_key_insights(insights: list, refs: Optional[dict] = None) -> str:
     insights = [i for i in (insights or []) if isinstance(i, dict)]
     if not insights:
         return ""
@@ -409,7 +444,7 @@ def _render_key_insights(insights: list) -> str:
         if not quote:
             continue
         parts.append('<div class="insight">')
-        parts.append(f'<blockquote>{esc(quote)}</blockquote>')
+        parts.append(f'<blockquote>{_cite(quote, refs)}</blockquote>')
         meta_bits = [b for b in (source, relevance) if b]
         if meta_bits:
             parts.append(f'<div class="source">{esc("  ·  ".join(meta_bits))}</div>')
@@ -436,6 +471,16 @@ def build_consensus_html(
     categories = payload.get("categories") or []
     key_insights = payload.get("key_insights") or []
     n_articles = payload.get("articles_analyzed") or payload.get("total_articles_found")
+
+    # Numbered reference articles — the narrative cites them as [n]. The
+    # article_list entries carry ``id`` = citation number.
+    refs: dict = {}
+    for pos, art in enumerate(payload.get("article_list") or []):
+        if isinstance(art, dict):
+            try:
+                refs[int(art.get("id") or pos + 1)] = art
+            except (TypeError, ValueError):
+                continue
     gen = generated_at or payload.get("generated_at") or ""
     model = model_used or payload.get("model_used") or ""
 
@@ -443,7 +488,7 @@ def build_consensus_html(
 
     # Cover
     body_parts.append('<div class="cover">')
-    body_parts.append('<div class="eyebrow">WILEY HORIZONS · CONSENSUS ANALYSIS</div>')
+    body_parts.append(f'<div class="eyebrow">{esc(_BRAND_EYEBROW)} · CONSENSUS ANALYSIS</div>')
     body_parts.append(f'<h1>{esc(topic)}</h1>')
     body_parts.append('<div class="subtitle">Cross-source convergence  ·  Produced by AunooAI</div>')
     meta_bits = []
@@ -468,17 +513,37 @@ def build_consensus_html(
                                       eyebrow="CROSS-SOURCE THEMES"))
         for i, cat in enumerate(categories):
             if isinstance(cat, dict):
-                body_parts.append(_render_category(cat, i))
+                body_parts.append(_render_category(cat, i, refs))
         body_parts.append('</section>')
 
     # Cross-category key insights
-    body_parts.append(_render_key_insights(key_insights))
+    body_parts.append(_render_key_insights(key_insights, refs))
+
+    # Numbered references — resolves the inline [n] citations on paper too.
+    if refs:
+        body_parts.append(section_open("References", eyebrow="NUMBERED SOURCES"))
+        body_parts.append('<ol class="refs-list">')
+        for num in sorted(refs):
+            art = refs[num]
+            title = esc(art.get("title") or "Untitled")
+            url = art.get("url") or ""
+            source = esc(art.get("source") or "")
+            date = esc(str(art.get("publication_date") or "")[:10])
+            body = (f'<a href="{esc(url)}" target="_blank" rel="noopener">{title}</a>'
+                    if url else title)
+            meta = "  ·  ".join(b for b in (source, date) if b)
+            body_parts.append(
+                f'<li value="{num}">{body}'
+                + (f'<div class="ref-meta">{meta}</div>' if meta else '')
+                + '</li>'
+            )
+        body_parts.append('</ol></section>')
 
     # Footer
     body_parts.append(
         '<footer class="meta">'
         f'Consensus Analysis rendered {esc(datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))}'
-        '  ·  AunooAI Wiley Horizons Foresight'
+        f'  ·  AunooAI {esc(_BRAND_EYEBROW.title())} Foresight'
         '</footer>'
     )
 

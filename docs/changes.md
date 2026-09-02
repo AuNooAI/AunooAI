@@ -109,6 +109,16 @@ restarted (11:01); wiley/wileytest/wbm not yet updated.
   the user; first run: 105 articles analysed, 14 flagged. `next_run_at` set to
   tomorrow so a restart cannot mass-fire them.
 
+### Fix — consensus HTML export: inline citations were dead text, and the cover said WILEY
+The standalone consensus download escaped the narrative's [n] citation markers
+as plain text (the in-app view links them via `renderCitations`), so a reader
+of the exported file had no way to reach the 45 numbered sources. The exporter
+now links every [n] to its reference article and appends a numbered References
+section. The cover eyebrow and footer were also hardcoded "WILEY HORIZONS" —
+now `REPORT_BRAND_EYEBROW` (default unchanged for Wiley; sunstar sets
+"AUNOO INTELLIGENCE"). Verified: 170 inline links on the Regenerative
+Dentistry run, zero "wiley" strings in the sunstar render.
+
 ### Ops — Auspex answers to both questions, verbatim, cross-topic internal search
 With the fix in, both questions ran end to end (topic `__all__`, internal corpus only).
 Q1 (whitespace): 38.9k-character report, 32 articles deeply analysed from 99 sources;
