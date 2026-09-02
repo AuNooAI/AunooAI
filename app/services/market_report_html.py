@@ -4273,6 +4273,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         pc = ent.filter_rows(pc, allowed_brand_ids, allowed_names)
         voices = ent.filter_rows(voices, allowed_brand_ids, allowed_names)
         dataset = ent.filter_rows(dataset, allowed_brand_ids, allowed_names)
+        # The movers list was fetched above the gate and never filtered; the
+        # first withheld vendor whose headcount moved (2 Sep 2026) put its
+        # name in the Headcount table and the fail-closed check 500d the
+        # whole restricted report. Rows carry brand_id, so filter_rows works.
+        movers = ent.filter_rows(movers, allowed_brand_ids, allowed_names)
         articles = ent.drop_text_mentioning(articles, withheld)
         # An investor row lists the vendors it backs as a plain list of
         # names, which filter_rows cannot see. The first overlap on market 2

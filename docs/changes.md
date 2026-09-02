@@ -98,7 +98,12 @@ restarted (11:01); wiley/wileytest/wbm not yet updated.
   when empty.
 - **Wizard deck build truncated its Three Horizons JSON** ("not valid JSON" at
   ~8k chars, twice): the model wrapper's default `max_tokens` is 2000 and
-  `wiley_candidate_pipeline` never overrode it. Now passes 16000.
+  `wiley_candidate_pipeline` never overrode it. Now raises the ceiling to
+  16000 — adaptively, because the two AIModel classes differ: the
+  router-backed one forwards kwargs, the plain one (which `gpt-5.4` resolves
+  to here) rejects them and only reads its own `max_tokens` attribute, so the
+  pipeline inspects the signature and sets/restores the attribute when the
+  kwarg is refused. Third run built the "Oral-Systemic Health" deck clean.
 - **Observer emails 403'd on sunstar**: Resend keys are shared, but sunstar's
   `.env` lacked `RESEND_FROM_EMAIL=noreply@aunoo.ai`, so sends fell back to the
   test-mode from-address, which may only mail the account owner. Var added.
@@ -131,6 +136,31 @@ oral-microbiome–neurological link and names the Nottingham enamel-regrowth gel
 leave-behinds in sunstar `exports/`.
 
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
+
+### Fix — the public full report 500d when a withheld vendor's headcount moved
+Every request for https://aisocnews.com/?days=30&view=report returned 500 from 13:30 on
+2 September. Root cause: `build_market_report` fetches its section payloads above the
+entitlement gate and filters each one for a restricted viewer — except `movers`, the
+"who moved on which metric" list, which was never passed through `ent.filter_rows`.
+The morning's LinkedIn profile reads (09:55) put three vendors outside the public
+top-N — Andesite, Qevlar, System Two Security — into the "Vendors whose LinkedIn
+headcount moved" table, the teaser masked their numbers but not their names, and the
+fail-closed `assert_no_withheld` scan refused the page, correctly, as a 500. The first
+reader request after the data landed was 13:30; eight 500s were served, all to two IPs.
+
+Fix (`app/services/market_report_html.py`): one line in the gate block —
+`movers = ent.filter_rows(movers, allowed_brand_ids, allowed_names)`; the rows carry
+`brand_id`, so the standard filter drops withheld vendors' rows. Diagnosed with a
+scratchpad script that monkeypatches `assert_no_withheld` to capture the rendered
+bytes and print the section around each withheld name.
+
+Verification: the capture script finds 0 occurrences of the three names after the fix;
+`pytest tests/test_market_report_v2.py tests/test_market_report_copy.py
+tests/test_market_assessment.py` — 64 passed, 1 failed (the known pre-existing copy
+failure). Restarted 13:44 under the guard (busy 0, open runs 0); live
+`?days=30&view=report` answers 200; the three names now appear only inside the Market
+Maturity Map span, the deliberate 27 Aug exception that names every rated vendor. Bugfixing
+only; Market Monitor exists on no other tenant.
 
 ### Fix — the Market Maturity Map now recomputes itself daily
 The front page renders the newest stored map (`market_horizon.latest`), and nothing
