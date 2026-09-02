@@ -183,6 +183,7 @@ NEWS_CSS = """
 .mm-news .n-row-val { font-weight:500; white-space:nowrap;
                       font-variant-numeric:tabular-nums; }
 .mm-news .n-row-label { font-size:12px; color:var(--n-muted); margin-top:2px; }
+.mm-news .n-blur { filter:blur(5px); user-select:none; pointer-events:none; }
 .mm-news .n-note { color:var(--n-muted); font-size:11px; margin-top:16px; }
 /* Period selector, view switch and the RSS link. */
 .mm-news .n-periods { display:flex; gap:4px; align-items:center; }
@@ -2556,10 +2557,20 @@ def _render_hiring_block(devs: List[Dict[str, Any]], *,
         mix = ", ".join(f"{k} {v}" for k, v in sorted(
             (attrs.get("by_function") or {}).items(), key=lambda kv: -kv[1])[:3])
         vendor = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
+        openings = str(attrs.get("openings", ""))
+        # A withheld recruiter's figures are scrubbed (every digit becomes 8)
+        # and blurred, like the teaser tables: blur alone leaves the real
+        # numbers in the page source, and a role mix plus a count is enough
+        # to name a vendor from its careers page.
+        blur = ""
+        if d.get("withheld"):
+            mix = re.sub(r"\d", "8", mix)
+            openings = re.sub(r"\d", "8", openings)
+            blur = " n-blur"
         rows.append(f'<div class="n-row"><span class="n-rank"></span>'
                     f'<div><strong>{_vendor_line(d, logos) if logos else esc(vendor)}</strong>'
-                    + (f'<div class="n-row-label">{esc(mix)}</div>' if mix else "")
-                    + f'</div><span class="n-row-val">{attrs.get("openings", "")}'
+                    + (f'<div class="n-row-label{blur}" aria-hidden="true">{esc(mix)}</div>' if mix else "")
+                    + f'</div><span class="n-row-val{blur}" aria-hidden="true">{esc(openings)}'
                     ' open roles</span></div>')
     first = devs[0]
     return (f'<article class="n-story" id="{_dev_anchor(first)}" '
@@ -3389,10 +3400,16 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
             prev, latest = attrs.get("previous"), attrs.get("latest")
             detail = (f"{prev} to {latest} on LinkedIn"
                       if prev is not None and latest is not None else "LinkedIn headcount")
+            pct = f"{_signed(attrs.get('pct'))}%"
+            blur = ""
+            if d.get("withheld"):
+                detail = re.sub(r"\d", "8", detail)
+                pct = re.sub(r"\d", "8", pct)
+                blur = " n-blur"
             rows.append(f'<div class="n-row"><span class="n-rank"></span>'
                         f'<div><strong>{_mark(logos, vendor)}{esc(vendor)}</strong>'
-                        f'<div class="n-row-label">{esc(detail)} · {esc(_dev_date(d))}</div></div>'
-                        f'<span class="n-row-val">{_signed(attrs.get("pct"))}%</span></div>')
+                        f'<div class="n-row-label{blur}">{esc(detail)} · {esc(_dev_date(d))}</div></div>'
+                        f'<span class="n-row-val{blur}" aria-hidden="true">{esc(pct)}</span></div>')
         out.append('<article class="n-story" style="--story:var(--n-green)">'
                    '<div class="n-story-tag">Headcount</div>'
                    f'<h3>{len(heads)} vendor{"" if len(heads) == 1 else "s"} whose '

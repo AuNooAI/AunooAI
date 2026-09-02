@@ -180,6 +180,29 @@ leave-behinds in sunstar `exports/`.
 
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
 
+### Fix — Dropzone re-stamped two old blog posts and one became the lead story (database only)
+The user spotted the front page leading with Dropzone's "$37M Series B, Fortune Cyber 60"
+piece dated 1 Sep. The page's own JSON-LD says it was published 2026-01-26 (the healthcare
+post in the same batch: 2026-02-17); Dropzone's Webflow feed re-served both with
+`pubDate` 1 Sep 2026, and we stored the feed's date. Not an ingest-date bug — the feed lied.
+The re-stamp guard in `app/collectors/rss_collector.py` only checks items that share a feed
+date to the minute with `RSS_RESTAMP_MIN_ITEMS` (4) others; these two were stamped a minute
+apart, so no Wayback lookup ran. Fixed the two `articles.publication_date` rows to the
+JSON-LD dates; both fall outside the 30-day window and the lead reverted to Mate Security
+Gamebooks.
+
+The guard is now tightened so this shape is caught (`app/collectors/rss_collector.py`,
+`app/tasks/rss_feed_monitor.py` comment): a suspect batch is two or more new-to-us
+entries dated within 15 minutes of each other, chained on sorted dates, instead of four
+sharing one clock minute. Defaults `RSS_RESTAMP_MIN_ITEMS=2` and new
+`RSS_RESTAMP_WINDOW_MINUTES=15`, both env-tunable. A false positive only costs a Wayback
+lookup on a URL we don't hold yet, and lookups still stop after 3 consecutive index
+failures. Tests updated with the Dropzone pair verbatim
+(`tests/test_rss_restamped_dates.py`, 5 passed). Restarted bugfixing 22:18 (guard clear,
+login 200). Collector copied to wiley + wileytest (md5-identical before the edit); both restarted
+22:39 after a quiet window (no generation/collection in the prior 3 minutes), login 200 on
+10002 and 10006.
+
 ### Ops — Radiant Security feed disabled
 `rss_feeds` row 2 (`https://radiantsecurity.ai/feed/`) set `is_active = FALSE` on the
 user's instruction: the vendor was acquired by Cribl and the feed URL has 404d on
@@ -212,6 +235,19 @@ so a market with nothing fresh keeps its best older story rather than an empty s
 development from the last `_V2_LEAD_MAX_AGE_DAYS` (7) days first and falls back to
 the full ranked list only when that window is empty; an undated development cannot
 lead. A fresh approved piece (3 days) still overrides everything.
+
+### Fix — withheld recruiters' figures are now scrubbed and blurred, not printed
+The masked hiring rows still printed their real figures — "a vendor not shown in this
+view · engineering 19, sales 3, marketing 1 · 23 open roles" — and a role mix plus a
+count is enough to name a vendor from its careers page. Both renderers in
+**`market_report_html.py`** (`_render_hiring_block` rows and the `_v2_hiring` headcount
+movers) now treat a `withheld` row the way the teaser tables do: every digit becomes an 8
+in the page source, and the mix, count, and percentage carry a new `.n-blur` class
+(blur 5px, no select, no pointer events, `aria-hidden`). Verified live on
+`?view=v2&section=hiring`: 17 blurred spans across 8 masked rows, the real figures absent
+from the source ("engineering 19, sales 3" now reads "engineering 88, sales 8").
+`pytest tests/test_market_report_v2.py` 17 passed; restarted 22:59, login 200.
+Market Monitor is bugfixing-only, so nothing to propagate.
 
 ### Fix — the public hiring list masks withheld recruiters instead of dropping them
 The Hiring card said "157 open roles; 20 of 87 vendors have public job listings" and

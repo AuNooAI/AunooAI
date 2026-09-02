@@ -71,10 +71,18 @@ const DEFAULT_CONFIG: AnalysisConfig = {
 
 const STORAGE_KEYS = {
   CONFIG: 'trendConvergence_config',
-  DATA: 'trendConvergence_data', // Legacy key
-  DATA_PREFIX: 'trendConvergence_data_', // Per-tab keys: trendConvergence_data_consensus, etc.
+  DATA: 'trendConvergence_data', // Legacy topic-agnostic key — purged on write, never read
+  DATA_PREFIX: 'trendConvergence_data_', // Per-topic+tab keys — see tcDataKey()
   TOPIC: 'trendConvergence_topic'
 };
+
+// Cache key for one topic+tab pair. The topic MUST be part of the key:
+// tab-only keys let one topic's cached analysis (and its analysis_id)
+// surface under another topic. That is how a January "U.S. Federal R&D
+// Pullback" executive summary ended up rendered beneath a fresh
+// "Market Monitoring SOC Automation" run (2026-09-02).
+export const tcDataKey = (topic: string, tab: string) =>
+  `${STORAGE_KEYS.DATA_PREFIX}${topic}::${tab}`;
 
 // Stored configs from before the flagship-default change carry a
 // non-flagship ``model`` value the user never explicitly picked (it was
@@ -111,22 +119,18 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     return DEFAULT_CONFIG;
   };
 
-  // Load cached analysis data for current tab
-  const loadStoredData = (tab?: string): TrendConvergenceData | MarketSignalsData | null => {
+  // Load cached analysis data for the current topic+tab
+  const loadStoredData = (topic?: string, tab?: string): TrendConvergenceData | MarketSignalsData | null => {
     try {
-      // Try per-tab cache first
-      if (tab) {
-        const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${tab}`;
-        const stored = localStorage.getItem(tabKey);
+      if (topic && tab) {
+        const stored = localStorage.getItem(tcDataKey(topic, tab));
         if (stored) {
           return JSON.parse(stored);
         }
       }
-      // Fall back to legacy key
-      const stored = localStorage.getItem(STORAGE_KEYS.DATA);
-      if (stored) {
-        return JSON.parse(stored);
-      }
+      // Deliberately NO fallback to the legacy `trendConvergence_data` key:
+      // it is topic- and tab-agnostic, so it resurrects whatever analysis
+      // last wrote it — for any topic.
     } catch (err) {
       console.error('Error loading stored data:', err);
     }
@@ -160,15 +164,15 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     loadInitialData();
   }, []);
 
-  // Load tab-specific data when config.tab changes
+  // Load topic+tab-specific data when either changes
   useEffect(() => {
-    if (config.tab) {
-      const cachedData = loadStoredData(config.tab);
+    if (config.tab && config.topic) {
+      const cachedData = loadStoredData(config.topic, config.tab);
       if (cachedData) {
         setData(cachedData);
       }
     }
-  }, [config.tab]);
+  }, [config.tab, config.topic]);
 
   const loadInitialData = async () => {
     try {
@@ -202,7 +206,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     if (!config.topic || !config.tab) return;
 
     // 1. Check localStorage
-    const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
+    const tabKey = tcDataKey(config.topic, config.tab);
     const localData = localStorage.getItem(tabKey);
     if (localData) {
       try {
@@ -285,14 +289,14 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
       setData(result);
 
-      // Save analysis data to localStorage (per-tab)
+      // Save analysis data to localStorage (per topic+tab)
       try {
         if (config.tab) {
-          const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
-          localStorage.setItem(tabKey, JSON.stringify(result));
+          localStorage.setItem(tcDataKey(config.topic, config.tab), JSON.stringify(result));
         }
-        // Also save to legacy key for backwards compatibility
-        localStorage.setItem(STORAGE_KEYS.DATA, JSON.stringify(result));
+        // Purge the legacy topic-agnostic key so data written by old
+        // builds can never resurface under a different topic.
+        localStorage.removeItem(STORAGE_KEYS.DATA);
       } catch (err) {
         console.error('Error saving analysis data:', err);
       }

@@ -117,7 +117,7 @@ class RSSFeedMonitor:
                 # A feed that has just re-stamped its whole archive hands us
                 # old posts with this week's date. Checked against the
                 # Wayback Machine only for URLs we do not hold yet and only
-                # when the feed shows a same-minute batch — see the note in
+                # when the feed shows a close-dated batch — see the note in
                 # rss_collector. Done before storing, so the stored date is
                 # the bounded one.
                 if rss_collector.restamp_check_enabled():

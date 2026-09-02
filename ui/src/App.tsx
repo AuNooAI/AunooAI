@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useTrendConvergence } from './hooks/useTrendConvergence';
+import { useTrendConvergence, tcDataKey } from './hooks/useTrendConvergence';
 import { SharedNavigation } from './components/SharedNavigation';
 import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
 import { TimelineBar } from './components/TimelineBar';
@@ -138,6 +138,10 @@ function App() {
   // Future Horizons Executive Summary state
   const [horizonsExecutiveSummary, setHorizonsExecutiveSummary] = useState<TopicExecutiveSummary[] | null>(null);
   const [horizonsExecSummaryGeneratedAt, setHorizonsExecSummaryGeneratedAt] = useState<string | null>(null);
+  // The horizons run the loaded summary belongs to. Cards render/export
+  // only when this matches the run on screen, so a summary fetched for
+  // one run can never ride along with another run's scenarios.
+  const [horizonsExecSummaryForId, setHorizonsExecSummaryForId] = useState<string | null>(null);
   const [isLoadingHorizonsExecSummary, setIsLoadingHorizonsExecSummary] = useState(false);
   const [horizonsExecSummaryError, setHorizonsExecSummaryError] = useState<string | null>(null);
   const [isFhTuneOpen, setIsFhTuneOpen] = useState(false);
@@ -462,8 +466,8 @@ function App() {
     if (backendTab) {
       updateConfig({ tab: backendTab });
 
-      // Check if we have cached data for this tab in localStorage
-      const tabKey = `trendConvergence_data_${backendTab}`;
+      // Check if we have cached data for this topic+tab in localStorage
+      const tabKey = tcDataKey(config.topic, backendTab);
       const cachedData = localStorage.getItem(tabKey);
 
       // If no localStorage data and we have a topic, try backend cache (never generates)
@@ -623,7 +627,7 @@ function App() {
     const tabData: Record<string, any> = {};
 
     tabDataKeys.forEach(key => {
-      const storageKey = `trendConvergence_data_${key}`;
+      const storageKey = tcDataKey(config.topic, key);
       const cached = localStorage.getItem(storageKey);
       if (cached) {
         try {
@@ -644,12 +648,13 @@ function App() {
       tabData[activeTabKey] = data;
     }
 
-    // Include executive summary in horizons data if available
-    if (horizonsExecutiveSummary) {
+    // Include executive summary in horizons data — only when it provably
+    // belongs to the run being saved (validHorizonsExecSummary).
+    if (validHorizonsExecSummary) {
       tabData.horizons = {
         ...(tabData.horizons || {}),
         executive_summary: {
-          summaries: horizonsExecutiveSummary,
+          summaries: validHorizonsExecSummary,
           generated_at: horizonsExecSummaryGeneratedAt
         }
       };
@@ -701,7 +706,7 @@ function App() {
       // Restore ALL tab data to localStorage
       Object.entries(tabDataMap).forEach(([uiTab, backendKey]) => {
         if (dashboard[backendKey]) {
-          const storageKey = `trendConvergence_data_${backendKey.replace('_data', '')}`;
+          const storageKey = tcDataKey(dashboard.config?.topic || config.topic, backendKey.replace('_data', ''));
           localStorage.setItem(storageKey, JSON.stringify(dashboard[backendKey]));
         }
       });
@@ -712,12 +717,14 @@ function App() {
         if (execSummary.summaries && execSummary.summaries.length > 0) {
           setHorizonsExecutiveSummary(execSummary.summaries);
           setHorizonsExecSummaryGeneratedAt(execSummary.generated_at || null);
+          setHorizonsExecSummaryForId(dashboard.horizons_data?.analysis_id || null);
           setHorizonsExecSummaryError(null);
         }
       } else {
         // Clear executive summary if not in saved dashboard
         setHorizonsExecutiveSummary(null);
         setHorizonsExecSummaryGeneratedAt(null);
+        setHorizonsExecSummaryForId(null);
         setHorizonsExecSummaryError(null);
       }
 
@@ -769,11 +776,14 @@ function App() {
     setData(null);
     setCurrentDashboardId(null);
 
-    // Clear localStorage cache for all tabs
+    // Clear localStorage cache for all of the OLD topic's tabs
+    // (config.topic still holds the old topic here), plus the legacy
+    // topic-agnostic key old builds wrote.
     const tabKeys = ['consensus', 'strategic', 'timeline', 'signals', 'horizons'];
     tabKeys.forEach(tab => {
-      localStorage.removeItem(`trendConvergence_data_${tab}`);
+      localStorage.removeItem(tcDataKey(config.topic, tab));
     });
+    localStorage.removeItem('trendConvergence_data');
 
     // Load saved dashboards for new topic and auto-load most recent
     await loadSavedDashboardsForTopic(newTopic, true);
@@ -788,7 +798,7 @@ function App() {
     setIsConfigOpen(false);
     // Clear localStorage for current tab so loadCached re-checks backend with new config
     if (config.tab) {
-      localStorage.removeItem(`trendConvergence_data_${config.tab}`);
+      localStorage.removeItem(tcDataKey(config.topic, config.tab));
     }
     // Trigger cache load for the (possibly new) config
     loadCached();
@@ -848,6 +858,15 @@ function App() {
     }
   };
 
+  // The run whose scenarios are on screen, and the summary cards that are
+  // provably for that run (null otherwise). Everything that displays,
+  // exports, or saves consensus cards goes through validHorizonsExecSummary.
+  const currentHorizonsRunId = data?.analysis_id || fallbackHorizons?.analysisId || null;
+  const validHorizonsExecSummary =
+    horizonsExecutiveSummary && horizonsExecSummaryForId && horizonsExecSummaryForId === currentHorizonsRunId
+      ? horizonsExecutiveSummary
+      : null;
+
   // Future Horizons Executive Summary handlers
   const handleGenerateHorizonsExecSummary = async () => {
     // Wizard-built topics surface horizons via ``fallbackHorizons`` (the
@@ -878,6 +897,7 @@ function App() {
       if (result.success && result.executive_summary?.summaries) {
         setHorizonsExecutiveSummary(result.executive_summary.summaries);
         setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || new Date().toISOString());
+        setHorizonsExecSummaryForId(analysisId);
       } else {
         throw new Error(result.message || 'Failed to generate executive summary');
       }
@@ -903,7 +923,7 @@ function App() {
     await ExportService.exportFutureHorizons(
       { ...options, runId },
       data.scenarios,
-      horizonsExecutiveSummary,
+      validHorizonsExecSummary,
       config.topic
     );
   };
@@ -917,12 +937,21 @@ function App() {
       const analysisId = data?.analysis_id || fallbackHorizons?.analysisId;
       const haveScenarios = (data?.scenarios?.length || 0) > 0 ||
                             (fallbackHorizons?.scenarios?.length || 0) > 0;
-      if (activeTab === 'future-horizons' && analysisId && haveScenarios && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
+      if (activeTab === 'future-horizons' && analysisId && haveScenarios && horizonsExecSummaryForId !== analysisId && !isLoadingHorizonsExecSummary) {
         try {
           const result = await getHorizonsExecutiveSummary(analysisId);
           if (result.success && result.executive_summary?.summaries) {
+            // Belt-and-braces: a cached summary records the topic it was
+            // generated for. Refuse it when that doesn't match the topic
+            // on screen — guards against a foreign analysis id.
+            const summaryTopic = result.executive_summary.topic;
+            if (summaryTopic && config.topic && summaryTopic !== config.topic) {
+              console.warn(`Ignoring cached executive summary for run ${analysisId}: it belongs to topic "${summaryTopic}", not "${config.topic}"`);
+              return;
+            }
             setHorizonsExecutiveSummary(result.executive_summary.summaries);
             setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || null);
+            setHorizonsExecSummaryForId(analysisId);
           }
         } catch (err) {
           // No cached summary — user can generate via the button in ExecutiveSummarySection
@@ -932,12 +961,13 @@ function App() {
     };
 
     loadCachedExecSummary();
-  }, [activeTab, data?.analysis_id, data?.scenarios?.length, fallbackHorizons?.analysisId, fallbackHorizons?.scenarios?.length]);
+  }, [activeTab, data?.analysis_id, data?.scenarios?.length, fallbackHorizons?.analysisId, fallbackHorizons?.scenarios?.length, horizonsExecSummaryForId, config.topic]);
 
   // Clear executive summary when topic changes
   useEffect(() => {
     setHorizonsExecutiveSummary(null);
     setHorizonsExecSummaryGeneratedAt(null);
+    setHorizonsExecSummaryForId(null);
     setHorizonsExecSummaryError(null);
   }, [config.topic]);
 
@@ -2847,14 +2877,14 @@ function App() {
                     data={toHorizonsResponse({
                       scenarios: (data?.scenarios && data.scenarios.length ? data.scenarios : fallbackHorizons?.scenarios) || [],
                       articleList,
-                      execSummaries: horizonsExecutiveSummary,
+                      execSummaries: validHorizonsExecSummary,
                       topic: config.topic,
                       articleCount: data?.articles_analyzed || undefined,
                     })}
                     onGenerate={() => generateAnalysis()}
                     actions={
                       <>
-                        {!horizonsExecutiveSummary &&
+                        {!validHorizonsExecSummary &&
                           ((data?.scenarios?.length || 0) > 0 || (fallbackHorizons?.scenarios?.length || 0) > 0) && (
                           <button
                             type="button"
@@ -3853,7 +3883,7 @@ function App() {
       <FHTuneModal
         open={isFhTuneOpen}
         onOpenChange={setIsFhTuneOpen}
-        executiveSummary={horizonsExecutiveSummary}
+        executiveSummary={validHorizonsExecSummary}
         executiveSummaryGeneratedAt={horizonsExecSummaryGeneratedAt}
         isGenerating={isLoadingHorizonsExecSummary}
         selectedProfileId={config.profile_id}

@@ -2,7 +2,6 @@ import asyncio
 import calendar
 import os
 import re
-from collections import defaultdict
 from urllib.parse import urlsplit
 
 import feedparser
@@ -32,13 +31,19 @@ logger = logging.getLogger(__name__)
 # publication date from above: a page captured in July 2025 was not
 # published in August 2026. That check costs one request per URL, so it
 # only runs for URLs that are new to us and only when the feed shows the
-# signature of a batch re-stamp — several entries dated within one minute.
+# signature of a batch re-stamp — entries dated within minutes of each
+# other. Dropzone re-stamped just two posts 68 seconds apart on
+# 1 Sep 2026, and the same-minute-times-four rule missed them.
 # Wire feeds batch too, but their batches are of genuinely new items, and
 # Wayback has no earlier capture of those, so nothing changes for them.
 
-#: Entries dated within one minute of each other before a feed is suspected
-#: of re-stamping. Three is a busy day; twelve is a migration.
-RESTAMP_MIN_ITEMS = max(2, int(os.getenv("RSS_RESTAMP_MIN_ITEMS", "4") or 4))
+#: Entries dated within the window of each other before a feed is suspected
+#: of re-stamping. Two is enough: a false positive costs one Wayback lookup
+#: per new URL, a miss puts an old post on the front page as news.
+RESTAMP_MIN_ITEMS = max(2, int(os.getenv("RSS_RESTAMP_MIN_ITEMS", "2") or 2))
+#: How close together entry dates must sit to count as one batch. Same-minute
+#: caught whole-archive migrations; partial re-stamps arrive minutes apart.
+RESTAMP_WINDOW_MINUTES = max(1, int(os.getenv("RSS_RESTAMP_WINDOW_MINUTES", "15") or 15))
 #: A first capture this many days before the feed's date proves the feed
 #: wrong; anything closer is crawl lag.
 RESTAMP_TOLERANCE_DAYS = max(0, int(os.getenv("RSS_RESTAMP_TOLERANCE_DAYS", "2") or 2))
@@ -97,17 +102,34 @@ class LookupFailed(RuntimeError):
 
 
 def restamped_batches(articles: List[Dict]) -> List[Dict]:
-    """The articles whose feed date is shared, to the minute, by enough others."""
-    by_minute: Dict[str, List[Dict]] = defaultdict(list)
+    """The articles whose feed dates cluster tightly enough to look re-stamped.
+
+    Entries sorted by date are chained while each sits within
+    ``RESTAMP_WINDOW_MINUTES`` of the one before; a chain of
+    ``RESTAMP_MIN_ITEMS`` or more is suspect. A feed posting twice in an
+    afternoon stays clear of the window; a re-stamp lands its fake dates
+    minutes apart because one job wrote them.
+    """
+    stamped = []
     for article in articles:
         stamp = _to_datetime(article.get("published_date"))
-        if stamp is None:
-            continue
-        by_minute[stamp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")].append(article)
+        if stamp is not None:
+            stamped.append((stamp.astimezone(timezone.utc), article))
+    stamped.sort(key=lambda pair: pair[0])
+    window = timedelta(minutes=RESTAMP_WINDOW_MINUTES)
     out: List[Dict] = []
-    for group in by_minute.values():
-        if len(group) >= RESTAMP_MIN_ITEMS:
-            out.extend(group)
+    cluster: List[Dict] = []
+    last = None
+    for stamp, article in stamped:
+        if last is not None and (stamp - last) <= window:
+            cluster.append(article)
+        else:
+            if len(cluster) >= RESTAMP_MIN_ITEMS:
+                out.extend(cluster)
+            cluster = [article]
+        last = stamp
+    if len(cluster) >= RESTAMP_MIN_ITEMS:
+        out.extend(cluster)
     return out
 
 

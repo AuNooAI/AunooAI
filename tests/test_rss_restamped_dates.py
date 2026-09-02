@@ -7,7 +7,10 @@ as local time, so every stored feed date was an hour or two early. And
 Prophet Security's blog feed dated twelve old posts within one minute of
 14 August 2026 — its Series A announcement, first captured by the Wayback
 Machine in July 2025, surfaced in the market report as this period's funding
-event. The Wayback lookup is stubbed here; the rule is what is under test.
+event. On 2026-09-01 Dropzone re-stamped just two posts 68 seconds apart and
+one led the front page, so a batch is now two or more entries within a
+15-minute window, not four within one minute. The Wayback lookup is stubbed
+here; the rule is what is under test.
 """
 
 from __future__ import annotations
@@ -33,16 +36,25 @@ def _article(url, stamp):
     return {"url": url, "published_date": stamp, "raw_data": {}}
 
 
-def test_a_batch_needs_enough_entries_in_one_minute():
-    three = [_article(f"https://x.test/{i}", "2026-08-14T02:17:2%d+00:00" % i)
-             for i in range(3)]
-    assert rc.restamped_batches(three) == []
-    four = three + [_article("https://x.test/3", "2026-08-14T02:17:59+00:00")]
-    assert len(rc.restamped_batches(four)) == 4
+def test_a_batch_is_two_or_more_entries_dated_within_the_window():
+    # Dropzone, 1 Sep 2026: two old posts re-stamped 68 seconds apart.
+    pair = [_article("https://x.test/a", "2026-09-01T16:54:27+00:00"),
+            _article("https://x.test/b", "2026-09-01T16:55:38+00:00")]
+    assert len(rc.restamped_batches(pair)) == 2
+    # A lone entry is never suspect.
+    assert rc.restamped_batches(pair[:1]) == []
+    # Forty minutes apart: two ordinary posts in one afternoon.
+    apart = [_article("https://x.test/a", "2026-08-14T02:00:00+00:00"),
+             _article("https://x.test/b", "2026-08-14T02:40:00+00:00")]
+    assert rc.restamped_batches(apart) == []
     # Spread over a day: a busy feed, not a migration.
     spread = [_article(f"https://x.test/{i}", f"2026-08-14T{i:02d}:00:00+00:00")
               for i in range(6)]
     assert rc.restamped_batches(spread) == []
+    # A migration chains: each entry within the window of the one before.
+    chain = [_article(f"https://x.test/{i}", f"2026-08-14T02:{i * 10:02d}:00+00:00")
+             for i in range(5)]
+    assert len(rc.restamped_batches(chain)) == 5
 
 
 def _run(coro):
