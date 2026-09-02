@@ -116,8 +116,10 @@ of the exported file had no way to reach the 45 numbered sources. The exporter
 now links every [n] to its reference article and appends a numbered References
 section. The cover eyebrow and footer were also hardcoded "WILEY HORIZONS" —
 now `REPORT_BRAND_EYEBROW` (default unchanged for Wiley; sunstar sets
-"AUNOO INTELLIGENCE"). Verified: 170 inline links on the Regenerative
-Dentistry run, zero "wiley" strings in the sunstar render.
+"AUNOO INTELLIGENCE"); the Future Horizons export had the same hardcoded
+strings and takes the same variable (its citations already linked via
+`esc_cites`). Verified: 170 inline links on the Regenerative Dentistry run,
+zero "wiley" strings in the sunstar render.
 
 ### Ops — Auspex answers to both questions, verbatim, cross-topic internal search
 With the fix in, both questions ran end to end (topic `__all__`, internal corpus only).
