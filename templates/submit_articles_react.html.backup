@@ -29,8 +29,8 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/submitArticles-DFZkGk3G.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-CcWKEPaG.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/submitArticles-BZzvLxO9.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-wCvgj6RF.js">
   </head>
 
   <body>

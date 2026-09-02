@@ -74,6 +74,41 @@ restarted (11:01); wiley/wileytest/wbm not yet updated.
 - **Sunstar is the primary brand** (`is_primary` was already set); its own EN
   press is thin, so groups 1 and 13 widened to a 90-day window and re-queued.
 
+### Fixes — the user's afternoon walkthrough, round two
+- **Anticipate fetch storm** (`ERR_INSUFFICIENT_RESOURCES` in the browser): a
+  tab-switch effect set an unchanged tab, `updateConfig` re-created the config
+  object anyway, every effect depending on it re-fired, and the cache_only
+  endpoint took 15,600 requests in five minutes on a topic with no cached
+  analysis. `updateConfig` now returns the previous object when nothing
+  changed.
+- **Saved analyses now load in the app.** Nothing called the saved-version
+  endpoint, and the cache lookup keys on the exact current settings, so
+  analyses generated with other settings were invisible. The cache loader
+  falls back to `/previous`, and `/previous?tab=` returns the newest saved
+  version that carries that tab's content (new facade method
+  `get_recent_analysis_versions`), so a later run of a different tab does not
+  bury the sample.
+- **Select dropdowns could never show a long option** — the shared component
+  capped the open list at the trigger's width (`max-w-[--radix-select-trigger-width]`).
+  Now `max-w-[min(28rem,90vw)]`. Found via truncated topic names on Anticipate.
+- **Explore gained an Overview tab** (`WorkspaceOverview.tsx`): the default org
+  profile, "questions we're answering" (lines starting `Q:` in the profile's
+  custom_context), topics with counts, brands watched, and where reports live,
+  with the latest observer reports. All read from existing APIs; sections hide
+  when empty.
+- **Wizard deck build truncated its Three Horizons JSON** ("not valid JSON" at
+  ~8k chars, twice): the model wrapper's default `max_tokens` is 2000 and
+  `wiley_candidate_pipeline` never overrode it. Now passes 16000.
+- **Observer emails 403'd on sunstar**: Resend keys are shared, but sunstar's
+  `.env` lacked `RESEND_FROM_EMAIL=noreply@aunoo.ai`, so sends fell back to the
+  test-mode from-address, which may only mail the account owner. Var added.
+- **Brand social was news-only** — brand groups now carry xpoz (all) and
+  Bluesky (EN); `SOCIAL_EVAL_MODEL=nova-lite` was already set.
+- **Three observer agents created on sunstar** (Evidence Watch, Competitor
+  moves, Sunstar adverse media) — daily 06:40/06:50/07:00, reports + email to
+  the user; first run: 105 articles analysed, 14 flagged. `next_run_at` set to
+  tomorrow so a restart cannot mass-fire them.
+
 ### Ops — Auspex answers to both questions, verbatim, cross-topic internal search
 With the fix in, both questions ran end to end (topic `__all__`, internal corpus only).
 Q1 (whitespace): 38.9k-character report, 32 articles deeply analysed from 99 sources;

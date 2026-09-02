@@ -2596,13 +2596,42 @@ async def ensure_cache_table_v2(db: Database):
     except Exception as e:
         logger.error(f"Failed to ensure cache table: {e}")
 
+#: tab → the payload key that must hold content for a saved version to count
+#: as a sample of that tab (each generation run saves only the tab it produced).
+_TAB_CONTENT_KEYS = {
+    "consensus": "categories",
+    "horizons": "scenarios",
+    "strategic": "strategic_recommendations",
+    "signals": "future_signals",
+    "timeline": "impact_timeline",
+}
+
+
 @router.get("/api/trend-convergence/{topic}/previous", dependencies=[Depends(verify_session_api)])
 async def load_previous_analysis(
     topic: str,
+    tab: Optional[str] = Query(None, description="Return the newest saved version that has content for this tab"),
     db: Database = Depends(get_database_instance)
 ):
-    """Load the latest previous analysis version for a topic"""
+    """Load the latest previous analysis version for a topic.
+
+    Without ``tab``: the newest saved version of any kind. With ``tab``: the
+    newest version that actually carries that tab's content, so a later run of
+    a different tab does not bury it."""
     try:
+        content_key = _TAB_CONTENT_KEYS.get(tab or "")
+        if content_key:
+            rows = (DatabaseQueryFacade(db, logger)).get_recent_analysis_versions(topic)
+            for row in rows or []:
+                try:
+                    candidate = json.loads(row[0])
+                except Exception:
+                    continue
+                content = candidate.get(content_key)
+                if content and (not isinstance(content, (list, dict)) or len(content) > 0):
+                    return candidate
+            raise HTTPException(status_code=404, detail=f"No previous {tab} analysis found for this topic")
+
         previous_analysis = await _load_latest_analysis_version(topic, db)
         if previous_analysis:
             return previous_analysis

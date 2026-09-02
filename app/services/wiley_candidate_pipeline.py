@@ -639,8 +639,12 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
         raise RuntimeError("gpt-5.4 model not available for Three Horizons run.")
 
     started = _time.time()
+    # The wrapper's default max_tokens is 2000, which truncates a full
+    # three-horizons JSON payload mid-string ("response was not valid JSON"
+    # at ~8k chars). Pass an explicit ceiling; Sonnet-class models allow it.
     raw_response = await ai_model.agenerate_response(
-        [{"role": "user", "content": formatted_prompt}]
+        [{"role": "user", "content": formatted_prompt}],
+        max_tokens=16000,
     )
 
     # Parse JSON out of the response — strip fences if present.

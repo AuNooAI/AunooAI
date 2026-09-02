@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   generateTrendConvergence,
   loadCachedTrendConvergence,
+  getPreviousAnalysis,
   getTopics,
   getOrganizationalProfiles,
   getAvailableModels,
@@ -231,7 +232,26 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       console.error('Error loading cached analysis from backend:', err);
     }
 
-    // 3. No cache anywhere — user needs to generate
+    // 3. Fall back to the topic's last SAVED analysis (any model/settings).
+    // The cache_only endpoint keys on the exact current config, so an
+    // analysis generated with different settings (or with caching off) is
+    // invisible to it even though it exists. Only accept the saved payload
+    // if it actually carries data for the tab being viewed.
+    try {
+      // The server returns the newest saved version that carries this tab's
+      // content (404 when none exists), so a later run of a different tab
+      // does not bury the sample.
+      const previous = await getPreviousAnalysis(config.topic, config.tab as string);
+      if (previous) {
+        setData(previous);
+        setNeedsGeneration(false);
+        return;
+      }
+    } catch {
+      // 404 = genuinely nothing saved for this topic+tab; fall through.
+    }
+
+    // 4. No cache anywhere — user needs to generate
     setNeedsGeneration(true);
   }, [config]);
 
@@ -372,7 +392,16 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
   // Update configuration
   const updateConfig = useCallback((updates: Partial<AnalysisConfig>) => {
-    setConfig(prev => ({ ...prev, ...updates }));
+    setConfig(prev => {
+      // No-op when nothing actually changes: keeping the same object identity
+      // keeps loadCached (and every effect depending on it) stable. Without
+      // this, a tab-switch effect that sets an unchanged tab re-created the
+      // config on every render and hammered the cache_only endpoint in an
+      // infinite fetch loop (ERR_INSUFFICIENT_RESOURCES in the browser).
+      const changed = (Object.keys(updates) as (keyof AnalysisConfig)[])
+        .some(k => prev[k] !== updates[k]);
+      return changed ? { ...prev, ...updates } : prev;
+    });
   }, []);
 
   // Clear error

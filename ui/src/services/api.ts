@@ -591,9 +591,10 @@ export async function getAvailableModels(): Promise<AIModel[]> {
 /**
  * Get previous analysis for a topic
  */
-export async function getPreviousAnalysis(topic: string): Promise<TrendConvergenceData> {
+export async function getPreviousAnalysis(topic: string, tab?: string): Promise<TrendConvergenceData> {
+  const suffix = tab ? `?tab=${encodeURIComponent(tab)}` : '';
   return fetchWithAuth<TrendConvergenceData>(
-    `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(topic)}/previous`
+    `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(topic)}/previous${suffix}`
   );
 }
 

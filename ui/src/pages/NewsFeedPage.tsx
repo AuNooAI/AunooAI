@@ -30,7 +30,9 @@ import {
   BarChart3,
   CalendarDays,
   LineChart,
+  Compass,
 } from 'lucide-react';
+import { WorkspaceOverview } from '../components/WorkspaceOverview';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
 import { useResearchAgents } from '../hooks/useResearchAgents';
@@ -213,8 +215,8 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
-  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
-  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
+  type ExploreTab = 'overview' | 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
+  const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
   const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents', 'timeline'];
@@ -837,7 +839,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
+              {{ overview: 'Overview', feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -884,6 +886,15 @@ export function NewsFeedPage() {
 
         {/* Tab Navigation */}
         <div className="explore-tab-navigation">
+          {dedicatedMode === false && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('overview')}
+          >
+            <Compass className="w-4 h-4" />
+            Overview
+          </button>
+          )}
           {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'feed' ? 'active' : ''}`}
@@ -1247,6 +1258,9 @@ export function NewsFeedPage() {
             )}
 
             {/* Research Agents Tab Content */}
+            {/* Workspace Overview Tab Content */}
+            {currentTab === 'overview' && <WorkspaceOverview />}
+
             {currentTab === 'agents' && (
               <ResearchAgentsSection
                 agents={researchAgents}

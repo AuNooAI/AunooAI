@@ -547,6 +547,19 @@ class DatabaseQueryFacade:
         ).limit(1)
         return self._execute_with_rollback(statement).fetchone()
 
+    def get_recent_analysis_versions(self, topic, limit=20):
+        """Newest-first version payloads for a topic. Each generation run saves
+        only the tab it produced, so callers that want 'the latest consensus'
+        rather than 'the latest anything' scan these for matching content."""
+        statement = select(
+            analysis_versions.c.version_data
+        ).where(
+            analysis_versions.c.topic == topic
+        ).order_by(
+            analysis_versions.c.created_at.desc()
+        ).limit(limit)
+        return self._execute_with_rollback(statement).fetchall()
+
     def get_articles_with_dynamic_limit(
             self,
             consistency_mode,
