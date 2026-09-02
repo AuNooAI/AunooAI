@@ -4,6 +4,31 @@ Running log of notable operational/code changes. Newest first.
 
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
 
+### Fix — the Market Maturity Map now recomputes itself daily
+The front page renders the newest stored map (`market_horizon.latest`), and nothing
+recomputed it on a schedule — no task, no cron; the only callers were the dashboard
+routes. Every stored map to date was a person pressing the button, so vendors' dots
+stood still while the readings under them moved. `app/tasks/market_monitor.py` now
+carries `_refresh_horizon`: each tick (every 10 minutes) it checks the newest
+`bw_market_horizon.computed_at` with one indexed SELECT and, when the stored map is
+older than `HORIZON_MAX_AGE_HOURS` (24), runs `market_horizon.compute` + `store` in a
+thread on its own connection, because the compute is a long synchronous read and the
+event loop must not wait on it (that is how one slow sync call 504s the whole tenant).
+A failure rolls back and logs without stopping the pass. This also keeps the map's
+movement arrows meaningful, since they compare the two newest stored maps.
+
+`tests/test_market_collection.py` — the AST check that forbids awaiting inside a vendor
+loop without committing got `await _refresh` added to its exclusion list, next to the
+pollers: `_refresh_horizon` commits the shared connection before its only await and the
+compute owns a separate connection, which is exactly the property the list encodes.
+
+Verification: `pytest tests/test_market_collection.py` — 81 passed, 4 failed (the four
+known pre-existing failures). Restarted 10:20 under the guard (busy 0, open runs 0,
+alembic at `kg_lang_001`); `/login` back in 4 s. The stored map (1 Sep 14:05) was
+20 h old at restart, so the age gate correctly did nothing on the first tick (10:21,
+no compute, no error); the first automatic compute is due at the first tick after
+14:05 on 2 Sep. Bugfixing only; Market Monitor exists on no other tenant.
+
 ### Fix — the development ranking's date tie-break sorted ascending
 `rank_key` in `app/services/market_assessment.py` orders developments by importance,
 then independent-before-vendor-only, event type and source count — by design (findings

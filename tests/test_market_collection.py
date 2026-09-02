@@ -816,7 +816,8 @@ def test_no_sweep_holds_a_transaction_across_an_http_call():
                       and 'await _discover' not in ln
                       and 'await _review' not in ln
                       and 'await _write' not in ln
-                      and 'await _reconcile' not in ln]
+                      and 'await _reconcile' not in ln
+                      and 'await _refresh' not in ln]
             if not awaits:
                 continue
             if 'conn.commit()' not in body:

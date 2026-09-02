@@ -379,9 +379,49 @@ async def tick() -> Dict[str, Any]:
                 conn.rollback()
                 summary["errors"] += 1
                 logger.exception("market %s poll failed", market["id"])
+            try:
+                await _refresh_horizon(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s horizon refresh failed",
+                                 market["id"])
     finally:
         conn.close()
     return summary
+
+
+# The front page renders the newest stored map (``market_horizon.latest``);
+# until 2 Sep 2026 nothing recomputed it except a person pressing the
+# dashboard button, so vendors' dots stood still while the readings under
+# them moved. One map a day is enough: the inputs move on daily cadences.
+HORIZON_MAX_AGE_HOURS = 24
+
+
+async def _refresh_horizon(conn, market: Dict[str, Any], now: datetime) -> None:
+    """Recompute and store the Market Maturity Map when the stored one is
+    a day old. The age check is one indexed SELECT per tick; the compute is
+    a long synchronous read, so it runs in a thread on its own connection
+    rather than blocking the event loop."""
+    last = conn.execute(text(
+        "SELECT MAX(computed_at) FROM bw_market_horizon WHERE market_id = :m"
+    ), {"m": market["id"]}).scalar()
+    conn.commit()
+    if last is not None and (now - last) < timedelta(hours=HORIZON_MAX_AGE_HOURS):
+        return
+
+    def _work() -> int:
+        from app.services import market_horizon as mh
+        own = get_database_instance()._temp_get_connection()
+        try:
+            result = mh.compute(own, market)
+            return mh.store(own, result)  # store() commits
+        finally:
+            own.close()
+
+    row_id = await asyncio.to_thread(_work)
+    logger.info("market %s: stored maturity map row %s (daily refresh)",
+                market["id"], row_id)
 
 
 async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
