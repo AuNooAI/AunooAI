@@ -700,9 +700,32 @@ Respond with valid JSON matching the expected schema."""
             result_text = response.choices[0].message.content
             result = extract_json_response(result_text)
 
-            state.research_objectives = result.get("research_objectives", [])
+            # Bedrock deployments drop response_format, so the planner can come
+            # back as a bare array (of objectives) instead of the object schema.
+            if isinstance(result, list):
+                result = {"research_objectives": result}
+            if not isinstance(result, dict):
+                raise json.JSONDecodeError(
+                    "planning response was not a JSON object", result_text or "", 0
+                )
+
+            state.research_objectives = [
+                o if isinstance(o, dict)
+                else {"id": f"obj_{i+1}", "objective": str(o), "priority": "high"}
+                for i, o in enumerate(result.get("research_objectives", []))
+            ]
             state.search_queries = result.get("search_queries", [])
             state.report_outline = result.get("report_outline", {})
+
+            if not state.search_queries:
+                state.search_queries = [
+                    {
+                        "objective_id": o.get("id") or f"obj_{i+1}",
+                        "query": o.get("objective") or state.query,
+                        "search_type": "both",
+                    }
+                    for i, o in enumerate(state.research_objectives[:5])
+                ] or [{"objective_id": "obj_1", "query": state.query, "search_type": "both"}]
 
             logger.info(f"Planning complete: {len(state.research_objectives)} objectives, {len(state.search_queries)} queries")
 

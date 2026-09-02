@@ -244,3 +244,32 @@ Consensus on the US topic (Sonnet 5, 90-day window, 35 articles, analysis `fce3b
 
 Consensus on the Japan topic (Sonnet 5, 90-day window, 13 articles, analysis `4224ee74…`) gave four categories: aspiration pneumonia and disaster oral care (4 articles, 88%, driven by the Kumamoto earthquake response), the oral microbiome–systemic link (3, 75%), consumer product innovation and premiumisation (5, 70%: MatsukiyoCocara×Kao, Clinica #1 in a repeat-purchase ranking), and oral frailty as an ageing priority (1 article, 65%). Japan's press frame is care delivery and ageing where the US frame is mechanisms and awareness — the market contrast the demo needs. Export: `sunstar.aunoo.ai/exports/sunstar-japan-consensus-2026-08-31.html`.
 
+
+### Day 2 (2 September): Brendan's questions in, Kao → Haleon, momentum analyses
+
+Brendan's email (1 Sep 19:46) set the two demo questions — narrative whitespace for
+Sunstar across science/competitors/professionals/consumers, and themes gaining momentum
+where narratives run ahead of the evidence — and swapped Kao for Haleon/Sensodyne.
+
+- **Haleon swap done.** Kao brand and groups disabled (data kept); new brand `haleon`
+  and groups 16 (EN, 90-day) and 17 (JP: シュミテクト, カムテクト, ポリデント…), plus a
+  "Brand Monitoring Haleon" ontology topic in config.json. First pass 142 collected /
+  39 enriched — Kao managed 6 enriched in two days; Haleon's English coverage is rich.
+- **Three Horizons, research topic** (Sonnet 5, 90 papers): 15 scenarios; H1
+  "Correlational Evidence Dominates Without Causal Proof" is the evidence-gap slide.
+  Export `exports/sunstar-horizons-research-2026-09-02.html`.
+- **Emerging Topics, whole corpus** (Sonnet 4.5 — Claude 5 rejects the service's
+  `temperature`): Dyson CameraJet toothbrush launch, wasabi compound for tooth
+  regeneration, P&G–Thorne acquisition (all accelerating), morning oral bacteria
+  research (stable). Scoped to Regenerative Dentistry alone: nothing — corpus too small.
+- **Auspex answered both questions verbatim** (cross-topic, internal corpus). Q1: 38.9k
+  chars, 32 articles deep-read from 99 sources; lead finding "The Oral Frailty Paradigm:
+  Japan's Export Opportunity". Q2: 49.2k chars over 96 articles; leads with the
+  oral-microbiome–brain link and the Nottingham enamel-gel overclaiming case. Both in
+  `exports/`. First runs crashed on a planning-parser bug (Bedrock drops
+  `response_format`, planner returned a bare array) — fixed in canonical
+  `deep_research_service.py`, copied to sunstar.
+- **Volumes (11:10 UK):** research 120 enriched, US 54, Japan 14, Germany 4, France 3;
+  consumer 1,545 posts scored / 272 relevant (Bluesky 118, Instagram 55, TikTok 51);
+  brands: Colgate 74, Haleon 39, P&G 20, Lion 6, Sunstar 5 enriched. Floors met for
+  research/US/consumer; Japan is directional; DE/FR stay "say so on the call".

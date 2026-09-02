@@ -2,6 +2,62 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-02 — Sunstar demo day 2: Brendan's questions arrived, Kao swapped for Haleon, momentum analyses run
+
+### Input — the prospect's own questions (email 1 Sep 19:46)
+Brendan Jennings sent two questions for Thursday: where is there credible narrative
+whitespace for Sunstar in the oral-to-overall-health connection, judged against the
+science, competitor messaging, and professional/consumer discussion across the key
+markets; and which themes are gaining momentum, where narratives move ahead of the
+scientific evidence, and what opportunity or reputational risk that creates. He also
+swapped one competitor: Kao out, Haleon/Sensodyne in ("Lion is relevant in Japan,
+the others globally").
+
+### Ops — Kao → Haleon swap on sunstar (database + config, no code)
+We disabled the Kao brand and its two groups (10 EN, 15 JP) rather than deleting them,
+so the 269 collected Kao articles stay queryable. New brand `haleon` (Sensodyne,
+Parodontax, Corsodyl, Biotene, Polident, plus シュミテクト and カムテクト for Japan)
+and two groups: 16 "Haleon - Brand Watch" (en, firehose+thenewsapi, 90-day range) and
+17 "Haleon - Brand Watch JP" (ja/jp, thenewsapi+newsdata). config.json gained a
+"Brand Monitoring Haleon" topic with the brand ontology (backup
+`config.json.bak-haleon-*` in the sunstar tree). First collection pass: 142 articles,
+39 enriched — already past Kao's two-day total of 269 collected but only 6 enriched,
+because Haleon's coverage is English.
+
+### Ops — the momentum analyses for demo question 2
+- Three Horizons on the research topic (claude-sonnet-5, 90 papers): 15 scenarios;
+  the H1 "Correlational Evidence Dominates Without Causal Proof" is the demo's
+  narrative-versus-evidence exhibit. Export:
+  `exports/sunstar-horizons-research-2026-09-02.html`.
+- Emerging Topics, whole corpus (gpt-5.4, 30 days back): four themes — Dyson's
+  CameraJet smart-toothbrush launch, a wasabi compound for tooth regeneration, and
+  P&G's acquisition of Thorne all accelerating, plus morning-oral-bacteria research
+  stable. A run scoped to Regenerative Dentistry alone found nothing: that corpus is
+  too small for the growth thresholds, and the wasabi story already surfaces globally.
+- First Emerging Topics attempt on claude-sonnet-5 failed: the service passes
+  `temperature`, which Claude 5 on Bedrock rejects. Ran on gpt-5.4 (maps to Sonnet 4.5)
+  instead; the service itself was not changed.
+
+### Fix — Auspex deep research crashed when the planner returned a JSON array
+Both first runs of Brendan's questions died in `_run_planning` with `'list' object
+has no attribute 'get'`. The Bedrock deployments drop `response_format`
+(`additional_drop_params`), so the planning model is free to return a bare JSON array
+of objectives instead of the object schema the code assumes.
+`app/services/deep_research_service.py` now wraps a list result as
+`research_objectives`, normalises string objectives to dicts, raises into the
+existing JSON-fallback path when the result is neither list nor dict, and synthesises
+search queries from the objectives when the model omits them. Copied to sunstar and
+restarted (11:01); wiley/wileytest/wbm not yet updated.
+
+### Ops — Auspex answers to both questions, verbatim, cross-topic internal search
+With the fix in, both questions ran end to end (topic `__all__`, internal corpus only).
+Q1 (whitespace): 38.9k-character report, 32 articles deeply analysed from 99 sources;
+its lead finding is "The Oral Frailty Paradigm: Japan's Export Opportunity". Q2
+(momentum vs evidence): 49.2k characters over 96 articles; leads with the
+oral-microbiome–neurological link and names the Nottingham enamel-regrowth gel
+(tested only on extracted teeth) as the overclaiming case study. Both saved as
+leave-behinds in sunstar `exports/`.
+
 ## 2026-09-02 — Sections lead with the newest item in a band, not the oldest
 
 ### Fix — the Market Maturity Map now recomputes itself daily

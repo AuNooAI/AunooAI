@@ -88,3 +88,19 @@ language fix is what makes the four-market claim true rather than aspirational.
   and French sets are smaller still and were not analysed.
 - Brendan Jennings' own questions have not arrived; the two example questions from the 21 August
   email stand in.
+
+## Update (2 September)
+
+Brendan's questions arrived on 1 September: where Sunstar has credible narrative whitespace in
+the oral-to-overall-health story, and which themes are gaining momentum where narratives run
+ahead of the science. He swapped one competitor: Kao out, Haleon (Sensodyne) in. The site now
+watches Haleon in English and Japanese — 142 articles on the first pass against Kao's near-silent
+English record — and the research question engine answered both of his questions from the
+collected corpus, word for word as he asked them. The whitespace answer leads with oral frailty
+as Japan's exportable frame; the momentum answer names an enamel-regrowth gel tested only on
+extracted teeth as the cautionary overclaiming example. Both reports, a five-year Three Horizons
+view of the research, and an emerging-themes scan (a smart-toothbrush launch, a wasabi
+tooth-regeneration compound, and a P&G acquisition, all accelerating) join the three consensus
+reports as leave-behinds. One platform bug found and fixed on the way: the research agent crashed
+when the planning model answered in a shape the code didn't expect, which on our Bedrock setup it
+sometimes does.
