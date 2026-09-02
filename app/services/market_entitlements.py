@@ -337,6 +337,15 @@ def assert_no_withheld(rendered: str, withheld: Sequence[str], *,
     """
     if not withheld:
         return
+    # One combined pass for the common, clean case. Scanning the finished
+    # page once per withheld name cost ~0.7 s of every public render at 77
+    # names; one alternation is one scan. The per-name pass below runs only
+    # when something matched, which is already the error path.
+    combined = re.compile(
+        "|".join(rf"(?<!\w){re.escape(name)}(?!\w)" for name in withheld),
+        re.IGNORECASE)
+    if not combined.search(rendered):
+        return
     found = sorted({name for name in withheld
                     if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", rendered,
                                  re.IGNORECASE)})

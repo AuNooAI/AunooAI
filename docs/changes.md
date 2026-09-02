@@ -133,6 +133,17 @@ now shows the future-signal vocabulary alongside the categories. The inert bare
 reads it, and its empty corpus sat in the Anticipate dropdown (it was the topic the
 fetch storm span on).
 
+### Fix — Auspex deep-research reports now get the humanizer pass
+The Wiley bundle prose has run through humanize-mcp's detector-driven rewrite
+since May, but Auspex research reports never did — the current Sunstar Q1/Q2
+reports scored 72 and 81 AI tells (rule-of-three, AI vocabulary, em-dash
+overuse). `deep_research_service` now runs a section-by-section pass after
+source attribution: paragraph chunks up to 5k chars through the shared
+`humanize_text` (its 4k-token cap makes whole-report rewrites impossible),
+skipping References/Methodology, chart markers and short fragments, and
+reverting any chunk whose rewrite loses citation links. Same `WILEY_HUMANIZE`
+gate, non-fatal on any failure; the stream reports a "humanizing" stage.
+
 ### Fix — consensus HTML export: inline citations were dead text, and the cover said WILEY
 The standalone consensus download escaped the narrative's [n] citation markers
 as plain text (the in-app view links them via `renderCitations`), so a reader
