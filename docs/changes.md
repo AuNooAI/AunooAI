@@ -2,6 +2,46 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Provisioning script seeds the customer's organisation profile and flags it default
+
+### Goal
+A brand site stamped from the template inherits only the stock "Generic Enterprise"
+profile, and since this afternoon every analysis falls back to whichever profile is
+flagged default. Without a customer profile a new site writes generic reports, which is
+what happened on sunstar and oviva today.
+
+### Feature — `scripts/provision_brand_tenant.py` step 8, organisation profile
+After the brand is seeded (fresh-brand path only; data clones carry their source's
+profiles and get a log line instead), the script builds a profile in the shape used for
+the Oviva site: description, industry, organisation type, region, competitors, four
+default concerns (adverse media, employer reputation, competitor moves, market
+narratives), three priorities, four stakeholder groups. On a terminal it prompts for
+each field with the default shown; Enter keeps it, `-` clears it. Flags
+`--profile-description --industry --org-type --region --competitors` pre-fill the
+prompts; `--profile-json <file>` supplies the whole profile and skips them;
+`--no-profile` skips the step and says so. Non-interactive runs seed the default shape
+without prompting.
+
+Seeding goes through `POST /api/organizational-profiles`, then looks the row up by name,
+because the create route returns the insert's rowcount as `profile_id` (the facade
+returns the raw execute result and the route passes it through; not changed here, the
+lookup by name is exact since the API rejects duplicate names). `is_default` is flipped
+in the database with `UPDATE ... SET is_default = (id = <new>)`, since the create API
+has no such field, and the script then verifies through the API that exactly that
+profile is default.
+
+### Verification
+Harness against bwtemplate (service started for the test, stopped after): the
+`--profile-json` path, the flags-only path and `--no-profile` resolve as expected;
+`seed_profile` created "Acme Test" as id 10, flagged it default, and the API listing
+showed it as the only default. The test row was deleted and "Generic Enterprise"
+restored as the template default, so the golden dump cut earlier today is unaffected
+(the id sequence advanced, which is harmless).
+
+### Propagation
+Canonical `scripts/provision_brand_tenant.py`, copied to bwtemplate's `scripts/`. The
+script runs from either tree as root.
+
 ## 2026-09-03 — bwtemplate resynced to canonical and the golden dump re-cut
 
 ### Goal

@@ -79,7 +79,9 @@ below plus brand seeding and verification:
 
 ```
 provision_brand_tenant.py provision --slug acme --brand "Acme Publishing" \
-    --aliases "Acme Corp,ACME" --keywords "Acme Press"   # full stamp-out
+    --aliases "Acme Corp,ACME" --keywords "Acme Press"   # full stamp-out \
+    --industry "Academic publishing" --region "United Kingdom" \
+    --competitors "Elsevier,Springer Nature"     # profile fields; the rest is prompted
 provision_brand_tenant.py provision --slug acme --brand "Acme" --skip-nginx  # no TLS/site
 provision_brand_tenant.py destroy --slug acme --yes      # complete teardown
 ```
@@ -111,6 +113,15 @@ Per tenant X (slug = DB name, user `X_user`), following the proven clone playboo
    `social_keyword_excludes`), a "Brand Monitoring <Brand>" keyword group +
    `monitored_keywords`, matching topic in `app/config/config.json` (copy the
    "Brand Monitoring" template topic), reset admin password
+6b. **Seed the organisation profile** (the script does this after the brand): every
+   analysis, executive summary and Auspex chat falls back to the profile flagged
+   `is_default`, and the template ships only the stock "Generic Enterprise" one. On a
+   terminal the script prompts for description, industry, organisation type, region,
+   competitors, concerns, priorities, stakeholders and extra context, with the shape
+   used for the Oviva site as defaults; `--profile-json <file>` supplies the whole
+   profile and `--no-profile` skips it. It POSTs `/api/organizational-profiles`, looks
+   the row up by name (the create response carries no usable id), flips `is_default`
+   in the database, and verifies through the API that exactly that profile is default.
 7. Verify: service active, `GET /api/modules` → `dedicated_mode: true` + only
    brand_watcher enabled, `/` → `/explore`, BW APIs return clean empty states,
    login forces password change

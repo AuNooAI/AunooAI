@@ -23,6 +23,6 @@ Foresight, open in a fresh browser: the Organizational Profile box shows the sit
 None. This closes a correctness gap rather than adding capability.
 
 ## Limits and what's next
-- A site with no profile flagged as default still gets generic output. Oviva is in that state today: its default is the stock "Generic Enterprise" profile.
+- New brand sites now get their profile at provisioning time: the setup script asks the operator for the organisation's description, industry, markets, competitors and priorities, creates the profile and makes it the default. Oviva's profile was added by hand the same day.
 - The Auspex chat still has no way to pick a profile other than the default.
 - Sites running older code (ibaset, pearson) do not have this yet.
