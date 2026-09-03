@@ -2,6 +2,41 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Newsletter generator: rejected articles, OpenPR counted as NPR, leaked instruction
+
+### Fix — the newsletter only sees articles the relevance gate approved
+A newsletter for "Market Monitoring SOC Automation" on bugfixing came back with
+Gaming, Automotive, Museum Heists and a "Market Monitoring Boom" section built from
+seven OpenPR press releases. The topic filter had applied; the corpus was the problem.
+Both fetch paths (`data/auspex/plugins/newsletter_generator/handler.py` and
+`app/services/newsletter_service.py`) pulled every row carrying the topic label, and
+1,334 of the 1,658 rows in the week were `ingest_status = filtered_relevance` with an
+average alignment of 0.12. A new `is_approved_article()` keeps only `approved` rows
+(a missing status still passes, for older rows and vector-store hits), on the date
+query and the SQL fallback. The log line now prints both counts. Social posts carry
+`social_evaluated`, so they drop out of newsletters too; say so if that should change.
+
+### Fix — source quality is matched on whole domain labels, not substrings
+The deep-dive picker scored sections with `any(hs in source for hs in HIGH_QUALITY_SOURCES)`.
+"npr" is inside "openpr.com" and "ap" is inside "app.com.pk", so every OpenPR press
+release counted as NPR (+3) and the press-release section beat "Agentic SOC Revolution"
+for the deep dive. `source_matches()` now compares single-word names against whole
+labels (split on dots and punctuation) and multi-word names as whole phrases. The
+tiers gained the domain-shaped names (apnews, theguardian, nytimes, arstechnica,
+theverge, theregister, theinformation, ycombinator, ieee) so real outlets keep their
+bonus. Checked against 20 real `news_source` values, no mismatches.
+
+### Fix — "USE THE PRE-GENERATED ANALYSIS:" no longer appears in the output
+The writing prompt told the model "USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it
+directly into this section." under the Deep Dive heading, and gpt-4.1 printed the
+sentence. The finished analysis now sits directly under the heading in the output
+template, the separate "PRE-GENERATED" block is gone, and a house rule asks for the
+body word for word with no instruction text. Applied at all three prompt sites (two in
+the handler, one in the service). Rendered both branches of the prompt to check.
+
+Deployed to bugfixing, wiley and wileytest by file copy; services restarted (plugin
+handlers are cached at startup). No jobs were mid-run on any tenant.
+
 ## 2026-09-02 — Sunstar demo day 2: Brendan's questions arrived, Kao swapped for Haleon, momentum analyses run
 
 ### Input — the prospect's own questions (email 1 Sep 19:46)
@@ -235,6 +270,15 @@ so a market with nothing fresh keeps its best older story rather than an empty s
 development from the last `_V2_LEAD_MAX_AGE_DAYS` (7) days first and falls back to
 the full ranked list only when that window is empty; an undated development cannot
 lead. A fresh approved piece (3 days) still overrides everything.
+
+### Fix — the hiring card's heading stops counting itself
+"Top 5 of 10 vendors with 5 or more open roles" repeated the section subline and made
+the reader do arithmetic. When the list is capped the heading in
+**`market_report_html.py`** (`_render_hiring_block`) now says "Top 5 by open roles";
+the uncapped section-page form ("11 vendors with 5 or more open roles") is unchanged,
+and the "All N →" link still says there are more. Assertion updated in
+`tests/test_market_report_v2.py`; 17 passed plus the one known copy-test failure.
+Restarted 23:01, login 200; heading verified live on the front page.
 
 ### Ops — Eventus Security and D3 Security added to market 2 (database only)
 Both asked through the front page's vendor-request form (rows 18 and 20 in

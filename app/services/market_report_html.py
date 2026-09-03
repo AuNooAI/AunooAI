@@ -2576,8 +2576,8 @@ def _render_hiring_block(devs: List[Dict[str, Any]], *,
     return (f'<article class="n-story" id="{_dev_anchor(first)}" '
             'style="--story:var(--n-green)">'
             '<div class="n-story-tag">Hiring</div>'
-            + (f'<h3>Top {len(devs)} of {total} vendors with {massess_min_openings()} '
-               'or more open roles</h3>' if total and total > len(devs) else
+            + (f'<h3>Top {len(devs)} by open roles</h3>'
+               if total and total > len(devs) else
                f'<h3>{len(devs)} vendors with {massess_min_openings()} or more open '
                'roles</h3>')
             + '<div class="n-byline">Job listings · this period</div>'

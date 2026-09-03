@@ -21,19 +21,57 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from app.services.tool_plugin_base import ToolHandler, ToolResult
 
 
-# Source quality tiers for prioritization
+# Source quality tiers for prioritization.
+# Entries are matched as whole domain labels or whole words (see source_matches),
+# never as substrings: "npr" must not match "openpr.com", and "ap" must not
+# match "app.com.pk". Domain-shaped names are listed alongside the readable ones.
 HIGH_QUALITY_SOURCES = {
-    "reuters", "ft", "financial times", "wsj", "wall street journal", "bloomberg",
-    "ap", "associated press", "mit technology review", "nature", "science",
-    "wired", "ars technica", "the verge", "techcrunch", "nyt", "new york times",
-    "washington post", "guardian", "economist", "bbc", "npr"
+    "reuters", "ft", "financialtimes", "financial times", "wsj", "wall street journal",
+    "bloomberg", "ap", "apnews", "associated press", "technologyreview",
+    "mit technology review", "nature", "science", "wired", "arstechnica", "ars technica",
+    "theverge", "the verge", "techcrunch", "nyt", "nytimes", "new york times",
+    "washingtonpost", "washington post", "theguardian", "guardian", "economist",
+    "bbc", "npr"
 }
 
 MEDIUM_QUALITY_SOURCES = {
     "forbes", "fortune", "cnbc", "venturebeat", "zdnet", "cnet", "engadget",
-    "ieee spectrum", "hacker news", "medium", "substack", "stratechery",
-    "the register", "information", "protocol", "semafor", "axios", "politico"
+    "ieee", "ieee spectrum", "ycombinator", "hacker news", "medium", "substack",
+    "stratechery", "theregister", "the register", "theinformation", "information",
+    "protocol", "semafor", "axios", "politico"
 }
+
+
+def source_matches(source: str, names) -> bool:
+    """True when a source name belongs to one of the quality tiers.
+
+    Single-word names must equal a whole label of the source, splitting on dots,
+    slashes, spaces and punctuation. Multi-word names must appear as a whole
+    phrase. Substring matching is deliberately avoided.
+    """
+    s = (source or '').lower().strip()
+    if not s:
+        return False
+    labels = set(re.split(r'[^a-z0-9]+', s)) - {''}
+    for name in names:
+        n = name.lower()
+        if ' ' in n:
+            if re.search(r'(?<![a-z0-9])' + re.escape(n) + r'(?![a-z0-9])', s):
+                return True
+        elif n in labels:
+            return True
+    return False
+
+
+def is_approved_article(article) -> bool:
+    """Keep only articles the relevance gate approved.
+
+    A missing ingest_status (older rows, vector-store hits) passes through;
+    any other explicit status (filtered_relevance, social_evaluated, ...) is
+    excluded so rejected collection noise never reaches the newsletter.
+    """
+    status = article.get('ingest_status')
+    return status is None or status == 'approved'
 
 
 class NewsletterGeneratorHandler(ToolHandler):
@@ -279,9 +317,9 @@ class NewsletterGeneratorHandler(ToolHandler):
             score = 0
             for art in section_articles:
                 source = (art.get('news_source') or '').lower()
-                if any(hs in source for hs in HIGH_QUALITY_SOURCES):
+                if source_matches(source, HIGH_QUALITY_SOURCES):
                     score += 3
-                elif any(ms in source for ms in MEDIUM_QUALITY_SOURCES):
+                elif source_matches(source, MEDIUM_QUALITY_SOURCES):
                     score += 1
                 else:
                     score += 0.5
@@ -466,12 +504,16 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
                     end_date=end_date.strftime('%Y-%m-%d')
                 )
                 if db_articles:
-                    for art in db_articles:
+                    approved = [a for a in db_articles if is_approved_article(a)]
+                    self.logger.info(
+                        f"DB date range search: {len(db_articles)} articles, "
+                        f"{len(approved)} approved by the relevance gate"
+                    )
+                    for art in approved:
                         uri = art.get('uri') or art.get('id')
                         if uri and uri not in seen_uris:
                             seen_uris.add(uri)
                             articles.append(art)
-                    self.logger.info(f"DB date range search: {len(db_articles)} articles")
             elif hasattr(db, 'facade') and hasattr(db.facade, 'get_articles_by_topic'):
                 db_articles = db.facade.get_articles_by_topic(topic=topic, limit=2000)
                 if db_articles:
@@ -533,6 +575,7 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
             try:
                 db_articles, count = db.search_articles(topic=topic, page=1, per_page=100)
                 if db_articles:
+                    db_articles = [a for a in db_articles if is_approved_article(a)]
                     for art in db_articles:
                         uri = art.get('uri') or art.get('id')
                         if uri and uri not in seen_uris:
@@ -637,9 +680,9 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
         medium_sources = config_medium_sources or MEDIUM_QUALITY_SOURCES
 
         source = (article.get('news_source') or '').lower()
-        if any(hs in source for hs in high_sources):
+        if source_matches(source, high_sources):
             score += high_quality_bonus
-        elif any(ms in source for ms in medium_sources):
+        elif source_matches(source, medium_sources):
             score += medium_quality_bonus
 
         same_day_bonus = recency_config.get('same_day_bonus', 25)
@@ -816,17 +859,15 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
 """
 
         # Pre-generated deep dive section
-        deep_dive_section = ""
-        if deep_dive_analysis:
-            deep_dive_section = f"""
-## PRE-GENERATED DEEP DIVE ANALYSIS
-
-Topic: {deep_dive_topic}
-
-{deep_dive_analysis}
-
-**USE THIS ANALYSIS AS-IS for The Deep Dive section. Do not regenerate it.**
-"""
+        # The finished deep-dive text goes straight into the output template under
+        # its own heading, so the writer reproduces prose rather than an instruction.
+        # An earlier version put "USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it
+        # directly into this section." at that spot and gpt-4.1 printed the sentence.
+        deep_dive_rule = (
+            "\n- The Deep Dive body is already written under its heading above: "
+            "reproduce it word for word, add nothing, and print no instruction text"
+            if deep_dive_analysis else ""
+        )
 
         return f"""{org_context_section}CRITICAL INSTRUCTION - URLS ARE MANDATORY:
 Format ALL citations as markdown links: **[Headline](URL)** (Source, Date)
@@ -844,7 +885,6 @@ Dataset: {total_articles} curated articles. Use only these sources. ALWAYS CITE 
 
 {sections_context}
 
-{deep_dive_section}
 
 ---
 
@@ -858,7 +898,7 @@ Keep punchy.
 
 ## The Deep Dive — {deep_dive_topic or 'Key Development'}
 
-{"USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it directly into this section." if deep_dive_analysis else '''
+{deep_dive_analysis if deep_dive_analysis else '''
 Analyze the most significant trend/claim/incident using MULTIPLE articles (not just one!):
 - What happened, why now, broader context (200-300 words)
 - Consensus vs outlier takes (cite multiple sources)
@@ -895,7 +935,7 @@ One-line "so what" for each.
 
 ---
 
-House Rules:
+House Rules:{deep_dive_rule}
 - Every citation = markdown link with URL
 - No article repetition across sections
 - Geographic diversity
@@ -1201,9 +1241,9 @@ Ensure ALL articles (1 through {len(articles)}) are assigned to exactly one sect
             score = 0
             for art in section_articles:
                 source = (art.get('news_source') or '').lower()
-                if any(hs in source for hs in HIGH_QUALITY_SOURCES):
+                if source_matches(source, HIGH_QUALITY_SOURCES):
                     score += 3
-                elif any(ms in source for ms in MEDIUM_QUALITY_SOURCES):
+                elif source_matches(source, MEDIUM_QUALITY_SOURCES):
                     score += 1
                 else:
                     score += 0.5
@@ -1250,17 +1290,15 @@ Ensure ALL articles (1 through {len(articles)}) are assigned to exactly one sect
 ---
 """
 
-        deep_dive_section = ""
-        if deep_dive_analysis:
-            deep_dive_section = f"""
-## PRE-GENERATED DEEP DIVE ANALYSIS
-
-Topic: {deep_dive_topic}
-
-{deep_dive_analysis}
-
-**USE THIS ANALYSIS AS-IS for The Deep Dive section. Do not regenerate it.**
-"""
+        # The finished deep-dive text goes straight into the output template under
+        # its own heading, so the writer reproduces prose rather than an instruction.
+        # An earlier version put "USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it
+        # directly into this section." at that spot and gpt-4.1 printed the sentence.
+        deep_dive_rule = (
+            "\n- The Deep Dive body is already written under its heading above: "
+            "reproduce it word for word, add nothing, and print no instruction text"
+            if deep_dive_analysis else ""
+        )
 
         # Build section instructions dynamically
         section_instructions = ""
@@ -1284,7 +1322,6 @@ Dataset: {total_articles} curated articles organized into {len(sections)} sectio
 
 {sections_context}
 
-{deep_dive_section}
 
 ---
 
@@ -1296,7 +1333,7 @@ Write a newsletter with the following sections. Each section should include rele
 
 ## The Deep Dive — {deep_dive_topic or 'Key Development'}
 
-{"USE THE PRE-GENERATED ANALYSIS ABOVE. Copy it directly into this section." if deep_dive_analysis else '''
+{deep_dive_analysis if deep_dive_analysis else '''
 Select the most significant story and analyze using MULTIPLE articles:
 - What happened, why now, broader context (200-300 words)
 - Consensus vs outlier takes (cite multiple sources)
@@ -1306,7 +1343,7 @@ Select the most significant story and analyze using MULTIPLE articles:
 
 ---
 
-House Rules:
+House Rules:{deep_dive_rule}
 - Every citation = markdown link with URL
 - No article repetition across sections
 - Geographic diversity where possible

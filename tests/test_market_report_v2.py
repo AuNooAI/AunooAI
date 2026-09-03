@@ -50,7 +50,7 @@ def test_hiring_is_ordered_by_open_roles_and_the_top_of_it_says_so():
     parts = html._v2_sections([lead, head, small, big], [], [], [])
     assert parts["buckets"]["hiring"] == [big, small, head]
     block = html._render_hiring_block([big, small], total=8)
-    assert "Top 2 of 8 vendors with" in block
+    assert "Top 2 by open roles" in block
     assert "2 vendors with" in html._render_hiring_block([big, small])
 
 
