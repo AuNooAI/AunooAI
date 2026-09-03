@@ -70,6 +70,37 @@ def is_approved_article(article) -> bool:
     return status is None or status == 'approved'
 
 
+def newsletter_date(article) -> str:
+    """The date the newsletter filters on.
+
+    The database query already ranges on COALESCE(submission_date, publication_date),
+    so the in-memory filter must look at the same field first. Filtering on the
+    publication date alone dropped articles collected this week that carried an
+    older publication date (143 -> 81 on one run).
+    """
+    return (article.get('submission_date') or article.get('pub_date')
+            or article.get('publication_date') or '')
+
+
+_HEADING_RE = re.compile(r'^(#{1,2})\s+', re.M)
+
+
+def normalize_deep_dive(text: str) -> str:
+    """Make the deep-dive body sit under the newsletter's own heading.
+
+    Models open the analysis with a title of their own ("# Three Simultaneous
+    Conflicts ..."), which renders as a top-level heading in the middle of the
+    newsletter. Drop any heading lines at the very top and demote the H1/H2
+    headings that remain to H3.
+    """
+    if not text:
+        return text
+    lines = text.strip().splitlines()
+    while lines and (lines[0].startswith('#') or not lines[0].strip()):
+        lines.pop(0)
+    return _HEADING_RE.sub('### ', '\n'.join(lines)).strip()
+
+
 @dataclass
 class NewsletterConfig:
     """Configuration for newsletter generation."""
@@ -375,7 +406,7 @@ class NewsletterService:
 
     def _is_within_date_range(self, article: Dict, start_date: datetime, end_date: datetime) -> bool:
         """Check if article is within date range."""
-        pub_date = article.get('pub_date') or article.get('publication_date', '')
+        pub_date = newsletter_date(article)
         if not pub_date:
             return True
 
@@ -743,6 +774,7 @@ Analyze using MULTIPLE articles:
 ## OUTPUT:
 
 300-400 words, Atlantic/Stratechery style.
+- Do not open with a title or heading; the newsletter supplies the heading. Use ### for any sub-headings
 - Citations as markdown links: **[Title](URL)**
 - Call out hype vs substance
 - End with Strategic Insight bullets"""
@@ -754,11 +786,11 @@ Analyze using MULTIPLE articles:
                     # Use 8000 tokens for deep dive analysis
                     response = await model.generate(prompt, max_tokens=8000)
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                        return response.message.content
-                    return str(response)
+                        return normalize_deep_dive(response.message.content)
+                    return normalize_deep_dive(str(response))
                 elif hasattr(model, 'acomplete'):
                     response = await model.acomplete(prompt)
-                    return response.text if hasattr(response, 'text') else str(response)
+                    return normalize_deep_dive(response.text if hasattr(response, 'text') else str(response))
         except Exception as e:
             self.logger.error(f"Deep dive generation failed: {e}")
 

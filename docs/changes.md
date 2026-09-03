@@ -34,6 +34,27 @@ template, the separate "PRE-GENERATED" block is gone, and a house rule asks for 
 body word for word with no instruction text. Applied at all three prompt sites (two in
 the handler, one in the service). Rendered both branches of the prompt to check.
 
+### Fix — the in-memory date filter looks at the same date as the query
+The database query ranges on `COALESCE(submission_date, publication_date)` but both
+files then re-filtered in Python on the publication date alone, so articles collected
+this week with an older publication date were thrown away (143 approved rows became
+81 on the rerun). `newsletter_date()` now prefers `submission_date`, falling back to
+the publication date for vector-store hits that carry none.
+
+### Fix — the deep dive no longer brings its own H1
+gpt-4.1 opened the analysis with "# Three Simultaneous Conflicts ...", which rendered
+as a top-level title in the middle of the newsletter under the section it came from.
+`normalize_deep_dive()` drops heading lines at the top of the analysis and demotes any
+remaining H1/H2 to H3, and the deep-dive prompt now says not to open with a title.
+
+Verified by rerunning the tool on "Market Monitoring SOC Automation" through the
+Auspex chat endpoint (chat 296, then again after these two fixes): the corpus went
+from 1,177 to the approved set, the OpenPR section and the leaked sentence are gone.
+What remains is upstream: about 25 of the approved articles that week are Iran/Hormuz
+and Ukraine coverage with alignment 0.84–0.87 and categories (Military Activity,
+Regional Conflicts) that are not in the topic's allowed list, so the relevance gate
+is approving off-topic geopolitics on this topic. Not touched.
+
 Deployed to bugfixing, wiley and wileytest by file copy; services restarted (plugin
 handlers are cached at startup). No jobs were mid-run on any tenant.
 

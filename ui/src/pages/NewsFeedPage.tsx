@@ -219,7 +219,7 @@ export function NewsFeedPage() {
   const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
-  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents', 'timeline'];
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'market_monitor', 'agents', 'timeline'];
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
     try {
       const saved = localStorage.getItem('explore_last_tab');
@@ -233,7 +233,7 @@ export function NewsFeedPage() {
   useEffect(() => {
     try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
   }, [currentTab]);
-  // Dedicated Brand Watcher tenants only expose the Brand Watcher + Agents tabs.
+  // Dedicated Brand Watcher tenants only expose the tabs in DEDICATED_TABS (Market Monitor included, since a brand tenant can use it for LinkedIn and owned-site collection).
   useEffect(() => {
     if (dedicatedMode && !DEDICATED_TABS.includes(currentTab)) setCurrentTab('brand_watcher');
   }, [dedicatedMode, currentTab]);
