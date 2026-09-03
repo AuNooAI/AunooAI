@@ -109,9 +109,12 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
-  const consensusType = category['1_consensus_type'];
+  // A truncated LLM response (json_repair salvages a half-written category) can
+  // leave any of these sections missing. Default them so one bad category does
+  // not take the whole Consensus tab down with "cannot read 'majority_agreement'".
+  const consensusType = category['1_consensus_type'] || ({ summary: '', distribution: { positive: 0, neutral: 0, critical: 0 }, confidence_level: 0 } as ConsensusType);
   const timelineConsensus = category['2_timeline_consensus'];
-  const confidenceLevel = category['3_confidence_level'];
+  const confidenceLevel = category['3_confidence_level'] || ({ majority_agreement: 0, consensus_strength: 'Emerging', evidence_quality: 'Low' } as ConfidenceLevel);
   const optimisticOutliers = category['4_optimistic_outliers'] || [];
   const pessimisticOutliers = category['5_pessimistic_outliers'] || [];
   const keyArticles = category['6_key_articles'] || [];
@@ -124,7 +127,7 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
 
   // Normalize sentiment distribution - handle fractions, raw counts, or percentages
   const normalizedDistribution = (() => {
-    const { positive, neutral, critical } = consensusType.distribution;
+    const { positive = 0, neutral = 0, critical = 0 } = consensusType.distribution || {};
     const sum = positive + neutral + critical;
 
     // If sum is around 1.0, they're fractions (0.6, 0.3, 0.1) - convert to percentages

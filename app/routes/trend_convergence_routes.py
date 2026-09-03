@@ -1282,6 +1282,27 @@ Article {i}:
                     logger.error(f"INVALID TYPE: Scenario {i} has type '{actual_type}' instead of h1/h2/h3")
                     logger.error(f"Full scenario: {scenario}")
 
+        # Drop categories a truncated response left half-written. json_repair
+        # closes the JSON where the model stopped, so the last category can be
+        # missing its confidence block (and everything after it); the React
+        # card reads `3_confidence_level.majority_agreement` and the whole tab
+        # crashed on one such category (wileytest, Patent Cliffs, 2026-09-03).
+        if isinstance(trend_convergence_data.get('categories'), list):
+            complete, dropped = [], []
+            for category in trend_convergence_data['categories']:
+                if (isinstance(category, dict)
+                        and isinstance(category.get('1_consensus_type'), dict)
+                        and isinstance(category.get('3_confidence_level'), dict)):
+                    complete.append(category)
+                else:
+                    dropped.append((category or {}).get('category_name', '?') if isinstance(category, dict) else '?')
+            if dropped:
+                logger.warning(
+                    f"Dropping {len(dropped)} incomplete consensus categor{'y' if len(dropped) == 1 else 'ies'} "
+                    f"(missing 1_consensus_type or 3_confidence_level, usually a truncated response): {dropped}"
+                )
+                trend_convergence_data['categories'] = complete
+
         # Normalize sentiment distributions in categories (fix data quality issues)
         if 'categories' in trend_convergence_data:
             for category in trend_convergence_data['categories']:

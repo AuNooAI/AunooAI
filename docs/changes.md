@@ -81,6 +81,40 @@ The template's golden dump lags its code: resync and migrate every new clone bef
 trusting collection. On a brand tenant, "every brand is a market vendor" trips any rule
 written for the SOC market, and the three fixes above are unlikely to be the last.
 
+## 2026-09-03 — Consensus tab crashed on wileytest: "Cannot read properties of undefined (reading 'majority_agreement')"
+
+### Diagnosis
+The Patent Cliffs consensus run at 14:54 on wileytest (claude-sonnet-4-5, 1-day window)
+ran with "Context limit: 16385, Max output limit: 4096": wileytest's
+`app/services/auspex_service.py` never received the 31 Aug Bedrock-alias entries in
+the two model-limit tables, so the alias fell to the 16k/4k defaults. The JSON was
+cut at character 17,008, json_repair closed it, and the second category was saved
+with only `1_consensus_type` and `2_timeline_consensus`. wileytest still renders the
+old `ConsensusCategoryCard` (bugfixing and wiley moved to `foresight/ConsensusView`,
+which guards), and the card reads `3_confidence_level.majority_agreement` unguarded,
+so the whole tab went down.
+
+### Fixes
+- **Model limits (wiley + wileytest only, surgical insert):** the 2026-08-31 alias
+  blocks (`claude-sonnet-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4-5`,
+  `bedrock-claude-*`, `nova-*`, `bedrock-kimi-k2-5`) added to both tables in
+  `auspex_service.py`. Sonnet 4.5 now gets 200k context / 64k output there as on bugfixing.
+- **Backend (all three):** `trend_convergence_routes.py` drops any category missing
+  `1_consensus_type` or `3_confidence_level` after parsing and logs which ones, so a
+  truncated response never reaches the UI half-written.
+- **UI (source in all three, bundle rebuilt on wileytest only):**
+  `ConsensusCategoryCard.tsx` defaults the consensus-type and confidence blocks and
+  the distribution; `TimelineVisualization.tsx` falls back to the full span when the
+  consensus window is missing. bugfixing and wiley no longer import either component,
+  so their bundles are unchanged. wileytest bundle `main-DJY72rg-.js` (was
+  `main-CQwMygOh.js`, built 2 Sep 21:55). bugfixing typecheck clean (230 known errors,
+  16 baseline errors now fixed, baseline not updated).
+
+The stored run `e7c86846-782f-49b3-8a31-db51f0495c5a` keeps its half category, and
+cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filter only
+applies to new generations. The rebuilt UI renders that cached run with a zeroed
+confidence block until the 24h cache expires.
+
 ## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
 
 ### Diagnosis — why geopolitics reached an "approved" state on a vendor-market topic
