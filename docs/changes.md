@@ -123,7 +123,26 @@ already flag "Wiley Scientific Publisher" (id 1) as the default —
 each venv). An earlier draft of this entry said no default row was flagged;
 that claim was written without querying the rows and was wrong. Both
 restarted again ~22:22 while idle, serving 200, clean logs; wiley's cache_only
-horizons/consensus probes both 200. Earlier restarts ~22:00: wileytest idle at the time; wiley was
+horizons/consensus probes both 200. **Remaining tenants, ~22:45:** facade
+lineage checked by hashing each tenant's file against the last 40 canonical
+facade commits. oviva (== today's `07e28261`) and the bwtemplate tree (==
+`87fc5898`) took the current canonical facade whole-file — for them that also
+carries the Foresight facade pieces they were behind on. wbm and abm (both ==
+Aug-11 `bffe2756`, three weeks of feature drift whose migrations they may lack)
+got the race fixes only: helper block inserted, all four transform passes, the
+ten known manual fixes (both bad-merge repairs, `mappings().first()`,
+`scalar_one`, all Six-Articles fixes, `source_counts`, `get_user_preference`) —
+every anchor matched, post-pass audit clean on both. Their safe-by-construction
+sites were left as is: `conn = self.connection` held-in-variable fetches, the
+SET LOCAL keyword-stats block, and the cursor-in-with-block queries. oviva, wbm
+and abm restarted ~22:45 (idle, only the facade newer than boot, no pending
+migrations) — all three serve 200, clean logs, facade smoke tests pass via each
+venv. **Skipped:** pearson (facade matches no canonical blob — uniquely drifted
+— and its service is in failed state; needs its own careful pass), ibaset (no
+local systemd unit for it on this host), and the dormant trees (interroll,
+helpnet, pbm, opendemo, community, skunkworkx, spiros, testbed, vc; sage and
+abbott are shut down) — those catch up via the tenant catch-up procedure when
+next touched. Earlier restarts ~22:00: wileytest idle at the time; wiley was
 mid-sweep, so a background watcher waited for a 40-second quiet gap in the ingest
 journal and the restart went into it. Both serve 200 with clean logs; wiley's
 keyword monitor resumed on the new code. bugfixing restarted 21:25 — that restart interrupted
