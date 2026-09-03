@@ -42,7 +42,8 @@ behind auth; dedicated mode is UI scoping, not route lockdown.
 - **Code**: clone of bugfixing.aunoo.ai at provisioning time (branch
   emergencybugfix/wiley26062026foresight state, incl. Five Signals + dedicated mode)
 - **DB** (`bwtemplate`, dump at `/var/tmp/bw_template.dump`, alembic head
-  `bw_017_signals_xnet`): full schema (164 tables) with all tenant data wiped.
+  `kg_lang_001` since the 2026-09-03 refresh; earlier dumps kept beside it as
+  `.prev-<date>`): full schema (208 tables) with all tenant data wiped.
   Kept: `mediabias` (MBFC reference), `organizational_profiles` (generic ones,
   "Generic Enterprise" is default), `auspex_prompts`, settings/monitor-status
   singletons, `alembic_version`. Wiped: articles and everything derived, all bw_*
@@ -118,7 +119,29 @@ Per tenant X (slug = DB name, user `X_user`), following the proven clone playboo
 
 After code changes ship to bugfixing: rsync code + built static + templates from
 bugfixing into bwtemplate, `alembic upgrade head` on the bwtemplate DB, restart,
-re-dump to `/var/tmp/bw_template.dump`. The dump must stay readable by the
+re-dump to `/var/tmp/bw_template.dump`. Last done 2026-09-03 (from `bwr_001` to
+`kg_lang_001`, 31 migrations). The exact steps that worked:
+
+1. Blob-history drift check first (`git hash-object` each differing template
+   file, `git cat-file -e` in canonical): a blob that exists in history is pure
+   lag and safe to overwrite; anything else gets a two-way diff before the copy.
+2. `rsync -a --exclude='/config/' app/`, then `alembic/`, `scripts/`, `ui/`
+   (minus node_modules/build/dist), `templates/`, and `static/trend-convergence/`
+   with `--delete`. `app/config/` is the keeper: config.json holds the seed
+   "Brand Monitoring" topic, and litellm_config.yaml / provider_config.json are
+   the template's own. Copy `requirements.txt` and install anything new into
+   the template venv with `.venv/bin/python -m pip`.
+3. Start the service (the unit decrypts `.env` on start), run
+   `.venv/bin/alembic upgrade head` from the template directory as orochford,
+   then probe with `to_regclass()` for the tables the new migrations create.
+   Do not trust the "Running upgrade" lines alone.
+4. Restart, `curl /api/health`, read the journal for tracebacks, confirm the
+   tables are still empty (articles, bw_brands, keyword_groups, signal_instructions
+   all 0; users = admin only).
+5. `mv` the old dump to `.prev-<date>`, `sudo -u postgres pg_dump -Fc --no-owner
+   --no-acl -d bwtemplate > /var/tmp/bw_template.dump`, `chown root:postgres`,
+   `chmod 640`. Test-restore into a scratch database and drop it.
+6. `systemctl stop` the service; the unit re-encrypts and removes `.env`. The dump must stay readable by the
 postgres OS user (`chown root:postgres`, `chmod 640`) — pg_restore runs as
 postgres and 600/root breaks provisioning. The DB stays clean as long as nothing
 is ingested (no keyword groups exist, so collectors gather nothing).

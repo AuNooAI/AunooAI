@@ -2,6 +2,41 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — bwtemplate resynced to canonical and the golden dump re-cut
+
+### Goal
+The Brand Watcher tenant template had not been refreshed since 6 August: 128 of the 372
+tracked Python files under `app/` differed from canonical, its schema sat at `bwr_001`
+against canonical's `kg_lang_001`, and every brand site provisioned from it started that
+far behind (oviva needed a resync straight after provisioning this morning).
+
+### Ops — template refreshed (uncommittable; the template is a deploy target)
+Blob-history check first: 73 differing files were historical blobs (pure lag); 13 were
+unknown blobs, all inspected and all older forms of code canonical already carries
+(per-route `verify_session_api` decorators that canonical moved to router level in
+`40df8418`, an older signal-report retry, an older `/api/markdown_to_html`). No
+template-local features. A stray `app/services/brand_watcher_routes.py` (a 6,640-line
+mis-copy of the routes file) was removed. Rsynced `app/` (excluding `/config/`),
+`alembic/`, `scripts/`, `ui/` source, `templates/`, `static/trend-convergence/`
+(`--delete`), `requirements.txt`; `json_repair` installed into the template venv.
+`alembic upgrade head` ran `bwr_001 → kg_lang_001` in one pass (31 migrations, the
+Market Monitor and Entity Intelligence chains among them); probed `bw_markets`,
+`bw_market_brands`, `bw_entity_observations`, `bw_entity_events`, `bw_market_horizon`,
+`market_news_tips`, `forecast_scenario_status`, `keyword_groups.language/country/social_platforms`
+and the 768-d HNSW index. 208 tables now. Service restarted, `/api/health` 200, no
+tracebacks (the two startup errors are the inherited empty Bluesky and NewsData keys).
+Data still clean: 0 articles, 0 brands, 0 keyword groups, 0 agents, admin only.
+
+Golden dump re-cut: `/var/tmp/bw_template.dump` (1.7 MB, root:postgres 640); the 6 August
+dump kept as `.prev-20260903`. Test-restored into a scratch database: 208 tables, alembic
+`kg_lang_001`, 0 articles, 4,435 mediabias rows, 6 stock profiles, 1 user; scratch
+dropped. Service stopped again afterwards (it was stopped before), `.env` re-encrypted.
+The playbook `docs/BRAND_WATCHER_TENANT_TEMPLATE.md` now carries the exact refresh steps.
+
+Not done: the template's default profile is still the stock "Generic Enterprise", so a
+freshly provisioned site gets generic analyses until an operator adds its own profile and
+flags it default (see the default-profile entry below).
+
 ## 2026-09-03 — Analyses ran with no organisation profile; the default profile is now the fallback everywhere
 
 ### Goal
