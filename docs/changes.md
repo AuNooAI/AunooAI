@@ -119,9 +119,26 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
-## 2026-09-03 — SOC Automation keyword group: 14 vendor-name collision keywords dropped (database only)
+## 2026-09-03 — SOC Automation keyword group: 14 vendor-name keywords searched as exact phrases (database only)
 
-### Ops — the drop
+### Correction — deleted, then restored as quoted phrases
+The first pass deleted the 14 keywords outright. That removed the only free-text search
+the market runs for those vendors, which was wrong: the vendors are monitored on purpose.
+Restored all 14 with their original ids the same hour, then rewrote each as a quoted
+phrase (`"PRE Security"`, `"Command Zero"`, …). `_normalize_query()` in
+`app/collectors/newsfirehose_collector.py` passes a lone quoted phrase through intact so
+the firehose requires the words adjacent, and `app/tasks/keyword_monitor.py` sends each
+keyword as its own query, so the phrase reaches it unflattened. Quoted keywords were
+already in production use on all three sites (`"AI SOC"`, `"JD Vance"`, `"quantum
+computer"`).
+
+Measured against the firehose over the last 30 days (page size 100, so bare counts are a
+floor): "PRE Security" 100+ → 13, "Command Zero" 100+ → 4, "Mate Security" 100+ → 3. The
+phrase form still catches the vendor when it is named ("Mate Security Launches Gamebooks",
+hackernoon) and still admits some stemmed adjacency ("pre-security screening" at airports),
+which the gate now rejects correctly.
+
+### Diagnosis — the 14 and why
 Per-keyword diagnosis over the last 30 days (matches → approved) on group 16
 "SOC Automation - Market Watch": PRE Security 223 → 6, System Two Security 206 → 7,
 Method Security 201 → 1, Alpha Level 181 → 1, Command Zero 179 → 9, Mate Security 166 → 0,
@@ -131,9 +148,9 @@ Fig Security 27 → 0, Twine Security 10 → 0. We read every approved title beh
 names: not one is about the vendor (Command Zero's nine are Zelenskyy, Kim Jong Un and
 OpenAI Astra; PRE Security's six are CrowdStrike, Hormuz and gold). The firehose searches a
 name as AND-of-words, so "Mate security" is any article with "mate" and "security".
-Deleted the 14 rows from `monitored_keywords` (ids 418, 419, 421, 423, 424, 426, 427, 428,
-434, 443, 445, 449, 452, 455); 39 keywords remain. The monitor re-reads the table each
-cycle, no restart. Match history in `keyword_article_matches` untouched.
+Rows 418, 419, 421, 423, 424, 426, 427, 428, 434, 443, 445, 449, 452, 455 in
+`monitored_keywords` now carry the quoted form; 53 keywords in the group as before. The
+monitor re-reads the table each cycle, no restart. Match history untouched.
 
 Kept "AI security operations" (206 → 10): a topic phrase rather than a vendor name, broad
 by design ([[project_keyword_noise_sweep]] rule 2).
@@ -142,8 +159,8 @@ by design ([[project_keyword_noise_sweep]] rule 2).
 `plan_market_keywords()` in `app/services/market_collect.py` derives these names from the
 funded vendors in market 2 and appends the "security" qualifier to single-word names.
 Re-running the market's collection setup from the Market Monitor UI replaces the group's
-keywords with that plan, so the 14 return. The planner has no per-market exclusion list;
-adding one (config.collection_excludes) is the durable fix if the setup is re-run.
+keywords with that plan, so the 14 revert to the bare form. Making `keyword_for_vendor()`
+emit multi-word names quoted is the durable fix if the setup is re-run.
 
 ## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
 
