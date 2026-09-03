@@ -102,10 +102,16 @@ list endpoint (a converted fetchall path), all 200; both restarts clean.
 Committed in canonical. Sunstar: whole-file copies (tree was identical), restarted
 twice, serving. wiley/wileytest: the transform scripts were re-run against their
 drifted facades plus the same manual edits (wileytest's local `social_meta` lines
-verified intact) — both syntax-checked, **not restarted**: both trees carry
-another session's post-restart edits (`trend_convergence_routes.py`,
-`dashboard_routes.py`, `auspex_service.py`, `topic_report_service.py`), so the fix
-lands on their next restart. bugfixing restarted 21:25 — the restart interrupted
+verified intact) — both syntax-checked. Initially left un-restarted because both
+trees carried post-restart edits to `trend_convergence_routes.py` and three other
+files; inspection showed three of the four match canonical HEAD and the fourth
+(`trend_convergence_routes.py`) is an *older* coherent version whose facade call
+matches each tenant's own facade signature — the earlier Foresight-fix session's
+propagation to wiley/wileytest is incomplete, an open item for that work, not a
+restart blocker. Both restarted ~22:00: wileytest idle at the time; wiley was
+mid-sweep, so a background watcher waited for a 40-second quiet gap in the ingest
+journal and the restart went into it. Both serve 200 with clean logs; wiley's
+keyword monitor resumed on the new code. bugfixing restarted 21:25 — that restart interrupted
 one scheduled ingest cycle mid-batch (self-healed next cycle; the job check should
 have gated the restart and didn't). Other monolith tenants (oviva, wbm, pearson,
 ibaset, …) still have the race; it rides along with each tenant's next catch-up.

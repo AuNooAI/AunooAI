@@ -39,9 +39,8 @@ use the safe read pattern, not just the login check — so the whole class of
 550-request load test against the live Sunstar site (every request succeeded).
 A second sweep the same evening moved the many-row and count queries over as
 well, so every database read in the shared layer now uses the safe pattern.
-Wiley and wileytest have the fix on disk but keep running the old code until
-their next restart, and the other customer sites pick it up at their next sync
-with canonical. One unrelated bug surfaced during the sweep and was fixed the
+Wiley and wileytest were restarted the same evening and now run the fix; the
+other customer sites pick it up at their next sync with canonical. One unrelated bug surfaced during the sweep and was fixed the
 same evening: saving a "Six Articles" briefing configuration never actually
 persisted, because the save committed on the wrong database connection — and
 reading a saved configuration back would then have crashed, which no one had
