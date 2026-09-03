@@ -137,8 +137,17 @@ sites were left as is: `conn = self.connection` held-in-variable fetches, the
 SET LOCAL keyword-stats block, and the cursor-in-with-block queries. oviva, wbm
 and abm restarted ~22:45 (idle, only the facade newer than boot, no pending
 migrations) — all three serve 200, clean logs, facade smoke tests pass via each
-venv. **Skipped:** pearson (facade matches no canonical blob — uniquely drifted
-— and its service is in failed state; needs its own careful pass), ibaset (no
+venv. **pearson, ~22:30:** its facade turned out to be canonical June-18 `73ecf0b1`
+plus exactly one local hot-patch (the relevance-counter COALESCE fix), so it got
+the same treatment as wbm/abm — helpers, four passes, all ten manual fixes
+(every anchor matched), audit clean, syntax OK. No DB smoke test and no start:
+pearson was deliberately mothballed on Aug 11 — service killed at 21:34 and the
+`.env` encrypted to `.env.encrypted` in the same minute (the stale-Bedrock-key
+item), so the tenant has no credentials on disk and cannot start until someone
+decides to revive it and restore the env. The tree is ready for that day; note
+its `app/security/auth.py` is newer than its facade was and now hard-requires
+`NORN_SECRET_KEY`, so revival needs the env restored, not just decrypted
+verbatim. **Skipped:** ibaset (no
 local systemd unit for it on this host), and the dormant trees (interroll,
 helpnet, pbm, opendemo, community, skunkworkx, spiros, testbed, vc; sage and
 abbott are shut down) — those catch up via the tenant catch-up procedure when
