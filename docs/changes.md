@@ -119,6 +119,32 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
+## 2026-09-03 — SOC Automation keyword group: 14 vendor-name collision keywords dropped (database only)
+
+### Ops — the drop
+Per-keyword diagnosis over the last 30 days (matches → approved) on group 16
+"SOC Automation - Market Watch": PRE Security 223 → 6, System Two Security 206 → 7,
+Method Security 201 → 1, Alpha Level 181 → 1, Command Zero 179 → 9, Mate Security 166 → 0,
+Embed Security 149 → 4, Daylight Security 143 → 3, Legion Security 84 → 0,
+Artemis Security 83 → 1, Variance security 71 → 1, Radiant Security 47 → 1,
+Fig Security 27 → 0, Twine Security 10 → 0. We read every approved title behind those
+names: not one is about the vendor (Command Zero's nine are Zelenskyy, Kim Jong Un and
+OpenAI Astra; PRE Security's six are CrowdStrike, Hormuz and gold). The firehose searches a
+name as AND-of-words, so "Mate security" is any article with "mate" and "security".
+Deleted the 14 rows from `monitored_keywords` (ids 418, 419, 421, 423, 424, 426, 427, 428,
+434, 443, 445, 449, 452, 455); 39 keywords remain. The monitor re-reads the table each
+cycle, no restart. Match history in `keyword_article_matches` untouched.
+
+Kept "AI security operations" (206 → 10): a topic phrase rather than a vendor name, broad
+by design ([[project_keyword_noise_sweep]] rule 2).
+
+### Caveat — "Set up collection" would put them back
+`plan_market_keywords()` in `app/services/market_collect.py` derives these names from the
+funded vendors in market 2 and appends the "security" qualifier to single-word names.
+Re-running the market's collection setup from the Market Monitor UI replaces the group's
+keywords with that plan, so the 14 return. The planner has no per-market exclusion list;
+adding one (config.collection_excludes) is the durable fix if the setup is re-run.
+
 ## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
 
 Commits `ee994912` (gate), `aa213bb3` (re-gate record).
