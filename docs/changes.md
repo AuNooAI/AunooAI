@@ -119,6 +119,49 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
+## 2026-09-03 — Incident: "Set up collection" for market 2 created a second group and topic
+
+### What happened
+Re-ran the collection setup for market 2 through `POST /api/market-monitor/markets/2/collection-setup`
+(qualifier security, vendor names funded, dry_run false) to apply the quoted-phrase plan
+to the existing group. `setup_market_collection()` is idempotent by *name*, and the
+market has been renamed since its group was made: `bw_markets.name` is "AI in the SOC"
+while the group is "SOC Automation - Market Watch" under topic "Market Monitoring SOC
+Automation". So the setup created keyword group 20 "AI in the SOC - Market Watch",
+appended a topic "Market Monitoring AI in the SOC" to `config.json`, and repointed
+`bw_markets.config.collection` at group 20 — the field `market_publish`, `market_discovery`,
+`market_research` and `market_post_review` read to find the market's topic. The monitor
+picked group 20 up within a minute and collected 36 articles under the new topic.
+
+### Recovery, in order
+1. `keyword_groups.is_active = false` on group 20 (stops the next cycle).
+2. `bw_markets.config.collection` restored to group 16 / "Market Monitoring SOC Automation".
+3. The appended topic removed from `config.json` by rewriting the file without that one
+   entry (backup `app/config/config.json.bak-setup-20260903_*`; every other key equal).
+4. Articles saved under the stray topic moved to "Market Monitoring SOC Automation":
+   28 at first, then 49 more once the in-flight run for group 20 finished at 15:54:47
+   (it had loaded its keyword list before the deactivation). 77 in all, 0 left. Their
+   gate verdicts stand: they were scored with the market prompt. That run also spent
+   firehose requests: the daily counter read 57/100 when it finished.
+5. Group 20's 36 `keyword_article_matches`, 58 keywords and the group row deleted.
+6. Group 16 synced to the 58-keyword plan by diff, not replace, so existing ids and their
+   match history survive: 13 added (`"Dropzone AI"`, `"Conifers AI"`, `"Backline AI"`,
+   `"Priam Cyber AI"`, `"Miru Labs"`, `"Beacon Security"`, `"Prophet Security"`,
+   `"Bricklayer AI"`, `Intezer`, `Anvilogic`, `StrikeReady`, `Cantina security`,
+   `Variance security`), 8 removed (the bare forms of the first six, `Kenzo Security`
+   and `Zaun security`, which the planner no longer lists, and my hand-quoted
+   `"Variance security"`, which the planner builds bare from its qualifier). 58 keywords,
+   21 quoted. `config.collection.keywords` set to 58.
+
+Before-state of group 16 in `data/backups/group16_keywords_before_setup_2026-09-03.txt`.
+
+### Lessons
+- NEVER call `setup_market_collection()` on a market whose `config.collection.group_name`
+  differs from `"<market name> - Market Watch"`. It will not find the existing group. Sync
+  the group's keywords to `plan_market_keywords()` by diff instead.
+- The setup should look the group up by `config.collection.group_id` first. Not changed
+  in this session; flagged.
+
 ## 2026-09-03 — Market collection planner quotes multi-word vendor names
 
 ### Fix — `keyword_for_vendor()` emits `"Mate Security"`, not `Mate Security`
