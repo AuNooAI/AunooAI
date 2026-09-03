@@ -119,6 +119,41 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
+## 2026-09-03 — Market collection planner quotes multi-word vendor names
+
+### Fix — `keyword_for_vendor()` emits `"Mate Security"`, not `Mate Security`
+In `app/services/market_collect.py`. A multi-word vendor name is now returned as a quoted
+phrase, so the firehose searches the words adjacent instead of AND-of-words anywhere in
+the document. Single distinctive names ("Simbian", "Wraithwatch") and qualifier-built
+terms for ambiguous single words ("Variance security", "Crogl security") are unchanged.
+`check_term()` ignores the quotes when measuring the 30-character cap.
+
+`setup_market_collection()` used `normalize_keyword_list()`, whose invalid-character
+strip removes double quotes and would have silently undone the phrase form on write.
+New `normalize_plan_keywords()` normalizes the text inside the quotes and puts them back.
+This closes the caveat in the entry below: a "Set up collection" re-run now keeps the
+14 hand-quoted keywords quoted rather than reverting them.
+
+### Verification
+Unit: `keyword_for_vendor("Mate Security")` → `"Mate Security"`, `"Variance (was
+Intrinsic)"` → `Variance security` (qualified, bare), `"Simbian"` → `Simbian`;
+`normalize_plan_keywords` keeps quotes, dedupes and collapses inner whitespace.
+Planner dry run on market 2 (AI in the SOC): 58 keywords, 44 vendor names, 21 quoted
+multi-word, 23 bare single-word or qualified, nothing truncated. Note the plan has 58
+keywords against the group's 53: seven vendors funded since the last setup (Beacon
+Security, Prophet Security, Bricklayer AI, Intezer, Anvilogic, StrikeReady, Cantina)
+would be added on a re-run, and Kenzo Security dropped.
+`tests/test_market_collection.py`: 81 passed, 4 failed — three are `async def` tests the
+harness cannot run and one is a LinkedIn route-list assertion; none touch keywords and
+all four fail on HEAD too.
+
+### Propagation
+Only bugfixing, oviva and sunstar carry `market_collect.py` (wiley and wileytest have no
+market monitor). Copied to oviva and sunstar; bugfixing and oviva restarted (no jobs
+running). Sunstar NOT restarted: the Three Horizons page was in use at 15:39 ahead of
+the 16:30 UK demo, and the file only matters on a collection setup, so it takes effect
+at the next restart.
+
 ## 2026-09-03 — SOC Automation keyword group: 14 vendor-name keywords searched as exact phrases (database only)
 
 ### Correction — deleted, then restored as quoted phrases

@@ -610,7 +610,13 @@ def keyword_for_vendor(display_name: str, qualifier: str = DEFAULT_QUALIFIER) ->
     if not name:
         return "", False
     if " " in name:
-        return name, False
+        # Quoted, so the firehose searches the words as an adjacent phrase.
+        # Bare, a multi-word name is an AND of its words anywhere in the
+        # document: "Mate Security" matched every article containing "mate"
+        # and "security" (166 in 30 days, none about the vendor), "Command
+        # Zero" matched Zelenskyy and Kim Jong Un. The collector passes a lone
+        # quoted phrase through intact (see NewsFirehoseCollector._normalize_query).
+        return f'"{name}"', False
     if len(name) >= MIN_STANDALONE_LENGTH and name.lower() not in _AMBIGUOUS_NAMES:
         return name, False
     return f"{name} {qualifier}", True
@@ -624,7 +630,7 @@ MAX_KEYWORD_CHARS = 30
 
 def check_term(term: str) -> Optional[str]:
     """Return what a term will actually be searched as, if it differs."""
-    t = (term or "").strip()
+    t = (term or "").strip().strip('"')
     if len(t) <= MAX_KEYWORD_CHARS:
         return None
     cut = t[:MAX_KEYWORD_CHARS]
@@ -715,6 +721,30 @@ def plan_market_keywords(conn, market_id: int,
     }
 
 
+def normalize_plan_keywords(keywords: List[str]) -> List[str]:
+    """Normalize planned keywords while keeping a quoted phrase quoted.
+
+    ``normalize_keyword`` strips double quotes as invalid characters, which
+    would silently turn the phrase search ``keyword_for_vendor`` asks for back
+    into the bare AND-of-words form. Normalize the text inside the quotes and
+    put them back.
+    """
+    from app.utils.keyword_normalizer import normalize_keyword
+    out: List[str] = []
+    for raw in keywords or []:
+        if not isinstance(raw, str):
+            continue
+        term = raw.strip()
+        quoted = len(term) >= 2 and term[0] == '"' and term[-1] == '"'
+        inner = normalize_keyword(term[1:-1] if quoted else term)
+        if not inner:
+            continue
+        kw = f'"{inner}"' if quoted else inner
+        if kw not in out:
+            out.append(kw)
+    return out
+
+
 def setup_market_collection(conn, db, market_id: int, market_name: str, *,
                             qualifier: str = DEFAULT_QUALIFIER,
                             vendor_names: str = DEFAULT_VENDOR_NAME_MODE,
@@ -746,7 +776,7 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     import os
 
     from app.database_query_facade import DatabaseQueryFacade
-    from app.routes.brand_watcher_routes import BW_CATEGORIES, normalize_keyword_list
+    from app.routes.brand_watcher_routes import BW_CATEGORIES
 
     # 1. Topic in config.json. This file is live, UI-edited state, so it is
     #    written atomically and only ever appended to.
@@ -799,7 +829,7 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
         group_id = facade.create_group(group_name, topic_name)
         group_created = True
 
-    normalized = normalize_keyword_list(plan["keywords"])
+    normalized = normalize_plan_keywords(plan["keywords"])
     for kw in normalized:
         facade.add_keywords_to_group(group_id, kw)
 
