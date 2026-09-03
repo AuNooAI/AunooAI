@@ -142,9 +142,10 @@ Dry run over the week's 140 approved rows with the group's own floor (0.25): 30 
 now be rejected — all 25 geopolitics rows plus five stray items (vibe-coding a CLM, an
 Australian TV row, the NYT copyright case). The 110 kept include every SOC vendor and
 practitioner piece; the LLM puts 42 of them at 0.9. Backup of the 30 in
-`data/backups/soc_market_gate_rescore_2026-09-03.json`. The database rows themselves
-were NOT changed (write blocked in this session); a one-line UPDATE per uri from that
-file re-gates them.
+`data/backups/soc_market_gate_rescore_2026-09-03.json`. Re-gated later the same day at
+the user's instruction: 30 rows set to `filtered_relevance` with the new score and an
+explanation ending "re-gated 2026-09-03 market-topic fix"; the week's approved count
+went 140 → 110. Revert = set those 30 uris back to `approved` from the backup file.
 
 Copied to wiley and wileytest (no market topics there, so no behaviour change).
 Not changed: the collision keywords in group 16, which are why the feed is 90% noise
