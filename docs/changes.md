@@ -375,6 +375,34 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
+## 2026-09-03 — Market collection setup syncs keywords by difference
+
+### Fix — `setup_market_collection()` adds and removes, it no longer replaces
+In `app/services/market_collect.py`. On a re-run the setup now reads the group's current
+keywords, inserts the planned ones it lacks and deletes the ones no longer planned, and
+leaves every keyword that is still planned untouched. Previously it deleted the whole set
+and re-inserted it, which gave every keyword a new id — `keyword_article_matches.keyword_ids`
+then pointed at ids that no longer existed, so per-keyword diagnosis lost its history —
+and reset `last_checked`, so the next cycle re-searched all of them. The result reports
+`keywords_added` and `keywords_removed`; the log line reads
+"market 2: group 16 keywords synced — 0 added, 0 removed, 58 kept".
+
+First deploy of this failed with `TypeError: list indices must be integers` at the
+`existing["id"]` lookup: the config.json step already used a local called `existing` for
+the list of topic names and shadowed the group lookup added earlier today. Renamed to
+`existing_group`. The failed call changed nothing (the route rolls back).
+
+### Verification
+Real run through `POST …/markets/2/collection-setup` (dry_run false): status 200,
+`existing_group_id 16`, 0 added, 0 removed, 58 kept; the 58 keyword ids before and after
+are byte-identical, 16 still carry `last_checked`, no new group, no new config.json topic,
+`config.collection` unchanged. `tests/test_market_collection.py`: 81 passed, same 4
+pre-existing failures.
+
+### Propagation
+bugfixing, oviva, sunstar have the file; bugfixing and oviva restarted twice (once for
+the shadowing fix), no jobs running either time. Sunstar not restarted (demo).
+
 ## 2026-09-03 — Market collection setup finds the existing group by id, not by name
 
 ### Fix — `setup_market_collection()` reads `config.collection.group_id` first

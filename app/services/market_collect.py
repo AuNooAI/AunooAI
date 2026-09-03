@@ -785,14 +785,14 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     # on the new name created a second group, a second config.json topic and
     # repointed config.collection at them (2026-09-03). The existing group's
     # topic is kept for the same reason.
-    existing = existing_collection_group(conn, market_id)
-    if existing:
-        group_name, topic_name = existing["name"], existing["topic"]
+    existing_group = existing_collection_group(conn, market_id)
+    if existing_group:
+        group_name, topic_name = existing_group["name"], existing_group["topic"]
     else:
         group_name = f"{market_name} - Market Watch"
         topic_name = f"Market Monitoring {market_name}"
     plan.update({"group_name": group_name, "topic_name": topic_name,
-                 "existing_group_id": existing["id"] if existing else None,
+                 "existing_group_id": existing_group["id"] if existing_group else None,
                  "dry_run": dry_run})
     if not plan["keywords"]:
         # No terms means no collection. Creating an empty group would leave a
@@ -858,8 +858,8 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     #    reset last_checked so the next cycle re-searched everything.
     facade = DatabaseQueryFacade(db, logger)
     group_created = False
-    if existing:
-        group_id = existing["id"]
+    if existing_group:
+        group_id = existing_group["id"]
     else:
         group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
         if group:
