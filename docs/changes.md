@@ -352,6 +352,32 @@ cache hits (`trend_convergence_routes.py:671`) are served as stored, so the filt
 applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
+## 2026-09-03 — Market collection setup finds the existing group by id, not by name
+
+### Fix — `setup_market_collection()` reads `config.collection.group_id` first
+In `app/services/market_collect.py`. New `existing_collection_group(conn, market_id)`
+reads the group id the last setup stored on the market and returns that group's id,
+name and topic. When it exists, the setup keeps that group and that topic: the plan
+reports `existing_group_id`, no config.json topic is appended, and the keywords are
+replaced on the existing group. The name lookup (`"<market name> - Market Watch"`)
+remains only for a market that has never been set up or whose group was deleted. This
+is the guard for the incident below.
+
+### Verification
+Direct dry run and the live route (`POST …/markets/2/collection-setup`, dry_run true)
+both return `existing_group_id 16`, group "SOC Automation - Market Watch", topic
+"Market Monitoring SOC Automation", 58 keywords, no error — where the same call this
+afternoon returned a new group and topic named after "AI in the SOC".
+`tests/test_market_collection.py`: 81 passed, the same 4 pre-existing failures.
+
+### Propagation
+bugfixing, oviva and sunstar have the file. bugfixing and oviva restarted (no jobs
+running). Sunstar still not restarted — demo at 16:30 UK; picks it up at its next restart.
+
+Not changed: the setup still replaces a group's keywords wholesale on a re-run, so the
+keyword ids change and `keyword_article_matches` history loses its keyword attribution.
+Syncing by diff, as done by hand today, would keep it.
+
 ## 2026-09-03 — Incident: "Set up collection" for market 2 created a second group and topic
 
 ### What happened

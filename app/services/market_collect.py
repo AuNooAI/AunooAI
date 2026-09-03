@@ -745,6 +745,28 @@ def normalize_plan_keywords(keywords: List[str]) -> List[str]:
     return out
 
 
+def existing_collection_group(conn, market_id: int) -> Optional[Dict[str, Any]]:
+    """The keyword group a market's collection already runs through, by id.
+
+    Reads ``bw_markets.config.collection.group_id`` (written by
+    ``setup_market_collection``) and returns that group's id, name and topic,
+    or None when the market has never been set up or the group is gone.
+    """
+    gid = conn.execute(text(
+        "SELECT config->'collection'->>'group_id' FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar()
+    if not gid:
+        return None
+    try:
+        gid = int(gid)
+    except (TypeError, ValueError):
+        return None
+    row = conn.execute(text(
+        "SELECT id, name, topic FROM keyword_groups WHERE id = :g"),
+        {"g": gid}).mappings().fetchone()
+    return dict(row) if row else None
+
+
 def setup_market_collection(conn, db, market_id: int, market_name: str, *,
                             qualifier: str = DEFAULT_QUALIFIER,
                             vendor_names: str = DEFAULT_VENDOR_NAME_MODE,
@@ -757,9 +779,20 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     does it silently.
     """
     plan = plan_market_keywords(conn, market_id, qualifier, vendor_names)
-    group_name = f"{market_name} - Market Watch"
-    topic_name = f"Market Monitoring {market_name}"
+    # A market that already has a collection group is found by the group id
+    # stored on the market, never by name. Names drift: market 2 was renamed
+    # from "SOC Automation" to "AI in the SOC" after setup, and a re-run keyed
+    # on the new name created a second group, a second config.json topic and
+    # repointed config.collection at them (2026-09-03). The existing group's
+    # topic is kept for the same reason.
+    existing = existing_collection_group(conn, market_id)
+    if existing:
+        group_name, topic_name = existing["name"], existing["topic"]
+    else:
+        group_name = f"{market_name} - Market Watch"
+        topic_name = f"Market Monitoring {market_name}"
     plan.update({"group_name": group_name, "topic_name": topic_name,
+                 "existing_group_id": existing["id"] if existing else None,
                  "dry_run": dry_run})
     if not plan["keywords"]:
         # No terms means no collection. Creating an empty group would leave a
@@ -820,14 +853,18 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     # 2. Keyword group, replacing its keywords on a re-run so a vendor toggled
     #    off stops being searched for.
     facade = DatabaseQueryFacade(db, logger)
-    group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
     group_created = False
-    if group:
-        group_id = group[0]
+    if existing:
+        group_id = existing["id"]
         facade.delete_group_keywords(group_id)
     else:
-        group_id = facade.create_group(group_name, topic_name)
-        group_created = True
+        group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
+        if group:
+            group_id = group[0]
+            facade.delete_group_keywords(group_id)
+        else:
+            group_id = facade.create_group(group_name, topic_name)
+            group_created = True
 
     normalized = normalize_plan_keywords(plan["keywords"])
     for kw in normalized:
