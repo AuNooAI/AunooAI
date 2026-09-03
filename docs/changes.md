@@ -83,6 +83,10 @@ written for the SOC market, and the three fixes above are unlikely to be the las
 
 ## 2026-09-03 — Consensus tab crashed on wileytest: "Cannot read properties of undefined (reading 'majority_agreement')"
 
+Commit `64e60c1b` (route filter + UI guards). The model-limit inserts on wiley and wileytest are
+surgical edits in those trees, not in this commit.
+
+
 ### Diagnosis
 The Patent Cliffs consensus run at 14:54 on wileytest (claude-sonnet-4-5, 1-day window)
 ran with "Context limit: 16385, Max output limit: 4096": wileytest's
@@ -116,6 +120,9 @@ applies to new generations. The rebuilt UI renders that cached run with a zeroed
 confidence block until the 24h cache expires.
 
 ## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
+
+Commits `ee994912` (gate), `aa213bb3` (re-gate record).
+
 
 ### Diagnosis — why geopolitics reached an "approved" state on a vendor-market topic
 Two things combined. The SOC Automation keyword group (16) carries vendor names the
@@ -154,6 +161,10 @@ before the gate sees it, and the untopic'd `get_relevance_threshold()` call at
 the group floor).
 
 ## 2026-09-03 — Newsletter generator: rejected articles, OpenPR counted as NPR, leaked instruction
+
+Commits `576c6883` (approved-only corpus, source match, prompt leak) and `19c5cafc` (date
+filter, deep-dive heading).
+
 
 ### Fix — the newsletter only sees articles the relevance gate approved
 A newsletter for "Market Monitoring SOC Automation" on bugfixing came back with
