@@ -37,7 +37,10 @@ Done the same evening: all 162 single-row queries in the shared database layer n
 use the safe read pattern, not just the login check — so the whole class of
 "random error under load" is closed for single-row reads, verified with a
 550-request load test against the live Sunstar site (every request succeeded).
-Queries that read many rows at once still use the old pattern; they carry the same
-theoretical race and are the natural next batch. Wiley and wileytest have the fix
-on disk but keep running the old code until their next restart, and the other
-customer sites pick it up at their next sync with canonical.
+A second sweep the same evening moved the many-row and count queries over as
+well, so every database read in the shared layer now uses the safe pattern.
+Wiley and wileytest have the fix on disk but keep running the old code until
+their next restart, and the other customer sites pick it up at their next sync
+with canonical. One unrelated bug surfaced during the sweep and is not yet
+fixed: saving a "Six Articles" briefing configuration probably never persists,
+because the save commits on the wrong database connection.

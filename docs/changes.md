@@ -47,6 +47,31 @@ Known leftover: `check_if_keyword_groups_table_exists` calls `cursor.fetchone()`
 without ever executing a query — pre-existing dead/broken code, deliberately not
 touched.
 
+### Follow-up 2 — fetchall, scalar and iteration sites
+Second sweep, same evening: the multi-row and scalar reads. New
+`_fetchall_with_rollback` (returns a materialized list, `mappings=True` for
+dict-style rows) and `_scalar_with_rollback` (safe `.scalar()`). Converted: 36
+plain + 87 mappings `.fetchall()` chains and 32 `.scalar()` chains mechanically;
+28 two-step sites (fetchall merges, `result or 0` scalar substitutions, and
+`for row in result` iterations — a list iterates the same, and only sites whose
+sole consuming use matched were touched); by hand, 2 `.scalar_one()`
+INSERT-RETURNING sites (a plain `scalar()` is equivalent when the insert
+guarantees one row), 1 `.mappings().first()`, and
+`dict(self.connection.execute(...).mappings().fetchall())` in the feed
+source-count. The transform again left one broken chain —
+`get_articles_by_uris` had `.mappings()` after the call, caught by the post-pass
+suffix audit and fixed to `mappings=True`. Deliberately untouched: ~60
+`rowcount`/`lastrowid`/`inserted_primary_key` sites (execute-time attributes,
+not fetches) and 4 `cursor.fetchall()` sites inside `with get_connection()`
+blocks (connection held — safe, and they're legacy SQLite-dialect queries).
+
+**Adjacent bug found, not fixed:** `save_six_articles_config` executes its
+INSERT on one connection and commits on another — `self.connection` is a
+property returning a fresh connection per access — so the write is rolled back
+at pool return and the config likely never persists. Same no-op
+`self.connection.commit()` pattern appears after some `_execute_with_rollback`
+DML calls (harmless there, since the helper already commits).
+
 ### Verification
 Reproduction on sunstar's pre-fix tree: 400 `get_user_by_username` calls across 40
 threads → 10 `InterfaceError` failures. Fixed tree: 0 in 1,400 facade-level calls.
@@ -57,6 +82,10 @@ full migration. After the migration: smoke test over every conversion shape
 site, the repaired `get_article_by_url`) against the bugfixing DB, all passing;
 800-call/40-thread hammer, 0 failures; bugfixing restarted and its keyword-monitor
 ingest cycle completed cleanly on the new code (10 processed, 3 saved, 0 errors).
+Second sweep: shape smoke test (two-step fetchall, two-step scalar, the repaired
+mappings site, scalar chain, helper mappings list) all passing; 900-call/40-thread
+hammer, 0 failures; live sunstar hammer of 500 requests including the notifications
+list endpoint (a converted fetchall path), all 200; both restarts clean.
 
 ### Propagation
 Committed in canonical. Sunstar: whole-file copies (tree was identical), restarted
