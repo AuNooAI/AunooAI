@@ -126,6 +126,36 @@ class DatabaseQueryFacade:
                 self.logger.error(f"Error during rollback: {rollback_error}")
             raise
 
+    def _fetchone_with_rollback(self, statement, params=None, operation_name="query"):
+        """
+        Execute a statement and fetch one row while the connection is still held.
+
+        _execute_with_rollback returns a live result, and its connection goes
+        back to the pool as soon as the AutoClosingConnection wrapper is
+        garbage collected. Under pool overflow the returned connection is
+        really closed, so a later fetch on the result raises
+        "cursor already closed". Fetching inside the connection scope avoids
+        that race.
+        """
+        connection = self._get_connection()
+        try:
+            if params is not None:
+                result = connection.execute(statement, params)
+            else:
+                result = connection.execute(statement)
+            row = result.fetchone()
+            connection.commit()
+            return row
+        except Exception as e:
+            self.logger.error(f"Error executing {operation_name}: {e}")
+            try:
+                connection.rollback()
+            except Exception as rollback_error:
+                self.logger.error(f"Error during rollback: {rollback_error}")
+            raise
+        finally:
+            connection.close()
+
     #### KEYWORD MONITOR QUERIES ####
     def get_keyword_monitor_settings_by_id(self, id):
         return self._execute_with_rollback(
@@ -1570,8 +1600,7 @@ class DatabaseQueryFacade:
             return None
 
         stmt = select(t_users).where(t_users.c.username == username.lower())
-        result = self._execute_with_rollback(stmt, operation_name="get_user_by_username")
-        row = result.fetchone()
+        row = self._fetchone_with_rollback(stmt, operation_name="get_user_by_username")
         return dict(row._mapping) if row else None
 
     def get_user_by_email(self, email: str):
@@ -1584,8 +1613,7 @@ class DatabaseQueryFacade:
             return None
 
         stmt = select(t_users).where(t_users.c.email == email.lower())
-        result = self._execute_with_rollback(stmt, operation_name="get_user_by_email")
-        row = result.fetchone()
+        row = self._fetchone_with_rollback(stmt, operation_name="get_user_by_email")
         return dict(row._mapping) if row else None
 
     def list_all_users(self, include_inactive: bool = False):

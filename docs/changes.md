@@ -2,6 +2,54 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Session lookup no longer breaks under load ("cursor already closed" 500s on sunstar)
+
+### Goal
+A log sweep of sunstar, wbm, oviva and saas found sunstar returned ~90 Internal
+Server Errors between 14:50 and 15:05 on `/api/trend-convergence/*?cache_only=true`
+— the Future Horizons and Consensus tabs. Every failure was the same traceback:
+`psycopg2.InterfaceError: cursor already closed` inside `verify_session` →
+`get_user_by_username` (`app/database_query_facade.py`). The demo itself ran clean,
+but the bug fires again whenever the tab-polling load returns.
+
+### Fix — fetch the user row before the connection goes back to the pool
+`_execute_with_rollback` executes, commits, and returns a live result. Its
+connection is an `AutoClosingConnection` wrapper held only by the function's local
+variable, so the wrapper is garbage collected as the call returns and the
+connection goes straight back to the pool — before the caller runs `fetchone()`.
+Normally the pooled DBAPI connection stays open and the buffered fetch still works,
+which is why the pattern survives everywhere. Under load the pool (size 20,
+overflow 10) spills into overflow, and overflow connections are *really* closed on
+check-in, killing the pending cursor. `verify_session` runs this lookup on every
+request, so the busiest polling endpoint surfaced it.
+
+New `_fetchone_with_rollback` in `app/database_query_facade.py` executes and
+fetches inside the connection scope, with the same commit/rollback handling and an
+explicit close. `get_user_by_username` and `get_user_by_email` (the OAuth path)
+now use it. No other call sites changed — the same latent race exists at every
+`_execute_with_rollback(...).fetchone()` chain, but only the per-request session
+lookup has the traffic to hit it; left for a deliberate follow-up, not a
+side-effect of this fix.
+
+### Verification
+Reproduction on sunstar's pre-fix tree: 400 `get_user_by_username` calls across 40
+threads → 10 `InterfaceError` failures. Same harness on the fixed canonical tree:
+0 failures in 400, plus single-call checks of both lookups returning the admin
+row. Sunstar restarted 20:31 and serving (200 on `/login`); zero errors in its log
+since.
+
+### Propagation
+Committed in canonical ("Session lookup: fetch the user row before the connection
+returns to the pool"). Copied whole-file to sunstar (was byte-identical to
+canonical) and restarted. Applied as surgical edits to wiley and wileytest (their
+facades carry local drift — never wholesale-copy), both syntax-checked, **not
+restarted**: both trees have other files modified after their 15:08 restarts
+(`trend_convergence_routes.py`, `dashboard_routes.py`, `auspex_service.py`,
+`topic_report_service.py` — another session's in-progress work), so a restart now
+would load unverified code. The fix takes effect there on their next restart.
+Other monolith tenants (oviva, wbm, pearson, ibaset, …) still have the race; it
+should ride along with each tenant's next catch-up.
+
 ## 2026-09-03 — Per-IP rate limit on the public market sites (host nginx, not in this repo)
 
 ### Goal
