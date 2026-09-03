@@ -41,6 +41,9 @@ A second sweep the same evening moved the many-row and count queries over as
 well, so every database read in the shared layer now uses the safe pattern.
 Wiley and wileytest have the fix on disk but keep running the old code until
 their next restart, and the other customer sites pick it up at their next sync
-with canonical. One unrelated bug surfaced during the sweep and is not yet
-fixed: saving a "Six Articles" briefing configuration probably never persists,
-because the save commits on the wrong database connection.
+with canonical. One unrelated bug surfaced during the sweep and was fixed the
+same evening: saving a "Six Articles" briefing configuration never actually
+persisted, because the save committed on the wrong database connection — and
+reading a saved configuration back would then have crashed, which no one had
+ever hit because nothing ever saved. Both directions now work, verified with a
+full save/read/overwrite round trip.

@@ -65,12 +65,23 @@ suffix audit and fixed to `mappings=True`. Deliberately untouched: ~60
 not fetches) and 4 `cursor.fetchall()` sites inside `with get_connection()`
 blocks (connection held — safe, and they're legacy SQLite-dialect queries).
 
-**Adjacent bug found, not fixed:** `save_six_articles_config` executes its
-INSERT on one connection and commits on another — `self.connection` is a
-property returning a fresh connection per access — so the write is rolled back
-at pool return and the config likely never persists. Same no-op
+### Fix — Six Articles config save never persisted (and read-back would have crashed)
+Found during the sweep: `save_six_articles_config` executed its upsert on one
+connection and committed on another — `self.connection` is a property returning
+a fresh connection per access — so the write was rolled back at pool return and
+the config never persisted. The upsert now goes through
+`_execute_with_rollback` (execute + commit on one connection); the no-op
+fresh-connection rollback in the except was dropped. Proving the fix exposed a
+second, masked bug: `config_value` is a `json` column, so psycopg2 returns the
+saved value already parsed, and `get_six_articles_config` crashed on
+`json.loads(dict)` — it had never been exercised with a real row. It now guards
+with `isinstance(..., str)`, the same idiom `get_user_preference` uses. All
+readers of the key go through this getter (news_feed_service, keyword_monitor,
+news_feed_routes), so no other parse site needed the guard. Round-trip verified
+on the bugfixing DB: save → read-back returns the dict → upsert overwrites →
+probe row deleted (prior state was no row). Same no-op
 `self.connection.commit()` pattern appears after some `_execute_with_rollback`
-DML calls (harmless there, since the helper already commits).
+DML calls elsewhere — harmless there, since the helper already commits.
 
 ### Verification
 Reproduction on sunstar's pre-fix tree: 400 `get_user_by_username` calls across 40

@@ -7410,7 +7410,9 @@ class DatabaseQueryFacade:
 
             if result and result[0]:
                 import json
-                return json.loads(result[0])
+                # config_value is a json column: psycopg2 returns it already
+                # parsed as a dict; only a TEXT value needs json.loads.
+                return json.loads(result[0]) if isinstance(result[0], str) else result[0]
 
             return None
 
@@ -7475,21 +7477,24 @@ class DatabaseQueryFacade:
                     VALUES (:username, 'six_articles_config', :config_json, datetime('now'))
                 """)
 
-            self.connection.execute(
+            # self.connection mints a fresh connection per access, so execute
+            # and commit must go through one helper call — separate
+            # self.connection.execute()/.commit() calls hit different
+            # connections and the write is rolled back at pool return.
+            self._execute_with_rollback(
                 query,
                 {
                     "username": username,
                     "config_json": config_json
-                }
+                },
+                operation_name="save_six_articles_config"
             )
-            self.connection.commit()
 
             self.logger.info(f"Saved Six Articles config for user {username}")
             return True
 
         except Exception as e:
             self.logger.error(f"Error saving Six Articles config for user {username}: {e}")
-            self.connection.rollback()
             return False
 
     # ==========================================
