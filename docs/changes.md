@@ -117,9 +117,11 @@ behind, no local content), and a scoped UI sync of `static/trend-convergence/`
 plus `templates/trend_convergence_react.html` (the only built surface the fix
 touched; both tenants now reference the canonical `main-BlWuB8fd.js` bundle).
 `market_collect.py` was NOT copied — the market module isn't deployed on either
-tenant. Both `organizational_profiles` tables already have `is_default`; neither
-tenant has a default row flagged, so behavior without a picker stays
-generic-template until one is chosen — a content decision left open. Both
+tenant. Both `organizational_profiles` tables already have `is_default`, and both
+already flag "Wiley Scientific Publisher" (id 1) as the default —
+`get_default_organisational_profile()` returns it on both tenants (verified via
+each venv). An earlier draft of this entry said no default row was flagged;
+that claim was written without querying the rows and was wrong. Both
 restarted again ~22:22 while idle, serving 200, clean logs; wiley's cache_only
 horizons/consensus probes both 200. Earlier restarts ~22:00: wileytest idle at the time; wiley was
 mid-sweep, so a background watcher waited for a 40-second quiet gap in the ingest
