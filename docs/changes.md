@@ -107,8 +107,21 @@ trees carried post-restart edits to `trend_convergence_routes.py` and three othe
 files; inspection showed three of the four match canonical HEAD and the fourth
 (`trend_convergence_routes.py`) is an *older* coherent version whose facade call
 matches each tenant's own facade signature — the earlier Foresight-fix session's
-propagation to wiley/wileytest is incomplete, an open item for that work, not a
-restart blocker. Both restarted ~22:00: wileytest idle at the time; wiley was
+propagation to wiley/wileytest was incomplete. **Closed ~22:20 the same evening:**
+both tenants got the `content_key`/`limit` upgrade to
+`get_latest_cached_trend_analysis_for_topic` (surgical facade edit; their
+`get_default_organisational_profile` was already present and matches canonical —
+an earlier "missing method" reading was a grep typo, organiz- for organis-),
+the canonical `trend_convergence_routes.py` whole-file (their copy was strictly
+behind, no local content), and a scoped UI sync of `static/trend-convergence/`
+plus `templates/trend_convergence_react.html` (the only built surface the fix
+touched; both tenants now reference the canonical `main-BlWuB8fd.js` bundle).
+`market_collect.py` was NOT copied — the market module isn't deployed on either
+tenant. Both `organizational_profiles` tables already have `is_default`; neither
+tenant has a default row flagged, so behavior without a picker stays
+generic-template until one is chosen — a content decision left open. Both
+restarted again ~22:22 while idle, serving 200, clean logs; wiley's cache_only
+horizons/consensus probes both 200. Earlier restarts ~22:00: wileytest idle at the time; wiley was
 mid-sweep, so a background watcher waited for a 40-second quiet gap in the ingest
 journal and the restart went into it. Both serve 200 with clean logs; wiley's
 keyword monitor resumed on the new code. bugfixing restarted 21:25 — that restart interrupted
