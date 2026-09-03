@@ -624,10 +624,15 @@ async def generate_trend_convergence(
         # cache_only mode: return any cached result regardless of age, never generate
         if cache_only:
             facade = DatabaseQueryFacade(db, logger)
-            # Try exact cache key first, then fall back to any recent analysis for this topic
+            # Try exact cache key first, then fall back to the newest analysis for
+            # this topic that carries the requested tab's content. Falling back to
+            # "newest of any tab" handed the Horizons tab a Consensus run, whose
+            # analysis_id then 404'd on /horizons/{id}/download.html (sunstar, 2026-09-03).
             result = facade.get_cached_trend_analysis(cache_key)
             if not result:
-                result = facade.get_latest_cached_trend_analysis_for_topic(topic)
+                result = facade.get_latest_cached_trend_analysis_for_topic(
+                    topic, content_key=_TAB_CONTENT_KEYS.get(tab or "")
+                )
             if result:
                 analysis_data = json.loads(result['version_data'])
                 raw_created = result['created_at']

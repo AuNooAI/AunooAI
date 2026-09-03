@@ -7073,8 +7073,14 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting cached trend analysis: {e}")
             return None
 
-    def get_latest_cached_trend_analysis_for_topic(self, topic: str):
-        """Get the most recent cached trend analysis for a topic, regardless of cache key."""
+    def get_latest_cached_trend_analysis_for_topic(self, topic: str, content_key: str = None, limit: int = 20):
+        """Get the most recent cached trend analysis for a topic, regardless of cache key.
+
+        Each generation run saves only the tab it produced, so with ``content_key``
+        (e.g. ``scenarios`` for the Horizons tab) this returns the newest row
+        whose payload actually carries that tab's content. Without it, the
+        newest row of any kind.
+        """
         try:
             statement = select(
                 analysis_versions_v2.c.version_data,
@@ -7083,10 +7089,21 @@ class DatabaseQueryFacade:
                 analysis_versions_v2.c.topic == topic
             ).order_by(
                 analysis_versions_v2.c.created_at.desc()
-            ).limit(1)
+            ).limit(limit if content_key else 1)
 
-            result = self._execute_with_rollback(statement).mappings().fetchone()
-            return result
+            rows = self._execute_with_rollback(statement).mappings().fetchall()
+            if not content_key:
+                return rows[0] if rows else None
+            import json
+            for row in rows:
+                try:
+                    payload = json.loads(row['version_data'])
+                except Exception:
+                    continue
+                content = payload.get(content_key)
+                if content and (not isinstance(content, (list, dict)) or len(content) > 0):
+                    return row
+            return None
         except Exception as e:
             self.logger.error(f"Error getting latest cached trend analysis for topic: {e}")
             return None

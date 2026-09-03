@@ -2,6 +2,73 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Future Horizons download 404 on sunstar: the cached-result fallback ignored the tab
+
+### Goal
+On sunstar.aunoo.ai the "Download interactive HTML" button on the Future Horizons tab
+returned 404 for the topic "Oral-Systemic Health Research". The same session asked why the
+narratives on the Explore news feed regenerate on every visit instead of coming from cache.
+The first is fixed below; the second is a diagnosis only, no code change.
+
+### Fix — cache-only reads return the newest run *of the requested tab*
+`app/routes/trend_convergence_routes.py`, `GET /api/trend-convergence/{topic}?cache_only=true`.
+When the exact cache key missed, the handler fell back to
+`get_latest_cached_trend_analysis_for_topic(topic)`, which returned the newest saved
+version of *any* tab. The topic had a Consensus run (`consensus_analysis_runs`
+`f8c4a40a…`, 15:24) and no Future Horizons run at all, so the Horizons tab received the
+Consensus payload. It had no scenarios to draw, but it did have an `analysis_id`, so the
+download button rendered and requested `/horizons/f8c4a40a…/download.html`, which looks
+the id up in `future_horizons_runs` and correctly 404s.
+
+`app/database_query_facade.py` `get_latest_cached_trend_analysis_for_topic()` gains
+`content_key` and `limit=20`: it scans recent `analysis_versions_v2` rows newest-first and
+returns the first whose payload carries that key with content. The route passes
+`_TAB_CONTENT_KEYS[tab]` (`scenarios` for horizons, `categories` for consensus, and so on),
+the same rule `/previous?tab=` already used. With no tab the behaviour is unchanged. A
+topic with no run of the requested tab now gets the 404 "No cached analysis available"
+that the UI already handles by showing the Generate button. Commit subject:
+"Trend convergence cache-only fallback honours the requested tab".
+
+### Diagnosis — Explore news feed narratives regenerate on most visits (no change made)
+The news feed header (`ui/src/hooks/useNarrativeExplorer.ts`) loads narratives by calling
+`POST /api/dashboard/article-insights/{topic}` once per topic with `force_regenerate=false`.
+The comment there says "skip topics without cached data", but the backend
+(`app/routes/dashboard_routes.py` `get_article_insights`) generates on a cache miss, one
+LLM call per topic.
+
+The cache is anchored to the newest article in the topic's date window: the lookup takes
+the first article returned for the range and reads `article_analysis_cache` for that
+article's URI. Any new article in the window changes the anchor, so the cache misses and
+the narratives are regenerated. On sunstar the social groups ingest continuously, so the
+anchor moves between visits. The journal shows it: "Brand Monitoring Sunstar" was
+written to cache at 08:47 anchored on a Bluesky post and again at 15:54 anchored on a
+TikTok video. Today seven topics were regenerated twice each and only two produced a
+cache hit at all. The date window is day-granular (start and end are dates, not
+timestamps), so that part of the key is stable within a day and is not the cause.
+
+This is the design working as written: new content invalidates the narratives. On a
+feed with steady social ingest it amounts to "regenerate on every visit". Options, not
+taken: anchor the cache on the topic and date window instead of the newest article, or
+honour a minimum cache age before regenerating. Both change what "fresh" means for the
+customer and need a decision first.
+
+### Verification
+On sunstar after restart, calling the facade directly for the topic:
+`content_key=None` and `content_key="categories"` both return the Consensus run
+`f8c4a40a…` (15:24); `content_key="scenarios"` returns None. That is the case the
+Horizons tab now hits, so it shows Generate instead of a phantom download button.
+`journalctl` after the restart shows no import errors. Not verified end to end in the
+browser.
+
+### Propagation
+Both files copied to sunstar and oviva (facades were identical to canonical; oviva's
+routes file was one hunk behind, the consensus truncation fix, and now carries it).
+sunstar and bugfixing restarted; oviva not restarted. wiley, wileytest, ibaset and
+pearson have older copies of this route file that lack `_TAB_CONTENT_KEYS` and
+`get_recent_analysis_versions` entirely, so the fallback bug exists there too but the
+patch does not apply as a file copy. They need the tab-aware `/previous` work ported
+first.
+
 ## 2026-09-03 — Oviva brand-monitoring tenant, and three Brand Watcher fixes it surfaced
 
 ### Goal
