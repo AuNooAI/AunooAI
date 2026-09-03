@@ -702,9 +702,11 @@ class DatabaseQueryFacade:
             regulatory_environment=params[12],
             custom_context=params[13],
             monitored_brands=params[14] if len(params) > 14 else None
-        )
+        ).returning(organizational_profiles.c.id)
 
-        return self._execute_with_rollback(statement)
+        # The new row's id. This used to return the raw execute result, which
+        # the create route serialised as the insert's rowcount ("profile_id": 1).
+        return self._execute_with_rollback(statement).scalar_one()
 
     def delete_organisational_profile(self, profile_id):
         statement = delete(organizational_profiles).where(organizational_profiles.c.id == profile_id)

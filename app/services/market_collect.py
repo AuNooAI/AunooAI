@@ -850,25 +850,36 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
         topic_created = True
         logger.info("market %s: created config topic '%s'", market_id, topic_name)
 
-    # 2. Keyword group, replacing its keywords on a re-run so a vendor toggled
-    #    off stops being searched for.
+    # 2. Keyword group, synced to the plan by difference on a re-run: a vendor
+    #    toggled off stops being searched for, a newly funded one starts, and
+    #    every keyword that is still planned keeps its row. Deleting and
+    #    re-inserting the whole set gave every keyword a new id, which cut
+    #    keyword_article_matches.keyword_ids loose from the keyword text and
+    #    reset last_checked so the next cycle re-searched everything.
     facade = DatabaseQueryFacade(db, logger)
     group_created = False
     if existing:
         group_id = existing["id"]
-        facade.delete_group_keywords(group_id)
     else:
         group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
         if group:
             group_id = group[0]
-            facade.delete_group_keywords(group_id)
         else:
             group_id = facade.create_group(group_name, topic_name)
             group_created = True
 
     normalized = normalize_plan_keywords(plan["keywords"])
-    for kw in normalized:
+    current = {row["keyword"]: row["id"]
+               for row in facade.get_keywords_for_group(group_id)}
+    added = [kw for kw in normalized if kw not in current]
+    removed = [kw for kw in current if kw not in normalized]
+    for kw in added:
         facade.add_keywords_to_group(group_id, kw)
+    for kw in removed:
+        facade.delete_keyword(current[kw])
+    logger.info("market %s: group %s keywords synced — %d added, %d removed, %d kept",
+                market_id, group_id, len(added), len(removed),
+                len(normalized) - len(added))
 
     conn.execute(text("""
         UPDATE bw_markets
@@ -884,7 +895,8 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
 
     plan.update({"group_id": group_id, "group_created": group_created,
                  "topic_created": topic_created,
-                 "keywords_written": len(normalized)})
+                 "keywords_written": len(normalized),
+                 "keywords_added": added, "keywords_removed": removed})
     return plan
 
 

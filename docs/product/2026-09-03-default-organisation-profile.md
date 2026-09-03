@@ -11,10 +11,13 @@ An analyst on the sunstar site generated a day's worth of Consensus and Future H
 
 Now the profile flagged as the default on the site is the fallback everywhere. The cache and the run history record which profile was used, so an operator can see it after the fact.
 
+Creating a profile through the API now returns the new profile's id, so scripts and integrations can act on it straight away.
+
 ## Release notes (copy-ready)
 - Analyses, executive summaries and Auspex chats now default to your organisation profile when none is chosen.
 - The Foresight page pre-selects your default profile.
 - Fixed: Topic Report executive summaries used a fixed academic-publisher description regardless of customer.
+- Fixed: the profile-create API returned a placeholder instead of the new profile's id.
 
 ## Demo / walkthrough
 Foresight, open in a fresh browser: the Organizational Profile box shows the site's default profile. Generate any tab and the recommendations reference the profile's concerns and competitors.

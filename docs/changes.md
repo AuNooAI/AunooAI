@@ -2,6 +2,29 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Profile-create endpoint returns the new profile's id
+
+### Fix — `POST /api/organizational-profiles` returned the insert's rowcount as `profile_id`
+`app/database_query_facade.py` `create_organisational_profile()` returned the raw execute
+result; the route put that straight into `{"profile_id": ...}` and it serialised as `1`.
+The insert now carries `.returning(organizational_profiles.c.id)` and the facade returns
+`scalar_one()`, the same pattern the notifications and saved-dashboard inserts use. The
+route is unchanged. The provisioning script's look-up-by-name workaround from the
+previous entry stays, because tenants provisioned from the 6 August dump lineage still
+run the old code until they restart.
+
+### Verification
+bugfixing after restart: `POST /api/organizational-profiles {"name": "Probe Profile
+20260903"}` returned `{"success": true, "profile_id": 8}`, the row was id 8 in the
+database, `DELETE /api/organizational-profiles/8` returned 200 and the row is gone.
+
+### Propagation
+Facade patched on bugfixing (restarted; its three `running` analysis-run rows are stale
+January/February entries, nothing live was interrupted), sunstar (copied, NOT restarted:
+the user was generating a Horizons executive summary at the time; the change lands on
+the next restart), oviva (restarted), wiley and wileytest (surgical patch, compiled, not
+restarted). ibaset and pearson not touched.
+
 ## 2026-09-03 — Provisioning script seeds the customer's organisation profile and flags it default
 
 ### Goal
