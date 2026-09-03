@@ -147,8 +147,14 @@ item), so the tenant has no credentials on disk and cannot start until someone
 decides to revive it and restore the env. The tree is ready for that day; note
 its `app/security/auth.py` is newer than its facade was and now hard-requires
 `NORN_SECRET_KEY`, so revival needs the env restored, not just decrypted
-verbatim. **Skipped:** ibaset (no
-local systemd unit for it on this host), and the dormant trees (interroll,
+verbatim. **ibaset, ~22:35:** same story as pearson, discovered in the same
+order — no process on :10021, no systemd unit, no container, public URL 502,
+and `.env.encrypted` dated Aug 27: deliberately mothballed, DB retained. Its
+facade was an exact canonical Aug-6 `b2b3f0c6` blob (zero local drift); it got
+the wbm/abm transform treatment (helpers, four passes, ten manual fixes all
+anchored, audit clean, syntax OK) rather than a wholesale copy, to avoid
+dragging a month of feature drift. Code-ready for revival; no smoke test
+possible without the encrypted credentials. **Skipped:** the dormant trees (interroll,
 helpnet, pbm, opendemo, community, skunkworkx, spiros, testbed, vc; sage and
 abbott are shut down) — those catch up via the tenant catch-up procedure when
 next touched. Earlier restarts ~22:00: wileytest idle at the time; wiley was
