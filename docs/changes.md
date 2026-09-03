@@ -352,7 +352,9 @@ pre-existing failures.
 
 ### Propagation
 bugfixing, oviva, sunstar have the file; bugfixing and oviva restarted twice (once for
-the shadowing fix), no jobs running either time. Sunstar not restarted (demo).
+the shadowing fix), no jobs running either time. Sunstar restarted at 19:04 CEST after
+the demo, once the log showed only the notification poller for 15 minutes and no jobs;
+active, /health 200.
 
 ## 2026-09-03 — Market collection setup finds the existing group by id, not by name
 
