@@ -82,9 +82,11 @@ report pipeline relies on.
   them back on is a one-line change if wanted.
 - Cached consensus runs are served as stored. The Patent Cliffs run keeps its half
   category until its 24-hour cache expires.
-- The SOC Automation keyword list still contains the vendor names that match common
-  words. The gate now rejects what they bring in, but each rejection costs an AI call.
-  Quoting or dropping "System Two Security", "PRE Security", "Command Zero" and
-  "AI security operations" would cut most of the noise before the gate.
+- Vendor names made of common words ("Mate Security", "Command Zero") are now searched
+  as exact phrases, both in the SOC Automation keyword list and in the planner that
+  builds a market's keyword list, so a vendor stays monitored without pulling in every
+  article that happens to contain "mate" and "security". Measured on the news firehose
+  over 30 days, "Mate Security" went from over 100 hits to 3, and the 3 include the
+  vendor's own product launch.
 - On other topics the fast classifier still skips the auditor when it is confident. Any
   new topic family that is not a trained theme will need the same exemption.
