@@ -63,9 +63,17 @@ def get_timeline_scopes(conn) -> List[Dict[str, Any]]:
     """
     has_markets = conn.execute(text(
         "SELECT to_regclass('public.bw_market_brands')")).scalar()
+    # A vendor that an operator has switched brand monitoring on for is a
+    # brand in its own right (it has its own Brand Watcher lane), so it keeps
+    # its timeline. Only vendors tracked purely for the market are left out —
+    # on a dedicated brand tenant every brand sits in the market registry for
+    # LinkedIn and website collection, and excluding them all emptied the tab.
     market_filter = ("""
-        AND NOT EXISTS (SELECT 1 FROM bw_market_brands mb
-                        WHERE mb.brand_id = bw_brands.id)
+        AND NOT (EXISTS (SELECT 1 FROM bw_market_brands mb
+                          WHERE mb.brand_id = bw_brands.id)
+                 AND NOT EXISTS (SELECT 1 FROM bw_market_brands mb
+                                  WHERE mb.brand_id = bw_brands.id
+                                    AND mb.brand_monitoring_enabled))
     """ if has_markets else "")
 
     scopes: List[Dict[str, Any]] = []

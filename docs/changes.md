@@ -2,6 +2,43 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
+
+### Diagnosis — why geopolitics reached an "approved" state on a vendor-market topic
+Two things combined. The SOC Automation keyword group (16) carries vendor names the
+firehose treats as AND-of-words ("System Two Security", "PRE Security", "Command Zero",
+"AI security operations"), so any article containing "security" plus a common word
+arrives under the topic: 1,658 in the week of 27 Aug. The gate then trusted the DeBERTa
+relevance classifier's ≥0.90 score and skipped the LLM check. That classifier was
+trained on 31 Jan on theme topics only (Geopolitical Hotspots among them) and has never
+seen a "Market Monitoring …" label, so on this topic it scores newsworthiness rather
+than the topic: "Trump vows to hit Iran hard" came out at class=0.99, hybrid 0.87,
+approved. 25 of the week's 140 approved rows were Iran/Hormuz, Ukraine, Gaza or BRICS
+coverage, all also matched by the Geopolitical Hotspots group.
+
+### Fix — market-monitoring topics are gated like brand topics
+In `app/services/hybrid_relevance_service.py`: a `_MARKET_TOPIC_RE` for
+"Market Monitoring <name>"; the confident-classifier override no longer applies to
+those topics, so the LLM stays the arbiter (same reasoning as the brand exemption);
+the cross-encoder gate treats them as entity-shaped too; and the LLM auditor gets a
+market prompt ("Market monitored: SOC Automation" plus the group's vendor keywords,
+0.7–1.0 when the subject is the market or its vendors, 0.0–0.2 for a war or election
+that only shares a word with a vendor name) instead of judging against the bare label.
+
+Dry run over the week's 140 approved rows with the group's own floor (0.25): 30 would
+now be rejected — all 25 geopolitics rows plus five stray items (vibe-coding a CLM, an
+Australian TV row, the NYT copyright case). The 110 kept include every SOC vendor and
+practitioner piece; the LLM puts 42 of them at 0.9. Backup of the 30 in
+`data/backups/soc_market_gate_rescore_2026-09-03.json`. The database rows themselves
+were NOT changed (write blocked in this session); a one-line UPDATE per uri from that
+file re-gates them.
+
+Copied to wiley and wileytest (no market topics there, so no behaviour change).
+Not changed: the collision keywords in group 16, which are why the feed is 90% noise
+before the gate sees it, and the untopic'd `get_relevance_threshold()` call at
+`automated_ingest_service.py:501` (harmless: the approve decision at line 1110 uses
+the group floor).
+
 ## 2026-09-03 — Newsletter generator: rejected articles, OpenPR counted as NPR, leaked instruction
 
 ### Fix — the newsletter only sees articles the relevance gate approved

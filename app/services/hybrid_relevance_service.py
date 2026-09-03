@@ -88,6 +88,13 @@ CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident a
 
 # Both brand-topic naming conventions in use across tenants.
 _BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
+# Market-monitoring topics ("Market Monitoring SOC Automation") are vendor-registry
+# watches, not themes: relevance means "about this market or one of its vendors".
+# The relevance classifier was trained on theme topics only and never saw a market
+# label, so on these topics it scores by *newsworthiness* rather than by the topic
+# prefix (Iran-war coverage came out at 0.99 for the SOC Automation market). They
+# get the same treatment as brand topics: the LLM stays the arbiter.
+_MARKET_TOPIC_RE = re.compile(r'^Market Monitoring\s+(.+)$', re.I)
 
 
 class HybridRelevanceService:
@@ -345,8 +352,29 @@ class HybridRelevanceService:
         # not a subject — judge relevance against the entity + its keywords instead.
         brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
         entity = brand_match.group(1).strip() if brand_match else None
+        market_match = _MARKET_TOPIC_RE.match(topic or '')
+        market = market_match.group(1).strip() if market_match else None
         kw_line = f"\nKey entities / search terms for this topic: {', '.join(keywords[:20])}" if keywords else ""
-        if entity:
+        if market:
+            # Market-monitoring topics: the label names a product market and the
+            # keywords carry its vendor registry. Relevant = about that market, one of
+            # its vendors, their products, funding, deals or competitors. General news
+            # that merely contains a word from a vendor name (e.g. "security") is not.
+            prompt = f"""You are a relevance auditor for a market monitor.
+Market monitored: "{market}"{kw_line}
+
+Article Title: {title}
+Article Summary: {summary}
+
+Score 0.0-1.0 how relevant this article is to monitoring the "{market}" market:
+- 0.7-1.0: the article's subject IS {market} — its technology, products, vendors, buyers, adoption, pricing, funding, acquisitions, partnerships, leadership, analyst coverage or practitioner debate about it. A listed vendor does NOT have to be named; a piece about how this kind of product is built, bought, evaluated or trusted counts.
+- 0.3-0.6: {market} or one of its vendors is a secondary element of a story that is mainly about something else (a general cybersecurity, AI or business story that touches it).
+- 0.0-0.2: unrelated subject that only shares a word with a vendor name or search term (a war, an election, a sports result, generic business news).
+
+Respond with ONLY a number between 0.0 and 1.0.
+
+Score:"""
+        elif entity:
             # Brand-monitoring topics: BROAD relevance. The brand, its products, its named
             # competitors, and the industry/sector/policy it operates in all count as
             # relevant even when the brand is not named — this recovers sector coverage
@@ -596,8 +624,12 @@ Score:"""
         # classifier is strongly positive we trust it and skip the LLM. Brand-monitoring
         # topics are EXEMPT — their classifier is unreliable on entity relevance (it
         # scores real brand coverage ~0.03), so the LLM remains the arbiter there.
+        # Market-monitoring topics are exempt for the same reason: the classifier
+        # never trained on a market label and rates general news as relevant.
         is_brand_topic = bool(re.match(r'^Brand Monitoring\s+', topic or ''))
-        if not is_brand_topic and classifier_score is not None and classifier_score >= 0.90:
+        is_market_topic = bool(_MARKET_TOPIC_RE.match(topic or ''))
+        if (not is_brand_topic and not is_market_topic
+                and classifier_score is not None and classifier_score >= 0.90):
             result["confidence"] = "high"
 
         # Cross-encoder tier: for borderline cases, try the CE before paying
@@ -619,7 +651,7 @@ Score:"""
         # volume), which that predicate misses — so the CE gate uses its own,
         # covering both. Left the narrower one alone rather than silently
         # changing which topics the classifier-confidence guard applies to.
-        is_brand_like = bool(_BRAND_TOPIC_RE.search(topic or ''))
+        is_brand_like = bool(_BRAND_TOPIC_RE.search(topic or '')) or bool(_MARKET_TOPIC_RE.match(topic or ''))
         result["ce_score"] = None
         if USE_CE_TIER and result["confidence"] == "medium" and not is_brand_like:
             ce_score = self._compute_cross_encoder_score(topic, title, summary)
