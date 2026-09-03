@@ -126,7 +126,8 @@ class DatabaseQueryFacade:
                 self.logger.error(f"Error during rollback: {rollback_error}")
             raise
 
-    def _fetchone_with_rollback(self, statement, params=None, operation_name="query"):
+    def _fetchone_with_rollback(self, statement, params=None, operation_name="query",
+                                mappings=False):
         """
         Execute a statement and fetch one row while the connection is still held.
 
@@ -135,7 +136,8 @@ class DatabaseQueryFacade:
         garbage collected. Under pool overflow the returned connection is
         really closed, so a later fetch on the result raises
         "cursor already closed". Fetching inside the connection scope avoids
-        that race.
+        that race. mappings=True returns a RowMapping (dict-style access)
+        instead of a Row.
         """
         connection = self._get_connection()
         try:
@@ -143,7 +145,7 @@ class DatabaseQueryFacade:
                 result = connection.execute(statement, params)
             else:
                 result = connection.execute(statement)
-            row = result.fetchone()
+            row = result.mappings().fetchone() if mappings else result.fetchone()
             connection.commit()
             return row
         except Exception as e:
@@ -158,22 +160,20 @@ class DatabaseQueryFacade:
 
     #### KEYWORD MONITOR QUERIES ####
     def get_keyword_monitor_settings_by_id(self, id):
-        return self._execute_with_rollback(
+        return self._fetchone_with_rollback(
             select(
                 keyword_monitor_settings
             ).where(
                 keyword_monitor_settings.c.id == id
-            )
-        ).mappings().fetchone()
+            ), mappings=True)
 
     def get_keyword_monitor_status_by_id(self, id):
-        return self._execute_with_rollback(
+        return self._fetchone_with_rollback(
             select(
                 keyword_monitor_status
             ).where(
                 keyword_monitor_status.c.id == id
-            )
-        ).mappings().fetchone()
+            ), mappings=True)
 
     def update_keyword_monitor_status_by_id(self, id, params):
         self._execute_with_rollback(
@@ -379,9 +379,9 @@ class DatabaseQueryFacade:
         return topic_keywords
 
     def article_exists(self, params):
-        article_exists =  self._execute_with_rollback(
+        article_exists =  self._fetchone_with_rollback(
             select(articles.c.uri).where(articles.c.uri == params[0])
-        ).fetchone()
+        )
         return article_exists
 
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
@@ -414,9 +414,9 @@ class DatabaseQueryFacade:
             ).scalar()
 
             # Check if we already have a match for this article in this group
-            existing_match = self._execute_with_rollback(select(keyword_article_matches.c.id, keyword_article_matches.c.keyword_ids).where(
+            existing_match = self._fetchone_with_rollback(select(keyword_article_matches.c.id, keyword_article_matches.c.keyword_ids).where(
                 keyword_article_matches.c.article_uri == article_url,
-                keyword_article_matches.c.group_id == group_id)).fetchone()
+                keyword_article_matches.c.group_id == group_id))
 
             match_updated = False
 
@@ -462,7 +462,7 @@ class DatabaseQueryFacade:
 
 
     def create_keyword_monitor_log_entry(self, params):
-        existing = self._execute_with_rollback(select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)).fetchone()
+        existing = self._fetchone_with_rollback(select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1))
         if existing:
             self._execute_with_rollback(update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(last_check_time = params[0], last_error = params[1], requests_today = params[2]))
         else:
@@ -476,7 +476,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        row = self._execute_with_rollback(statement).fetchone()
+        row = self._fetchone_with_rollback(statement)
         is_enabled = row[0] if row and row[0] is not None else True
         return is_enabled
 
@@ -487,15 +487,14 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     #### RESEARCH QUERIES ####
     def get_article_by_url(self, url):
         statement = select(articles).where(
             articles.c.uri == url
         )
-        result = self._execute_with_rollback(statement).mappings()
-        return result.fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def create_article_with_extracted_content(self, params):
         statement = insert(
@@ -519,7 +518,7 @@ class DatabaseQueryFacade:
             keyword_alert_articles.c.url == url,
             keyword_alert_articles.c.moved_to_articles == False
         )
-        alert = self._execute_with_rollback(statement).fetchone()
+        alert = self._fetchone_with_rollback(statement)
         if alert:
             statement = insert(
                 articles
@@ -575,7 +574,7 @@ class DatabaseQueryFacade:
         ).order_by(
             analysis_versions.c.created_at.desc()
         ).limit(1)
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_recent_analysis_versions(self, topic, limit=20):
         """Newest-first version payloads for a topic. Each generation run saves
@@ -672,7 +671,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).mappings().fetchone() 
+        return self._fetchone_with_rollback(statement, mappings=True) 
 
     def get_default_organisational_profile(self):
         """The profile flagged ``is_default`` (the tenant's own organisation),
@@ -683,7 +682,7 @@ class DatabaseQueryFacade:
         statement = select(organizational_profiles.c.id).where(
             organizational_profiles.c.is_default.is_(True)
         ).order_by(organizational_profiles.c.id).limit(1)
-        row = self._execute_with_rollback(statement).fetchone()
+        row = self._fetchone_with_rollback(statement)
         return self.get_organisational_profile(row[0]) if row else None
 
     def get_organisational_profiles(self):
@@ -749,7 +748,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.name == name
         )
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_organisational_profile_by_id(self, profile_id):
         statement = select(
@@ -757,7 +756,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_organizational_profile_for_ui(self, profile_id):
         statement = select(
@@ -783,7 +782,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def check_organisational_profile_name_conflict(self, name, profile_id):
         statement = select(
@@ -794,7 +793,7 @@ class DatabaseQueryFacade:
                 organizational_profiles.c.id != profile_id
             )
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def update_organisational_profile(self, params):
         statement = update(
@@ -829,7 +828,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     #### AUTOMATED INGEST SERVICE ####
     def get_configured_llm_model(self):
@@ -844,7 +843,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        settings = self._execute_with_rollback(statement).mappings().fetchone()
+        settings = self._fetchone_with_rollback(statement, mappings=True)
         if settings:
             # Return the model or None if not set (frontend will select first available)
             return settings['default_llm_model']
@@ -857,7 +856,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        row = self._execute_with_rollback(statement).mappings().fetchone()
+        row = self._fetchone_with_rollback(statement, mappings=True)
         if row:
             return (row['llm_temperature'], row['llm_max_tokens'])
         return None
@@ -912,7 +911,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        settings = self._execute_with_rollback(statement).mappings().fetchone()
+        settings = self._fetchone_with_rollback(statement, mappings=True)
         if settings and settings['min_relevance_threshold'] is not None:
             return float(settings['min_relevance_threshold'])
 
@@ -933,7 +932,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.is_active.is_(True),
             keyword_groups.c.min_relevance_threshold.isnot(None),
         ).order_by(keyword_groups.c.id).limit(1)
-        row = self._execute_with_rollback(statement).mappings().fetchone()
+        row = self._fetchone_with_rollback(statement, mappings=True)
         if row and row['min_relevance_threshold'] is not None:
             return float(row['min_relevance_threshold'])
         return None
@@ -951,7 +950,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_article_matches.c.id == 1
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def update_ingested_article(self, params):
         statement = update(
@@ -1410,7 +1409,7 @@ class DatabaseQueryFacade:
     #### OAUTH USERS ####
     def count_oauth_allowlist_active_users(self):
         statement = select(func.count()).where(oauth_allowlist.c.is_active == 1)
-        return self._execute_with_rollback(statement).fetchone()[0] 
+        return self._fetchone_with_rollback(statement)[0] 
 
     def get_oauth_allowlist_user_by_email_and_provider(self, email, provider):
         statement = select(
@@ -1421,7 +1420,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.provider == provider
             )
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_oauth_allowlist_user_by_id(self, user_id):
         statement = select(
@@ -1429,7 +1428,7 @@ class DatabaseQueryFacade:
         ).where(
             oauth_users.c.id == user_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
 
     def get_oauth_active_users_by_provider(self, provider):
@@ -1447,7 +1446,7 @@ class DatabaseQueryFacade:
 
     def is_oauth_user_allowed(self, email):
         statement = select(func.count()).where(oauth_allowlist.c.email == email, oauth_allowlist.c.is_active == 1)
-        count = self._execute_with_rollback(statement).fetchone()[0]
+        count = self._fetchone_with_rollback(statement)[0]
         return count > 0 
 
     def add_oauth_user_to_allowlist(self, email, added_by):
@@ -1511,7 +1510,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.is_active == 1
             )
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_active_oauth_allowlist_user_by_email_and_provider(self, email, provider):
         statement = select(
@@ -1523,7 +1522,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.is_active == 1
             )
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
     def update_oauth_allowlist_user(self, params):
         statement = update(
             oauth_users
@@ -1720,7 +1719,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_feed_item_url(self, item_id):
         statement = select(
@@ -1728,7 +1727,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_enrichment_data_for_article(self, item_url):
         statement = select(
@@ -1758,7 +1757,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == item_url
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_enrichment_data_for_article_with_extra_fields(self, item_url):
         statement = select(
@@ -1787,7 +1786,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == item_url
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def update_feed_article_data(self, params):
         statement = update(
@@ -1894,7 +1893,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_keyword_groups.c.id == group_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def update_feed_group(self, name, description, color, is_active, group_id):
         statement = update(
@@ -1978,7 +1977,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_group_sources.c.id == source_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_group_source(self, group_id, source_type):
         statement = select(
@@ -1987,7 +1986,7 @@ class DatabaseQueryFacade:
             feed_group_sources.c.group_id == group_id,
             feed_group_sources.c.source_type == source_type
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def delete_group_source(self, source_id):
         statement = delete(
@@ -2021,7 +2020,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_keyword_groups.c.name == name
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_keyword_groups_count(self):
         statement = select(
@@ -2029,7 +2028,7 @@ class DatabaseQueryFacade:
         ).select_from(
             keyword_groups
         )
-        return self._execute_with_rollback(statement).fetchone()[0]
+        return self._fetchone_with_rollback(statement)[0]
 
     def get_total_article_count(self):
         """Get total count of all articles in the database."""
@@ -2061,7 +2060,7 @@ class DatabaseQueryFacade:
         ).select_from(
             feed_items
         )
-        return self._execute_with_rollback(statement).fetchone()[0] 
+        return self._fetchone_with_rollback(statement)[0] 
 
     def get_article_id_by_url(self, url):
         statement = select(
@@ -2069,7 +2068,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == url
         )
-        article_result = self._execute_with_rollback(statement).fetchone()
+        article_result = self._fetchone_with_rollback(statement)
 
         return article_result[0] if article_result else None 
 
@@ -2080,7 +2079,7 @@ class DatabaseQueryFacade:
             articles.c.uri == url,
             articles.c.analyzed == True
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def create_article_without_enrichment(self, params):
         statement = insert(
@@ -2112,7 +2111,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def update_feed_tags(self, params):
         statement = update(
@@ -2297,7 +2296,7 @@ class DatabaseQueryFacade:
         ).where(
             func.lower(articles.c.topic) == func.lower(topic)
         ).distinct()
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._fetchone_with_rollback(statement) 
 
     def get_articles_count_from_topic_and_categories(self, placeholders, params):
         statement = select(
@@ -2391,7 +2390,7 @@ class DatabaseQueryFacade:
         statement = statement.order_by(podcasts.c.created_at.desc()).limit(1)
 
         # Execute and return result
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_articles_for_date_range(self, limit, topic, start_date, end_date):
         # Convert datetime to ISO string for TEXT column comparison
@@ -2526,7 +2525,7 @@ class DatabaseQueryFacade:
             model_bias_arena_runs.c.status
         ).where(model_bias_arena_runs.c.id == run_id)
 
-        return self._execute_with_rollback(statement).mappings().fetchone()                         
+        return self._fetchone_with_rollback(statement, mappings=True)                         
 
     def get_ontological_results_with_article_info(self, run_id):
         statement = select(
@@ -2623,7 +2622,7 @@ class DatabaseQueryFacade:
             articles.c.popularity
         ).where(articles.c.uri == url)
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_run_articles(self, run_id):
         statement = select(
@@ -2670,7 +2669,7 @@ class DatabaseQueryFacade:
             articles.c.uri == article_url
         ).distinct()
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_run_info(self, run_id):
         statement = select(
@@ -2680,7 +2679,7 @@ class DatabaseQueryFacade:
             model_bias_arena_runs.c.id == run_id
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def add_articles_to_run(self, params):
         statement = insert(model_bias_arena_articles).values(
@@ -2771,7 +2770,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_status.c.id == 1
         )
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_monitor_page_keywords(self):
         statement = select(
@@ -2800,7 +2799,7 @@ class DatabaseQueryFacade:
             monitored_keywords
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_all_groups_with_their_alerts_and_status(self):
 
@@ -3103,7 +3102,7 @@ class DatabaseQueryFacade:
             keyword_article_matches.c.id == alert_id
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def mark_alert_as_read_or_unread_in_new_table(self, alert_id, read_or_unread):
         statement = update(keyword_article_matches).where(keyword_article_matches.c.id == alert_id).values(is_read = read_or_unread)
@@ -3181,7 +3180,7 @@ class DatabaseQueryFacade:
             articles.c.quality_issues
         ).where(articles.c.uri == article_data["uri"])
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_all_groups_with_alerts_and_status_new_table_structure(self):
         """Get all keyword groups with their alert counts and growth status.
@@ -3429,14 +3428,14 @@ class DatabaseQueryFacade:
             articles.c.extracted_article_keywords
         ).where(articles.c.uri == article_url)
         
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def create_keyword_monitor_table_if_not_exists_and_insert_default_value(self):
         # TODO: Move to migrations.
 
         # Check if the keyword_monitor_status table has a row with id 1
         statement = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        existing = self._execute_with_rollback(statement).fetchone()
+        existing = self._fetchone_with_rollback(statement)
 
         if not existing:
             statement = insert(keyword_monitor_status).values(
@@ -3448,10 +3447,10 @@ class DatabaseQueryFacade:
 
     def check_keyword_monitor_status_and_settings_tables(self):
         status_data_stmt = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        status_data = self._execute_with_rollback(status_data_stmt).fetchone()
+        status_data = self._fetchone_with_rollback(status_data_stmt)
 
         settings_data_stmt = select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
-        settings_data = self._execute_with_rollback(settings_data_stmt).fetchone()
+        settings_data = self._fetchone_with_rollback(settings_data_stmt)
 
         return status_data, settings_data
 
@@ -3510,7 +3509,7 @@ class DatabaseQueryFacade:
             )
         ).where(keyword_monitor_settings.c.id == 1)
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def update_or_insert_keyword_monitor_settings(self, params):
         values_dict = {
@@ -3536,9 +3535,9 @@ class DatabaseQueryFacade:
             update(keyword_monitor_settings)
             .where(keyword_monitor_settings.c.id == 1)
             .values(**values_dict)
-            if self._execute_with_rollback(
+            if self._fetchone_with_rollback(
                 select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
-            ).fetchone()
+            )
             else insert(keyword_monitor_settings).values(**values_dict)
         )
 
@@ -3555,9 +3554,9 @@ class DatabaseQueryFacade:
             provider: The news provider to use ('newsapi', 'thenewsapi', or 'newsdata')
         """
         # Check if settings exist
-        existing = self._execute_with_rollback(
+        existing = self._fetchone_with_rollback(
             select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
-        ).fetchone()
+        )
 
         if existing:
             # Update existing settings - only provider field
@@ -3637,7 +3636,7 @@ class DatabaseQueryFacade:
             articles.c.topic
         ).where(articles.c.topic == topic).limit(1)
 
-        return self._execute_with_rollback(statement).fetchone() is not None
+        return self._fetchone_with_rollback(statement) is not None
 
     def get_keyword_group_id_by_name_and_topic(self, group_name, topic_name):
         statement = select(
@@ -3647,7 +3646,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.topic == topic_name
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_keyword_group_by_id(self, group_id):
         """Get keyword group details by ID"""
@@ -3659,7 +3658,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.id == group_id
         )
 
-        result = self._execute_with_rollback(statement).mappings().fetchone()
+        result = self._fetchone_with_rollback(statement, mappings=True)
         return dict(result) if result else None
 
     def get_all_keyword_groups(self):
@@ -3737,8 +3736,7 @@ class DatabaseQueryFacade:
             JOIN articles a ON kam.article_uri = a.uri
             WHERE kam.group_id = :group_id
         """)
-        result = self._execute_with_rollback(query, {'group_id': group_id, 'threshold': relevance_threshold})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'group_id': group_id, 'threshold': relevance_threshold}, mappings=True)
 
         # Get daily counts for sparkline
         daily_query = text("""
@@ -3832,8 +3830,7 @@ class DatabaseQueryFacade:
             FROM keyword_article_matches
             WHERE group_id = :group_id
         """)
-        last_run_result = self._execute_with_rollback(last_run_query, {'group_id': group_id})
-        last_run_row = last_run_result.mappings().fetchone()
+        last_run_row = self._fetchone_with_rollback(last_run_query, {'group_id': group_id}, mappings=True)
 
         if not last_run_row or not last_run_row['last_run']:
             return {'last_run_saved': 0, 'last_run_not_saved': 0}
@@ -3848,11 +3845,10 @@ class DatabaseQueryFacade:
             WHERE kam.group_id = :group_id
               AND kam.detected_at::timestamp >= CAST(:last_run AS timestamp) - INTERVAL '1 hour'
         """)
-        result = self._execute_with_rollback(stats_query, {
+        row = self._fetchone_with_rollback(stats_query, {
             'group_id': group_id,
             'last_run': last_run_row['last_run']
-        })
-        row = result.mappings().fetchone()
+        }, mappings=True)
 
         return {
             'last_run_saved': row['saved_count'] if row else 0,
@@ -3879,8 +3875,7 @@ class DatabaseQueryFacade:
             FROM keyword_groups
             WHERE id = :group_id
         """)
-        result = self._execute_with_rollback(query, {'group_id': group_id})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'group_id': group_id}, mappings=True)
         return dict(row) if row else None
 
     def get_effective_group_settings(self, group_id: int):
@@ -4115,7 +4110,7 @@ class DatabaseQueryFacade:
         )
 
         # First check if settings exist
-        settings_exists = self._execute_with_rollback(statement).fetchone() is not None
+        settings_exists = self._fetchone_with_rollback(statement) is not None
 
         if settings_exists:
             # Just update is_enabled if settings exist
@@ -4247,7 +4242,7 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).mappings().fetchall()
 
     def save_keyword_alert(self, article_data):
-        is_keyword_alert_exists = self._execute_with_rollback(select(keyword_alert_articles).where(keyword_alert_articles.c.url == article_data['url'])).fetchone()
+        is_keyword_alert_exists = self._fetchone_with_rollback(select(keyword_alert_articles).where(keyword_alert_articles.c.url == article_data['url']))
         if not is_keyword_alert_exists:
             statement = insert(keyword_alert_articles).values(
                 url = article_data['url'],
@@ -4665,7 +4660,7 @@ class DatabaseQueryFacade:
 
     def check_if_articles_table_has_topic_column(self):
         statement = select(articles)
-        columns = self._execute_with_rollback(statement).mappings().fetchone().keys()
+        columns = self._fetchone_with_rollback(statement, mappings=True).keys()
 
         return 'topic' in columns
 
@@ -4760,7 +4755,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.id == 1
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_request_count_for_today(self):
         statement = select(
@@ -4770,7 +4765,7 @@ class DatabaseQueryFacade:
             keyword_monitor_status.c.id == 1
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_articles_by_url(self, url):
         statement = select(
@@ -4779,7 +4774,7 @@ class DatabaseQueryFacade:
             articles.c.uri == url
         )
 
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_raw_articles_markdown_by_url(self, url):
         statement = select(
@@ -4788,7 +4783,7 @@ class DatabaseQueryFacade:
             raw_articles.c.uri == url
         )
 
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_podcasts_for_newsletter_inclusion(self, column_names):
         # Build a query that works with the available columns
@@ -4859,7 +4854,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.id == 1
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_topic_statistics(self):
         last_date = func.max(func.coalesce(articles.c.submission_date, articles.c.publication_date))
@@ -4890,7 +4885,7 @@ class DatabaseQueryFacade:
         from datetime import datetime, timezone
         statement = select(keyword_monitor_status.c.last_check_time).where(keyword_monitor_status.c.id == 1)
 
-        result = self._execute_with_rollback(statement).mappings().fetchone()
+        result = self._fetchone_with_rollback(statement, mappings=True)
 
         if not result or not result['last_check_time']:
             return None
@@ -4921,7 +4916,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_all_podcasts(self):
         statement = select(
@@ -4955,7 +4950,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_podcast_audio_file(self, podcast_id):
         statement = select(
@@ -4964,7 +4959,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def delete_podcast(self, podcast_id):
         statement = delete(
@@ -5068,9 +5063,9 @@ class DatabaseQueryFacade:
             if not uri:
                 raise ValueError("Article URI is required")
 
-            existing = self._execute_with_rollback(
+            existing = self._fetchone_with_rollback(
                 select(articles.c.uri).where(articles.c.uri == uri)
-            ).fetchone()
+            )
 
             # Define all possible article fields
             valid_fields = [
@@ -5129,7 +5124,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.llm_max_tokens
         ).where(keyword_monitor_settings.c.id == 1)
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_processing_statistics(self):
         stmt = (
@@ -5146,12 +5141,12 @@ class DatabaseQueryFacade:
             .where(articles.c.auto_ingested == True)
         )
 
-        return self._execute_with_rollback(stmt).fetchone()
+        return self._fetchone_with_rollback(stmt)
 
     def stamp_keyword_monitor_status_table_with_todays_date(self, params):
         # check if the keyword_monitor_status table has a row with id 1
         statement = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        result = self._execute_with_rollback(statement).fetchone()
+        result = self._fetchone_with_rollback(statement)
 
         if result:
             update_statement = update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(
@@ -5173,7 +5168,7 @@ class DatabaseQueryFacade:
 
     def get_keyword_monitor_status_daily_request_limit(self):
         statement = select(keyword_monitor_settings.c.daily_request_limit).where(keyword_monitor_settings.c.id == 1)
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     #### AUTOMATED INGEST SERVICE ####
 
@@ -5185,7 +5180,7 @@ class DatabaseQueryFacade:
     def insert_media_bias(self, params):
         # check if the source already exists in the mediabias table
         statement = select(mediabias).where(mediabias.c.source == params[0])
-        result = self._execute_with_rollback(statement).fetchone()
+        result = self._fetchone_with_rollback(statement)
         if result:
             statement = update(mediabias).where(mediabias.c.source == params[0]).values(
                 country = params[1],
@@ -5269,14 +5264,14 @@ class DatabaseQueryFacade:
             mediabias_settings.c.source_file
         ).where(mediabias_settings.c.id == 1)
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def get_media_bias_source(self, source_id):
         statement = select(
             mediabias.c.id
         ).where(mediabias.c.id == source_id)
 
-        return self._execute_with_rollback(statement).fetchone()
+        return self._fetchone_with_rollback(statement)
 
     def delete_media_bias_source(self, source_id):
         statement = delete(mediabias).where(mediabias.c.id == source_id)
@@ -5375,7 +5370,7 @@ class DatabaseQueryFacade:
             mediabias.c.mbfc_credibility_rating
         ).where(mediabias.c.id == source_id)
 
-        return self._execute_with_rollback(statement).mappings().fetchone()
+        return self._fetchone_with_rollback(statement, mappings=True)
 
     def get_media_bias_filter_options(self):
         # Get unique biases
@@ -6302,7 +6297,7 @@ class DatabaseQueryFacade:
             text('count DESC')
         ).limit(1)
 
-        result = self._execute_with_rollback(statement).mappings().fetchone()
+        result = self._fetchone_with_rollback(statement, mappings=True)
         return result['news_source'] if result else None
 
     def get_most_frequent_time_to_impact_for_topic(self, topic_name: str, since_datetime: str) -> Optional[str]:
@@ -6333,7 +6328,7 @@ class DatabaseQueryFacade:
             text('count DESC')
         ).limit(1)
 
-        result = self._execute_with_rollback(statement).mappings().fetchone()
+        result = self._fetchone_with_rollback(statement, mappings=True)
         return result['time_to_impact'] if result else None
 
     # ============================================================
@@ -6774,7 +6769,7 @@ class DatabaseQueryFacade:
                 detected_at = CURRENT_TIMESTAMP
             RETURNING id
             """
-            result = self._execute_with_rollback(text(query), {
+            row = self._fetchone_with_rollback(text(query), {
                 'article_uri': article_uri,
                 'instruction_id': instruction_id,
                 'instruction_name': instruction_name,
@@ -6784,7 +6779,6 @@ class DatabaseQueryFacade:
                 'reasoning': reasoning
             })
             self.connection.commit()
-            row = result.fetchone()
             return row[0] if row else None
         except Exception as e:
             self.logger.error(f"Error saving signal alert: {e}")
@@ -6818,9 +6812,8 @@ class DatabaseQueryFacade:
     def get_auspex_chat(self, chat_id: int):
         """Get an Auspex chat session by ID."""
         try:
-            result = self._execute_with_rollback(
-                select(auspex_chats).where(auspex_chats.c.id == chat_id)
-            ).mappings().fetchone()
+            result = self._fetchone_with_rollback(
+                select(auspex_chats).where(auspex_chats.c.id == chat_id), mappings=True)
 
             if result:
                 # Parse metadata if it exists
@@ -6920,10 +6913,10 @@ class DatabaseQueryFacade:
         """
         try:
             # Get existing metadata
-            result = self._execute_with_rollback(
+            result = self._fetchone_with_rollback(
                 select(auspex_chats.c.metadata)
                 .where(auspex_chats.c.id == chat_id)
-            ).fetchone()
+            )
 
             existing_metadata = {}
             if result and result[0]:
@@ -7016,9 +7009,8 @@ class DatabaseQueryFacade:
     def get_auspex_prompt(self, name: str):
         """Get an Auspex prompt by name."""
         try:
-            result = self._execute_with_rollback(
-                select(auspex_prompts).where(auspex_prompts.c.name == name)
-            ).mappings().fetchone()
+            result = self._fetchone_with_rollback(
+                select(auspex_prompts).where(auspex_prompts.c.name == name), mappings=True)
 
             return dict(result) if result else None
         except Exception as e:
@@ -7109,7 +7101,7 @@ class DatabaseQueryFacade:
                 analysis_versions_v2.c.created_at.desc()
             ).limit(1)
 
-            result = self._execute_with_rollback(statement).mappings().fetchone()
+            result = self._fetchone_with_rollback(statement, mappings=True)
             return result
         except Exception as e:
             self.logger.error(f"Error getting cached trend analysis: {e}")
@@ -7254,9 +7246,8 @@ class DatabaseQueryFacade:
     def get_dashboard_cache(self, cache_key: str) -> Optional[Dict]:
         """Retrieve cached dashboard by key."""
         try:
-            result = self._execute_with_rollback(
-                select(dashboard_cache).where(dashboard_cache.c.cache_key == cache_key)
-            ).mappings().fetchone()
+            result = self._fetchone_with_rollback(
+                select(dashboard_cache).where(dashboard_cache.c.cache_key == cache_key), mappings=True)
 
             if result:
                 data = dict(result)
@@ -7297,7 +7288,7 @@ class DatabaseQueryFacade:
 
             query = query.order_by(dashboard_cache.c.generated_at.desc()).limit(1)
 
-            result = self._execute_with_rollback(query).mappings().fetchone()
+            result = self._fetchone_with_rollback(query, mappings=True)
 
             if result:
                 data = dict(result)
@@ -7364,10 +7355,11 @@ class DatabaseQueryFacade:
                 AND preference_key = 'six_articles_config'
             """)
 
-            result = self.connection.execute(
+            result = self._fetchone_with_rollback(
                 query,
-                {"username": username}
-            ).fetchone()
+                {"username": username},
+                operation_name="get_six_articles_config"
+            )
 
             if result and result[0]:
                 import json
@@ -7390,7 +7382,9 @@ class DatabaseQueryFacade:
                 LIMIT 1
             """)
 
-            result = self.connection.execute(query).fetchone()
+            result = self._fetchone_with_rollback(
+                query, operation_name="get_first_user_with_six_articles_config"
+            )
 
             if result:
                 return {
@@ -7509,16 +7503,14 @@ class DatabaseQueryFacade:
     def get_user_preference(self, username: str, preference_key: str) -> Optional[Dict]:
         """Get a user preference value by key."""
         try:
-            conn = self.connection
             query = text("""
                 SELECT config_value FROM user_preferences
                 WHERE username = :username AND preference_key = :preference_key
             """)
-            result = conn.execute(query, {
+            row = self._fetchone_with_rollback(query, {
                 "username": username,
                 "preference_key": preference_key
-            })
-            row = result.fetchone()
+            }, operation_name="get_user_preference")
             if row:
                 import json
                 return json.loads(row[0]) if isinstance(row[0], str) else row[0]
@@ -7682,7 +7674,7 @@ class DatabaseQueryFacade:
             run_stmt = select(analysis_run_logs).where(
                 analysis_run_logs.c.run_id == run_id
             )
-            run_row = self._execute_with_rollback(run_stmt).fetchone()
+            run_row = self._fetchone_with_rollback(run_stmt)
 
             if not run_row:
                 return None
@@ -7808,7 +7800,7 @@ class DatabaseQueryFacade:
                 t_consensus_analysis_runs.c.id == analysis_id
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
@@ -7910,7 +7902,7 @@ class DatabaseQueryFacade:
                 t_market_signals_runs.c.id == analysis_id
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
@@ -8000,7 +7992,7 @@ class DatabaseQueryFacade:
                 t_impact_timeline_runs.c.id == analysis_id
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
@@ -8090,7 +8082,7 @@ class DatabaseQueryFacade:
                 t_strategic_recommendations_runs.c.id == analysis_id
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
@@ -8197,7 +8189,7 @@ class DatabaseQueryFacade:
                 t_future_horizons_runs.c.id == analysis_id
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
@@ -8401,7 +8393,7 @@ class DatabaseQueryFacade:
                 )
                 .limit(1)
             )
-            row = self._execute_with_rollback(a_stmt).fetchone()
+            row = self._fetchone_with_rollback(a_stmt)
             if not row:
                 return {}
             assessment = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -8543,7 +8535,7 @@ class DatabaseQueryFacade:
                 ORDER BY a.assessed_at DESC
                 LIMIT 1
             """)
-            row = self._execute_with_rollback(id_stmt, {"topic": topic}).fetchone()
+            row = self._fetchone_with_rollback(id_stmt, {"topic": topic})
             if not row:
                 # Fall back to ANY latest assessment so a topic that's never
                 # had a populated run still surfaces something rather than
@@ -8555,7 +8547,7 @@ class DatabaseQueryFacade:
                     ORDER BY (mode = 'live') DESC, assessed_at DESC
                     LIMIT 1
                 """)
-                row = self._execute_with_rollback(fallback, {"topic": topic}).fetchone()
+                row = self._fetchone_with_rollback(fallback, {"topic": topic})
                 if not row:
                     return {}
             run_id = row[0] if not hasattr(row, "_mapping") else row._mapping["run_id"]
@@ -8613,7 +8605,7 @@ class DatabaseQueryFacade:
                     run_stmt = select(t_future_horizons_runs.c.topic).where(
                         t_future_horizons_runs.c.id == run_id
                     )
-                    run_row = self._execute_with_rollback(run_stmt).fetchone()
+                    run_row = self._fetchone_with_rollback(run_stmt)
                     if run_row:
                         topic = run_row[0]
                 except Exception as e:
@@ -8637,7 +8629,7 @@ class DatabaseQueryFacade:
             stmt = (stmt
                     .order_by(t_forecast_assessments.c.assessed_at.desc())
                     .limit(1))
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             if not row:
                 return {}
             a = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -8819,7 +8811,7 @@ class DatabaseQueryFacade:
                     t_forecast_scenario_status.c.scenario_key.is_(None),
                     t_forecast_scenario_status.c.user_scenario_id.is_(None),
                 )
-            existing = self._execute_with_rollback(sel).fetchone()
+            existing = self._fetchone_with_rollback(sel)
 
             # Dual read: an original may still have a pre-fa_012 row keyed only
             # by index. Adopt it rather than inserting a second row for the same
@@ -8834,7 +8826,7 @@ class DatabaseQueryFacade:
                         t_forecast_scenario_status.c.user_scenario_id.is_(None),
                     )
                 )
-                legacy = self._execute_with_rollback(legacy_sel).fetchone()
+                legacy = self._fetchone_with_rollback(legacy_sel)
                 if legacy is not None:
                     lr = dict(legacy._mapping) if hasattr(legacy, "_mapping") else dict(legacy)
                     self._execute_with_rollback(
@@ -8846,7 +8838,7 @@ class DatabaseQueryFacade:
                         "Upgraded legacy scenario status row %s (run %s, idx %s) to key %s",
                         lr["id"], run_id, scenario_idx, scenario_key,
                     )
-                    existing = self._execute_with_rollback(sel).fetchone()
+                    existing = self._fetchone_with_rollback(sel)
 
             if existing is None:
                 stmt = insert(t_forecast_scenario_status).values(
@@ -8872,7 +8864,7 @@ class DatabaseQueryFacade:
             except Exception:
                 pass
 
-            row = self._execute_with_rollback(sel).fetchone()
+            row = self._fetchone_with_rollback(sel)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -8988,7 +8980,7 @@ class DatabaseQueryFacade:
             sel = select(t_forecast_topic_delivery).where(
                 t_forecast_topic_delivery.c.topic == topic
             )
-            row = self._execute_with_rollback(sel).fetchone()
+            row = self._fetchone_with_rollback(sel)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9014,7 +9006,7 @@ class DatabaseQueryFacade:
             stmt = select(t_forecast_topic_metadata).where(
                 t_forecast_topic_metadata.c.topic == topic
             )
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9222,7 +9214,7 @@ class DatabaseQueryFacade:
                 constraint="uq_topic_candidates_topic_profile",
                 set_=update_values,
             ).returning(t_topic_candidates.c.id)
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             try:
                 self.session.commit()
             except Exception:
@@ -9332,7 +9324,7 @@ class DatabaseQueryFacade:
                 JOIN emerging_topics  et ON et.id = tc.emerging_topic_id
                 WHERE tc.id = :id
             """)
-            row = self._execute_with_rollback(sql, {"id": int(candidate_id)}).fetchone()
+            row = self._fetchone_with_rollback(sql, {"id": int(candidate_id)})
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9452,7 +9444,7 @@ class DatabaseQueryFacade:
             sql = sa_text(
                 "SELECT * FROM organizational_profiles WHERE name = :name LIMIT 1"
             )
-            row = self._execute_with_rollback(sql, {"name": name}).fetchone()
+            row = self._fetchone_with_rollback(sql, {"name": name})
             if not row:
                 return {}
             return dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9473,7 +9465,7 @@ class DatabaseQueryFacade:
                 .where(t_forecast_bundle_synthesis.c.cadence == cadence)
                 .where(t_forecast_bundle_synthesis.c.period_label == period_label)
             )
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9595,7 +9587,7 @@ class DatabaseQueryFacade:
                 .where(t_forecast_bundle_review.c.cadence == cadence)
                 .where(t_forecast_bundle_review.c.period_label == period_label)
             )
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -9957,13 +9949,13 @@ class DatabaseQueryFacade:
             import json
             from sqlalchemy import text as sa_text
 
-            row = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 sa_text(
                     "SELECT summary_locked_keys FROM forecast_assessments "
                     "WHERE id = :id"
                 ),
                 {"id": assessment_id},
-            ).fetchone()
+            )
             if not row:
                 return {"path": path, "locked": locked, "summary_locked_keys": []}
             keys = list(row[0] or [])
@@ -10099,7 +10091,7 @@ class DatabaseQueryFacade:
                 "origin": event.get("origin", "auto"),
                 "edited_by": event.get("edited_by"),
             }
-            row = self._execute_with_rollback(stmt, params).fetchone()
+            row = self._fetchone_with_rollback(stmt, params)
             try:
                 self.session.commit()
             except Exception:
@@ -10153,10 +10145,10 @@ class DatabaseQueryFacade:
     def get_extracted_event(self, event_id: int) -> dict:
         try:
             from sqlalchemy import text as sa_text
-            row = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 sa_text("SELECT * FROM extracted_events WHERE id = :id"),
                 {"id": event_id},
-            ).fetchone()
+            )
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -10275,7 +10267,7 @@ class DatabaseQueryFacade:
                 analysis_versions_v2.c.created_at.desc()
             ).limit(1)
 
-            result = self._execute_with_rollback(statement).mappings().fetchone()
+            result = self._fetchone_with_rollback(statement, mappings=True)
 
             if result and result.get('version_data'):
                 data = result['version_data']
@@ -10610,8 +10602,7 @@ class DatabaseQueryFacade:
             WHERE id = :task_id
         """)
 
-        result = self._execute_with_rollback(query, {'task_id': task_id})
-        return result.fetchone()
+        return self._fetchone_with_rollback(query, {'task_id': task_id})
 
     # =============================================================================
     # Trend Convergence Dashboard Reference Articles
@@ -11063,7 +11054,7 @@ class DatabaseQueryFacade:
                 t_saved_dashboards.c.auto_generated == True
             )
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
 
             if result:
                 # Update existing dashboard
@@ -11119,7 +11110,7 @@ class DatabaseQueryFacade:
                 t_users.c.role == 'admin'
             ).limit(1)
 
-            result = self._execute_with_rollback(stmt).fetchone()
+            result = self._fetchone_with_rollback(stmt)
             if result:
                 return dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
             return None
@@ -11177,7 +11168,7 @@ class DatabaseQueryFacade:
                 (t_saved_dashboards.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -11357,7 +11348,7 @@ class DatabaseQueryFacade:
                 func.max(t_saved_dashboards.c.last_accessed_at).label('last_activity')
             ).where(t_saved_dashboards.c.username == username)
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return {
@@ -11421,8 +11412,7 @@ class DatabaseQueryFacade:
 
             # Insert error log and get ID
             statement = insert(llm_processing_errors).values(**insert_values).returning(llm_processing_errors.c.id)
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
 
             if row:
                 return row[0]
@@ -11501,8 +11491,7 @@ class DatabaseQueryFacade:
                 llm_retry_state.c.model_name == model_name
             )
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
 
             if row:
                 return dict(row._mapping)
@@ -11628,11 +11617,10 @@ class DatabaseQueryFacade:
             if 'metadata' in params:
                 values['metadata'] = json.dumps(params['metadata']) if isinstance(params['metadata'], dict) else params['metadata']
 
-            result = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 insert(auspex_research_sessions).values(**values).returning(auspex_research_sessions.c.id),
                 operation_name="create_research_session"
             )
-            row = result.fetchone()
             return row[0] if row else None
 
         except Exception as e:
@@ -11650,13 +11638,12 @@ class DatabaseQueryFacade:
             Dict with session data, or None if not found
         """
         try:
-            result = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 select(auspex_research_sessions).where(
                     auspex_research_sessions.c.id == session_id
                 ),
-                operation_name="get_research_session"
+                operation_name="get_research_session", mappings=True
             )
-            row = result.mappings().fetchone()
             return dict(row) if row else None
 
         except Exception as e:
@@ -11787,11 +11774,10 @@ class DatabaseQueryFacade:
                     value = params[field]
                     values[field] = json.dumps(value) if isinstance(value, dict) else value
 
-            result = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 insert(auspex_tool_usage).values(**values).returning(auspex_tool_usage.c.id),
                 operation_name="log_tool_usage"
             )
-            row = result.fetchone()
             return row[0] if row else None
 
         except Exception as e:
@@ -11880,11 +11866,10 @@ class DatabaseQueryFacade:
                 value = params['signals']
                 values['signals'] = json.dumps(value) if isinstance(value, dict) else value
 
-            result = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 insert(auspex_search_routing).values(**values).returning(auspex_search_routing.c.id),
                 operation_name="log_search_routing"
             )
-            row = result.fetchone()
             return row[0] if row else None
 
         except Exception as e:
@@ -11905,7 +11890,7 @@ class DatabaseQueryFacade:
             since = datetime.utcnow() - timedelta(days=days)
 
             # Count total and matches
-            result = self._execute_with_rollback(
+            row = self._fetchone_with_rollback(
                 select(
                     func.count(auspex_search_routing.c.id).label('total'),
                     func.count(
@@ -11919,9 +11904,8 @@ class DatabaseQueryFacade:
                 ).where(
                     auspex_search_routing.c.created_at >= since
                 ),
-                operation_name="get_search_routing_accuracy"
+                operation_name="get_search_routing_accuracy", mappings=True
             )
-            row = result.mappings().fetchone()
 
             total = row['total'] or 0
             matches = row['matches'] or 0
@@ -12058,7 +12042,7 @@ class DatabaseQueryFacade:
                 (t_saved_newsletters.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -12189,8 +12173,7 @@ class DatabaseQueryFacade:
                 description=description
             ).returning(t_saved_eos.c.id)
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
             self.logger.info(f"Created saved EOS '{name}' for user '{username}' (ID: {row[0]})")
             return row[0]
         except Exception as e:
@@ -12222,7 +12205,7 @@ class DatabaseQueryFacade:
                 .order_by(t_saved_eos.c.created_at.desc())
                 .limit(1)
             )
-            row = self._execute_with_rollback(stmt).fetchone()
+            row = self._fetchone_with_rollback(stmt)
             if not row:
                 return {}
             rd = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
@@ -12291,7 +12274,7 @@ class DatabaseQueryFacade:
                 (t_saved_eos.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -12387,8 +12370,7 @@ class DatabaseQueryFacade:
                 description=description
             ).returning(t_saved_focus_groups.c.id)
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
             self.logger.info(f"Created saved focus group '{name}' for user '{username}' (ID: {row[0]})")
             return row[0]
         except Exception as e:
@@ -12448,7 +12430,7 @@ class DatabaseQueryFacade:
                 (t_saved_focus_groups.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -12509,7 +12491,7 @@ class DatabaseQueryFacade:
                 (t_saved_focus_groups.c.id == focus_group_id) &
                 (t_saved_focus_groups.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -12613,8 +12595,7 @@ class DatabaseQueryFacade:
                 description=description
             ).returning(t_saved_executive_briefings.c.id)
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
             self.logger.info(f"Created saved executive briefing '{name}' for user '{username}' (ID: {row[0]})")
             return row[0]
         except Exception as e:
@@ -12675,7 +12656,7 @@ class DatabaseQueryFacade:
                 (t_saved_executive_briefings.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -12736,7 +12717,7 @@ class DatabaseQueryFacade:
                 (t_saved_executive_briefings.c.id == briefing_id) &
                 (t_saved_executive_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -12781,7 +12762,7 @@ class DatabaseQueryFacade:
             statement = select(t_user_preferences.c.config_value).where(
                 t_user_preferences.c.preference_key == pref_key
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
 
             if result and result[0]:
                 return result[0]
@@ -12942,8 +12923,7 @@ class DatabaseQueryFacade:
                 model_used=model_used
             ).returning(t_saved_signal_reports.c.id)
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
             self.logger.info(f"Created saved signal report '{name}' (ID: {row[0]})")
             return row[0]
         except Exception as e:
@@ -13023,7 +13003,7 @@ class DatabaseQueryFacade:
                     t_saved_signal_reports.c.username == username
                 )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -13392,8 +13372,7 @@ class DatabaseQueryFacade:
             JOIN keyword_groups kg ON mk.group_id = kg.id
             WHERE mk.id = :keyword_id
         """)
-        result = self._execute_with_rollback(query, {'keyword_id': keyword_id})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'keyword_id': keyword_id}, mappings=True)
         return dict(row) if row else None
 
     def get_keyword_relevance_stats_single(self, keyword_id: int):
@@ -13419,8 +13398,7 @@ class DatabaseQueryFacade:
             WHERE km.keyword_id = :keyword_id
             AND a.keyword_relevance_score IS NOT NULL
         """)
-        result = self._execute_with_rollback(query, {'keyword_id': keyword_id})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'keyword_id': keyword_id}, mappings=True)
         return dict(row) if row else None
 
     def get_keyword_group_by_id(self, group_id: int):
@@ -13433,8 +13411,7 @@ class DatabaseQueryFacade:
             FROM keyword_groups
             WHERE id = :group_id
         """)
-        result = self._execute_with_rollback(query, {'group_id': group_id})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'group_id': group_id}, mappings=True)
         return dict(row) if row else None
 
     def get_keywords_for_group(self, group_id: int):
@@ -13503,7 +13480,7 @@ class DatabaseQueryFacade:
                  :confidence, :analyzed_articles, :avg_relevance)
             RETURNING id
         """)
-        result = self._execute_with_rollback(query, {
+        row = self._fetchone_with_rollback(query, {
             'keyword_id': keyword_id,
             'group_id': group_id,
             'suggestion_type': suggestion_type,
@@ -13513,7 +13490,6 @@ class DatabaseQueryFacade:
             'analyzed_articles': analyzed_articles,
             'avg_relevance': avg_relevance
         })
-        row = result.fetchone()
         return row[0] if row else None
 
     def get_keyword_suggestion_by_id(self, suggestion_id: int):
@@ -13529,8 +13505,7 @@ class DatabaseQueryFacade:
             FROM keyword_suggestions
             WHERE id = :suggestion_id
         """)
-        result = self._execute_with_rollback(query, {'suggestion_id': suggestion_id})
-        row = result.mappings().fetchone()
+        row = self._fetchone_with_rollback(query, {'suggestion_id': suggestion_id}, mappings=True)
         return dict(row) if row else None
 
     def update_keyword_suggestion_status(
@@ -13728,8 +13703,7 @@ class DatabaseQueryFacade:
                 incidents_count=0
             ).returning(t_desk_briefings.c.id)
 
-            result = self._execute_with_rollback(statement)
-            row = result.fetchone()
+            row = self._fetchone_with_rollback(statement)
             self.logger.info(f"Created desk briefing '{name}' for user '{username}' (ID: {row[0]})")
             return row[0]
         except Exception as e:
@@ -13783,7 +13757,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.username == username)
             )
 
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if result:
                 return dict(result._mapping)
             return None
@@ -13884,7 +13858,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -13951,7 +13925,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -14017,7 +13991,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -14084,7 +14058,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -14150,7 +14124,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 
@@ -14217,7 +14191,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             )
-            result = self._execute_with_rollback(statement).fetchone()
+            result = self._fetchone_with_rollback(statement)
             if not result:
                 return False
 

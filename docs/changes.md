@@ -26,10 +26,49 @@ request, so the busiest polling endpoint surfaced it.
 New `_fetchone_with_rollback` in `app/database_query_facade.py` executes and
 fetches inside the connection scope, with the same commit/rollback handling and an
 explicit close. `get_user_by_username` and `get_user_by_email` (the OAuth path)
-now use it. No other call sites changed — the same latent race exists at every
-`_execute_with_rollback(...).fetchone()` chain, but only the per-request session
-lookup has the traffic to hit it; left for a deliberate follow-up, not a
-side-effect of this fix.
+now use it first; the rest of the facade followed the same evening (next section).
+
+### Follow-up — every other fetchone call site moved to the helper
+The same latent race sat at every `_execute_with_rollback(...).fetchone()` chain
+in the facade. All 162 single-row call sites now go through
+`_fetchone_with_rollback`, which gained a `mappings=True` option so the 26+
+`.mappings().fetchone()` sites keep dict-style rows. Breakdown: 109 plain chains
+and 26 mappings chains rewritten mechanically (string-aware paren matcher, so SQL
+text literals with parens don't confuse it); 24 two-step
+`result = ...; row = result.fetchone()` pairs merged, but only where the fetch was
+the variable's sole use in the function — everything else (fetchall/rowcount/
+scalar/iteration sites, ~150 of them) was left untouched as out of scope; 3
+`self.connection.execute(...).fetchone()` sites converted by hand
+(`get_six_articles_config`, `get_first_user_with_six_articles_config`,
+`get_user_preference`). One mechanical merge came out wrong — `get_article_by_url`
+had `.mappings()` chained after the call, producing `Row.mappings()` which would
+have raised at runtime — caught in diff review and fixed to `mappings=True`.
+Known leftover: `check_if_keyword_groups_table_exists` calls `cursor.fetchone()`
+without ever executing a query — pre-existing dead/broken code, deliberately not
+touched.
+
+### Verification
+Reproduction on sunstar's pre-fix tree: 400 `get_user_by_username` calls across 40
+threads → 10 `InterfaceError` failures. Fixed tree: 0 in 1,400 facade-level calls.
+Live sunstar (minted admin session cookie, 40 threads): 550 requests including 50
+to the exact trend-convergence URL that had 500'd — all 200, before and after the
+full migration. After the migration: smoke test over every conversion shape
+(mappings chain, plain chain, merged two-step, the 3 manual sites, the `.keys()`
+site, the repaired `get_article_by_url`) against the bugfixing DB, all passing;
+800-call/40-thread hammer, 0 failures; bugfixing restarted and its keyword-monitor
+ingest cycle completed cleanly on the new code (10 processed, 3 saved, 0 errors).
+
+### Propagation
+Committed in canonical. Sunstar: whole-file copies (tree was identical), restarted
+twice, serving. wiley/wileytest: the transform scripts were re-run against their
+drifted facades plus the same manual edits (wileytest's local `social_meta` lines
+verified intact) — both syntax-checked, **not restarted**: both trees carry
+another session's post-restart edits (`trend_convergence_routes.py`,
+`dashboard_routes.py`, `auspex_service.py`, `topic_report_service.py`), so the fix
+lands on their next restart. bugfixing restarted 21:25 — the restart interrupted
+one scheduled ingest cycle mid-batch (self-healed next cycle; the job check should
+have gated the restart and didn't). Other monolith tenants (oviva, wbm, pearson,
+ibaset, …) still have the race; it rides along with each tenant's next catch-up.
 
 ### Verification
 Reproduction on sunstar's pre-fix tree: 400 `get_user_by_username` calls across 40

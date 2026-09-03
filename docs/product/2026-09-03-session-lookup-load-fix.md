@@ -33,10 +33,11 @@ None beyond reliability: this closes an "it broke during the demo" class of
 failure, which matters most for prospect-facing sites like Sunstar.
 
 ## Limits and what's next
-The fix covers the user lookup that runs on every request — the only place with
-enough traffic to hit the race in practice. The same pattern (read a row after the
-database connection has been let go) exists in many other queries in the same
-file; they are safe at current traffic but should be moved to the new fetch-inside
-helper deliberately, not one outage at a time. Wiley and wileytest have the fix on
-disk but keep running the old code until their next restart, and the other
+Done the same evening: all 162 single-row queries in the shared database layer now
+use the safe read pattern, not just the login check — so the whole class of
+"random error under load" is closed for single-row reads, verified with a
+550-request load test against the live Sunstar site (every request succeeded).
+Queries that read many rows at once still use the old pattern; they carry the same
+theoretical race and are the natural next batch. Wiley and wileytest have the fix
+on disk but keep running the old code until their next restart, and the other
 customer sites pick it up at their next sync with canonical.
