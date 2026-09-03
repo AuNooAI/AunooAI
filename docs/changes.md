@@ -2,13 +2,17 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-03 — Future Horizons download 404 on sunstar: the cached-result fallback ignored the tab
+`app/routes/dashboard_routes.py` was identical on all six tenants, so the narrative fix is
+copied to sunstar, oviva, wiley, wileytest, ibaset and pearson. Only sunstar and bugfixing
+were restarted; the others pick it up on their next restart.
+
+## 2026-09-03 — Future Horizons download 404 and news-feed narratives regenerating on every visit (sunstar)
 
 ### Goal
 On sunstar.aunoo.ai the "Download interactive HTML" button on the Future Horizons tab
 returned 404 for the topic "Oral-Systemic Health Research". The same session asked why the
 narratives on the Explore news feed regenerate on every visit instead of coming from cache.
-The first is fixed below; the second is a diagnosis only, no code change.
+Both are fixed below.
 
 ### Fix — cache-only reads return the newest run *of the requested tab*
 `app/routes/trend_convergence_routes.py`, `GET /api/trend-convergence/{topic}?cache_only=true`.
@@ -29,28 +33,26 @@ topic with no run of the requested tab now gets the 404 "No cached analysis avai
 that the UI already handles by showing the Generate button. Commit subject:
 "Trend convergence cache-only fallback honours the requested tab".
 
-### Diagnosis — Explore news feed narratives regenerate on most visits (no change made)
+### Fix — Explore news feed narratives cached by topic and date window
 The news feed header (`ui/src/hooks/useNarrativeExplorer.ts`) loads narratives by calling
 `POST /api/dashboard/article-insights/{topic}` once per topic with `force_regenerate=false`.
-The comment there says "skip topics without cached data", but the backend
-(`app/routes/dashboard_routes.py` `get_article_insights`) generates on a cache miss, one
-LLM call per topic.
+The backend (`app/routes/dashboard_routes.py` `get_article_insights`) generates on a cache
+miss, one LLM call per topic. The cache row in `article_analysis_cache` was anchored on
+the newest article in the topic's date window, so any new article moved the anchor and
+forced a regeneration. On sunstar the social groups ingest continuously, so this was
+"regenerate on every visit": today "Brand Monitoring Sunstar" was rebuilt at 08:47
+against a Bluesky post and again at 15:54 against a TikTok video; seven topics were
+rebuilt twice each with two cache hits all day.
 
-The cache is anchored to the newest article in the topic's date window: the lookup takes
-the first article returned for the range and reads `article_analysis_cache` for that
-article's URI. Any new article in the window changes the anchor, so the cache misses and
-the narratives are regenerated. On sunstar the social groups ingest continuously, so the
-anchor moves between visits. The journal shows it: "Brand Monitoring Sunstar" was
-written to cache at 08:47 anchored on a Bluesky post and again at 15:54 anchored on a
-TikTok video. Today seven topics were regenerated twice each and only two produced a
-cache hit at all. The date window is day-granular (start and end are dates, not
-timestamps), so that part of the key is stable within a day and is not the cause.
-
-This is the design working as written: new content invalidates the narratives. On a
-feed with steady social ingest it amounts to "regenerate on every visit". Options, not
-taken: anchor the cache on the topic and date window instead of the newest article, or
-honour a minimum cache age before regenerating. Both change what "fresh" means for the
-customer and need a decision first.
+The row is now anchored on the cache key itself, `article_insights_{topic}_{start}_{end}_{days}`,
+so one generation per topic per date window. The UI's window is day-granular
+(`end_date` = today), so a topic regenerates at most once a day unless the user clicks
+regenerate (`force_regenerate` still bypasses). The representative-article lookup on the
+read path is gone with it. `invalidate_insights_cache_for_topic()` matches on
+`analysis_type`, so the settings-page invalidation still clears these rows. Old
+article-anchored rows stay until their 30-day expiry and are simply never read. The
+category-insights endpoint in the same file keeps the old article anchor; it was not
+asked for. Commit subject: "Narratives cache keyed on topic and date window".
 
 ### Verification
 On sunstar after restart, calling the facade directly for the topic:
@@ -59,6 +61,12 @@ On sunstar after restart, calling the facade directly for the topic:
 Horizons tab now hits, so it shows Generate instead of a phantom download button.
 `journalctl` after the restart shows no import errors. Not verified end to end in the
 browser.
+
+Narratives, on sunstar after restart, calling `get_article_insights` directly for
+"Brand Monitoring Haleon" with a 7-day window twice in a row: run 1 generated 5 themes in
+14.7 s and logged `Cache SAVE` under the key
+`article_insights_Brand Monitoring Haleon_2026-08-27_2026-09-03_7`; run 2 logged
+`Cache HIT` and returned the same 5 themes in under 0.1 s.
 
 ### Propagation
 Both files copied to sunstar and oviva (facades were identical to canonical; oviva's

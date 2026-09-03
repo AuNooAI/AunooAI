@@ -890,23 +890,17 @@ async def get_article_insights(
     custom_system_prompt = request.system_prompt
     custom_user_prompt = request.user_prompt
     try:
-        # Check cache first
+        # Check cache first. The cache row is keyed on topic + date window
+        # (cache_key doubles as the article_uri anchor). It used to be anchored
+        # on the newest article in the window, so every new article in a topic
+        # with steady social ingest moved the anchor and forced a regeneration
+        # on nearly every visit (sunstar, 2026-09-03). New articles now roll
+        # into the next day's window instead; force_regenerate still bypasses.
         cache_key = f"article_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
         
-        # Get representative article for cache anchoring
-        temp_response = await get_topic_articles(
-            topic_name=topic_name,
-            page=1,
-            per_page=1,
-            start_date=start_date,
-            end_date=end_date,
-            db=db
-        )
-        
-        if temp_response.items and not force_regenerate:
-            cache_uri = temp_response.items[0].uri
+        if not force_regenerate:
             cached = db.get_article_analysis_cache(
-                article_uri=cache_uri,
+                article_uri=cache_key,
                 analysis_type=f"article_insights_{topic_name}",
                 model_used="dashboard_api"
             )
@@ -1177,7 +1171,7 @@ async def get_article_insights(
         # Cache the results for future requests
         try:
             if articles and final_themed_insights:
-                cache_uri = articles[0].uri
+                cache_uri = cache_key  # topic + date window, not the newest article
                 # Convert Pydantic models to dict for JSON serialization
                 cache_content = json.dumps([theme.dict() for theme in final_themed_insights], ensure_ascii=False, default=str)
                 cache_metadata = {
