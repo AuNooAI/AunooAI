@@ -2,6 +2,37 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Per-IP rate limit on the public market sites (host nginx, not in this repo)
+
+### Goal
+The morning access watch showed scanner bursts of several hundred requests a minute.
+On aisocnews.com every distinct query string is its own cache key, so a flood of
+unique-`?args` requests bypasses the 90 s micro-cache and each one costs the app a
+3–5 s page build. aisoc.aunoo.ai proxies the same report with no cache at all.
+
+### Ops — nginx `limit_req` on aisocnews.com and aisoc.aunoo.ai
+Zone in `/etc/nginx/conf.d/aisoc-ratelimit.conf`: `limit_req_zone $binary_remote_addr
+zone=aisoc_perip:10m rate=2r/s` (10 MB holds roughly 160k addresses). Both 443 servers
+(`/etc/nginx/sites-available/aisocnews.com`, `.../aisoc.aunoo.ai`) apply
+`limit_req zone=aisoc_perip burst=15 nodelay` with `limit_req_status 429` at server
+level, so a burst from one address gets 17 requests through and the rest are answered
+429 by nginx without touching the app. 2 r/s with a burst of 15 leaves room for
+several readers behind one corporate NAT; a page click is one request.
+
+### Verification
+`nginx -t` clean, reloaded 12:20. 30 rapid requests from one address: 17 × 200 then
+13 × 429; one request after an 8 s pause served normally. Four hours of live traffic
+after the reload: zero 429s to any client other than the test from 127.0.0.1.
+
+### Propagation
+Host nginx config on this server only — the files are outside every tenant repo, so
+this entry is the durable record. A rebuilt server needs the conf.d zone file and the
+two `limit_req` blocks re-added by hand. The 502 floods that prompted the look were
+mis-attributed at first: they landed on bwtemplate.aunoo.ai and n8n.aunoo.ai, whose
+backends were not answering (expected for the template tenant); aisocnews.com served
+zero 502s that morning. The limit guards the real exposure, the unique-args cache
+bypass, which had not yet been exploited at volume.
+
 ## 2026-09-03 — Profile-create endpoint returns the new profile's id
 
 ### Fix — `POST /api/organizational-profiles` returned the insert's rowcount as `profile_id`
