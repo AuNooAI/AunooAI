@@ -33,154 +33,74 @@ backends were not answering (expected for the template tenant); aisocnews.com se
 zero 502s that morning. The limit guards the real exposure, the unique-args cache
 bypass, which had not yet been exploited at volume.
 
-## 2026-09-03 — Profile-create endpoint returns the new profile's id
-
-### Fix — `POST /api/organizational-profiles` returned the insert's rowcount as `profile_id`
-`app/database_query_facade.py` `create_organisational_profile()` returned the raw execute
-result; the route put that straight into `{"profile_id": ...}` and it serialised as `1`.
-The insert now carries `.returning(organizational_profiles.c.id)` and the facade returns
-`scalar_one()`, the same pattern the notifications and saved-dashboard inserts use. The
-route is unchanged. The provisioning script's look-up-by-name workaround from the
-previous entry stays, because tenants provisioned from the 6 August dump lineage still
-run the old code until they restart.
-
-### Verification
-bugfixing after restart: `POST /api/organizational-profiles {"name": "Probe Profile
-20260903"}` returned `{"success": true, "profile_id": 8}`, the row was id 8 in the
-database, `DELETE /api/organizational-profiles/8` returned 200 and the row is gone.
-
-### Propagation
-Facade patched on bugfixing (restarted; its three `running` analysis-run rows are stale
-January/February entries, nothing live was interrupted), sunstar (copied, NOT restarted:
-the user was generating a Horizons executive summary at the time; the change lands on
-the next restart), oviva (restarted), wiley and wileytest (surgical patch, compiled, not
-restarted). ibaset and pearson not touched.
-
-## 2026-09-03 — Provisioning script seeds the customer's organisation profile and flags it default
+## 2026-09-03 — Sunstar session: Foresight fixes, analyses now use the default organisation profile, template refreshed
 
 ### Goal
-A brand site stamped from the template inherits only the stock "Generic Enterprise"
-profile, and since this afternoon every analysis falls back to whichever profile is
-flagged default. Without a customer profile a new site writes generic reports, which is
-what happened on sunstar and oviva today.
+Four things surfaced on sunstar.aunoo.ai in one afternoon: the Future Horizons
+"Download interactive HTML" button 404'd, the Explore news-feed narratives rebuilt on
+every visit, a day of Foresight reports came out with no organisation context, and the
+brand-site template every new customer is stamped from was a month behind canonical.
+All fixed, the sunstar reports regenerated, the template refreshed, and provisioning now
+creates the customer's profile. Six commits: `835c0d45`, `7e24db12`, `87fc5898`,
+`ce7c8aaf` (docs), `b13587d9`, `07e28261`.
 
-### Feature — `scripts/provision_brand_tenant.py` step 8, organisation profile
-After the brand is seeded (fresh-brand path only; data clones carry their source's
-profiles and get a log line instead), the script builds a profile in the shape used for
-the Oviva site: description, industry, organisation type, region, competitors, four
-default concerns (adverse media, employer reputation, competitor moves, market
-narratives), three priorities, four stakeholder groups. On a terminal it prompts for
-each field with the default shown; Enter keeps it, `-` clears it. Flags
-`--profile-description --industry --org-type --region --competitors` pre-fill the
-prompts; `--profile-json <file>` supplies the whole profile and skips them;
-`--no-profile` skips the step and says so. Non-interactive runs seed the default shape
-without prompting.
+### Fix — Future Horizons download 404: cache-only reads return the newest run *of the requested tab*
+`app/routes/trend_convergence_routes.py`, `GET /api/trend-convergence/{topic}?cache_only=true`.
+When the exact cache key missed, the handler fell back to the newest saved version of
+*any* tab. "Oral-Systemic Health Research" had a Consensus run (`f8c4a40a…`, 15:24) and
+no Future Horizons run, so the Horizons tab received the Consensus payload: no scenarios
+to draw, but an `analysis_id`, so the download button rendered and asked for
+`/horizons/f8c4a40a…/download.html`, which looks the id up in `future_horizons_runs` and
+correctly 404s. `app/database_query_facade.py`
+`get_latest_cached_trend_analysis_for_topic()` gains `content_key` and `limit=20`: it
+scans recent `analysis_versions_v2` rows newest-first and returns the first whose payload
+carries that key. The route passes `_TAB_CONTENT_KEYS[tab]` (`scenarios` for horizons,
+`categories` for consensus), the rule `/previous?tab=` already used. A topic with no run
+of the requested tab now gets the 404 the UI already turns into the Generate button.
+Commit `835c0d45`.
 
-Seeding goes through `POST /api/organizational-profiles`, then looks the row up by name,
-because the create route returns the insert's rowcount as `profile_id` (the facade
-returns the raw execute result and the route passes it through; not changed here, the
-lookup by name is exact since the API rejects duplicate names). `is_default` is flipped
-in the database with `UPDATE ... SET is_default = (id = <new>)`, since the create API
-has no such field, and the script then verifies through the API that exactly that
-profile is default.
+### Fix — Explore news-feed narratives cached by topic and date window
+`app/routes/dashboard_routes.py` `get_article_insights`, called once per topic by the
+news feed header (`ui/src/hooks/useNarrativeExplorer.ts`), generates on a cache miss at
+one LLM call per topic. The `article_analysis_cache` row was anchored on the newest
+article in the topic's window, so every new article moved the anchor. On sunstar the
+social groups ingest continuously, so this was "regenerate on every visit": "Brand
+Monitoring Sunstar" was rebuilt at 08:47 against a Bluesky post and again at 15:54
+against a TikTok video; seven topics rebuilt twice each with two cache hits all day. The
+row is now anchored on the cache key `article_insights_{topic}_{start}_{end}_{days}`, one
+generation per topic per day-granular window; `force_regenerate` still bypasses, the
+settings-page invalidation still matches on `analysis_type`, and old article-anchored
+rows expire unread after 30 days. The category-insights endpoint keeps the old anchor.
+Commit `7e24db12`.
 
-### Verification
-Harness against bwtemplate (service started for the test, stopped after): the
-`--profile-json` path, the flags-only path and `--no-profile` resolve as expected;
-`seed_profile` created "Acme Test" as id 10, flagged it default, and the API listing
-showed it as the only default. The test row was deleted and "Generic Enterprise"
-restored as the template default, so the golden dump cut earlier today is unaffected
-(the id sequence advanced, which is harmless).
+### Fix — analyses ran with no organisation profile; the default profile is now the fallback everywhere
+Of the 13 analysis runs logged on sunstar today, 9 had no profile and the generic
+"executive" persona (Consensus and Horizons, 15:06–15:47, five topics). The Sunstar
+profile (id 8) is flagged `is_default`, but nothing read that flag except the sort order
+and the delete guard. `app/database_query_facade.py` gains
+`get_default_organisational_profile()` (the `is_default` row, lowest id, or None) and
+four callers fall back to it:
 
-### Propagation
-Canonical `scripts/provision_brand_tenant.py`, copied to bwtemplate's `scripts/`. The
-script runs from either tree as root.
+- `trend_convergence_routes.py` main handler, resolved *before* the cache key so the key
+  and `analysis_run_logs.profile_id` record the profile the prompt used.
+- The same file, `POST /horizons/{id}/executive-summary`, which otherwise sent "No
+  specific organizational context provided."
+- `app/services/auspex_service.py` `chat_with_tools`. The Auspex chat UI has no profile
+  field, so every chat was profile-less (all five on sunstar today).
+- `app/services/topic_report_service.py` `generate_executive_summary_for_run`, which
+  hardcoded "Wiley — global academic publisher"; new `_default_profile_text(db)`. wiley
+  and wileytest have "Wiley Scientific Publisher" as default, so nothing changes there.
 
-## 2026-09-03 — bwtemplate resynced to canonical and the golden dump re-cut
+Frontend: `ui/src/hooks/useTrendConvergence.ts` pre-selects the default profile when the
+stored config has none (a fresh browser started on "Select Profile"); `ui/src/App.tsx`
+passes `config.profile_id` to the Executive Summary call, which the helper accepted and
+the call site never supplied. Bundle `main-BlWuB8fd.js`. Log line:
+`No profile_id given; using default organisational profile`. Commit `87fc5898`.
 
-### Goal
-The Brand Watcher tenant template had not been refreshed since 6 August: 128 of the 372
-tracked Python files under `app/` differed from canonical, its schema sat at `bwr_001`
-against canonical's `kg_lang_001`, and every brand site provisioned from it started that
-far behind (oviva needed a resync straight after provisioning this morning).
-
-### Ops — template refreshed (uncommittable; the template is a deploy target)
-Blob-history check first: 73 differing files were historical blobs (pure lag); 13 were
-unknown blobs, all inspected and all older forms of code canonical already carries
-(per-route `verify_session_api` decorators that canonical moved to router level in
-`40df8418`, an older signal-report retry, an older `/api/markdown_to_html`). No
-template-local features. A stray `app/services/brand_watcher_routes.py` (a 6,640-line
-mis-copy of the routes file) was removed. Rsynced `app/` (excluding `/config/`),
-`alembic/`, `scripts/`, `ui/` source, `templates/`, `static/trend-convergence/`
-(`--delete`), `requirements.txt`; `json_repair` installed into the template venv.
-`alembic upgrade head` ran `bwr_001 → kg_lang_001` in one pass (31 migrations, the
-Market Monitor and Entity Intelligence chains among them); probed `bw_markets`,
-`bw_market_brands`, `bw_entity_observations`, `bw_entity_events`, `bw_market_horizon`,
-`market_news_tips`, `forecast_scenario_status`, `keyword_groups.language/country/social_platforms`
-and the 768-d HNSW index. 208 tables now. Service restarted, `/api/health` 200, no
-tracebacks (the two startup errors are the inherited empty Bluesky and NewsData keys).
-Data still clean: 0 articles, 0 brands, 0 keyword groups, 0 agents, admin only.
-
-Golden dump re-cut: `/var/tmp/bw_template.dump` (1.7 MB, root:postgres 640); the 6 August
-dump kept as `.prev-20260903`. Test-restored into a scratch database: 208 tables, alembic
-`kg_lang_001`, 0 articles, 4,435 mediabias rows, 6 stock profiles, 1 user; scratch
-dropped. Service stopped again afterwards (it was stopped before), `.env` re-encrypted.
-The playbook `docs/BRAND_WATCHER_TENANT_TEMPLATE.md` now carries the exact refresh steps.
-
-Not done: the template's default profile is still the stock "Generic Enterprise", so a
-freshly provisioned site gets generic analyses until an operator adds its own profile and
-flags it default (see the default-profile entry below).
-
-## 2026-09-03 — Analyses ran with no organisation profile; the default profile is now the fallback everywhere
-
-### Goal
-The user noticed that today's Foresight reports on sunstar were not written from Sunstar's
-perspective. Of the 13 analysis runs logged on sunstar today, 9 had no profile and the
-generic "executive" persona: the Consensus and Future Horizons runs between 15:06 and
-15:47 for Consumer Voice, Brand Monitoring Sunstar, Oral-Systemic Health Research,
-Germany and France. The Sunstar profile (id 8) is flagged `is_default`, but nothing read
-that flag except the sort order and the delete guard.
-
-### Fix — the tenant's default profile is used whenever no profile is given
-`app/database_query_facade.py` gains `get_default_organisational_profile()`: the row with
-`is_default = true`, lowest id first, or None. Four callers fall back to it:
-
-- `app/routes/trend_convergence_routes.py`, the main `GET /api/trend-convergence/{topic}`
-  handler. The lookup runs before the cache key is built, so the cache key and the
-  `analysis_run_logs.profile_id` column record the profile the prompt actually used; the
-  later profile-loading block also falls back, for the case where the early lookup fails.
-- The same file, `POST /horizons/{id}/executive-summary`. Without a profile it sent the
-  model "No specific organizational context provided."
-- `app/services/auspex_service.py` `chat_with_tools`: the chat's profile, else the default.
-  The Auspex chat UI has no profile field at all, so every chat was profile-less (all
-  five on sunstar today).
-- `app/services/topic_report_service.py` `generate_executive_summary_for_run`: the
-  executive-summary prompt for the Topic Reports PPTX hardcoded "Wiley — global academic
-  publisher" as the organisation. New `_default_profile_text(db)` renders the default
-  profile instead. wiley and wileytest both have "Wiley Scientific Publisher" as their
-  default, so their output is unchanged in substance; any other tenant stops getting
-  Wiley-framed cards.
-
-Log line to grep for: `No profile_id given; using default organisational profile`.
-
-### Fix — Foresight page pre-selects the default profile and passes it to the summary call
-`ui/src/hooks/useTrendConvergence.ts`: after the profiles load, if the stored config has no
-profile (or one that no longer exists), the profile flagged default is selected, else the
-first. A fresh browser used to start with the picker on "Select Profile" and every
-analysis went out generic. `ui/src/App.tsx`: the Executive Summary button now passes
-`config.profile_id` to `generateHorizonsExecutiveSummary`; the API helper already
-accepted it and the call site never supplied it. Bundle `main-BlWuB8fd.js`.
-
-### Ops — sunstar runs regenerated with the Sunstar profile
-Script in the session scratchpad, minted session cookie, `enable_caching=false`,
-`persona=executive`, `model=claude-sonnet-4-5`, `timeframe_days=365`, no `profile_id`
-on purpose so the fallback is what supplies it. Consumer Voice and Oral-Systemic Health
-Research Consensus were not redone: the user had already re-run both with profile 8 at
-16:24 and 16:30. Executive Summary cards were regenerated for the new Horizons runs and
-for run `8ab8abf3` (Oral-Systemic Health Research, 2 Sep), whose cards were written
-profile-less at 16:18 today.
-
-Results, all with `analysis_run_logs.profile_id = 8` and the journal line above on each:
+### Ops — sunstar reports regenerated with the Sunstar profile
+Seven runs via a minted session cookie, `enable_caching=false`, `persona=executive`,
+`model=claude-sonnet-4-5`, `timeframe_days=365`, no `profile_id` on purpose so the
+fallback supplied it. All logged `profile_id = 8`:
 
 | Tab | Topic | New run id | Output | Time |
 |---|---|---|---|---|
@@ -192,102 +112,102 @@ Results, all with `analysis_run_logs.profile_id = 8` and the journal line above 
 | Horizons | Oral Health & Whole-Body Health - France | `af63885a` | 13 scenarios | 38 s |
 | Horizons | Oral Health & Whole-Body Health - Germany | `1fa43bec` | 13 scenarios | 32 s |
 
-Executive Summary cards: 6 each for the four new Horizons runs and for `8ab8abf3`,
-written 16:47–16:51, each preceded by "Executive summary: no profile_id given; using
-default profile 8 (Sunstar)". The old profile-less runs are still in the tables; the UI
-shows the newest run per tab, so they are superseded, not deleted.
+Consumer Voice and Oral-Systemic Health Research Consensus were not redone: the user had
+re-run both with profile 8 at 16:24 and 16:30. Executive Summary cards (6 each) were
+regenerated for the four new Horizons runs and for `8ab8abf3` (Oral-Systemic Health
+Research, 2 Sep), whose cards had been written profile-less at 16:18. The old runs stay
+in the tables; the UI shows the newest run per tab.
 
-### Verification
-First regenerated run, journal 16:36:57: "No profile_id given; using default
-organisational profile 8 (Sunstar)", and `analysis_run_logs` shows `profile_id = 8` for
-it where the 15:06–15:47 runs show NULL.
+### Ops — Oviva profile created and flagged default (oviva database only)
+oviva had only the six stock profiles with "Generic Enterprise" as default. Inserted an
+"Oviva" row (id 8) by SQL from the tenant docs: digital health provider, "medication and
+expert care" GLP-1 programme, UK and German markets, the six competitor brands as its
+competitive landscape, adverse media / employer reputation / competitor moves as concerns.
+Generic Enterprise unflagged. Wording is the operator's from the docs; refine in the UI.
 
-### Propagation
-Backend: sunstar (restarted) and bugfixing (restarted); oviva took all four files as
-copies, not restarted. wiley and wileytest: `auspex_service.py` and
-`topic_report_service.py` copied; the facade method and the three route blocks applied
-as surgical patches because both trees carry local diffs in those files; compiled, not
-restarted. ibaset and pearson are too far behind for any of it (hundreds of lines of
-drift per file) and still have the fault. Frontend: bundle rsynced to sunstar only; wiley
-and wileytest get the backend fallback, which makes the picker gap harmless there.
+### Ops — bwtemplate resynced to canonical head and the golden dump re-cut (uncommittable)
+The template had not been refreshed since 6 August: 128 of 372 tracked `app/` Python
+files differed, schema at `bwr_001` against `kg_lang_001`, so every new brand site
+started a month behind (oviva needed a resync straight after provisioning). Blob-history
+check first: 73 differing files were historical blobs; 13 unknown blobs were all older
+forms of canonical code (per-route `verify_session_api` decorators canonical moved to
+router level in `40df8418`, an older signal-report retry, an older
+`/api/markdown_to_html`). No template-local features. A stray 6,640-line
+`app/services/brand_watcher_routes.py` mis-copy was removed. Rsynced `app/` (excluding
+`/config/`), `alembic/`, `scripts/`, `ui/` source, `templates/`,
+`static/trend-convergence/` (`--delete`), `requirements.txt`; `json_repair` installed.
+`alembic upgrade head` ran `bwr_001 → kg_lang_001` in one pass (31 migrations); probed
+`bw_markets`, `bw_market_brands`, `bw_entity_observations`, `bw_entity_events`,
+`bw_market_horizon`, `market_news_tips`, `forecast_scenario_status`,
+`keyword_groups.language/country/social_platforms`, the 768-d HNSW index. 208 tables.
+`/api/health` 200, no tracebacks; data still clean (0 articles, brands, groups, agents;
+admin only). Dump re-cut at `/var/tmp/bw_template.dump` (1.7 MB, root:postgres 640),
+6 August dump kept as `.prev-20260903`, test-restored into a scratch database (208
+tables, `kg_lang_001`, 0 articles, 4,435 mediabias rows, 6 profiles, 1 user) and
+dropped. Service stopped again, `.env` re-encrypted. Exact steps now in
+`docs/BRAND_WATCHER_TENANT_TEMPLATE.md` "Refreshing the template" (`ce7c8aaf`).
 
-Data note: oviva's default profile is "Generic Enterprise" (id 2), so on oviva the
-fallback is generic until someone flags the Oviva profile as default.
+### Feature — provisioning script seeds the customer's organisation profile
+`scripts/provision_brand_tenant.py` step 8, fresh-brand path (data clones keep their
+source's profiles and get a log line). Builds a profile in the Oviva shape and, on a
+terminal, prompts per field with the default shown (Enter keeps, `-` clears). Flags
+`--profile-description --industry --org-type --region --competitors` pre-fill;
+`--profile-json <file>` supplies the whole profile; `--no-profile` skips. POSTs
+`/api/organizational-profiles`, looks the row up by name (exact: the API rejects
+duplicate names), flips `is_default` by SQL (the create API has no such field), verifies
+through the API that exactly that profile is default. Harness against bwtemplate created
+"Acme Test" as id 10 and flagged it; row deleted and Generic Enterprise restored, so the
+dump above is unaffected. Copied to bwtemplate's `scripts/`. Commit `b13587d9`.
 
-`app/routes/dashboard_routes.py` was identical on all six tenants, so the narrative fix is
-copied to sunstar, oviva, wiley, wileytest, ibaset and pearson. Only sunstar and bugfixing
-were restarted; the others pick it up on their next restart.
+### Fix — profile-create endpoint returns the new profile's id
+`create_organisational_profile()` returned the raw execute result, which the route
+serialised as the rowcount (`"profile_id": 1`). The insert now carries
+`.returning(organizational_profiles.c.id)` and returns `scalar_one()`, the pattern the
+notifications and saved-dashboard inserts use. On bugfixing: create "Probe Profile
+20260903" → `profile_id: 8`, row id 8, DELETE 200, row gone. The script keeps its
+lookup-by-name for sites still on the old code. Commit `07e28261`, which also swept in
+`app/services/market_collect.py` from another session (see Lessons).
 
-## 2026-09-03 — Future Horizons download 404 and news-feed narratives regenerating on every visit (sunstar)
-
-### Goal
-On sunstar.aunoo.ai the "Download interactive HTML" button on the Future Horizons tab
-returned 404 for the topic "Oral-Systemic Health Research". The same session asked why the
-narratives on the Explore news feed regenerate on every visit instead of coming from cache.
-Both are fixed below.
-
-### Fix — cache-only reads return the newest run *of the requested tab*
-`app/routes/trend_convergence_routes.py`, `GET /api/trend-convergence/{topic}?cache_only=true`.
-When the exact cache key missed, the handler fell back to
-`get_latest_cached_trend_analysis_for_topic(topic)`, which returned the newest saved
-version of *any* tab. The topic had a Consensus run (`consensus_analysis_runs`
-`f8c4a40a…`, 15:24) and no Future Horizons run at all, so the Horizons tab received the
-Consensus payload. It had no scenarios to draw, but it did have an `analysis_id`, so the
-download button rendered and requested `/horizons/f8c4a40a…/download.html`, which looks
-the id up in `future_horizons_runs` and correctly 404s.
-
-`app/database_query_facade.py` `get_latest_cached_trend_analysis_for_topic()` gains
-`content_key` and `limit=20`: it scans recent `analysis_versions_v2` rows newest-first and
-returns the first whose payload carries that key with content. The route passes
-`_TAB_CONTENT_KEYS[tab]` (`scenarios` for horizons, `categories` for consensus, and so on),
-the same rule `/previous?tab=` already used. With no tab the behaviour is unchanged. A
-topic with no run of the requested tab now gets the 404 "No cached analysis available"
-that the UI already handles by showing the Generate button. Commit subject:
-"Trend convergence cache-only fallback honours the requested tab".
-
-### Fix — Explore news feed narratives cached by topic and date window
-The news feed header (`ui/src/hooks/useNarrativeExplorer.ts`) loads narratives by calling
-`POST /api/dashboard/article-insights/{topic}` once per topic with `force_regenerate=false`.
-The backend (`app/routes/dashboard_routes.py` `get_article_insights`) generates on a cache
-miss, one LLM call per topic. The cache row in `article_analysis_cache` was anchored on
-the newest article in the topic's date window, so any new article moved the anchor and
-forced a regeneration. On sunstar the social groups ingest continuously, so this was
-"regenerate on every visit": today "Brand Monitoring Sunstar" was rebuilt at 08:47
-against a Bluesky post and again at 15:54 against a TikTok video; seven topics were
-rebuilt twice each with two cache hits all day.
-
-The row is now anchored on the cache key itself, `article_insights_{topic}_{start}_{end}_{days}`,
-so one generation per topic per date window. The UI's window is day-granular
-(`end_date` = today), so a topic regenerates at most once a day unless the user clicks
-regenerate (`force_regenerate` still bypasses). The representative-article lookup on the
-read path is gone with it. `invalidate_insights_cache_for_topic()` matches on
-`analysis_type`, so the settings-page invalidation still clears these rows. Old
-article-anchored rows stay until their 30-day expiry and are simply never read. The
-category-insights endpoint in the same file keeps the old article anchor; it was not
-asked for. Commit subject: "Narratives cache keyed on topic and date window".
-
-### Verification
-On sunstar after restart, calling the facade directly for the topic:
-`content_key=None` and `content_key="categories"` both return the Consensus run
-`f8c4a40a…` (15:24); `content_key="scenarios"` returns None. That is the case the
-Horizons tab now hits, so it shows Generate instead of a phantom download button.
-`journalctl` after the restart shows no import errors. Not verified end to end in the
-browser.
-
-Narratives, on sunstar after restart, calling `get_article_insights` directly for
-"Brand Monitoring Haleon" with a 7-day window twice in a row: run 1 generated 5 themes in
-14.7 s and logged `Cache SAVE` under the key
-`article_insights_Brand Monitoring Haleon_2026-08-27_2026-09-03_7`; run 2 logged
-`Cache HIT` and returned the same 5 themes in under 0.1 s.
+### Verification (beyond the per-item results above)
+- Tab-aware fallback, on sunstar: `content_key="categories"` returns the Consensus run
+  `f8c4a40a…`; `content_key="scenarios"` returns None. Not clicked through in the browser.
+- Narratives, on sunstar: `get_article_insights` for "Brand Monitoring Haleon", 7-day
+  window, twice: run 1 generated 5 themes in 14.7 s and logged `Cache SAVE` under
+  `article_insights_Brand Monitoring Haleon_2026-08-27_2026-09-03_7`; run 2 `Cache HIT`
+  in under 0.1 s.
+- Default profile: first regenerated run, journal 16:36:57, "using default
+  organisational profile 8 (Sunstar)"; `analysis_run_logs.profile_id = 8` where the
+  15:06–15:47 runs show NULL. oviva after restart: the facade lookup returns id 8 "Oviva".
 
 ### Propagation
-Both files copied to sunstar and oviva (facades were identical to canonical; oviva's
-routes file was one hunk behind, the consensus truncation fix, and now carries it).
-sunstar and bugfixing restarted; oviva not restarted. wiley, wileytest, ibaset and
-pearson have older copies of this route file that lack `_TAB_CONTENT_KEYS` and
-`get_recent_analysis_versions` entirely, so the fallback bug exists there too but the
-patch does not apply as a file copy. They need the tab-aware `/previous` work ported
-first.
+- sunstar: every change above, restarted last at 18:34 with nothing in flight (last
+  executive summary finished 17:16). Frontend bundle rsynced here only.
+- bugfixing (canonical): all, restarted; its three `running` analysis-run rows are
+  stale January/February entries.
+- oviva: all backend files as copies, restarted, own profile flagged default.
+- wiley, wileytest: `dashboard_routes.py`, `auspex_service.py`,
+  `topic_report_service.py` copied; facade method, the three route blocks and the
+  RETURNING fix applied as surgical patches (both trees carry local diffs); compiled,
+  NOT restarted. Their `trend_convergence_routes.py` lacks `_TAB_CONTENT_KEYS`, so the
+  tab-aware cache fallback does not apply there.
+- ibaset, pearson: `dashboard_routes.py` only (identical file). Too far behind for the
+  rest (hundreds of lines of drift per file); the profile and download faults remain.
+- bwtemplate: at canonical `87fc5898`-era code via the rsync, plus the provisioning
+  script. Its default profile is still Generic Enterprise by design; the script
+  supplies the customer's.
+
+### Lessons
+- ALWAYS check `is_default` on `organizational_profiles` before blaming the picker when
+  reports read generic. A missing `profile_id` now means the default profile; a tenant
+  with no default row still gets generic output.
+- `git add -u` in canonical sweeps other sessions' in-flight edits: `07e28261` carried a
+  `market_collect.py` change saved two seconds earlier by another session. Check
+  `git status` for files you did not touch before committing, and say so in the message
+  if they ride along.
+- A cache anchored on "the newest article" is a cache that misses whenever collection
+  runs. Anchor on the query (topic + window), not on the data.
+- Targeted file copies to the template are a trap; refresh it by full rsync with the
+  anchored `/config/` exclude, and test-restore the dump before trusting it.
 
 ## 2026-09-03 — Oviva brand-monitoring tenant, and three Brand Watcher fixes it surfaced
 
