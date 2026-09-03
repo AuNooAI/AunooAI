@@ -2091,12 +2091,18 @@ class AuspexService:
             # Support both new schema (column) and old schema (metadata.profile_id)
             profile_id = chat.get('profile_id') or ((chat.get('metadata') or {}).get('profile_id'))
             
-            # Get organizational profile context if available
+            # Get organizational profile context: the chat's profile, else the
+            # tenant's default profile (the chat UI has no profile picker).
             profile_context = ""
-            if profile_id:
+            if True:
                 try:
                     from app.database_query_facade import DatabaseQueryFacade
-                    profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    if profile_id:
+                        profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    else:
+                        profile_row = DatabaseQueryFacade(self.db, logger).get_default_organisational_profile()
+                        if profile_row:
+                            logger.info(f"Auspex chat {chat_id}: no profile on chat; using default profile {profile_row['id']} ({profile_row['name']})")
                     if profile_row:
                         import json
                         profile = {

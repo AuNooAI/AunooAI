@@ -368,6 +368,35 @@ Article summary (sentiment / future_signal / time_to_impact when present):
 Return ONLY the JSON object. No prose, no markdown, no code fences."""
 
 
+def _default_profile_text(db) -> str:
+    """One-paragraph description of the tenant's default organisation profile
+    for the executive-summary prompt, or a neutral line when none is set."""
+    try:
+        from app.database_query_facade import DatabaseQueryFacade
+        profile = DatabaseQueryFacade(db, logger).get_default_organisational_profile()
+    except Exception as e:
+        logger.warning("exec summary: default profile lookup failed: %s", e)
+        profile = None
+    if not profile:
+        return "No specific organizational context provided."
+    parts = [f"Organization: {profile['name']}"]
+    for label, key in (("Industry", "industry"), ("Organization Type", "organization_type"),
+                       ("Region", "region"), ("Description", "description"),
+                       ("Key Concerns", "key_concerns"), ("Strategic Priorities", "strategic_priorities"),
+                       ("Competitive Landscape", "competitive_landscape"), ("Additional Context", "custom_context")):
+        value = profile.get(key)
+        if isinstance(value, str) and value.startswith("["):
+            try:
+                value = json.loads(value)
+            except Exception:
+                pass
+        if isinstance(value, (list, tuple)):
+            value = ", ".join(str(v) for v in value if v)
+        if value:
+            parts.append(f"{label}: {value}")
+    return "\n".join(parts)
+
+
 async def generate_executive_summary_for_run(
     run_id: str, topic: str, scenarios: list, model: str = "gpt-5.4",
 ) -> Optional[dict]:
@@ -411,10 +440,10 @@ async def generate_executive_summary_for_run(
             # Without this the model has no idea what quarter it is, and
             # writes decision forks with deadlines already in the past.
             "today": _dt.now().date().isoformat(),
-            "organizational_profile": (
-                "Wiley — global academic publisher. Scientific publishing, "
-                "research integrity, open science, peer review at scale."
-            ),
+            # The tenant's default organisation profile. This used to be a
+            # hardcoded Wiley description, which framed every other tenant's
+            # cards as if for an academic publisher.
+            "organizational_profile": _default_profile_text(db),
         },
     )
     full_prompt = f"{system_prompt}\n\n{user_prompt}"

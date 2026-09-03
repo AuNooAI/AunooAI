@@ -2,6 +2,89 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Analyses ran with no organisation profile; the default profile is now the fallback everywhere
+
+### Goal
+The user noticed that today's Foresight reports on sunstar were not written from Sunstar's
+perspective. Of the 13 analysis runs logged on sunstar today, 9 had no profile and the
+generic "executive" persona: the Consensus and Future Horizons runs between 15:06 and
+15:47 for Consumer Voice, Brand Monitoring Sunstar, Oral-Systemic Health Research,
+Germany and France. The Sunstar profile (id 8) is flagged `is_default`, but nothing read
+that flag except the sort order and the delete guard.
+
+### Fix — the tenant's default profile is used whenever no profile is given
+`app/database_query_facade.py` gains `get_default_organisational_profile()`: the row with
+`is_default = true`, lowest id first, or None. Four callers fall back to it:
+
+- `app/routes/trend_convergence_routes.py`, the main `GET /api/trend-convergence/{topic}`
+  handler. The lookup runs before the cache key is built, so the cache key and the
+  `analysis_run_logs.profile_id` column record the profile the prompt actually used; the
+  later profile-loading block also falls back, for the case where the early lookup fails.
+- The same file, `POST /horizons/{id}/executive-summary`. Without a profile it sent the
+  model "No specific organizational context provided."
+- `app/services/auspex_service.py` `chat_with_tools`: the chat's profile, else the default.
+  The Auspex chat UI has no profile field at all, so every chat was profile-less (all
+  five on sunstar today).
+- `app/services/topic_report_service.py` `generate_executive_summary_for_run`: the
+  executive-summary prompt for the Topic Reports PPTX hardcoded "Wiley — global academic
+  publisher" as the organisation. New `_default_profile_text(db)` renders the default
+  profile instead. wiley and wileytest both have "Wiley Scientific Publisher" as their
+  default, so their output is unchanged in substance; any other tenant stops getting
+  Wiley-framed cards.
+
+Log line to grep for: `No profile_id given; using default organisational profile`.
+
+### Fix — Foresight page pre-selects the default profile and passes it to the summary call
+`ui/src/hooks/useTrendConvergence.ts`: after the profiles load, if the stored config has no
+profile (or one that no longer exists), the profile flagged default is selected, else the
+first. A fresh browser used to start with the picker on "Select Profile" and every
+analysis went out generic. `ui/src/App.tsx`: the Executive Summary button now passes
+`config.profile_id` to `generateHorizonsExecutiveSummary`; the API helper already
+accepted it and the call site never supplied it. Bundle `main-BlWuB8fd.js`.
+
+### Ops — sunstar runs regenerated with the Sunstar profile
+Script in the session scratchpad, minted session cookie, `enable_caching=false`,
+`persona=executive`, `model=claude-sonnet-4-5`, `timeframe_days=365`, no `profile_id`
+on purpose so the fallback is what supplies it. Consumer Voice and Oral-Systemic Health
+Research Consensus were not redone: the user had already re-run both with profile 8 at
+16:24 and 16:30. Executive Summary cards were regenerated for the new Horizons runs and
+for run `8ab8abf3` (Oral-Systemic Health Research, 2 Sep), whose cards were written
+profile-less at 16:18 today.
+
+Results, all with `analysis_run_logs.profile_id = 8` and the journal line above on each:
+
+| Tab | Topic | New run id | Output | Time |
+|---|---|---|---|---|
+| Consensus | Brand Monitoring Sunstar | `06eb6317` | 3 categories | 147 s |
+| Consensus | Oral Health & Whole-Body Health - Germany | `00d5d176` | 3 categories | 146 s |
+| Consensus | Oral Health & Whole-Body Health - France | `b0210114` | 2 categories | 123 s |
+| Horizons | Oral Health - Consumer Voice | `f697102d` | 13 scenarios | 39 s |
+| Horizons | Brand Monitoring Sunstar | `f1867b9c` | 13 scenarios | 31 s |
+| Horizons | Oral Health & Whole-Body Health - France | `af63885a` | 13 scenarios | 38 s |
+| Horizons | Oral Health & Whole-Body Health - Germany | `1fa43bec` | 13 scenarios | 32 s |
+
+Executive Summary cards: 6 each for the four new Horizons runs and for `8ab8abf3`,
+written 16:47–16:51, each preceded by "Executive summary: no profile_id given; using
+default profile 8 (Sunstar)". The old profile-less runs are still in the tables; the UI
+shows the newest run per tab, so they are superseded, not deleted.
+
+### Verification
+First regenerated run, journal 16:36:57: "No profile_id given; using default
+organisational profile 8 (Sunstar)", and `analysis_run_logs` shows `profile_id = 8` for
+it where the 15:06–15:47 runs show NULL.
+
+### Propagation
+Backend: sunstar (restarted) and bugfixing (restarted); oviva took all four files as
+copies, not restarted. wiley and wileytest: `auspex_service.py` and
+`topic_report_service.py` copied; the facade method and the three route blocks applied
+as surgical patches because both trees carry local diffs in those files; compiled, not
+restarted. ibaset and pearson are too far behind for any of it (hundreds of lines of
+drift per file) and still have the fault. Frontend: bundle rsynced to sunstar only; wiley
+and wileytest get the backend fallback, which makes the picker gap harmless there.
+
+Data note: oviva's default profile is "Generic Enterprise" (id 2), so on oviva the
+fallback is generic until someone flags the Oviva profile as default.
+
 `app/routes/dashboard_routes.py` was identical on all six tenants, so the narrative fix is
 copied to sunstar, oviva, wiley, wileytest, ibaset and pearson. Only sunstar and bugfixing
 were restarted; the others pick it up on their next restart.

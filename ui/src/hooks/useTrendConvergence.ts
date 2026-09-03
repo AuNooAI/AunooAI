@@ -186,6 +186,17 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       setProfiles(profilesData);
       setModels(modelsData);
 
+      // Pre-select the tenant's default organisational profile when none is
+      // stored (or the stored one no longer exists). A fresh browser used to
+      // start with the picker empty, and every analysis then ran with no
+      // organisation context.
+      if (profilesData.length > 0 && !profilesData.some(p => p.id === config.profile_id)) {
+        const fallback = profilesData.find(p => p.is_default) || profilesData[0];
+        if (fallback?.id) {
+          setConfig(prev => ({ ...prev, profile_id: fallback.id }));
+        }
+      }
+
       // Set default topic if available and not already set
       if (topicsData.length > 0 && !config.topic) {
         setConfig(prev => ({ ...prev, topic: topicsData[0].name }));

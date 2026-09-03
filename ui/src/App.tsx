@@ -891,7 +891,8 @@ function App() {
         analysisId,
         scenarios,
         config.topic,
-        config.model
+        config.model,
+        config.profile_id
       );
 
       if (result.success && result.executive_summary?.summaries) {

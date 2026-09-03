@@ -615,6 +615,17 @@ async def generate_trend_convergence(
         import uuid
         run_id = str(uuid.uuid4())
 
+        # No profile given: use the tenant's default profile, resolved here so
+        # the cache key and the run log record the profile the prompt used.
+        if not profile_id:
+            try:
+                default_profile = (DatabaseQueryFacade(db, logger)).get_default_organisational_profile()
+                if default_profile:
+                    profile_id = default_profile['id']
+                    logger.info(f"No profile_id given; using default organisational profile {profile_id} ({default_profile['name']})")
+            except Exception as e:
+                logger.error(f"Default organisational profile lookup failed: {e}")
+
         # Generate comprehensive cache key for all parameters including tab
         cache_key = generate_comprehensive_cache_key(
             topic, timeframe_days, model, source_quality, sample_size_mode,
@@ -774,11 +785,20 @@ async def generate_trend_convergence(
         # Prepare analysis summary using diverse articles
         analysis_summary = prepare_analysis_summary(diverse_articles, topic)
         
-        # Get organizational profile if specified
+        # Get organizational profile if specified; otherwise the tenant's
+        # default profile, so a request without the picker is still analysed
+        # from the tenant's own perspective rather than a generic one.
         organizational_profile = None
-        if profile_id:
+        if True:
             try:
-                profile_row = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_id)
+                facade_for_profile = DatabaseQueryFacade(db, logger)
+                if profile_id:
+                    profile_row = facade_for_profile.get_organisational_profile(profile_id)
+                else:
+                    profile_row = facade_for_profile.get_default_organisational_profile()
+                    if profile_row:
+                        profile_id = profile_row['id']
+                        logger.info(f"No profile_id given; using default organisational profile {profile_id} ({profile_row['name']})")
                 if profile_row:
                     # get_organisational_profile returns a SQLAlchemy mapping
                     # (keyed by column name), so access by name — positional
@@ -813,7 +833,7 @@ async def generate_trend_convergence(
                         'custom_context': profile_row['custom_context']
                     }
                 else:
-                    logger.warning(f"Organizational profile {profile_id} not found, using default template")
+                    logger.warning(f"Organizational profile {profile_id} not found and no default profile set, using generic template")
             except Exception as e:
                 logger.error(f"Error loading organizational profile: {str(e)}")
                 
@@ -3566,11 +3586,16 @@ async def generate_horizons_executive_summary(
         # Prepare scenarios JSON
         scenarios_json = json.dumps(request.scenarios, indent=2)
 
-        # Get organizational profile if profile_id provided
+        # Get organizational profile if profile_id provided, else the tenant's default
         organizational_profile = "No specific organizational context provided."
-        if request.profile_id:
+        if True:
             facade = DatabaseQueryFacade(db, logger)
-            profile = facade.get_organisational_profile(request.profile_id)
+            if request.profile_id:
+                profile = facade.get_organisational_profile(request.profile_id)
+            else:
+                profile = facade.get_default_organisational_profile()
+                if profile:
+                    logger.info(f"Executive summary: no profile_id given; using default profile {profile['id']} ({profile['name']})")
             if profile:
                 profile_parts = []
                 if profile.get('name'):

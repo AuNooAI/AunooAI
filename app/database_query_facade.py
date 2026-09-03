@@ -644,6 +644,18 @@ class DatabaseQueryFacade:
         )
         return self._execute_with_rollback(statement).mappings().fetchone() 
 
+    def get_default_organisational_profile(self):
+        """The profile flagged ``is_default`` (the tenant's own organisation),
+        or None. Callers that receive no profile_id fall back to this so a
+        fresh browser or an API call without the picker still analyses from
+        the tenant's perspective rather than a generic one (sunstar, 2026-09-03:
+        nine Foresight runs went out with no organisation context)."""
+        statement = select(organizational_profiles.c.id).where(
+            organizational_profiles.c.is_default.is_(True)
+        ).order_by(organizational_profiles.c.id).limit(1)
+        row = self._execute_with_rollback(statement).fetchone()
+        return self.get_organisational_profile(row[0]) if row else None
+
     def get_organisational_profiles(self):
         statement = select(
             organizational_profiles.c.id,
