@@ -2906,6 +2906,8 @@ async def get_stats(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
+              AND a.analyzed = true
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2929,6 +2931,8 @@ async def get_stats(
                 GROUP BY article_uri
             ) cc ON a.uri = cc.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
+              AND a.analyzed = true
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()

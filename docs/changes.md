@@ -2,6 +2,85 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-03 — Oviva brand-monitoring tenant, and three Brand Watcher fixes it surfaced
+
+### Goal
+Stand up a dedicated brand-monitoring site for Oviva (oviva.com, the UK "medication
+and expert care" GLP-1 programme) with LinkedIn, and make it a full demo: news in
+English and German, social, Glassdoor, the Market Monitor with the competitors on the
+maturity map, timeline mementos and an adverse-media observer agent. Three canonical
+code changes came out of it, all found because a brand tenant sits every brand in a
+market registry, which the code had only seen on the SOC market tenant.
+
+### Fix — Market Monitor tab reachable on a dedicated Brand Watcher tenant
+`ui/src/pages/NewsFeedPage.tsx`: `DEDICATED_TABS` gains `market_monitor`. The tab button
+already rendered when the module was on, but the dedicated-mode effect snapped any
+click back to Brand Watcher because the allowlist did not include it. Swept into
+`19c5cafc` by that session's `git add -u`; bundle rebuilt with `./ui/deploy-react-ui.sh`.
+
+### Fix — brand-monitored vendors keep their timeline
+`app/services/timeline_events.py` `get_timeline_scopes()` excluded every brand that has a
+`bw_market_brands` row, a cost rule written for the 82-vendor SOC market. On a brand
+tenant every brand is in the registry (that is how LinkedIn and website collection is
+wired), so the Timeline tab listed no scopes at all. The rule now excludes only vendors
+with no membership carrying `brand_monitoring_enabled`. On bugfixing this adds a
+timeline for the 13 brand-monitored SOC vendors, one LLM call each per day. Swept into
+`ee994912`.
+
+### Fix — Brand Watcher category chips count only what the article list shows
+`app/routes/brand_watcher_routes.py` `get_stats()`: both queries gain `AND a.analyzed = true`,
+the gate the article list already applies. Without it a brand's own LinkedIn posts and
+its Glassdoor reviews, which are never enriched, made chips like "Leadership (6)" whose
+click showed "No articles found". Those items are unchanged and sit on the Social tab
+(owned and employee channels). Commit `cec0e1e5`. Oviva after the fix: chips sum to the 8
+listed articles; before, 41 chips against 8 rows.
+
+### Ops — oviva.aunoo.ai provisioned (uncommittable, lives in that tenant only)
+`scripts/provision_brand_tenant.py provision --slug oviva --port 10026`, then the code
+resynced to canonical `576c6883` and migrated `tl_001 → kg_lang_001`, because the golden
+dump is older than the template's code and a fresh clone failed collection on
+`keyword_groups.social_platforms`. Bedrock-only litellm config (sunstar's), enrichment on
+`bedrock-kimi-k2-5`, `SOCIAL_EVAL_MODEL=nova-lite`, `ENABLED_MODULES=brand_watcher,market_monitor`.
+Brands: Oviva plus Second Nature, Numan, Voy, Juniper, Noom, WeightWatchers, each with a
+news group on firehose + TheNewsAPI (the firehose alone returned zero Oviva articles in
+30 days). German group on TheNewsAPI + NewsData (NewsData key copied from sunstar;
+bugfixing's is empty). Social groups for Oviva, Noom and WeightWatchers on xpoz + Bluesky.
+Glassdoor on all seven, SEC EDGAR on WeightWatchers. One-vendor-then-seven market with
+web-search-verified LinkedIn and Crunchbase pages; funding totals entered as locked
+operator observations AND as `bw_market_brands.baseline.funding_baseline`, because the
+maturity map reads the baseline, not the profile. Alerts to oliver.rochford@aunoo.ai.
+Observer agent "Adverse Media Monitor — Oviva", daily 08:00 Berlin.
+
+Setup steps a new brand tenant needs that nothing automates: seed `bw_entity_query_terms`
+per brand (`entity_content.seed_query_terms` has no caller), set
+`bw_market_brands.social_collection_enabled` before social posts can become mentions,
+delete `bw_entity_link_attempts` rows for posts examined before that, run one full
+`POST /api/brand-watcher/classify {run_type: full, days_back: 30}` (the schedule is
+incremental by publication date), and extract today's timeline mementos by hand (dailies
+only ever read yesterday). Manual market runs for a source inside cadence fail with
+"nothing dispatched" unless `bw_entity_source_policies.next_due_at` is reset first;
+market-wide sweeps are gated on `bw_collection_runs.started_at`, backdate that row to
+force one.
+
+### Verification
+Over the tenant's own API with a minted session: `/api/modules` dedicated_mode true with
+both modules; social endpoint 9 Oviva items and 11 Noom after linking; articles 17
+overall, 8 for Oviva, matching the stats chips after the fix; timeline 18 events across
+four brands; map 5 of 7 vendors rated (Numan needs a second LinkedIn headcount reading,
+its page came back byte-identical and the unique content hash refuses a duplicate;
+WeightWatchers has no VC funding total). Journal: market tick 7 sources 0 errors, LinkedIn
+profile/posts/jobs and Crunchbase batches succeeded, Glassdoor landed 5 reviews.
+
+### Propagation
+The three code fixes are in canonical and on oviva (restarted). bugfixing runs them at its
+next restart; wiley, wileytest, wbm, abm, pbm and bwtemplate do not have them. The tenant
+configuration is database and `.env` state on oviva only.
+
+### Lessons
+The template's golden dump lags its code: resync and migrate every new clone before
+trusting collection. On a brand tenant, "every brand is a market vendor" trips any rule
+written for the SOC market, and the three fixes above are unlikely to be the last.
+
 ## 2026-09-03 — Relevance gate approved Iran-war coverage on the SOC Automation market topic
 
 ### Diagnosis — why geopolitics reached an "approved" state on a vendor-market topic
