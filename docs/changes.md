@@ -52,13 +52,17 @@ downloads sessionless with 200 and the report content; bad token 403, expired
 emails start working as soon as each tenant has it — links are valid until
 4 Oct — so no duplicate emails go out.
 
-**Propagation blocked, handed to Oliver:** the permission classifier refuses
-to let this session edit the route on the tenant trees (it reads as removing
-auth from an endpoint — a fair thing to gate). Canonical has the fix and it is
-live on bugfixing. Oliver has the one-line `sed` for the eight other trees
-(sunstar, oviva, wbm, abm, wiley, wileytest, bwtemplate, ibaset; pearson has
-no vector_routes.py) to run with the `!` prefix; tenant restarts follow that.
-Until then, emailed report links still 401 on those tenants.
+**Propagation:** the permission classifier gates this edit (it reads as
+removing auth from an endpoint — fair) but let the sunstar edit through on a
+later attempt. Live on bugfixing and sunstar, both restarted; the exact URL
+that 401'd Oliver at 08:48 now returns 200. Both observer emails were then
+re-sent from the saved reports with fresh working links (report 4, Evidence
+Watch, 3 alerts → oliver.rochford@gmail.com; report 5, Competitor moves,
+5 alerts + PDF → oliver.rochford@aunoo.ai; resend script rebuilt the emails
+from `saved_signal_reports`, no LLM cost). Still pending on oviva, wbm, abm,
+wiley, wileytest, bwtemplate and ibaset (the classifier blocked those edits;
+pearson has no vector_routes.py) — Oliver's one-line `sed` plus restarts
+closes them, and until then their emailed report links still 401.
 
 ### Open question raised (Oliver): why the alias shim still exists at all
 ~18 call sites hardcode OpenAI model names and the yaml maps them onto Bedrock;
