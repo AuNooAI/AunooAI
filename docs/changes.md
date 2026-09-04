@@ -244,9 +244,10 @@ strategic-intelligence brief, partisan analysis) are generic and stay.
 `strategic_intelligence_oracle`'s description says "BBC/Wiley-quality" but its
 config is generic (credibility threshold, hours back) — left alone. Takes
 effect at the next sunstar restart; a job-gated watcher restarts the service
-once the ingest cycle that was running quiets down. Not touched on other
-tenants: the publishing tools genuinely fit wbm/wiley/wileytest; oviva and abm
-have the same mismatch and can get the same one-minute move when wanted.
+once the ingest cycle that was running quiets down. oviva and abm got the same
+move (both were idle, restarted immediately; toolbars verified at eight tools
+and the Anticipate caches still answer in 10–18 ms afterwards). Left on
+wbm/wiley/wileytest, where the publishing tools genuinely fit.
 
 The pre-canned prompt picker on sunstar holds two rows and both fit: the
 generic default and the Sunstar Strategic Analyst added earlier today. The
