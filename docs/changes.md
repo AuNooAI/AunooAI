@@ -2,6 +2,51 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — INCIDENT: scoped UI sync broke every React page but one on wiley and wileytest
+
+### What broke
+Last night's Foresight propagation synced `static/trend-convergence/` to wiley
+and wileytest with `rsync --delete`, treating it as the trend-convergence page's
+own directory. It is not: it is the shared Vite build output for ALL React pages
+(gather, explore, operations/root, pam, newsfeed, submit-articles). The
+`--delete` removed each tenant's entire bundle set while only
+`trend_convergence_react.html` got the matching new template — every other React
+page's HTML kept referencing bundles that no longer existed. From ~22:15 on
+3 Sep until ~08:05 on 4 Sep, both tenants served pages whose JS and CSS 404'd;
+only the trend-convergence page worked. wileytest is production for a paying
+customer.
+
+### Blast radius
+Journals show zero non-localhost 404s on the deleted assets overnight; the only
+real hits were 7 requests at 08:00–08:01 from Oliver, whose report surfaced the
+break. So the exposure was ~10 hours of broken pages with, as far as the logs
+show, no customer pageviews during the window.
+
+### Recovery
+Full standard frontend sync from canonical to both tenants — `rsync -a` of all
+of `static/` and all of `templates/` (no `--delete` this time; leftover old
+files are harmless, missing ones are not), making every template and its assets
+mutually consistent at canonical's build. Verified end-to-end with a minted
+admin session on both tenants: root/operations, gather, explore,
+trend-convergence and submit-articles all return 200 and every `/static/*`
+asset each page references returns 200. One pre-existing wart surfaced and was
+fixed in all three trees: canonical's own `pam_react.html` carried a stale
+`modulepreload` for `usePAM-zQ3fJmWy.js` (the real import graph uses
+`usePAM-B0N3CAK6.js`) — a harmless console 404, now pointed at the real file.
+Open tabs from before the fix need a hard refresh.
+
+### Lessons
+- **`static/trend-convergence/` is the shared Vite output directory for every
+  React page, not the trend-convergence page's own assets.** The name lies.
+  NEVER sync a subset of it, and NEVER `--delete` it in isolation.
+- Frontend propagation is all-or-nothing: full `static/` + `templates/`
+  together, exactly as the documented procedure says. A "scoped" UI sync that
+  copies one template plus a shared asset dir is a trap.
+- After any UI sync, verify from the serving side: fetch each React page with
+  an authed session and HEAD every asset its HTML references. Template-side
+  grep alone missed this because the deleted files were referenced by templates
+  the sync never touched.
+
 ## 2026-09-03 — Session lookup no longer breaks under load ("cursor already closed" 500s on sunstar)
 
 ### Goal
