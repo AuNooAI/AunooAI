@@ -2,6 +2,78 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Incident: adding Torq 500d the public report; the tripwire now scrubs instead of refusing
+
+### Incident — twelve minutes of 500s on the shared assessment report
+Adding Torq to the market 2 registry (16:12) made "Torq" a withheld name for
+anonymous readers. The report's "accounts posting repeatedly" table has
+carried the profiled `@torq_io` account since the 27 Aug top-voices scan, with
+the vendor named in its tag and profile blurb — text that was harmless until
+the registry add turned it into a disclosure. The fail-closed check
+(`assert_no_withheld`) then refused the whole page: `?view=report` answered
+500 from 16:32 to 16:44 for all three windows. Blast radius: one real reader
+(one request) plus the operator; the front page and sections stayed up. Third
+instance of the class after the headcount movers (2 Sep) and investor lists.
+
+### Fix — `drop_text_mentioning` recurses into nested dicts
+**`app/services/market_entitlements.py`**: the text scanner read a row's
+top-level strings and recursed into lists but skipped nested dicts, so a name
+inside `vendor_tag["org"]` or `account["summary"]` was invisible — the first
+fix attempt routed the accounts table through the scanner and still leaked.
+It now recurses into dict values too. **`market_report_html.py`** additionally
+passes the voices table and the quoted highlights through the scanner at the
+entitlement gate.
+
+### Fix — the public tripwire scrubs instead of refusing (`enforce_no_withheld`)
+The raising check was built for an entitlement API; on the public site it
+turned any masking miss into an outage for every reader. New
+`ent.enforce_no_withheld()`: the check still runs, a hit is still logged as an
+error naming the surface (fix the filter), but the page ships with the name
+replaced by the withheld label, re-checked before it leaves. If even the
+scrub cannot clean the page, the refusal stands. Wired on all five public
+surfaces: report, v2 front page, news river, briefing page
+(`market_report_html.py`), and the feeds (`market_publish.py`). One vendor
+can no longer take the site down.
+
+### Fix — `test_mm20` aligned with the 27 Aug horizon exemption
+The test asserts no withheld name in the final report bytes, but the Market
+Maturity Map deliberately names every rated vendor in the shared view
+(decision of 27 Aug; re-inserted after the check). It had been failing since
+then — before today's work. It now strips the horizon drawer before
+asserting; a new test pins the scrub behaviour (name replaced with the label,
+handles like `torq_io` untouched, clean pages pass through).
+
+### Ops — data pulls for the new vendors, and map 29
+13 manual collection runs queued for Torq, Eventus, D3 and StrikeReady's
+never-run sources; the 10 provider-backed ones all succeeded (the 3 internal
+ones aren't manually dispatchable and wait on cadence). Torq's numbers: 470
+employees, 45,616 followers, 12 open roles, 25 recent posts, Series D.
+Crunchbase slugs verified before spending: StrikeReady and D3 confirmed and
+marked verified; Eventus's guess RETIRED (`valid_to` stamped) — Crunchbase
+only knows eventus-systems, a trade-surveillance firm, the same name
+collision as their LinkedIn. Map recomputed out of band (id 29): 85 rated —
+Torq enters as an executor at scale 75.1 (4th-largest in the field), D3 84.4,
+Eventus 73.8, StrikeReady 61.0; only Vinci Logic, SOCAI and Variance remain
+unrated.
+
+### Verification
+`pytest tests/test_market_entitlements.py tests/test_market_report_v2.py`:
+41 passed, 0 failed. Live after the job-gated restart: 7/30/90-day reports,
+front page, all sections, news river and feeds answer 200; the shared report
+contains zero "Torq" (the operator view names it five times; the map label is
+the sanctioned single public appearance).
+
+### Lessons
+- Adding a vendor is the event that turns yesterday's harmless text into
+  today's disclosure. The onboarding drill must end by rendering the shared
+  report for all three windows — the miss here was testing v2 but not
+  `view=report`, the most-shared link.
+- A fail-closed guard on a public page should fail closed around the name,
+  not the page: keep the detector, lose the kill switch.
+
+### Propagation
+Market Monitor exists on bugfixing only; nothing to propagate.
+
 ## 2026-09-04 — Auspex Strategic Intelligence Oracle: crash when invoked without a topic
 
 ### Goal
