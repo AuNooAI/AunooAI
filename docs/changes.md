@@ -385,8 +385,18 @@ POST and DELETE share the path and that list refuses write methods.
   Claude Code `claude mcp add --transport http … --header "Authorization: Bearer …"`.
 
 ### Propagation
-bugfixing only (`test` DB, migrated and restarted). Not on sunstar, wiley,
-wileytest or any clone. Per tenant a copy needs: `app/mcp_access/`,
+bugfixing (`test` DB) and sunstar (`sunstar` DB), both migrated to `mcp_001`
+and restarted. sunstar deployed 2026-09-04 19:17 while idle (only the local
+uptime probe on `/login`, no jobs): all six touched files there were
+byte-identical to pre-MCP bugfixing, so the HEAD versions were copied as is
+and checksum-verified; sunstar has no `APP_URL`, so the base URL comes from
+`DOMAIN=sunstar.aunoo.ai` through the fallback in `config.py`; sunstar's venv
+has no pytest, so the unit tests ran only on bugfixing against the same
+files. Verified on sunstar by the same scripts: bearer smoke (11 tools, 13
+topics, `get_topic_articles` 3 articles with `/health` at 1 to 2 ms
+during the call), full OAuth flow, Connectors tab and self-service routes,
+public 401 with the discovery header. Key #1 minted for `admin`. Not on wiley,
+wileytest or any other clone. Per tenant a copy needs: `app/mcp_access/`,
 `templates/mcp_consent.html`, `templates/config.html` (Connectors tab; wileytest
 and wiley have their own drift in this file, so transplant the tab block and
 script rather than copying the file), `scripts/mcp_keys.py`, the `mcp_001` migration,

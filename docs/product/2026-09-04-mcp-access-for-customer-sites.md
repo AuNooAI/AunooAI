@@ -1,5 +1,5 @@
 # Connect Claude and ChatGPT directly to a customer site
-_2026-09-04 · MCP server on the single-site (monolith) deployment; live on bugfixing only_
+_2026-09-04 · MCP server on the single-site (monolith) deployment; live on bugfixing and sunstar_
 
 ## What shipped
 - Any AI assistant that speaks the Model Context Protocol (Claude Desktop, Claude Code, Cursor, the claude.ai and ChatGPT connector menus) can now connect to a customer site and use its news tools directly.
@@ -38,7 +38,7 @@ For a buyer: the dedicated-site tier no longer loses the "works inside your AI a
 Closes the gap between the dedicated-site deployment and the SaaS product on "use it from your AI assistant". The connection uses the same open standard and login flow the major assistants already support, so there is nothing to install on the customer side.
 
 ## Limits and what's next
-- Live on one internal site (bugfixing) as of today. Customer sites (sunstar, wiley, wileytest) do not have it yet; each needs the code copied, a database migration, and a restart.
+- Live on bugfixing and on the Sunstar site as of today. Wiley and wileytest do not have it yet; each needs the code copied, a database migration, and a restart.
 - Verified with scripts, including the full sign-in and Allow flow. Not yet verified by clicking through the claude.ai connector in a real browser, or by adding it to Claude Code. Do that before showing a customer.
 - Tools are the general news tools only. Brand Watcher, forecast, consensus and market-horizon data are not exposed yet. Adding them is one tool each on top of services the site already has.
 - The site runs on a single worker, so a service restart during the five-minute Allow window makes the user click Connect again.
