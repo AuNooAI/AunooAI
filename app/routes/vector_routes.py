@@ -3404,10 +3404,12 @@ def _report_email_extras(report_id, report_title, report_content, instr_config) 
     return extras
 
 
-@router.get("/signal-reports/{report_id}/download", dependencies=[Depends(verify_session_api)])
+@router.get("/signal-reports/{report_id}/download")
 async def download_signal_report(report_id: int, exp: int, token: str,
                                  fmt: str = "html"):
-    """Tokenized report download — NO session required (links land in email)."""
+    """Tokenized report download — NO session required (links land in email).
+    The expiring HMAC token below is the access control; adding a session
+    dependency here 401s every recipient who clicks from their inbox."""
     import hmac as _hmac
     import time as _time
     from fastapi.responses import HTMLResponse, Response

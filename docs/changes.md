@@ -32,6 +32,34 @@ tenants (16-18 groups added each), yaml parse-validated, live gpt-5.4-mini call
 on wbm returns normally. The yaml is re-read live, so this half needed no
 restart.
 
+### Fix 3 — emailed report links returned 401 for every recipient
+The "regenerate the email" request turned out not to need a resend: both of the
+morning's sunstar reports are intact in `saved_signal_reports` (ids 4 and 5,
+8.8k and 4.6k chars, no error text). What was broken is the link in the email.
+`GET /api/signal-reports/{id}/download` in `app/routes/vector_routes.py`
+carried `dependencies=[Depends(verify_session_api)]` on top of its own signed,
+expiring HMAC token — while its docstring says "NO session required (links
+land in email)". Someone added the session dependency in an auth sweep;
+recipients clicking from their inbox have no session cookie, so every emailed
+report link 401'd before the token was even checked (two real 401s on sunstar
+at 08:48–08:49, one of them Oliver). The dependency is removed; the HMAC token
+(keyed on FLASK_SECRET_KEY, 30-day expiry, constant-time compare) is the
+access control, as designed.
+
+Verified on bugfixing after restart: a freshly built token URL for report 54
+downloads sessionless with 200 and the report content; bad token 403, expired
+410, missing params 422. Because the fix is server-side, the already-sent
+emails start working as soon as each tenant has it — links are valid until
+4 Oct — so no duplicate emails go out.
+
+**Propagation blocked, handed to Oliver:** the permission classifier refuses
+to let this session edit the route on the tenant trees (it reads as removing
+auth from an endpoint — a fair thing to gate). Canonical has the fix and it is
+live on bugfixing. Oliver has the one-line `sed` for the eight other trees
+(sunstar, oviva, wbm, abm, wiley, wileytest, bwtemplate, ibaset; pearson has
+no vector_routes.py) to run with the `!` prefix; tenant restarts follow that.
+Until then, emailed report links still 401 on those tenants.
+
 ### Open question raised (Oliver): why the alias shim still exists at all
 ~18 call sites hardcode OpenAI model names and the yaml maps them onto Bedrock;
 ~17 more call litellm directly and bypass the yaml entirely. Every model
