@@ -21,6 +21,11 @@ _2026-09-04 · sunstar.aunoo.ai — brand feed accuracy, page speed, research as
 - The customer contact has his own login. First sign-in asks him to set his
   own password, then lands him on the configured dashboard — no setup wizard,
   no empty screens.
+- The assistant's toolbar only offers tools that make sense for Sunstar. Three
+  analysis modes built for the academic-publishing industry (a legacy of the
+  platform's origins) were removed from this customer's site; the eight that
+  remain — trend, sentiment, web research, future impact and the like — are
+  industry-neutral.
 
 ## Why it matters
 A prospect's first unaccompanied login is the product demo they give

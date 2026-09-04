@@ -61,8 +61,49 @@ and Emerald acquisition costs". Fourth theme is now "Divergence Between Adjusted
 and GAAP Profitability in Integration-Heavy Periods". Old row backed up to the
 scratchpad before either write.
 
+### Ingest summariser keeps financial qualifiers
+Follow-on in the same session. The live article summariser prompt is NOT the
+Python default: `PromptTemplates.__init__` calls `initialize_defaults`, which
+only seeds `data/prompts/content_analysis/current.json` when no version exists,
+and `get_template` reads that file on every call. So a change needs both the
+`DEFAULT_TEMPLATES` entry in **`app/analyzers/prompt_templates.py`** (for fresh
+clones; version label now 1.0.6) and a `PromptManager.save_version` on each
+tenant (stored versions 1.0.5 then 1.0.6; hashes e7eb812e/72f1d070 wileytest,
+83306e92/fb7ee42f wiley, dce59548/04d94df1 bugfixing). New paragraph after the
+Summary instruction: keep qualifiers ("adjusted", "non-GAAP", "preliminary",
+"estimated", "constant currency"); for financial results state the GAAP result
+with per-share figure, say whether a headline EPS is adjusted, give the
+consensus and its basis; these outrank other detail within the word limit; no
+beat/miss without a stated comparison; if the article does not say GAAP or
+adjusted, write "reported" and never guess. The last sentence was added after
+the first test run labelled MarketBeat's bare "$0.44 EPS" as "GAAP earnings".
+No restart needed for the prompt; the analyzer cache key includes the template
+hash, so the new prompt is a cache miss.
+
+**`app/analyzers/article_analyzer.py`** `truncate_summary`: the ingest path
+asks for 50 words and hard-cuts at 60, which with denser summaries produced
+"Company reaffirmed full-year outlook with". It now cuts at the last sentence
+end past the halfway mark and falls back to the hard cut. Copied to bugfixing
+and wiley (file was byte-identical); services restarted.
+
+Data: the three Wiley articles with stored raw text (Mirage News, MarketBeat
+via themarketsdaily, au.investing.com) were re-summarised with
+bedrock-kimi-k2-5 and the new prompt, and `articles.summary` on wileytest
+replaced with the output; old values backed up in the session scratchpad. The
+other four Wiley pieces (Seeking Alpha, GuruFocus, uk.investing.com) have no
+raw text stored and keep their old summaries.
+
 ### Verification
 - `py_compile` on both files in bugfixing, wiley, wileytest: OK.
+- Summariser, before → after (bedrock-kimi-k2-5, 50 words):
+  Mirage News "meeting expectations ... Emerald integration progresses" →
+  "GAAP ... diluted EPS of $(0.23). Adjusted EPS was $0.44 (-10% constant
+  currency)" (48 words); au.investing.com → "adjusted EPS of $0.44 ... GAAP EPS
+  was a loss of $0.23" (60 words, ends on a sentence); MarketBeat → "$0.44 EPS
+  versus consensus $0.40" with no invented basis (28 words). First run before
+  the never-guess sentence had written "GAAP earnings of $0.44" for MarketBeat.
+- `truncate_summary` unit check: 12-word cap on two sentences returns the first
+  sentence; no sentence end → hard cut; short input unchanged.
 - wileytest `desk_briefings` id 143: status finalized, model_used
   bedrock-claude-haiku, synthesis starts "Wiley reported adjusted EPS of $0.44
   ... while carrying a GAAP"; incident 0 name as above.
@@ -83,9 +124,13 @@ other clones do not have it. Prompt-only change, no migration.
 ### Lessons
 - A prompt rule buried after a long rule list is not applied by Haiku. Put
   correctness rules first and in the system message.
-- The ingest summariser drops financial qualifiers ("adjusted", the GAAP
-  line). The briefing can only be as honest as the summaries it is fed; that
-  is the remaining weak point, not touched here.
+- Editing `DEFAULT_TEMPLATES` in `prompt_templates.py` changes NOTHING on a
+  running tenant; the live prompt is `data/prompts/<type>/current.json`. Save a
+  version through `PromptManager` on every tenant, and keep the default in
+  step for clones. bugfixing's "write in English" sentence, added to the .py
+  earlier, was never live for the same reason.
+- Telling a model to state GAAP vs adjusted makes it guess when the source is
+  silent. The rule needs its own "if not stated, say reported" clause.
 - Incident detection pooled over five topics with `max_articles=120` sees
   fewer articles per topic than a single-topic run; the pooled run missed the
   three sources that carried the loss.
@@ -156,9 +201,10 @@ tenant would need it redone by hand.
   `cache_only` → needsGeneration). But the cache matrix had holes: consensus/
   horizons cached for 6 of 8 demo topics, strategic/signals/timeline cached
   NOWHERE. A warm pass (`scratchpad/warm_anticipate.sh`, kimi-k2-5, admin
-  session) is generating every missing topic×tab and re-reading each through
-  `cache_only` to prove it serves: first 15 of 40 combinations all gen=200 +
-  cache_after=200 at time of writing, remainder running. Trap for probes: the
+  session) generated all 28 missing topic×tab combinations, re-reading each
+  through `cache_only` to prove it serves — every one gen=200 + cache_after=200,
+  and a final sweep as brendan confirmed ALL 40 combinations (8 topics × 5
+  tabs) serve 200 from cache. Trap for probes: the
   route is `/api/trend-convergence/{topic}` — a query-param `topic=` on a
   wrong path silently analyses the literal path segment.
 - Auspex fit check: the 7 tools are tenant-neutral research capabilities
@@ -181,16 +227,85 @@ tenant would need it redone by hand.
 - `py_compile` on all edited backend files; `npm run typecheck` clean (no new
   errors, 16 baseline errors incidentally fixed upstream).
 
-### Propagation
-Canonical (bugfixing) and sunstar have everything (backend + rebuilt React
-bundles via each tree's own deploy-react-ui.sh; both services restarted
-job-gated — bugfixing waited for an ingest cycle). oviva got
-social_eval_service.py (blob-identical lineage). PENDING: wbm, wiley,
-wileytest carry a DRIFTED social_eval_service.py — do not wholesale-copy;
-port the two additions by transform when their tenants next get a pass. The
-cache_only route+UI changes are also pending everywhere but canonical and
-sunstar. The seven-tree download-route sed from this morning is still waiting
-on Oliver.
+### Auspex toolbar trimmed to fit the tenant (sunstar)
+Brendan's Auspex chat toolbar offered eleven plugin tools, and three of them
+are hard-wired to scholarly publishing: `publisher_position` (Trust Provider /
+Content Infrastructure / Researcher Connector pillars), `trend_2030_monitor`
+("5 key trends reshaping scholarly publishing by 2030") and
+`power_attention_money` (whose pam_config.json ships a `scholarly_publishing`
+keyword preset). Every tenant inherits them from the canonical clone. The
+plugin registry (`app/services/tool_plugin_base.py`) has no enable flag — it
+loads every `data/auspex/plugins/<dir>/tool.md` — so the mechanism is moving
+the directory: the three now sit in sunstar's `data/auspex/plugins_disabled/`.
+That path is tenant-local and untracked, so this is per-customer configuration
+and this entry is its only record. The remaining eight tools (trend analysis,
+sentiment, web search, external research, future impact, newsletter,
+strategic-intelligence brief, partisan analysis) are generic and stay.
+`strategic_intelligence_oracle`'s description says "BBC/Wiley-quality" but its
+config is generic (credibility threshold, hours back) — left alone. Takes
+effect at the next sunstar restart; a job-gated watcher restarts the service
+once the ingest cycle that was running quiets down. Not touched on other
+tenants: the publishing tools genuinely fit wbm/wiley/wileytest; oviva and abm
+have the same mismatch and can get the same one-minute move when wanted.
+
+The pre-canned prompt picker on sunstar holds two rows and both fit: the
+generic default and the Sunstar Strategic Analyst added earlier today. The
+`data/auspex/agents/` wiley_* and pam_* files also came with the clone but are
+only reachable through the report pipelines, not the chat UI — left in place.
+
+### Propagation — all improvements now on every active tenant
+The social-eval brand context and the cache_only work are live on canonical
+(bugfixing, commit e32e8586), sunstar, oviva, wbm, wiley, wileytest, abm and
+bwtemplate. Per-file method, decided by blob lineage (`git hash-object` on the
+tenant file, then `git log --all --find-object` in canonical — a hit means the
+tenant holds a clean historical canonical version and a whole-file copy is
+safe):
+
+- **`social_eval_service.py`** — whole-file copy everywhere. wbm, wiley and
+  wileytest were previously believed drifted; their blobs matched canonical
+  history, so the earlier "port by transform" caution was unnecessary.
+- **`dashboard_routes.py`** — whole-file copy everywhere.
+- **`vector_routes.py`** — whole-file copy to oviva, wiley, wileytest, abm,
+  bwtemplate. wbm got a targeted port of the cache_only block instead: its
+  file carries what looked like local features but are older canonical states
+  (abm's identical diff proved it); the port is equivalent and was left as-is.
+- **`report_style.py`** — copied to abm and bwtemplate, whose historical
+  version lacked `find_severity_language`, which canonical vector_routes now
+  imports.
+- **Frontend** — sunstar, oviva and canonical built in-tree with
+  deploy-react-ui.sh (oviva needed `npm install` in ui/ first — no tsc).
+  wiley/wileytest ui/src is stale, so they got the incident-recovery pattern:
+  additive rsync of canonical static/ (no --delete) plus the six React
+  templates. Every tenant then had each React page's referenced assets probed
+  for 200s.
+- Restarts were job-gated; bugfixing's waited on an ingest cycle via a
+  background watcher.
+
+Per-tenant data seeds (DB rows, so a fresh clone from a dump does not carry
+them): analyst prompts in `auspex_prompts` — sunstar_analyst, oviva_analyst,
+wiley_analyst (wiley and wileytest), publisher_brand_analyst (wbm),
+aunoo_brand_analyst (abm), aisoc_market_analyst (bugfixing, DB `test`); brand
+descriptions rewritten so the social eval has real context — 5 on wbm, 4 on
+wileytest, 9 on abm, each naming the company and its known name-collisions.
+
+Warm results (each generation re-read through cache_only to confirm the cache
+actually serves it):
+- sunstar: all 40 topic×tab Anticipate combinations cached (8 topics × 5 tabs).
+- oviva: Oviva, Noom and WeightWatchers fully cached (15 tabs), narratives for
+  Oviva and WeightWatchers, incident highlights for the all-topics view.
+  Second Nature, Numan, Voy and Juniper have too few articles — every call
+  404s fast at no LLM cost and the page shows the Generate empty state.
+- abm: all 9 brands × 5 tabs cached, narratives for the 4 brands with real
+  coverage (Aunoo, ZeroFox, Palantir, Brandwatch), incidents cached.
+- Spot probes after the loops: Anticipate and narratives answer from cache in
+  15–25 ms on oviva and abm.
+
+Caveats: bwtemplate's provisioning dump is dated 3 Sep, so tenants cloned
+from it get the code but not the DB seeds until the dump is refreshed. The
+dormant pbm and interroll trees got nothing and still carry the session-gated
+download route — fix on revival. Probe trap: `/api/trend-convergence/{topic}`
+422s without a `model` query param even in cache_only mode, so probes must
+pass one.
 
 ## 2026-09-04 — Model-error text reached a customer digest; fallback map completed
 

@@ -2,6 +2,7 @@
 _2026-09-04 · Briefing Desk (daily briefing synthesis and incident detection)_
 
 ## What shipped
+- Article summaries keep the words that change what a number means ("adjusted", "GAAP", "preliminary") and state a GAAP loss when the article reports one.
 - Daily briefings state whether an earnings figure is GAAP or adjusted, and report a GAAP loss even when the adjusted number looks good.
 - When the sources in a briefing disagree (one headline says "beat", another says "miss"), the briefing says so and gives both readings instead of silently picking one.
 - The words "beat", "miss" and "momentum" only appear when the source material states what the figure is being compared against.
@@ -26,6 +27,6 @@ Briefing Desk, open "Daily Briefing — 2026-09-04" on the wileytest site. The f
 None. This closes a correctness gap rather than adding a capability; the story is "the briefing does not overstate results", which is a trust point in a demo, not a feature bullet.
 
 ## Limits and what's next
-- The briefing can only be as accurate as the article summaries we store. The summaries for all seven Wiley articles omitted both the word "adjusted" and the loss. The fix makes the model refuse to call a result a beat without a stated basis, but it cannot recover a fact the summary dropped. Making the summariser keep financial qualifiers is the obvious follow-on.
+- The article summariser now keeps financial qualifiers too. When an article reports results, the stored summary states the GAAP profit or loss, says whether a headline earnings figure is adjusted, and gives the consensus comparison when the article has one. If the article does not say which basis a figure is on, the summary says "reported" rather than guessing. Summaries also no longer end mid-sentence when they run long. This applies to articles collected from now on; summaries written before today keep their old text, except the three Wiley earnings pieces we re-summarised by hand.
 - The rules were only tested on this one briefing and this one model (Claude Haiku on Bedrock). Other briefings finalized today were not regenerated.
 - Existing finalized briefings keep their old text. Only briefing 143 was regenerated.

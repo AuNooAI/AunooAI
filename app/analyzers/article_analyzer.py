@@ -531,9 +531,16 @@ Article text:
             raise ArticleAnalyzerError("max_words must be a positive integer")
 
         summary_words = summary.split()
-        if len(summary_words) > max_words:
-            return ' '.join(summary_words[:max_words])
-        return summary
+        if len(summary_words) <= max_words:
+            return summary
+        # Cut at the last sentence end inside the limit, so the stored summary
+        # never ends mid-sentence ("Company reaffirmed full-year outlook with").
+        # Fall back to a hard cut when no sentence ends past the halfway mark.
+        kept = summary_words[:max_words]
+        for i in range(len(kept) - 1, max_words // 2, -1):
+            if kept[i].endswith(('.', '!', '?', '."', '.\'', '.)')):
+                return ' '.join(kept[:i + 1])
+        return ' '.join(kept)
 
     def get_cache_stats(self) -> Dict:
         try:
