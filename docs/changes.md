@@ -137,6 +137,40 @@ bcrypt temp password, force_password_change=true (lands on the themed
 change-password page), completed_onboarding=true so the demo tenant doesn't
 push him into the topic wizard. Temp password handed to Oliver in-session.
 
+### Brendan's first-run experience audited (data-only on sunstar — this entry is the record)
+Everything below lives in sunstar's database, not in git; a re-provisioned
+tenant would need it redone by hand.
+- Per-user scoping audit: compared admin's session against brendan's endpoint
+  by endpoint. Topics, organisational profile (id 8 default), Brand Watcher
+  brands, the forecast deck and its built run (`cbe574fa`, 200 on the
+  assessment), Auspex chat history (sessions stored with NULL owner) and the
+  dashboard snapshot are all tenant-wide — nothing we configured is hidden
+  behind the admin account. Login verified twice (302 → /change_password;
+  wrong password 401); the change-password page serves the themed version
+  (Inter + aunoo-theme.css + login.css confirmed in the HTML).
+- Explore load path: article feed 0.021s, dashboard snapshot instant with
+  `has_snapshot: true` (3 Sep run), saved narratives 0.006s — nothing on
+  Explore generates on load.
+- Anticipate: the UI already never generates on mount (cache miss shows a
+  Generate button; `useTrendConvergence.loadCached` → localStorage → backend
+  `cache_only` → needsGeneration). But the cache matrix had holes: consensus/
+  horizons cached for 6 of 8 demo topics, strategic/signals/timeline cached
+  NOWHERE. A warm pass (`scratchpad/warm_anticipate.sh`, kimi-k2-5, admin
+  session) is generating every missing topic×tab and re-reading each through
+  `cache_only` to prove it serves: first 15 of 40 combinations all gen=200 +
+  cache_after=200 at time of writing, remainder running. Trap for probes: the
+  route is `/api/trend-convergence/{topic}` — a query-param `topic=` on a
+  wrong path silently analyses the literal path segment.
+- Auspex fit check: the 7 tools are tenant-neutral research capabilities
+  (search, sentiment trends, categories, semantic search) — fine for Sunstar
+  as-is; the prompt library held only the generic default. Added
+  `sunstar_analyst` ("Sunstar Strategic Analyst") to `auspex_prompts`:
+  oral-systemic leadership frame, evidence-vs-narrative lens across JP/US/DE/
+  FR and the Lion/Colgate/P&G/Haleon set, and an explicit rule that tooth
+  regeneration is only ever claims-outpacing-evidence material (Brendan's
+  2 Sep email). Default prompt untouched; visible in brendan's picker via
+  `/api/auspex/prompts`.
+
 ### Verification
 - cache_only insights on sunstar: 200 in 0.026s with cached themes; unknown
   topic 404 in 0.011s; incident-tracking cache_only 200 in 0.011s, empty +
