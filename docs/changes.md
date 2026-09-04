@@ -47,10 +47,14 @@ each build's own hash (B0N3CAK6 on the canonical-lineage trees, C2D-M3Lq on
 wbm/abm/ibaset, DrgaZVcc on pearson); ibaset's `trend_convergence_react.html`
 referenced `main-CYjOMTL7.js` while its build's real entry is
 `main-CkImBY4G.js` — an old partial-deploy mismatch, fixed to match its own
-`static/trend-convergence/index.html`. One long-standing cosmetic gap found and
-left alone: `change_password.html` and `reset_password.html` link
-`/static/css/login.css`, which has never existed in git — both pages render
-unstyled everywhere and always have; styling them is new UI work, not a repair.
+`static/trend-convergence/index.html`. One long-standing cosmetic gap found:
+`change_password.html` and `reset_password.html` link `/static/css/login.css`,
+which never existed in git — both pages had rendered unstyled everywhere since
+they were written. Fixed later the same morning by creating the stylesheet the
+templates already link: a minimal centered card matching the login page's look
+(`.login-container` — max-width 420px, white card on the Bootstrap light
+ground). No template changes needed; the file was copied to all ten tenant
+trees and verified serving 200 on the six running ones.
 
 ### Lessons
 - **`static/trend-convergence/` is the shared Vite output directory for every

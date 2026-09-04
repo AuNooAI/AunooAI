@@ -1,0 +1,28 @@
+/* Layout for the standalone auth pages (change_password.html,
+   reset_password.html). They load Bootstrap from the CDN but do not extend
+   base.html, so this file provides the centered card the login page gets
+   from base.html and its own markup. Referenced as /static/css/login.css. */
+
+body {
+    background-color: #f8f9fa;
+}
+
+.login-container {
+    max-width: 420px;
+    margin: 3rem auto;
+    padding: 2rem;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.login-container h2 {
+    text-align: center;
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+#password-requirements ul {
+    margin-bottom: 0;
+}
