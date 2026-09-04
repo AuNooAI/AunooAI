@@ -35,6 +35,23 @@ fixed in all three trees: canonical's own `pam_react.html` carried a stale
 `usePAM-B0N3CAK6.js`) — a harmless console 404, now pointed at the real file.
 Open tabs from before the fix need a hard refresh.
 
+### Fleet-wide check after the incident
+The same check run across all ten tenant trees (bugfixing, sunstar, oviva, wbm,
+abm, bwtemplate, pearson, ibaset, wiley, wileytest): no wiley-class breakage
+anywhere. Serving-side verification on the five running tenants — root, gather,
+explore and trend-convergence fetched with a minted admin session, every
+referenced asset HEAD-checked — all 200 (the BW tenants' root deliberately
+307s to /explore, which serves clean). Three small repairs made along the way:
+the stale `usePAM` modulepreload existed on every tenant and was pointed at
+each build's own hash (B0N3CAK6 on the canonical-lineage trees, C2D-M3Lq on
+wbm/abm/ibaset, DrgaZVcc on pearson); ibaset's `trend_convergence_react.html`
+referenced `main-CYjOMTL7.js` while its build's real entry is
+`main-CkImBY4G.js` — an old partial-deploy mismatch, fixed to match its own
+`static/trend-convergence/index.html`. One long-standing cosmetic gap found and
+left alone: `change_password.html` and `reset_password.html` link
+`/static/css/login.css`, which has never existed in git — both pages render
+unstyled everywhere and always have; styling them is new UI work, not a repair.
+
 ### Lessons
 - **`static/trend-convergence/` is the shared Vite output directory for every
   React page, not the trend-convergence page's own assets.** The name lies.
