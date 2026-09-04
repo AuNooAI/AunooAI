@@ -87,7 +87,8 @@ class StrategicIntelligenceOracleHandler(ToolHandler):
         import time
         start_time = time.time()
 
-        topic = params.get("topic") or context.get("topic", "")
+        # context may carry topic=None explicitly, which .get()'s default does not cover
+        topic = params.get("topic") or context.get("topic") or ""
         hours_back = params.get("hours_back", 24)
         max_events = params.get("max_events", 30)
         credibility_threshold = params.get("credibility_threshold", 60)

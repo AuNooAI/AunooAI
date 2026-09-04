@@ -2,6 +2,40 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Torq added to market 2; brand monitoring parity for the form-request vendors
+
+### Ops — Torq (brand 49826), from the top-voices capture of 2 Sep
+Added per `docs/MARKET_VENDOR_ONBOARDING.md`, database rows only: `bw_brands`
+49826 (slug `torq`, keywords `["Torq"]`), `bw_market_brands` (market 2, vendor,
+sort 1082, collection and brand monitoring on, not public), and four verified
+identifiers — domain `torq.io`, website, LinkedIn `/company/torqio`, and
+Crunchbase `/organization/torq-technologies` inserted verified because the
+automatic slug guess (`torq`) is a different organization (the AquilaI trap).
+The 10-minute tick seeded 8 source policies, 7 eligible immediately; `ats_jobs`
+waits on ATS discovery as designed.
+
+### Ops — brand monitoring flipped on for Wirespeed, Bricklayer AI, StrikeReady
+The three 31 Aug form-request vendors (brands 49060, 49062, 49063) had
+`brand_monitoring_enabled = false` while everything added since 2 Sep got it on.
+Flipped by direct UPDATE, not the bulk-toggle route, so their keywords stayed.
+
+### Ops — maturity map recomputed out of band
+The daily map computation ran at 14:20, before the wiring above. Recomputed and
+stored via `market_horizon.compute()`/`store()` (map id 28): 82 vendors rated —
+Bricklayer AI lands accelerating, StrikeReady and Wirespeed growing; Torq,
+Eventus and D3 stay on the not-rated list until they have signal history.
+
+### Verification
+All 8 post-launch vendors had at least one source success on 4 Sep. Live front
+page (backend curl, view=v2) renders map 28 with the three placed vendors; Torq
+appears nowhere yet, correctly, having no coverage. Noted, not fixed: Simbian
+has four duplicate `rss_feeds` rows; Wirespeed and StrikeReady discovery
+registered no blog feed.
+
+### Propagation
+Database rows on bugfixing only (Market Monitor exists nowhere else). No code
+changed.
+
 ## 2026-09-04 — MCP server for the monolith: bearer keys and OAuth 2.1 on bugfixing
 
 ### Goal
