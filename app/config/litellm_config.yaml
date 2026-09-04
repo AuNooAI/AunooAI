@@ -277,15 +277,71 @@ model_list:
 fallbacks:
   - bedrock-kimi-k2-5:
       - bedrock-claude-haiku
+      - nova-lite
   - gpt-4o:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-4.1:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5.4:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5.5:
       - bedrock-claude-haiku
-
+      - nova-pro
+  - gpt-4.1-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-4o-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-4.1-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5.4-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5.4-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - claude-4-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-3-7-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-3-5-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - mixtral-8x7b:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gemini-pro:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gemini-2.0-flash-exp:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - bedrock-claude-haiku:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - bedrock-claude-sonnet:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-haiku-4-5:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - claude-sonnet-4-5:
+      - bedrock-claude-haiku
+      - nova-pro
 routing_strategy: least-busy

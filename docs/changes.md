@@ -2,6 +2,45 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Model-error text reached a customer digest; fallback map completed
+
+### What the customer saw
+wbm's Brand Watcher digest rendered "⚠️ gpt-5.4-mini is currently unavailable.
+Please try a different model." as the "What the posts say" summary, above the
+raw post list. Two defects stacked: the model call failed with no fallback, and
+the failure text was treated as the summary.
+
+### Fix 1 — the sentinel never reaches output again
+`LiteLLMModel.generate_response` signals failure by RETURNING error prose
+instead of raising. `brand_watcher_routes.py` already guarded against that;
+`narrate_social_posts` in `app/services/brand_alert_service.py` — the producer
+both the digest and the alert-monitor embed — did not. Its failure check now
+also treats output starting with "⚠" as a miss and returns None, so both
+consumers fall back to the linked post list with no banner. Applied to
+canonical and all tenant trees (pearson predates the file); the seven running
+tenants restarted (job-gated; wileytest waited out an ingest batch).
+
+### Fix 2 — every model group has a fallback that isn't the failing model
+Seven -mini/-nano groups plus the gemini and claude-haiku aliases all map to
+Bedrock Haiku 4.5 and had NO fallback entry, and every existing fallback
+targeted that same Haiku — so one Haiku outage (503s all day on 3 Sep) killed
+primaries and fallbacks together. Each tenant's `litellm_config.yaml` now has
+entries for all groups: Haiku-mapped → [bedrock-kimi-k2-5, nova-lite],
+Sonnet-mapped → [bedrock-claude-haiku, nova-pro] — the second hop is never the
+same provider family as the primary. Applied by script to all seven running
+tenants (16-18 groups added each), yaml parse-validated, live gpt-5.4-mini call
+on wbm returns normally. The yaml is re-read live, so this half needed no
+restart.
+
+### Open question raised (Oliver): why the alias shim still exists at all
+~18 call sites hardcode OpenAI model names and the yaml maps them onto Bedrock;
+~17 more call litellm directly and bypass the yaml entirely. Every model
+incident gets patched at the shim. The real fix is semantic tiers (call sites
+ask for cheap-summarizer/strong-analyst/classifier; one per-tenant resolver,
+DB-configurable like keyword_monitor_settings.default_llm_model) plus making
+generate_response raise instead of returning error prose. Not done in this
+session — needs its own pass with a regression sweep.
+
 ## 2026-09-04 — INCIDENT: scoped UI sync broke every React page but one on wiley and wileytest
 
 ### What broke
