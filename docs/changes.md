@@ -407,8 +407,26 @@ has no pytest, so the unit tests ran only on bugfixing against the same
 files. Verified on sunstar by the same scripts: bearer smoke (11 tools, 13
 topics, `get_topic_articles` 3 articles with `/health` at 1 to 2 ms
 during the call), full OAuth flow, Connectors tab and self-service routes,
-public 401 with the discovery header. Key #1 minted for `admin`. Not on wiley,
-wileytest or any other clone. Per tenant a copy needs: `app/mcp_access/`,
+public 401 with the discovery header. Key #1 minted for `admin`.
+
+wiley (`:10006`) and wileytest (`:10002`) deployed 2026-09-04 19:23 and
+19:24. Both alembic chains head at `et_008` and never had `kg_lang_001`, so
+their copy of `alembic/versions/mcp_001_mcp_server.py` carries
+`down_revision = 'et_008'` (same revision id `mcp_001`; the chains stay
+divergent as before). `app/database_models.py` differs on both (no
+`keyword_groups.language`/`country` columns), so the five-table block was
+inserted before `t_article_annotations` rather than copying the file;
+`app/server_run.py` differs and was not touched. The other five modified
+files were byte-identical to pre-MCP bugfixing and copied whole; all copies
+checksum-verified against HEAD. Wiley was idle. Wileytest had one browser
+session polling notifications from one IP and a local probe on `/`; no jobs
+running; health back in 12 s. Same verification on both: bearer smoke (wiley
+10 tools because it has no Google keys, wileytest 11; 13 and 25 topics;
+`/health` 1 to 7 ms during a tool call), full OAuth flow, Connectors tab
+and self-service routes, public 401 with the discovery header. Key #1 minted
+for `admin` on each. Neither venv has pytest. Now on all four monolith
+tenants; not on other clones (ibaset, pearson, oviva, wbm, ...). Per tenant a
+copy needs: `app/mcp_access/`,
 `templates/mcp_consent.html`, `templates/config.html` (Connectors tab; wileytest
 and wiley have their own drift in this file, so transplant the tab block and
 script rather than copying the file), `scripts/mcp_keys.py`, the `mcp_001` migration,
