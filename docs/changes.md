@@ -424,9 +424,30 @@ running; health back in 12 s. Same verification on both: bearer smoke (wiley
 10 tools because it has no Google keys, wileytest 11; 13 and 25 topics;
 `/health` 1 to 7 ms during a tool call), full OAuth flow, Connectors tab
 and self-service routes, public 401 with the discovery header. Key #1 minted
-for `admin` on each. Neither venv has pytest. Now on all four monolith
-tenants; not on other clones (ibaset, pearson, oviva, wbm, ...). Per tenant a
-copy needs: `app/mcp_access/`,
+for `admin` on each. Neither venv has pytest.
+
+oviva (`:10026`, head `kg_lang_001`), wbm (`:10018`, head `et_008`) and abm
+(`:10020`, head `bwr_001`) deployed 2026-09-04 20:15 with the same script,
+now taking the migration parent from each tenant's own `alembic current`.
+All three were idle: oviva and wbm had no requests in 30 minutes; abm's 274
+requests were a vulnerability scanner from 34.15.162.212 probing `/.env`
+and `phpinfo.php` paths (not acted on here). oviva's touched files matched
+pre-MCP bugfixing; wbm and abm drifted only in `database_models.py` (block
+inserted). Verified on each by the same scripts: bearer smoke (11 tools;
+13, 23 and 15 topics; `/health` 1 to 3 ms during a tool call), full OAuth
+flow, Connectors tab, public 401 with the discovery header. Key #1 minted for
+`admin` on each. Now on all seven running monolith tenants: bugfixing,
+sunstar, wiley, wileytest, oviva, wbm, abm.
+
+Not deployed: pearson (service failed since 2026-08-11, killed on a
+timeout; nothing was started here), and the twelve stopped tenants
+(abbott, bwtemplate, community, helpnet, ibaset, interroll, opendemo, pbm,
+sage, skunkworkx, spiros, testbed, vc), whose `.env` is encrypted while
+stopped so neither the migration nor a smoke test can run. Several of those
+(community, helpnet, opendemo, sage, skunkworkx, spiros, testbed, vc) also
+drift on `routers.py`, `auth_routes.py`, `config.html`, `auspex_tools.py` and
+`session.py`, so they would need the edits applied by hand, not copied.
+When one is next started, per tenant a copy needs: `app/mcp_access/`,
 `templates/mcp_consent.html`, `templates/config.html` (Connectors tab; wileytest
 and wiley have their own drift in this file, so transplant the tab block and
 script rather than copying the file), `scripts/mcp_keys.py`, the `mcp_001` migration,
