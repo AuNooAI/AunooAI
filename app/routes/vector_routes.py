@@ -2111,7 +2111,13 @@ Be inclusive rather than restrictive - if an article discusses something newswor
 Extraordinary Claims Protocol:
 - Flag claims that seem too good to be true or represent major breakthroughs
 - Require independent verification for significant technical achievements
-- Down-rank significance for self-reported successes without third-party validation"""
+- Down-rank significance for self-reported successes without third-party validation
+
+Financial Results Protocol:
+- State whether an earnings figure is GAAP or adjusted (non-GAAP). If the source does not say which, write "reported" and do not call it a beat or a miss.
+- A GAAP net loss must appear in the description even when adjusted figures are positive.
+- When the input articles disagree (one headline says "beat", another says "miss"), say so in the description, set source_quality to mixed, and add "conflicting_reports" to misinfo_flags. Do not resolve the conflict by picking one side.
+- Treat auto-generated earnings wire items ("beats expectations by $0.0X EPS" and similar) as a single low-detail source, not as independent confirmation."""
 
         # Use custom config if provided, otherwise defaults
         analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions

@@ -65,6 +65,20 @@ class DRConfig:
     synthesis_timeout: int = 90
 
 
+# Ground rules for every briefing model call. They exist because a synthesis
+# once turned an adjusted-EPS beat with a GAAP loss into an unqualified
+# "beat ... earnings momentum" and silently ignored a source that said "miss".
+FACT_RULES = """
+
+GROUND RULES (these override everything below):
+- Use only facts present in the source text you are given. Do not add figures from memory.
+- Financial results: say whether a figure is GAAP or adjusted (non-GAAP). If the source does not say which, write "reported" and do NOT call it a beat or a miss.
+- A GAAP net loss must be stated whenever it appears in the source, even when adjusted figures are positive.
+- When sources disagree (one says "beat", another says "miss"), say that they disagree and give both. Never pick one side silently.
+- Never write "beat", "miss", "exceeded expectations", or "momentum" unless the source states the comparison basis (the consensus figure and whether it is adjusted).
+"""
+
+
 class DailyReportService:
     """
     Desk Briefing Synthesis Service
@@ -273,7 +287,7 @@ Return JSON:
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles.") + CLINICAL_STYLE},
+                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from news articles.") + CLINICAL_STYLE + FACT_RULES},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -344,7 +358,7 @@ Return JSON:
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports.") + CLINICAL_STYLE},
+                    {"role": "system", "content": (agent_prompt or "You are an executive intelligence analyst extracting key insights from incident reports.") + CLINICAL_STYLE + FACT_RULES},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
@@ -397,6 +411,7 @@ Return JSON:
             articles_text += f"""
 Article {i}: {article.get('title', 'Untitled')}
 Source: {article.get('source', 'Unknown')} | Topic: {article.get('topic', 'General')}
+Summary: {(article.get('summary') or 'N/A')[:600]}
 Key Insight: {analysis.get('key_insight', 'N/A')}
 Strategic Relevance: {analysis.get('strategic_relevance', 'N/A')}
 Category: {analysis.get('category', 'unknown')} | Time Horizon: {analysis.get('time_horizon', 'Medium')}
@@ -411,6 +426,7 @@ Risk/Opportunity: {analysis.get('risk_opportunity', 'mixed')}
 Incident {i}: {incident.get('name', 'Untitled')}
 Type: {incident.get('type', 'Unknown')} | Significance: {incident.get('significance', 'Unknown')}
 Topic: {incident.get('topic', 'General')}
+Description: {(incident.get('summary') or incident.get('description') or 'N/A')[:600]}
 Key Insight: {analysis.get('key_insight', 'N/A')}
 Strategic Relevance: {analysis.get('strategic_relevance', 'N/A')}
 Category: {analysis.get('category', 'unknown')} | Time Horizon: {analysis.get('time_horizon', 'Medium')}
@@ -435,6 +451,8 @@ CRITICAL FRAMING REQUIREMENTS:
 """
 
         prompt = f"""Synthesize an executive briefing from these curated articles and incidents.
+{FACT_RULES}
+Before writing, check the items below for conflicting claims about the same fact (for example one item reporting an earnings beat and another a miss). If you find one, the briefing summary must name the conflict.
 
 BRIEFING NAME: {briefing_name}
 {context_section}
@@ -473,6 +491,8 @@ STRICT REQUIREMENTS:
    - Good example: "Consider whether to pilot AI-powered ad platforms: pursuing this could open new revenue streams with early-mover advantage, while waiting allows competitors to validate ROI first"
    - Bad example: "Launch a pilot program with OpenAI's ChatGPT ad platform by end of Q3"
    - These should inform executive judgment, not replace it
+
+4. FACTUAL DISCIPLINE: the GROUND RULES at the top apply to the summary, the themes, and the considerations.
 
 FORBIDDEN PHRASES (do not use these or similar):
 - "rapidly evolving"
@@ -518,7 +538,7 @@ Present strategic considerations that inform executive judgment, not replace it.
             call_kwargs = {
                 **resolve_litellm_call_params(model),
                 "messages": [
-                    {"role": "system", "content": (agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance.") + CLINICAL_STYLE},
+                    {"role": "system", "content": (agent_prompt or "You are a strategic intelligence analyst synthesizing curated news and incidents into actionable executive briefings. You identify patterns across items and provide strategic guidance.") + CLINICAL_STYLE + FACT_RULES},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},

@@ -2,6 +2,94 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Briefing Desk: GAAP loss reported as an unqualified earnings "beat"
+
+### Goal
+wileytest briefing 143 (Daily Briefing — 2026-09-04) opened with "Wiley beat Q1
+2027 earnings expectations with EPS of $0.44 versus $0.40 consensus ... signaling
+execution capability" and called it "near-term earnings momentum". Wiley's
+press release of 3 Sep reports a GAAP loss of $0.23 per diluted share; $0.44 is
+adjusted EPS, down 10% year on year. The briefing dropped the word "adjusted",
+never mentioned the loss, and ignored an article in its own list titled "Wiley
+posts Q1 2026 miss". Oliver asked where it came from and to fix it.
+
+### Root cause: three model hops, each seeing only the previous hop's summary
+None of the seven stored Wiley summaries contain "adjusted" or the loss; we
+keep no article full text, so nothing downstream could check. The "$0.44
+exceeding estimates of $0.40" wording came from a MarketBeat-syndicated auto
+article (themarketsdaily.com). Incident detection (`analyze_incidents` in
+`app/routes/vector_routes.py`) turned that into "beating earnings expectations",
+plausibility likely, "multiple sources confirm". The synthesis step
+(`_run_synthesis` in `app/services/daily_report_service.py`) received only each
+item's one-line key insight, not the summaries, and had "earnings miss" (article
+1) and "earnings beat" (incident 1) in the same prompt with no rule to name the
+conflict. bedrock-claude-haiku picked the beat.
+
+### Fix: fact rules in every briefing model call
+**`app/services/daily_report_service.py`**: new module constant `FACT_RULES`
+(state GAAP vs adjusted; a GAAP loss must be reported when the source has it;
+when sources disagree say so and give both; no "beat", "miss", "exceeded
+expectations" or "momentum" without the comparison basis). Appended to the
+system message of `_analyze_article`, `_analyze_incident` and `_run_synthesis`,
+and placed at the TOP of the synthesis user prompt with an instruction to check
+the items for conflicting claims before writing. The synthesis prompt now also
+carries each article's summary and each incident's description (600 chars),
+not just the key insight. A first attempt with the same rules buried as
+"4. FACTUAL DISCIPLINE" after the theme/consideration rules was ignored by
+Haiku and still produced "beating expectations"; moving them to the top and
+into the system message is what made the difference.
+
+**`app/routes/vector_routes.py`**: "Financial Results Protocol" added to
+`default_quality_guidelines` for incident detection (same GAAP/adjusted and
+conflict rules; add `conflicting_reports` to misinfo_flags; treat auto-generated
+earnings wire items as one low-detail source, not independent confirmation).
+Custom prompts that include `{quality_guidelines}` inherit it.
+
+### Briefing 143 regenerated
+The `/finalize` route refuses an already-finalized row, so this ran from
+scripts in the session scratchpad against wileytest: (1) re-detect incidents for
+"Brand Monitoring Wiley" alone with `force_regenerate=True` — the single-topic
+run saw WTOP, RTTNews and the BusinessWire release that the five-topic pooled
+compose run had not, and produced "Wiley Q1 FY2027 earnings: adjusted EPS $0.44
+beats estimates; GAAP loss $11.7M; AI revenue target >$50M", source_quality
+mixed, misinfo_flags conflicting_reports; (2) swap it into
+`desk_briefings.incidents` at the old incident's slot; (3) `generate_synthesis`
++ `facade.finalize_desk_briefing`. New opening sentence: "Wiley reported
+adjusted EPS of $0.44 on September 3, 2026, exceeding the $0.40 consensus
+estimate, while carrying a GAAP net loss of $11.7 million due to restructuring
+and Emerald acquisition costs". Fourth theme is now "Divergence Between Adjusted
+and GAAP Profitability in Integration-Heavy Periods". Old row backed up to the
+scratchpad before either write.
+
+### Verification
+- `py_compile` on both files in bugfixing, wiley, wileytest: OK.
+- wileytest `desk_briefings` id 143: status finalized, model_used
+  bedrock-claude-haiku, synthesis starts "Wiley reported adjusted EPS of $0.44
+  ... while carrying a GAAP"; incident 0 name as above.
+- Ground truth: Mirage News write-up of the 3 Sep release — revenue $386M
+  (-3%), GAAP loss $0.23/share vs $0.22 profit prior year, adjusted EPS $0.44
+  (-10%), AI revenue $14M in the quarter, Emerald ahead of schedule.
+- All three services restarted after checking pg_stat_activity (0 active
+  queries each), alembic at head (kg_lang_001 / et_008 / et_008), no other
+  uncommitted app files; `/login` returns 200 on :10004, :10006, :10002.
+
+### Propagation
+`daily_report_service.py` was byte-identical across the three tenants, so it
+was copied wholesale to bugfixing and wiley. `vector_routes.py` is identical
+wiley↔wileytest (copied) but bugfixing carries the `cache_only` path from
+earlier today, so the guidelines block was patched in place there. wbm and the
+other clones do not have it. Prompt-only change, no migration.
+
+### Lessons
+- A prompt rule buried after a long rule list is not applied by Haiku. Put
+  correctness rules first and in the system message.
+- The ingest summariser drops financial qualifiers ("adjusted", the GAAP
+  line). The briefing can only be as honest as the summaries it is fed; that
+  is the remaining weak point, not touched here.
+- Incident detection pooled over five topics with `max_articles=120` sees
+  fewer articles per topic than a single-topic run; the pooled run missed the
+  three sources that carried the loss.
+
 ## 2026-09-04 — Sunstar: hotel-brand false positives, narratives no longer regenerate on page load, user account
 
 ### Goal
