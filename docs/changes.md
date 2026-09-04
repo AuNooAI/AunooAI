@@ -2,6 +2,211 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — MCP server for the monolith: bearer keys and OAuth 2.1 on bugfixing
+
+### Goal
+saas.aunoo.ai and agentic.aunoo.ai (the same process, port 10017) let Claude
+Desktop, Claude Code, Cursor and the claude.ai / ChatGPT connector UIs call
+Aunoo tools over the Model Context Protocol. The monolith customer sites had
+nothing reachable over HTTP: `app/services/mcp_server.py` is a stdio server
+nobody mounts, and `AuspexToolsService` was only callable from inside the app.
+Oliver asked for an effort estimate, then a plan, then to build it on
+bugfixing first. Scope agreed up front: bearer keys plus OAuth (the two paths
+saas has), the existing ten Auspex tools only, key management by admin API and
+CLI rather than a settings-page panel.
+
+### Feature: `POST /mcp` with two ways to authenticate
+**`app/mcp_access/`** (new package, 11 modules) is a port of saas's
+`app/skills/mcp_http.py`, the auth and dispatch half of
+`app/skills/dispatcher.py`, and `app/oauth/`, with the multi-tenant parts
+(packs, tiers, tenant ids, Redis, React consent page) removed. One site is one
+MCP server. Registered once in **`app/core/routers.py`** after the timeline
+router.
+
+- **`transport.py`**: hand-rolled JSON-RPC 2.0 over POST, the same design saas
+  proved against the connector UIs. Handles `initialize`, `ping`,
+  `tools/list`, `tools/call`, `prompts/list`, `prompts/get`. Notifications (no
+  `id`) get a 202. Every other method authenticates first; without a valid
+  token the answer is 401 with
+  `WWW-Authenticate: Bearer realm="aunoo-mcp", resource_metadata=<base>/.well-known/oauth-protected-resource`,
+  which is what makes claude.ai start its login flow. `GET /mcp` answers 405
+  and `DELETE /mcp` 204 so streamable-HTTP clients that probe those verbs stay
+  quiet. We did not use the installed `mcp` package's streamable-HTTP session
+  manager: the `add_app_info` BaseHTTPMiddleware in `app/main.py` buffers
+  responses and nginx has `proxy_buffering` on, both of which break SSE, and
+  every tool here is request/response anyway.
+- **`auth.py`**: tries the OAuth access JWT first (HS256, signed with
+  `NORN_SECRET_KEY`, `aud = APP_URL + "/mcp"`, so nothing else the app signs
+  can pass), then the static `aunoo_…` key by sha256 in `mcp_api_keys`
+  (`is_active` and `expires_at` both enforced; saas never checked
+  `expires_at`). Either way the owning user must exist and be active, so
+  deactivating a user cuts off all their keys and tokens.
+- **`dispatcher.py`**: coerces string arguments to the schema type
+  (`limit="5"` arrives as a string from mcp-remote), checks required
+  arguments, runs the tool, caps the result at 32 KiB (64 KiB for the three
+  article-list tools) on a UTF-8 boundary, and always writes an
+  `mcp_tool_calls` row in `finally`, with `oauth_client_id` set for OAuth
+  callers (saas left that column empty).
+- **`tools.py`**: the ten `AuspexToolsService` methods plus
+  `list_capabilities`, which returns the topic names (105 on bugfixing), tool
+  and prompt names, and who the caller is connected as. Five schemas are the
+  old stdio server's verbatim, with `topic` made optional where the service
+  treats a missing topic as "all topics". `google_web_search` is listed only
+  when the Google key and CSE id are set. Timeouts: 20 s default, 90 s for the
+  three LLM-backed tools, 30 s for the two external searches.
+- **`recipes.py`**: three MCP prompts (`topic_briefing`, `deep_dive`,
+  `keyword_scan`) written against the tools this site actually has. The saas
+  recipes reference `get_world_state` and other foresight tools the monolith
+  does not compute.
+
+### Running tool calls without freezing the site
+The Auspex tool methods are `async def` but do synchronous psycopg2 work
+through the facade inside. Awaiting them on uvicorn's loop would stall every
+request on the tenant for the duration (see the sync-facade freeze memory).
+**`dispatcher.py`** runs each call as
+`asyncio.wait_for(asyncio.to_thread(lambda: asyncio.run(fn(**kwargs))), timeout)`
+behind an `asyncio.Semaphore(4)`: the coroutine is created and run on a worker
+thread's own loop, so only that thread blocks. The two truly async tools
+(`search_news`, `google_web_search`) open an `aiohttp.ClientSession` per call,
+so they run fine on the worker loop too. Verified below: `/health` answered in
+2 to 7 ms while `get_topic_articles` ran.
+
+### Feature: OAuth 2.1 with dynamic client registration
+**`app/mcp_access/oauth_routes.py`** and **`oauth_service.py`**:
+`GET /.well-known/oauth-protected-resource` (RFC 9728),
+`GET /.well-known/oauth-authorization-server` (RFC 8414),
+`POST /oauth/register` (RFC 7591; https or loopback-http redirect URIs only;
+rate limited 30 a minute per client IP with an in-process token bucket, which
+saas's plan promised and never shipped), `GET /oauth/authorize` (validates
+client, redirect URI and PKCE S256; a signed-out user is sent to
+`/login?next=<authorize url>`), `GET`/`POST /oauth/consent` (server-rendered
+**`templates/mcp_consent.html`**, both behind `verify_session`, pending
+request must belong to the signed-in user, decision is one-shot),
+`POST /oauth/token` (client secret via Basic or form and compared with
+`hmac.compare_digest`, where saas used `!=`; `authorization_code` grant with
+PKCE and a single-use code enforced by an `UPDATE … WHERE consumed_at IS NULL`;
+`refresh_token` grant re-checks the user is still active). Access tokens live
+one hour, refresh tokens 90 days, codes and pending consent five minutes.
+
+Pending consent state lives in an in-process dict (`PendingConsentStore`),
+not Redis: the app has no Redis and runs one uvicorn worker. A restart in the
+five-minute window shows "consent link has expired" and the user clicks
+Connect again.
+
+### Fix: login now honours a same-origin `next`
+**`app/routes/auth_routes.py`**, **`templates/login.html`**: `login_page`
+and `login` ignored any `next` parameter, so a signed-out user coming from
+`/oauth/authorize` would land on `/` after logging in and the connector flow
+would die. `_safe_next()` accepts only a path that starts with `/`, is not
+`//host`, has no backslash and no scheme before the `?`; anything else falls
+back to `/` as before. The login form carries it as a hidden field and it
+survives a failed attempt. The force-password-change and onboarding redirects
+still win.
+
+### Ops: keys, admin routes, CLI
+**`app/mcp_access/admin_routes.py`** under `/api/mcp-keys` with
+`verify_session_api` and `require_admin` at the router (401 before 403, per
+the forecast-routes test pattern): list, mint (plaintext returned once),
+revoke, recent calls, list and delete OAuth clients (cascades to codes and
+refresh tokens). **`scripts/mcp_keys.py`**: `mint --user U --name N
+[--expires-days D]`, `list`, `revoke --id N`, `calls`. Key #1 minted for
+`admin` on bugfixing, expires 2026-12-03.
+
+### Migration `mcp_001` (revises `kg_lang_001`)
+**`alembic/versions/mcp_001_mcp_server.py`**, tables mirrored in
+**`app/database_models.py`**: `mcp_api_keys`, `oauth_clients`,
+`oauth_authorization_codes`, `oauth_refresh_tokens`, `mcp_tool_calls`. All
+keyed on `users.username` (the users PK is the username, not an integer).
+Deleting a user cascades to keys, codes and refresh tokens; audit rows keep
+the row with `username` set to NULL. No row-level security, single tenant.
+Applied on bugfixing: `alembic current` → `mcp_001 (head)`.
+
+### INCIDENT: `app/mcp` shadowed the third-party `mcp` package, two-minute crash loop
+The package was first created as `app/mcp/`. `app/server_run.py` puts the
+`app/` directory itself on `sys.path`, so every subpackage of `app/` is also
+importable as a top-level name, and `from mcp import ClientSession` in the
+Auspex plugin code resolved to our package. The service crash-looped with
+`ImportError: cannot import name 'ClientSession' from 'mcp'
+(/home/orochford/tenants/bugfixing.aunoo.ai/app/mcp/__init__.py)` from
+14:06:55 until the rename to `app/mcp_access/` and restart at 14:09:20, about
+two and a half minutes of downtime on bugfixing. Nothing showed in pytest or
+`python -c "import app.mcp"` because those run from the project root, not
+from `app/`. The first rename attempt used `git mv -k`, which silently skips
+an untracked directory, so one restart was wasted. Brand collection run 1289
+was in progress when Oliver asked for the restart and was interrupted; it
+reruns on schedule.
+
+### Tests
+**`tests/test_mcp_oauth_service.py`** (PKCE against the RFC 7636 vector, JWT
+round trip and wrong-audience/expired rejection, constant-time secret check,
+redirect-URI matrix, pending store consume-once and expiry, rate limiter,
+bearer helpers), **`tests/test_mcp_jsonrpc.py`** (bare FastAPI app with the
+transport, auth and tool registry stubbed: parse error, 401 with discovery
+header, 202 for notifications, ping, tools/list shape, string coercion and the
+`{"truncated": false, "data": …}` wrapper, tool errors with audit capture,
+prompts, GET/DELETE probes, UTF-8-safe cap), **`tests/test_mcp_routes_auth.py`**
+(the open set of routes is exactly eight named ones; consent routes carry
+`verify_session`; admin routes carry both `verify_session_api` and
+`require_admin`). **`tests/test_auth_surface.py`**: the two discovery
+documents and `/oauth/authorize` added to `PUBLIC_PATHS`; `mcp_endpoint`,
+`mcp_get`, `mcp_delete`, `register_client` and `token` added to
+`SELF_GUARDED` with reasons. `/mcp` cannot sit in `PUBLIC_PATHS` because the
+POST and DELETE share the path and that list refuses write methods.
+
+### Verification
+- `pytest tests/test_mcp_oauth_service.py tests/test_mcp_jsonrpc.py tests/test_mcp_routes_auth.py tests/test_forecast_routes_auth.py`: 35 passed.
+- `pytest tests/test_auth_surface.py`: 3 passed, 1 failed. The failure lists
+  25 anonymous routes, all pre-existing (22 `/api/threat-intelligence/*` GETs,
+  three `/api/market-monitor/markets/{id}/*` public forms); zero entries under
+  `app.mcp_access`. Not fixed here (scope).
+- Bearer smoke against `127.0.0.1:10004` with `X-Forwarded-Proto: https`:
+  `initialize` without a token → 401 with the `resource_metadata` header;
+  with key #1 → protocolVersion `2025-06-18` echoed, serverInfo
+  `Aunoo — bugfixing.aunoo.ai`; `tools/list` → 11 tools; `list_capabilities`
+  → connected as `admin`, `api_key`, 105 topics; `get_topic_articles('7ai -
+  Brand Watch', limit="3")` → 3 articles, not truncated, 250 ms in the audit
+  row, and eight concurrent `/health` calls took 2 to 7 ms each;
+  `analyze_sentiment_trends`, `search_articles_by_keywords` ok; unknown tool
+  → 400 / -32003; `prompts/list` → 3; `GET /mcp` 405, `DELETE /mcp` 204.
+- OAuth end to end by script (session cookie minted locally with the
+  `FLASK_SECRET_KEY` signer): register 201; authorize signed-out → 302
+  `/login?next=%2Foauth%2Fauthorize…`; login page carries the hidden `next`;
+  authorize signed-in → consent; consent page 200 naming the client; Allow →
+  302 to the callback with `code` and `state`; consent replay → 404; wrong PKCE
+  verifier → 400 `pkce mismatch`; right verifier with Basic auth → 200,
+  `expires_in` 3600, refresh token issued; code reuse → 400; the JWT on
+  `/mcp` → `list_capabilities` as `admin`, `auth_kind=oauth`, audit row carries
+  the client id; refresh grant → 200 without a new refresh token; bad client
+  secret → 401. Test client deleted afterwards; `oauth_clients`,
+  `oauth_refresh_tokens`, `oauth_authorization_codes` all at 0 rows.
+- Public: `https://bugfixing.aunoo.ai/.well-known/oauth-authorization-server`
+  returns the document with bugfixing URLs; `https://bugfixing.aunoo.ai/mcp`
+  without a token → HTTP/2 401 with the header.
+- `mcp_tool_calls` after the session: 8 ok, 2 error, both auth kinds present.
+- NOT verified: the claude.ai custom-connector flow in a real browser, and
+  Claude Code `claude mcp add --transport http … --header "Authorization: Bearer …"`.
+
+### Propagation
+bugfixing only (`test` DB, migrated and restarted). Not on sunstar, wiley,
+wileytest or any clone. Per tenant a copy needs: `app/mcp_access/`,
+`templates/mcp_consent.html`, `scripts/mcp_keys.py`, the `mcp_001` migration,
+and the edits to `app/database_models.py`, `app/core/routers.py`,
+`app/routes/auth_routes.py`, `templates/login.html`, `tests/test_auth_surface.py`
+plus the three new test files; then `alembic current` must read `kg_lang_001`
+before `alembic upgrade head`, check running jobs, restart, mint a key.
+`APP_URL` must be set in that tenant's `.env` (bugfixing has it; it is the
+OAuth issuer and audience). Each tenant is its own MCP URL.
+
+### Lessons
+- NEVER create `app/<name>/` or `app/<name>.py` without checking
+  `.venv/bin/python -m pip show <name>` first. `app/` is on `sys.path`, so the
+  new name shadows any installed package of the same name, and only a service
+  start reveals it.
+- `git mv -k` on an untracked path exits 0 and does nothing. Use plain `mv`
+  for untracked directories.
+- Tool calls that touch the sync facade go off-loop, always. Measure `/health`
+  latency during a call before declaring a new endpoint safe.
+
 ## 2026-09-04 — Briefing Desk: GAAP loss reported as an unqualified earnings "beat"
 
 ### Goal

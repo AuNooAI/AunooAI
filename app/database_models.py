@@ -683,6 +683,81 @@ t_users = Table(
     UniqueConstraint('email', name='uq_users_email')
 )
 
+# ─── MCP server (app/mcp_access): bearer keys, OAuth 2.1 clients, call log ─────────
+# Migration mcp_001. Owned by users.username; deleting a user cascades to
+# their keys, codes and refresh tokens.
+
+t_mcp_api_keys = Table(
+    'mcp_api_keys', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('name', Text, nullable=False),
+    Column('key_prefix', String(16), nullable=False),
+    Column('key_hash', String(64), nullable=False, unique=True),
+    Column('is_active', Boolean, nullable=False, server_default=text('TRUE')),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('now()')),
+    Column('expires_at', DateTime(timezone=True)),
+    Column('last_used_at', DateTime(timezone=True)),
+    Column('revoked_at', DateTime(timezone=True)),
+    Column('created_by', Text),
+    Index('ix_mcp_api_keys_username', 'username'),
+)
+
+t_oauth_clients = Table(
+    'oauth_clients', metadata,
+    Column('client_id', String(64), primary_key=True),
+    Column('client_secret_hash', String(64), nullable=False),
+    Column('client_name', String(200), nullable=False),
+    Column('redirect_uris', JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('now()')),
+)
+
+t_oauth_authorization_codes = Table(
+    'oauth_authorization_codes', metadata,
+    Column('code', String(64), primary_key=True),
+    Column('client_id', String(64), ForeignKey('oauth_clients.client_id', ondelete='CASCADE'), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('redirect_uri', Text, nullable=False),
+    Column('scope', String(64), nullable=False),
+    Column('code_challenge', String(128), nullable=False),
+    Column('code_challenge_method', String(8), nullable=False, server_default='S256'),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    Column('consumed_at', DateTime(timezone=True)),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('now()')),
+    Index('ix_oauth_codes_expires', 'expires_at'),
+)
+
+t_oauth_refresh_tokens = Table(
+    'oauth_refresh_tokens', metadata,
+    Column('token_hash', String(64), primary_key=True),
+    Column('client_id', String(64), ForeignKey('oauth_clients.client_id', ondelete='CASCADE'), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('scope', String(64), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    Column('revoked_at', DateTime(timezone=True)),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('now()')),
+    Index('ix_oauth_refresh_user_client', 'username', 'client_id'),
+)
+
+t_mcp_tool_calls = Table(
+    'mcp_tool_calls', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('api_key_id', Integer, ForeignKey('mcp_api_keys.id', ondelete='SET NULL')),
+    Column('oauth_client_id', String(64)),
+    Column('auth_kind', String(16), nullable=False),
+    Column('tool_name', String(64), nullable=False),
+    Column('status', String(24), nullable=False),
+    Column('error_code', String(64)),
+    Column('duration_ms', Integer),
+    Column('request_bytes', Integer),
+    Column('response_bytes', Integer),
+    Column('user_agent', String(400)),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('now()')),
+    Index('ix_mcp_tool_calls_created', 'created_at'),
+    Index('ix_mcp_tool_calls_user_created', 'username', 'created_at'),
+)
+
 t_article_annotations = Table(
     'article_annotations', metadata,
     Column('id', Integer, primary_key=True),

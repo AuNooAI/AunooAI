@@ -27,14 +27,33 @@ def set_templates(template_instance: Jinja2Templates):
     templates = template_instance
 
 
+def _safe_next(value: Optional[str]) -> Optional[str]:
+    """Only a same-origin path may be used as a post-login destination.
+
+    Needed by the MCP OAuth flow (/oauth/authorize sends a signed-out user
+    here with next=/oauth/authorize?...). Anything that could leave the
+    site (a scheme, a protocol-relative //host, a backslash trick) is
+    dropped and the user lands on / as before.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return None
+    if ":" in value.split("?", 1)[0]:
+        return None
+    return value
+
+
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+async def login_page(request: Request, next: str = ""):
     """Display the login page."""
+    safe_next = _safe_next(next)
     if request.session.get("user"):
-        return RedirectResponse(url="/")
+        return RedirectResponse(url=safe_next or "/")
     return templates.TemplateResponse(
         "login.html",
-        {"request": request}
+        {"request": request, "next": safe_next or ""}
     )
 
 
@@ -43,9 +62,11 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    next: str = Form(""),
     db: Database = Depends(get_database_instance)
 ):
     """Handle user login."""
+    safe_next = _safe_next(next)
     try:
         user = db.get_user(username)
 
@@ -81,6 +102,7 @@ async def login(
                 {
                     "request": request,
                     "session": request.session,
+                    "next": safe_next or "",
                     "error": "Invalid credentials"
                 },
                 status_code=status.HTTP_401_UNAUTHORIZED
@@ -96,6 +118,7 @@ async def login(
                 {
                     "request": request,
                     "session": request.session,
+                    "next": safe_next or "",
                     "error": "Invalid credentials"
                 },
                 status_code=status.HTTP_401_UNAUTHORIZED
@@ -124,8 +147,8 @@ async def login(
             # Dedicated Brand Watcher tenants skip the topic wizard — brands are
             # configured in the Brand Watcher tab, not via general topic onboarding.
             return RedirectResponse(url="/onboarding", status_code=status.HTTP_302_FOUND)
-            
-        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+
+        return RedirectResponse(url=safe_next or "/", status_code=status.HTTP_302_FOUND)
         
     except Exception as e:
         logger.error(f"Login error: {str(e)}")

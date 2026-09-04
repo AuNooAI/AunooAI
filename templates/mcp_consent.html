@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connect to {{ site or 'Aunoo' }} - AuNoo AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/aunoo-theme.css">
+    <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+    <div class="container">
+        <div class="login-container">
+            {% if error %}
+            <h2>Connection request</h2>
+            <div class="alert alert-danger">{{ error }}</div>
+            <a href="/" class="btn btn-secondary w-100">Back to {{ site or 'Aunoo' }}</a>
+            {% else %}
+            <h2>Allow {{ client_name }} to connect?</h2>
+            <p class="text-muted">
+                <strong>{{ client_name }}</strong> wants to use <strong>{{ site }}</strong> on your behalf,
+                signed in as <strong>{{ username }}</strong>.
+            </p>
+            <p>It will be able to:</p>
+            <ul>
+                <li>Read the topics this site tracks and their articles</li>
+                <li>Run searches, sentiment and category analysis over those articles</li>
+                <li>Use the named playbooks (prompts) this site publishes</li>
+            </ul>
+            <details class="mb-3">
+                <summary class="text-muted">Tools it can call ({{ tools|length }})</summary>
+                <small class="text-muted">{{ tools|join(', ') }}</small>
+            </details>
+            <p class="text-muted"><small>
+                After you allow, the app is sent back to <code>{{ redirect_host }}</code>.
+                Access lasts {{ access_hours }} hour{{ 's' if access_hours != 1 }} and renews on its own for up to {{ refresh_days }} days.
+                An administrator can remove the connection at any time.
+            </small></p>
+            <div class="d-flex gap-2">
+                <form method="post" action="/oauth/consent" class="flex-fill">
+                    <input type="hidden" name="request_id" value="{{ request_id }}">
+                    <input type="hidden" name="decision" value="deny">
+                    <button type="submit" class="btn btn-outline-secondary w-100">Deny</button>
+                </form>
+                <form method="post" action="/oauth/consent" class="flex-fill">
+                    <input type="hidden" name="request_id" value="{{ request_id }}">
+                    <input type="hidden" name="decision" value="allow">
+                    <button type="submit" class="btn btn-primary w-100">Allow</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

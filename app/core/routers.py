@@ -200,6 +200,11 @@ def register_routers(app: FastAPI):
     # Timeline mementos (per-brand/per-topic event timeline)
     app.include_router(timeline_router)
 
+    # MCP server: POST /mcp (bearer key or OAuth 2.1), OAuth endpoints,
+    # /api/mcp-keys admin routes. See app/mcp_access/.
+    from app.mcp_access import router as mcp_router
+    app.include_router(mcp_router)
+
     # Dynamically register enabled analysis modules
     for module in get_enabled_modules():
         try:

@@ -76,6 +76,9 @@ PUBLIC_PATHS = {
     '/auth/providers':                            'which OAuth buttons to render on the login page',
     '/api/news-feed/shared/{share_token}':        'share link; the token is the credential',
     '/api/news-feed/api/shared/{share_token}':    'share link; the token is the credential',
+    '/.well-known/oauth-protected-resource':       'RFC 9728 discovery; MCP clients fetch it before they have a token',
+    '/.well-known/oauth-authorization-server':     'RFC 8414 discovery; same',
+    '/oauth/authorize':                           'OAuth entry point; sends a signed-out user to /login, grants nothing itself',
 }
 
 # Endpoints that authenticate inside the handler rather than via a dependency.
@@ -95,6 +98,11 @@ SELF_GUARDED = {
     'app.routes.onboarding_routes::complete_onboarding',          # 401 when no session user
     'app.routes.onboarding_routes::reset_onboarding',             # 401 when no session user
     'app.routes.market_monitor_routes::brightdata_linkedin_callback',  # shared secret, fail-closed
+    'app.mcp_access.transport::mcp_endpoint',                            # bearer key or OAuth JWT checked inside; 401 + WWW-Authenticate otherwise
+    'app.mcp_access.transport::mcp_get',                                 # 405, returns nothing
+    'app.mcp_access.transport::mcp_delete',                              # 204 no-op session close, touches nothing
+    'app.mcp_access.oauth_routes::register_client',                      # RFC 7591 dynamic registration is anonymous by spec; rate limited
+    'app.mcp_access.oauth_routes::token',                                # client secret + PKCE verified inside
 }
 
 WRITE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
