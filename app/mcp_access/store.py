@@ -207,3 +207,66 @@ def user_exists_active(username: str) -> bool:
     stmt = select(t_users.c.username).where(t_users.c.username == username.lower(), t_users.c.is_active.is_(True))
     row = _facade()._fetchone_with_rollback(stmt, operation_name="mcp_user_exists", mappings=True)
     return row is not None
+
+
+# ─── Per-user views (settings page) ─────────────────────────────────────────
+
+def revoke_api_key_for_user(key_id: int, username: str) -> bool:
+    stmt = (
+        update(t_mcp_api_keys)
+        .where(t_mcp_api_keys.c.id == key_id,
+               t_mcp_api_keys.c.username == username.lower(),
+               t_mcp_api_keys.c.is_active.is_(True))
+        .values(is_active=False, revoked_at=_now())
+        .returning(t_mcp_api_keys.c.id)
+    )
+    row = _facade()._fetchone_with_rollback(stmt, operation_name="mcp_revoke_api_key_user", mappings=True)
+    return row is not None
+
+
+def list_user_connections(username: str) -> list[dict[str, Any]]:
+    """One row per OAuth client the user has an unrevoked, unexpired refresh
+    token for: what they see as a 'connected app'."""
+    from sqlalchemy import func
+    rt, cl = t_oauth_refresh_tokens, t_oauth_clients
+    stmt = (
+        select(
+            cl.c.client_id, cl.c.client_name,
+            func.min(rt.c.created_at).label("connected_at"),
+            func.max(rt.c.expires_at).label("expires_at"),
+            func.count().label("grants"),
+        )
+        .select_from(rt.join(cl, rt.c.client_id == cl.c.client_id))
+        .where(rt.c.username == username.lower(),
+               rt.c.revoked_at.is_(None),
+               rt.c.expires_at > _now())
+        .group_by(cl.c.client_id, cl.c.client_name)
+        .order_by(func.min(rt.c.created_at).desc())
+    )
+    return _rows(_facade()._fetchall_with_rollback(stmt, operation_name="mcp_list_user_connections", mappings=True))
+
+
+def revoke_user_connection(username: str, client_id: str) -> int:
+    """Revoke every refresh token this user granted to the client. Returns
+    how many were revoked. Outstanding access tokens last at most an hour."""
+    stmt = (
+        update(t_oauth_refresh_tokens)
+        .where(t_oauth_refresh_tokens.c.username == username.lower(),
+               t_oauth_refresh_tokens.c.client_id == client_id,
+               t_oauth_refresh_tokens.c.revoked_at.is_(None))
+        .values(revoked_at=_now())
+        .returning(t_oauth_refresh_tokens.c.token_hash)
+    )
+    rows = _facade()._fetchall_with_rollback(stmt, operation_name="mcp_revoke_user_connection", mappings=True)
+    return len(rows)
+
+
+def last_call_per_client(username: str) -> dict[str, datetime]:
+    from sqlalchemy import func
+    tc = t_mcp_tool_calls
+    stmt = (
+        select(tc.c.oauth_client_id, func.max(tc.c.created_at).label("last"))
+        .where(tc.c.username == username.lower(), tc.c.oauth_client_id.isnot(None))
+        .group_by(tc.c.oauth_client_id)
+    )
+    return {r["oauth_client_id"]: r["last"] for r in _facade()._fetchall_with_rollback(stmt, operation_name="mcp_last_call_per_client", mappings=True)}

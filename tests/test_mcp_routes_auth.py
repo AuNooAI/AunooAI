@@ -61,3 +61,10 @@ def test_admin_routes_require_admin_and_401_first():
         calls = _dependency_calls(r)
         assert require_admin in calls, r.path
         assert verify_session_api in calls, r.path
+
+
+def test_self_service_routes_require_a_session():
+    mine = [r for r in _routes() if r.path.startswith("/api/mcp/me")]
+    assert len(mine) >= 6, [r.path for r in mine]
+    for r in mine:
+        assert verify_session_api in _dependency_calls(r), r.path

@@ -112,6 +112,44 @@ refresh tokens). **`scripts/mcp_keys.py`**: `mint --user U --name N
 [--expires-days D]`, `list`, `revoke --id N`, `calls`. Key #1 minted for
 `admin` on bugfixing, expires 2026-12-03.
 
+### Feature: Connectors tab in Settings (follow-up, same day)
+Oliver asked where users see or configure the connection; the answer was
+"nowhere yet". **`templates/config.html`** now has a seventh tab,
+Connectors, after Users. Three parts for any signed-in user: the server URL
+with copy-paste snippets for Claude Code, Cursor and Claude Desktop (and the
+claude.ai instructions), "My keys" (create with a name and expiry, plaintext
+shown once in a green box, revoke), and "Connected apps" (assistants
+authorised through the Allow screen, with connected date, last call and
+renewal horizon, and a Disconnect button). Admins additionally see every key
+on the site and the last 50 calls. The tab loads lazily on first show
+(`shown.bs.tab`, same as Users) and opens directly from `/config#mcp`.
+Plain fetch against JSON routes, no React build.
+
+**`app/mcp_access/user_routes.py`** (new) under `/api/mcp/me`, all behind
+`verify_session_api`: `GET /install`, `GET|POST /keys`,
+`DELETE /keys/{id}` (own keys only), `GET /connections`,
+`DELETE /connections/{client_id}`. Disconnect revokes every refresh token
+the user granted that client, so the next `refresh_token` grant fails with
+`invalid_grant`; an access token already issued lasts at most its remaining
+hour. Any active user may mint their own key; it acts as them and nothing
+more. **`store.py`** gained `revoke_api_key_for_user`,
+`list_user_connections` (one row per client with a live refresh token),
+`revoke_user_connection` and `last_call_per_client`.
+**`tests/test_mcp_routes_auth.py`** checks the six self-service routes carry
+`verify_session_api`.
+
+Verified after a restart (no jobs in flight): anonymous `GET
+/api/mcp/me/install` and `/api/mcp-keys` → 401; `/config` as admin renders
+the tab, pane and script; install returns the bugfixing URL, 11 tools and
+four snippets; mint own key → 201 with plaintext, the key answers `ping` on
+`/mcp`, revoke → the same key gets 401, second revoke → 404; admin key list
+shows both keys with the revoked one inactive. Connected apps with a real
+grant: register + consent + token, one `list_capabilities` call, then the
+connections list shows the client with `last_used_at` set and renewal to
+2026-12-03; Disconnect revokes 1 token, the list is empty, the refresh grant
+returns 400 `invalid_grant`, a second Disconnect → 404. Test client deleted;
+`oauth_clients` and `oauth_refresh_tokens` back to 0 rows.
+
 ### Migration `mcp_001` (revises `kg_lang_001`)
 **`alembic/versions/mcp_001_mcp_server.py`**, tables mirrored in
 **`app/database_models.py`**: `mcp_api_keys`, `oauth_clients`,
@@ -189,7 +227,9 @@ POST and DELETE share the path and that list refuses write methods.
 ### Propagation
 bugfixing only (`test` DB, migrated and restarted). Not on sunstar, wiley,
 wileytest or any clone. Per tenant a copy needs: `app/mcp_access/`,
-`templates/mcp_consent.html`, `scripts/mcp_keys.py`, the `mcp_001` migration,
+`templates/mcp_consent.html`, `templates/config.html` (Connectors tab; wileytest
+and wiley have their own drift in this file, so transplant the tab block and
+script rather than copying the file), `scripts/mcp_keys.py`, the `mcp_001` migration,
 and the edits to `app/database_models.py`, `app/core/routers.py`,
 `app/routes/auth_routes.py`, `templates/login.html`, `tests/test_auth_surface.py`
 plus the three new test files; then `alembic current` must read `kg_lang_001`
