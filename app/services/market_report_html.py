@@ -1579,6 +1579,9 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
         rows = [r for r in rated if r["tier"] == tier]
         if not rows:
             continue
+        # By scale, not by the stored rank order: a newly rated vendor has no
+        # rank yet and would trail the list, which reads as a bottom placing.
+        rows.sort(key=lambda r: r.get("scale") or 0, reverse=True)
         shown = [r for r in rows if names_allowed is None or r["vendor"] in names_allowed]
         hidden = len(rows) - len(shown)
         names = []
@@ -1605,6 +1608,8 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     for band in band_order:
         binfo = bands[band]
         brows = [r for r in rated if r.get("band") == band]
+        # Same reason as the tier lists: momentum order, not stored order.
+        brows.sort(key=lambda r: r.get("momentum") or 0, reverse=True)
         bnames = [esc(r["vendor"]) for r in brows if names_allowed is None or r["vendor"] in names_allowed]
         bhidden = len(brows) - len(bnames)
         if bhidden:

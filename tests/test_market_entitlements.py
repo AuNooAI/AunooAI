@@ -136,14 +136,17 @@ def test_an_unrestricted_viewer_is_not_filtered(conn, market):
 
 def test_a_vendor_an_operator_marked_public_is_always_included(conn, market):
     """The one deliberate control outranks a ranking nobody chose."""
-    victim = conn.execute(text("""
+    # The newest brand by id is not a safe victim: Torq entered the registry
+    # on 4 Sep 2026 and ranked #3 on activity the same day. Pick the newest
+    # vendor that is genuinely outside the top 3.
+    top3 = ent.authorized_brand_ids(conn, market, 3) or []
+    rows = conn.execute(text("""
         SELECT mb.brand_id FROM bw_market_brands mb
          WHERE mb.market_id = :m AND mb.role <> 'excluded'
-         ORDER BY mb.brand_id DESC LIMIT 1
-    """), {'m': market}).scalar()
-    assert victim is not None
-    assert victim not in (ent.authorized_brand_ids(conn, market, 3) or []), (
-        'pick a vendor that is not already in the top 3')
+         ORDER BY mb.brand_id DESC
+    """), {'m': market}).fetchall()
+    victim = next((b for (b,) in rows if b not in top3), None)
+    assert victim is not None, 'every vendor is in the top 3?'
 
     conn.execute(text("""
         UPDATE bw_market_brands SET is_public = true

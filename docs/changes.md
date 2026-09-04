@@ -4,6 +4,18 @@ Running log of notable operational/code changes. Newest first.
 
 ## 2026-09-04 — Incident: adding Torq 500d the public report; the tripwire now scrubs instead of refusing
 
+### Fix (evening) — maturity-map tier and band lists sorted by their own axis
+The report's tier rosters rendered the stored map's rank order, and a newly
+rated vendor has no rank yet, so D3 Security and Torq trailed the Executing
+list — which reads as a bottom placing. **`market_report_html.py`**
+`_horizon_section`: tier lists sort by scale descending, the momentum-band
+lists by momentum descending. Also updated
+`test_a_vendor_an_operator_marked_public_is_always_included`, which picked
+"the newest brand" as a vendor safely outside the activity top 3 — Torq broke
+that assumption the day it was added by ranking #3; the test now picks the
+newest vendor actually outside the top 3. Both suites 41 passed / 0 failed;
+restarted job-gated, sorted list verified live.
+
 ### Incident — twelve minutes of 500s on the shared assessment report
 Adding Torq to the market 2 registry (16:12) made "Torq" a withheld name for
 anonymous readers. The report's "accounts posting repeatedly" table has
