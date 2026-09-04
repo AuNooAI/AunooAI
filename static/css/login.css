@@ -1,10 +1,12 @@
 /* Layout for the standalone auth pages (change_password.html,
-   reset_password.html). They load Bootstrap from the CDN but do not extend
-   base.html, so this file provides the centered card the login page gets
-   from base.html and its own markup. Referenced as /static/css/login.css. */
+   reset_password.html). They load Bootstrap + aunoo-theme.css from their own
+   <head> (they do not extend base.html); this file maps the theme's tokens
+   onto the page. Fallbacks cover a load where aunoo-theme.css is missing. */
 
 body {
-    background-color: #f8f9fa;
+    font-family: var(--font-family, 'Inter', 'Helvetica Neue', Arial, sans-serif);
+    background-color: var(--background-color, #f8f9fa);
+    color: var(--text-color, #111827);
 }
 
 .login-container {
@@ -12,15 +14,33 @@ body {
     margin: 3rem auto;
     padding: 2rem;
     background: #fff;
-    border: 1px solid #dee2e6;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--border-color, #dee2e6);
+    border-radius: var(--border-radius, 8px);
+    box-shadow: 0 1px 3px var(--colors-slate-alpha-3, rgba(0, 0, 0, 0.06));
 }
 
 .login-container h2 {
     text-align: center;
     font-size: 1.5rem;
+    font-weight: 600;
     margin-bottom: 1.5rem;
+}
+
+/* Theme accent instead of Bootstrap blue */
+.login-container .btn-primary {
+    background-color: var(--primary-color, #ec4899);
+    border-color: var(--primary-color, #ec4899);
+}
+
+.login-container .btn-primary:hover,
+.login-container .btn-primary:focus {
+    background-color: var(--primary-dark, #d6346c);
+    border-color: var(--primary-dark, #d6346c);
+}
+
+.login-container .form-control:focus {
+    border-color: var(--colors-pink-6, #fa8fc9);
+    box-shadow: 0 0 0 0.25rem var(--colors-pink-alpha-3, rgba(236, 72, 153, 0.12));
 }
 
 #password-requirements ul {

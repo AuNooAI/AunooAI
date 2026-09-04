@@ -53,8 +53,16 @@ which never existed in git — both pages had rendered unstyled everywhere since
 they were written. Fixed later the same morning by creating the stylesheet the
 templates already link: a minimal centered card matching the login page's look
 (`.login-container` — max-width 420px, white card on the Bootstrap light
-ground). No template changes needed; the file was copied to all ten tenant
-trees and verified serving 200 on the six running ones.
+ground). Then themed properly on request: both templates now load Inter and
+`aunoo-theme.css` ahead of `login.css`, and `login.css` maps the theme tokens
+onto the page — `--font-family`, `--background-color`, card border/radius from
+the theme, and the buttons and input focus ring in the theme's pink
+(`--primary-color`/`--primary-dark`) instead of Bootstrap blue, with hardcoded
+fallbacks if the theme file fails to load. Templates were byte-identical across
+all trees before the copy (pearson lacks `reset_password.html` — its lineage
+predates the feature — so it got `change_password.html` only). Verified on all
+seven running tenants: the reset page links the theme and `login.css` serves
+200.
 
 ### Lessons
 - **`static/trend-convergence/` is the shared Vite output directory for every
