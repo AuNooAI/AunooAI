@@ -1769,6 +1769,7 @@ class _IncidentTrackingRequest(BaseModel):
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
     model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+    cache_only: bool = Field(False, description="Serve the newest cached analysis (any window) and NEVER run the LLM — page-load path")
     domain: Optional[str] = Field(
         None,
         description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
@@ -1831,6 +1832,25 @@ async def analyze_incidents(
         # Build cache key from sorted topics for consistent caching
         topics_str = ','.join(sorted(topics_list)) if topics_list else 'all_topics'
         cache_key = f"incident_tracking_{topics_str}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
+
+        # cache_only = the page-load path. Opening the Highlights view must never
+        # block on LLM generation; the anchored cache key moves with every newly
+        # collected article, so a plain load used to regenerate almost every time.
+        # Serve the newest stored analysis for this topic set, or an empty result
+        # the UI reads as "press Generate". No article query, no model call.
+        if req.cache_only:
+            from sqlalchemy import text as _sql_text
+            row = db.facade._fetchone_with_rollback(_sql_text("""
+                SELECT content FROM article_analysis_cache
+                WHERE analysis_type = :at AND model_used = 'incident_analysis'
+                ORDER BY generated_at DESC LIMIT 1
+            """), {"at": f"incident_tracking_{topics_str}"},
+                operation_name="incident tracking cache_only lookup")
+            if row and row[0]:
+                logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
+                import json
+                return json.loads(row[0])
+            return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
 
         # Get articles for analysis
         from datetime import datetime, timedelta

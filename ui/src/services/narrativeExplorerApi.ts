@@ -111,6 +111,7 @@ export interface IncidentTrackingParams {
   maxArticles?: number;
   model?: string;
   forceRegenerate?: boolean;
+  cacheOnly?: boolean; // read cache only, never trigger LLM generation (page-load path)
   profileId?: number;
   // Custom configuration (optional)
   systemPrompt?: string;
@@ -149,6 +150,7 @@ export interface ArticleInsightsParams {
   endDate?: string;
   daysLimit?: number;
   forceRegenerate?: boolean;
+  cacheOnly?: boolean; // read cache only, never trigger LLM generation (page-load path)
   model?: string;
   // Custom prompt configuration
   systemPrompt?: string;
@@ -222,6 +224,7 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
       max_articles: params.maxArticles || 100,
       model: params.model || 'gpt-4o-mini',
       force_regenerate: params.forceRegenerate || false,
+      cache_only: params.cacheOnly || false,
       profile_id: params.profileId,
       // Custom configuration (if provided)
       system_prompt: params.systemPrompt,
@@ -258,6 +261,7 @@ export async function getArticleInsights(params: ArticleInsightsParams): Promise
         end_date: params.endDate,
         days_limit: params.daysLimit,
         force_regenerate: params.forceRegenerate || false,
+      cache_only: params.cacheOnly || false,
         model: params.model,
         system_prompt: params.systemPrompt,
         user_prompt: params.userPrompt,

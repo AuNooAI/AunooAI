@@ -206,7 +206,8 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
           endDate,
           daysLimit: getDaysFromRange(config.dateRange),
           model: config.model,
-          forceRegenerate: false, // Use cached data if available
+          forceRegenerate: false,
+          cacheOnly: true, // page load must never trigger LLM generation
           profileId: config.profileId,
           systemPrompt: incidentConfig?.system_prompt,
           userPrompt: incidentConfig?.user_prompt,
@@ -245,7 +246,8 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
               endDate,
               daysLimit: getDaysFromRange(config.dateRange),
               model: config.model,
-              forceRegenerate: false, // Use cached data if available
+              forceRegenerate: false,
+              cacheOnly: true, // page load must never trigger LLM generation
               systemPrompt: narrativesConfig?.system_prompt,
               userPrompt: narrativesConfig?.user_prompt,
             });

@@ -38,6 +38,10 @@ _SYSTEM = (
     "products, people, actions, or someone's genuine experience or opinion of them. "
     "1.0 = clearly about the brand; 0.0 = unrelated or a coincidental name match "
     "(e.g. 'Wiley' the rapper vs Wiley the publisher).\n"
+    "When a BRAND CONTEXT line describes the company, use it to disambiguate: a post "
+    "about a DIFFERENT business, venue, person or product that merely shares the name "
+    "(a hotel vs an oral-care maker, a stationery brand vs a health-products group) "
+    "scores 0.0-0.1 regardless of how prominently the shared name appears.\n"
     "Advertisements and solicitation spam score 0.0-0.1 even when they name the brand or "
     "its products: contract-cheating / essay-mill / 'we take your online class or exam' "
     "services, homework or test-prep solicitations, piracy/download/coupon/referral blasts, "
@@ -159,14 +163,18 @@ class SocialEvalService:
         return self._model
 
     async def _eval_one(self, brand_topic: str, title: str, body: str,
-                        author: str = "") -> Optional[Dict]:
+                        author: str = "", brand_context: str = "") -> Optional[Dict]:
         model = self._get_model()
         if not model:
             return None
         text = f"{title}\n{body}".strip()[:1500]
+        # brand_context = the bw_brands description. Without it the model cannot
+        # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
+        # Sunstar", and only "Sunstar = oral care company" makes it a miss.
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
         messages = [
             {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}\n\nPOST:\n{text}"},
+            {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}{ctx}\n\nPOST:\n{text}"},
         ]
         try:
             from fastapi.concurrency import run_in_threadpool
@@ -228,7 +236,8 @@ class SocialEvalService:
             logger.debug(f"SocialEval supervisor call failed: {e}")
             return None
 
-    async def evaluate_posts(self, posts: List[Dict], brand_topic: str) -> List[Dict]:
+    async def evaluate_posts(self, posts: List[Dict], brand_topic: str,
+                             brand_context: str = "") -> List[Dict]:
         """Evaluate a batch of post dicts (need 'uri','title','summary'/'content').
 
         Returns list of {uri, relevance, sentiment} for posts the model scored.
@@ -244,7 +253,8 @@ class SocialEvalService:
                 title = p.get("title") or ""
                 body = p.get("summary") or p.get("content") or ""
                 author = p.get("author") or (p.get("social_meta") or {}).get("author") or ""
-                r = await self._eval_one(brand_topic, title, body, author=author)
+                r = await self._eval_one(brand_topic, title, body, author=author,
+                                         brand_context=brand_context)
                 if r:
                     results.append({"uri": p.get("uri") or p.get("url"), **r})
 
@@ -282,7 +292,29 @@ class SocialEvalService:
         posts = [{"uri": r[0], "title": r[1], "summary": r[2], "author": r[3]} for r in rows]
         if not posts:
             return {"evaluated": 0, "candidates": 0}
-        scored = await self.evaluate_posts(posts, brand_topic)
+        # Entity-collision handling: posts matching the brand's exclude terms
+        # (config.news_keyword_excludes — hotels, newspapers, stationery makers
+        # sharing the name) are scored 0 deterministically, no model call. The
+        # brand description rides along on the model calls so the LLM can tell
+        # look-alike entities apart on its own.
+        ctx = _brand_context_for_topic(db, brand_topic)
+        excluded_zeroed = 0
+        if ctx["excludes"]:
+            keep = []
+            for p in posts:
+                blob = f"{p['title'] or ''} {p['summary'] or ''} {p['author'] or ''}".lower()
+                if any(x in blob for x in ctx["excludes"]):
+                    db.facade._execute_with_rollback(text("""
+                        UPDATE articles SET topic_alignment_score = 0, keyword_relevance_score = 0,
+                            sentiment = 'Neutral', ingest_status = 'social_evaluated', analyzed = true
+                        WHERE uri = :uri
+                    """), {"uri": p["uri"]})
+                    excluded_zeroed += 1
+                else:
+                    keep.append(p)
+            posts = keep
+        scored = await self.evaluate_posts(posts, brand_topic,
+                                           brand_context=ctx["description"])
         for s in scored:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
@@ -290,8 +322,10 @@ class SocialEvalService:
                 WHERE uri = :uri
             """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"]})
         db.facade.connection.commit()
-        logger.info(f"SocialEval: scored {len(scored)}/{len(posts)} {brand_topic!r} posts via {self.model_name}")
-        return {"evaluated": len(scored), "candidates": len(posts), "model": self.model_name}
+        logger.info(f"SocialEval: scored {len(scored)}/{len(posts)} {brand_topic!r} posts via {self.model_name}"
+                    + (f" ({excluded_zeroed} zeroed by exclude terms)" if excluded_zeroed else ""))
+        return {"evaluated": len(scored), "candidates": len(posts),
+                "excluded": excluded_zeroed, "model": self.model_name}
 
 
 async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
@@ -399,6 +433,35 @@ _STANCE_BY_SENTIMENT = {
     "neutral": "neutral",
     "mixed": "mixed",
 }
+
+
+def _brand_context_for_topic(db, brand_topic: str) -> Dict:
+    """Description + entity-collision exclude terms for the brand behind a topic.
+
+    Topic 'Brand Monitoring <display_name>' -> the bw_brands row. The exclude
+    terms are config.news_keyword_excludes — despite the name it is the brand's
+    entity-collision list (other companies/venues sharing the name), which is
+    exactly as wrong on social as it is on news, so both channels apply it.
+    Plain keyword topics (no matching brand) get empty context and evaluate as
+    before.
+    """
+    from sqlalchemy import text
+    name = re.sub(r"^brand monitoring\s+", "", (brand_topic or "").strip(), flags=re.I)
+    if not name or name == (brand_topic or "").strip():
+        return {"description": "", "excludes": []}
+    try:
+        row = db.facade._fetchone_with_rollback(text(
+            "SELECT description, config FROM bw_brands WHERE LOWER(display_name) = LOWER(:n)"),
+            {"n": name}, operation_name="social eval brand context")
+        if not row:
+            return {"description": "", "excludes": []}
+        cfg = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
+        excludes = [str(x).strip().lower() for x in (cfg.get("news_keyword_excludes") or [])
+                    if str(x).strip()]
+        return {"description": (row[0] or "").strip(), "excludes": excludes}
+    except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
+        logger.debug(f"SocialEval brand-context lookup failed for {brand_topic!r}: {e}")
+        return {"description": "", "excludes": []}
 
 
 _singleton: Optional[SocialEvalService] = None

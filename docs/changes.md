@@ -2,6 +2,74 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Sunstar: hotel-brand false positives, narratives no longer regenerate on page load, user account
+
+### Goal
+Three sunstar requests: the brand feed was full of Sunstar HOTEL content (Delhi
+hotel group, Antalya resort — plus, on inspection, a Japanese stationery maker,
+Philippine newspapers and diecast models, all named Sunstar); the Narratives
+page blocked for minutes regenerating LLM analyses on every load; and Brendan
+Jennings needed an account.
+
+### Social eval learns which company the brand is
+`app/services/social_eval_service.py`: the eval prompt only ever received
+"BRAND/TOPIC: Brand Monitoring Sunstar", so a post by @Hotel_Sunstar scored
+0.9 — it genuinely is about *a* Sunstar, and nothing told the model which one.
+Two additions: (1) `_brand_context_for_topic` resolves the bw_brands row behind
+a monitoring topic and passes its description into the prompt (plus a system-
+prompt rule that a different business sharing the name scores 0.0-0.1);
+(2) `evaluate_and_store` applies the brand's `config.news_keyword_excludes`
+(the entity-collision list the news classifier already used) to social posts
+too — matches are zeroed deterministically with no model call. Data side on
+sunstar: brand description rewritten to name the company and its look-alikes,
+11 hotel/stationery terms appended to the exclude list, 83 existing articles
+zeroed by the exclude terms (verified list: all collisions, no legit content),
+and the 75 remaining high-scoring social posts re-evaluated with the new
+prompt — 35 survived, spot-check all genuine (Ora2/GUM campaigns, the CEO,
+Sunstar Engineering sealants). Hotel authors gone from the feed.
+
+### Narratives/Highlights pages serve cache, never generate, on load
+The Explore Narratives view auto-loads "from cache" on mount — but
+`POST /api/dashboard/article-insights/{topic}` GENERATES on a cache miss, and
+the cache key embeds a date window computed from "now", so the first visit of
+each day regenerated every topic sequentially (sunstar journal 09:38–09:40:
+~15-26s per topic, two minutes of spinner). Incident tracking
+(`POST /api/incident-tracking`) is worse: its cache key is anchored on the
+newest article, so any newly collected article forced regeneration. Both
+endpoints now take `cache_only` (`dashboard_routes.py`, `vector_routes.py`):
+serve the exact-key cache, else the NEWEST stored analysis for that
+topic/topic-set regardless of window, else 404/empty — never call the LLM.
+The frontend auto-load path (`ui/src/hooks/useNarrativeExplorer.ts`,
+`ui/src/services/narrativeExplorerApi.ts`) passes cacheOnly: true; the
+Generate buttons keep their existing force behavior.
+
+### Brendan's account
+users row `brendan` / brendan.jennings@sunstar.com on sunstar, role user,
+bcrypt temp password, force_password_change=true (lands on the themed
+change-password page), completed_onboarding=true so the demo tenant doesn't
+push him into the topic wizard. Temp password handed to Oliver in-session.
+
+### Verification
+- cache_only insights on sunstar: 200 in 0.026s with cached themes; unknown
+  topic 404 in 0.011s; incident-tracking cache_only 200 in 0.011s, empty +
+  "press Generate" message. No LLM calls in the journal for any of them.
+- Social re-eval: `{'evaluated': 75, 'candidates': 75}` via nova-lite; high
+  scorers 75 → 35; top-20 reviewed by hand.
+- `POST /login` as brendan → 302 to /change_password.
+- `py_compile` on all edited backend files; `npm run typecheck` clean (no new
+  errors, 16 baseline errors incidentally fixed upstream).
+
+### Propagation
+Canonical (bugfixing) and sunstar have everything (backend + rebuilt React
+bundles via each tree's own deploy-react-ui.sh; both services restarted
+job-gated — bugfixing waited for an ingest cycle). oviva got
+social_eval_service.py (blob-identical lineage). PENDING: wbm, wiley,
+wileytest carry a DRIFTED social_eval_service.py — do not wholesale-copy;
+port the two additions by transform when their tenants next get a pass. The
+cache_only route+UI changes are also pending everywhere but canonical and
+sunstar. The seven-tree download-route sed from this morning is still waiting
+on Oliver.
+
 ## 2026-09-04 — Model-error text reached a customer digest; fallback map completed
 
 ### What the customer saw
