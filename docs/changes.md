@@ -127,10 +127,15 @@ that 401'd Oliver at 08:48 now returns 200. Both observer emails were then
 re-sent from the saved reports with fresh working links (report 4, Evidence
 Watch, 3 alerts → oliver.rochford@gmail.com; report 5, Competitor moves,
 5 alerts + PDF → oliver.rochford@aunoo.ai; resend script rebuilt the emails
-from `saved_signal_reports`, no LLM cost). Still pending on oviva, wbm, abm,
-wiley, wileytest, bwtemplate and ibaset (the classifier blocked those edits;
-pearson has no vector_routes.py) — Oliver's one-line `sed` plus restarts
-closes them, and until then their emailed report links still 401.
+from `saved_signal_reports`, no LLM cost). CLOSED same day: the `sed` ran on
+all eight trees on Oliver's instruction (sunstar was already clean), all
+compiled, and the five running tenants — oviva, wbm, abm, wiley, wileytest —
+were restarted after activity checks came back quiet. Verified per tenant with
+a freshly minted HMAC token and no session cookie: 200 on oviva/wbm/wiley/
+wileytest, 404 on abm (zero saved reports — auth passed, row missing), and a
+forged token gets 403 everywhere. bwtemplate and ibaset carry the fix
+code-only (not running). Dormant pbm and interroll trees still have the
+session-gated route — fix on revival.
 
 ### Open question raised (Oliver): why the alias shim still exists at all
 ~18 call sites hardcode OpenAI model names and the yaml maps them onto Bedrock;
