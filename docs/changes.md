@@ -2,6 +2,60 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-04 — Auspex Strategic Intelligence Oracle: crash when invoked without a topic
+
+### Goal
+Live monitoring of sunstar.aunoo.ai (requested after the demo-readiness work)
+caught the Strategic Intelligence Oracle tool crashing in a real user's hands
+at 13:32, minutes after a restart. Root-cause, fix, and roll out.
+
+### Fix — tolerate an explicit topic=None in the tool context
+**`data/auspex/plugins/strategic_intelligence_oracle/handler.py`** read its
+topic as `params.get("topic") or context.get("topic", "")`. When the Auspex
+context carries `topic` explicitly set to None — which is what arrives when
+the user invokes the tool with no active topic — `.get("topic", "")` returns
+that None, because the default only covers a missing key. Three
+`topic.lower()` calls downstream (lines 284, 293, 449) then raised
+`AttributeError: 'NoneType' object has no attribute 'lower'` and the user saw
+"Intelligence brief generation failed". The fix normalises once at the entry
+point: `params.get("topic") or context.get("topic") or ""`. With an empty
+topic the query-expansion helper returns an empty list and the tool proceeds
+with its date-window discovery instead of dying.
+
+Committed in `57579e2d` — the parallel Market Monitor session's `git add -u`
+swept the fix into its Torq entry, and its commit message attributes the
+ride-along. This entry is the fix's actual documentation.
+
+### Verification
+`py_compile` clean. Unit-tested the exact crash shape against the fixed module
+(`context={"topic": None}`): no exception, query helper returns `[]`. After
+rollout, the plugin registry on oviva (15:14) and sunstar (16:20) logged
+"Loaded plugin: strategic_intelligence_oracle v1.0.0 with custom handler" from
+the new file, and the sunstar toolbar still lists exactly the 8 intended tools.
+
+### Propagation
+Copied to all seven active trees (bugfixing canonical, sunstar, oviva, abm,
+wbm, wiley, wileytest) plus bwtemplate so future clones inherit it; md5
+`640e41c0` verified on all eight. The plugin registry is a startup singleton
+(`app/services/tool_plugin_base.py:1228`), so every tenant needed a restart:
+the six idle ones went immediately (all login pages back to 200), sunstar was
+mid-collection and restarted job-gated at 16:20 after ~66 minutes of waiting.
+Dormant trees (vc, testbed, skunkworkx, pbm, interroll, pearson, ibaset) still
+carry the old handler — copy on revival.
+
+### Ops — sunstar error watch, and what the baseline sweep found
+A session-local monitor tails the sunstar journal for error-level lines
+(known noise filtered) and probes the login page every 60 s. It dies with the
+session; nothing durable was installed. The baseline sweep found, noted and
+left alone: the retrieval reranker fails to load on sunstar so retrieval runs
+cosine-only; NewsData.io answered one 429 ("exceeded your assigned API
+credits", a plan limit); the AI analysis step returned three malformed
+responses today (missing Category field) but its retry succeeded every time —
+sunstar has zero `enrichment_failed` articles, ever, against 62 approved and
+1086 social posts scored today; and five Semantic Scholar papers were dropped
+pre-restart in a different mode ("analyzed flag is False") — they were never
+saved, so the collector will retry them as new.
+
 ## 2026-09-04 — Torq added to market 2; brand monitoring parity for the form-request vendors
 
 ### Ops — Torq (brand 49826), from the top-voices capture of 2 Sep

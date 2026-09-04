@@ -301,9 +301,14 @@ def drop_text_mentioning(rows: Any, withheld: Sequence[str]) -> Any:
                             if isinstance(v, (str, int, float)))
             if pattern.search(blob):
                 return True
-            # Nested vendor lists, as the corpus rows carry.
+            # Nested structures: vendor lists as the corpus rows carry, and
+            # dicts — an account row keeps its vendor in vendor_tag["org"]
+            # and its profile text in account["summary"], both invisible to
+            # the flat blob above (Torq, 4 Sep 2026).
             for value in row.values():
                 if isinstance(value, list) and _any_withheld(value):
+                    return True
+                if isinstance(value, dict) and _names_withheld(value):
                     return True
             return False
         return bool(pattern.search(str(row)))
@@ -316,6 +321,40 @@ def drop_text_mentioning(rows: Any, withheld: Sequence[str]) -> Any:
 
 class DisclosureError(RuntimeError):
     """Rendered output names a vendor the viewer is not entitled to see."""
+
+
+def enforce_no_withheld(rendered: str, withheld: Sequence[str], *,
+                        context: str = "report") -> str:
+    """The serve-safe tripwire for public pages: scrub instead of refuse.
+
+    ``assert_no_withheld`` raising a 500 is the right shape for an
+    entitlement API, but on the public site it turns any masking bug into
+    an outage for every reader. Adding Torq to market 2 (4 Sep 2026) made a
+    long-standing account blurb name a now-withheld vendor and took the
+    shared report down for twelve minutes.
+
+    So: the check still runs, and a hit is still treated as a bug — logged
+    as an error with the context, so it gets found and fixed — but the page
+    ships with each withheld name replaced by the withheld label. The
+    replacement is the same word-boundary match the check uses, so what the
+    check would have caught is exactly what gets scrubbed, and the result is
+    re-checked before it leaves. If even the scrub cannot make the page
+    clean, the original refusal stands.
+    """
+    if not withheld:
+        return rendered
+    try:
+        assert_no_withheld(rendered, withheld, context=context)
+        return rendered
+    except DisclosureError as exc:
+        logger.error("disclosure scrubbed from %s: %s "
+                     "(a masking filter missed this name; fix the filter)",
+                     context, exc)
+    for name in withheld:
+        rendered = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", WITHHELD_LABEL,
+                          rendered, flags=re.IGNORECASE)
+    assert_no_withheld(rendered, withheld, context=f"{context} (after scrub)")
+    return rendered
 
 
 def assert_no_withheld(rendered: str, withheld: Sequence[str], *,

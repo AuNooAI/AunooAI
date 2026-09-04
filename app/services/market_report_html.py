@@ -2832,8 +2832,8 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
             + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>',
             "</div>"]
     rendered = html_document(f'{market["name"]} — news river', "".join(body))
-    ent.assert_no_withheld(rendered, withheld,
-                           context=f'market {market["id"]} news river')
+    rendered = ent.enforce_no_withheld(rendered, withheld,
+                                       context=f'market {market["id"]} news river')
     return rendered.encode("utf-8")
 
 
@@ -4121,8 +4121,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     rendered = html_document(title, "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)
-    ent.assert_no_withheld(rendered, withheld,
-                           context=f'market {market["id"]} front page')
+    rendered = ent.enforce_no_withheld(rendered, withheld,
+                                       context=f'market {market["id"]} front page')
     rendered = rendered.replace(_HORIZON_SLOT, horizon_html)
     for fragment in pieces_html:
         rendered = rendered.replace(_PIECES_SLOT, fragment, 1)
@@ -4216,8 +4216,8 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
             + '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])}</span></div></div>')
     rendered = html_document(f'{market["name"]} — briefing', body)
-    ent.assert_no_withheld(rendered, withheld,
-                           context=f'market {market["id"]} briefing page')
+    rendered = ent.enforce_no_withheld(rendered, withheld,
+                                       context=f'market {market["id"]} briefing page')
     return rendered.encode("utf-8")
 
 
@@ -4332,6 +4332,16 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
         sov = analyses.get("share_of_voice")
         pc = ent.filter_rows(pc, allowed_brand_ids, allowed_names)
         voices = ent.filter_rows(voices, allowed_brand_ids, allowed_names)
+        # An account row's vendor identity lives in its tag ("Vendor (Torq)")
+        # and its profile summary, not in an id or name key, so filter_rows
+        # keeps it. The first repeatedly-posting account of a withheld vendor
+        # (Torq, 4 Sep 2026) named it in the voices table and the fail-closed
+        # check 500d the whole restricted report. Text scan, like the
+        # articles; a quoted highlight can name one the same way.
+        if voices:
+            voices["consistent"] = ent.drop_text_mentioning(
+                voices.get("consistent") or [], withheld)
+        highlights = ent.drop_text_mentioning(highlights or [], withheld)
         dataset = ent.filter_rows(dataset, allowed_brand_ids, allowed_names)
         # The movers list was fetched above the gate and never filtered; the
         # first withheld vendor whose headcount moved (2 Sep 2026) put its
@@ -5200,10 +5210,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     if teaser:
         rendered = _apply_teasers(rendered)
 
-    # Fail closed. Serving a page that names a vendor the viewer is not
-    # entitled to see cannot be undone, and a refusal can.
-    ent.assert_no_withheld(rendered, withheld,
-                           context=f'market {market["id"]} report')
+    # Fail closed on the name, not on the page: a withheld name that reaches
+    # the bytes is scrubbed to the withheld label and logged as a bug, so a
+    # masking miss costs an ugly label instead of a 500 for every reader.
+    rendered = ent.enforce_no_withheld(rendered, withheld,
+                                       context=f'market {market["id"]} report')
 
     # The one deliberate exception, put back after the check: the Market
     # Horizon names every rated vendor by decision (27 August 2026).

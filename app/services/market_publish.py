@@ -469,7 +469,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
     # vendor in its title while being attributed to another.
     if allowed_brand_ids is not None:
         from app.services import market_entitlements as ent
-        ent.assert_no_withheld(
+        rendered = ent.enforce_no_withheld(
             rendered, ent.withheld_names(conn, market["id"], allowed_brand_ids),
             context=f'market {market["id"]} feed')
 

@@ -16,6 +16,7 @@ this and no read path consulted it.
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 from sqlalchemy import text
@@ -173,9 +174,18 @@ def test_mm20_the_report_names_only_authorized_vendors(conn, market):
     html = build_market_report(conn, dict(row), days=30,
                                allowed_brand_ids=allowed).decode()
 
+    # The Market Maturity Map names every rated vendor in the shared view by
+    # decision (27 August 2026): the placement is the public draw. It is the
+    # one exemption, rendered apart and re-inserted after the fail-closed
+    # check, so it comes out before the assertion; everything else on the
+    # page must stay clean.
+    page = re.sub(r'<details[^>]*id="mm-horizon".*?</details>', '', html,
+                  flags=re.S)
+    assert page != html, 'the horizon drawer was not found to strip'
+
     # The production rule, for the same reason as the feed test below: a
     # substring check would fail on a vendor name embedded in a longer word.
-    ent.assert_no_withheld(html, withheld, context='report')
+    ent.assert_no_withheld(page, withheld, context='report')
 
     # And the authorized ones are actually present, or this passes vacuously.
     shown = ent.vendor_names(conn, market, allowed).values()
@@ -215,6 +225,30 @@ def test_the_backstop_refuses_rather_than_redacting():
 
     # No withheld names is a no-op, not a special case at the call site.
     ent.assert_no_withheld('anything at all', [])
+
+
+def test_the_public_tripwire_scrubs_instead_of_refusing():
+    """A masking miss on a public page costs a label, not the page.
+
+    Adding Torq to market 2 (4 Sep 2026) made a long-standing account blurb
+    name a now-withheld vendor, and the raising backstop turned that one
+    name into twelve minutes of 500s on the shared report. The serve-safe
+    variant replaces exactly what the check would have caught with the
+    withheld label, re-checks the result, and returns it.
+    """
+    page = 'a table row: Torq, 8,888 followers. Torq is a vendor.'
+    out = ent.enforce_no_withheld(page, ['Torq'], context='report')
+    assert 'Torq' not in out
+    assert out.count(ent.WITHHELD_LABEL) == 2
+
+    # A clean page passes through untouched, and so does an empty list.
+    assert ent.enforce_no_withheld('all quiet', ['Torq']) == 'all quiet'
+    assert ent.enforce_no_withheld('Torq everywhere', []) == 'Torq everywhere'
+
+    # Whole words only, like the check itself: a handle such as torq_io is
+    # not the name and must survive the scrub.
+    kept = ent.enforce_no_withheld('see @torq_io for Torq', ['Torq'])
+    assert 'torq_io' in kept and 'Torq' not in kept.replace('torq_io', '')
 
 
 def test_the_backstop_matches_whole_words_only():
