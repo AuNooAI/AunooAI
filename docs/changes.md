@@ -2,6 +2,35 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-05 — About page copy rewritten in a human register
+
+### Copy — the whole about page, same facts
+The operator flagged the about page as reading like AI text (uniform clipped
+declaratives, verdict fragments like "The vendor list is our call.", the
+too-neat closer "Asking makes us look…" — the structural tells from
+Wikipedia's "Signs of AI writing"). **`market_report_html.py`**
+`_v2_about_page`: every prose section rewritten with varied sentence lengths
+and the connecting words kept; no factual or legal claim changed. The
+statutory `AI_DISCLOSURE_LONG` string and the contact/imprint registration
+data were left untouched.
+
+One policy change, on the operator's instruction: the "People named on the
+page" paragraph no longer promises removal on request. It now states the
+material is public, that who appears is our editorial choice, and that the
+news-tip form corrects mistakes (wrong attribution, wrong person) only. The
+Forms paragraph keeps its deletion offer — that covers data typed into our
+own forms, where GDPR erasure genuinely applies.
+
+### Verification
+`py_compile` clean; job-gated restart (login 200); live page fetched through
+nginx with a fresh cache key — all seven new phrasings present, all four old
+ones gone, and the named-people paragraph serves the no-removal wording.
+Note: an already-cached about URL can show the old copy for up to 90 s after
+restart (micro-cache), then self-heals.
+
+### Propagation
+bugfixing only — Market Monitor's public site exists nowhere else.
+
 ## 2026-09-04 — Incident: adding Torq 500d the public report; the tripwire now scrubs instead of refusing
 
 ### Fix (evening) — maturity-map tier and band lists sorted by their own axis
