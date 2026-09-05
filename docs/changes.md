@@ -4,7 +4,7 @@ Running log of notable operational/code changes. Newest first.
 
 ## 2026-09-05 — Copy day: about page rewritten, dev cards name their vendor and drop the drumroll
 
-### Fix — development cards: vendor named in the headline, slop kept out of the summary
+### Fix — development cards: vendor named in the headline, slop kept out of the summary (`dac7bd52`)
 Two defects in one card, found by the operator on the 7ai/DXC case study.
 The card's headline is the source record's own sentence, and a vendor
 writing about its customer names the customer, not itself — so the lead
@@ -36,8 +36,29 @@ report 200 on all three windows.
 ### Propagation
 bugfixing only — Market Monitor exists nowhere else.
 
+### Ops — Tuskira added to market 2, pulled, and on the map (database only)
+Operator add request with https://www.tuskira.ai/. Brand 49828 (`tuskira`,
+keywords `["Tuskira"]`); `bw_market_brands` role vendor, sort_order 1083,
+collection and brand monitoring on, `is_public` false. Four identifiers, each
+verified by web search before insert: domain `tuskira.ai`, website, LinkedIn
+`/company/tuskira` (confirmed from the company's own post URLs), Crunchbase
+`/organization/tuskira` — the bare slug is right this time, and worth the
+check because `tusker-ai` and `tusker-014e` are different companies.
+Background for the record: founded 2024, San Francisco, $28.5M Series A
+(Dec 2024) co-led by Intel Capital and SYN Ventures.
 
-### Copy — the whole about page, same facts
+The scheduler tick seeded all 8 source policies (7 eligible; `ats_jobs`
+waits on ATS discovery finding a board). Manual paid runs 1316–1319 all
+succeeded: LinkedIn profile (47 employees, 3,817 followers, founded 2024),
+25 company posts, 0 open LinkedIn jobs, Crunchbase (private, active, 6
+investors). Map 30 recomputed out of band at 12:04 rates Tuskira in the
+Innovators tier, scale 54.1, momentum 31.2 (86 rated, 3 not); all three
+report windows verified 200 with Tuskira named. Nothing here is in git —
+this entry is the durable record; a registry rebuild would need the rows
+above (see the TRUNCATE-recovery recipe from 3 Sep).
+
+
+### Copy — the whole about page, same facts (`80113b8c`)
 The operator flagged the about page as reading like AI text (uniform clipped
 declaratives, verdict fragments like "The vendor list is our call.", the
 too-neat closer "Asking makes us look…" — the structural tells from
