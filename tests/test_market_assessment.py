@@ -516,3 +516,72 @@ def test_the_renderer_labels_independent_reporting_as_given():
     dev = ma.finish(ma.dedupe([own, press])[0])
     dev["rank"] = 1
     assert "Also reported independently" in _render_developments([dev])
+
+
+# ---------------------------------------------------------------------------
+# The headline names the vendor
+# ---------------------------------------------------------------------------
+
+def test_a_headline_that_never_names_the_vendor_gets_it_prefixed():
+    """A vendor's case-study post names the customer, not itself; the card
+    headline read as the customer's announcement (DXC/7ai, 5 Sep 2026)."""
+    dev = ma.finish(ma.dedupe([_candidate(
+        "customer",
+        "DXC went from proving the model on its own operations to delivering "
+        "it to customers worldwide through DXC Agentic SOC.",
+        vendors=[_vendor("7ai", 112)], voice="vendor")])[0])
+    assert dev["headline"].startswith("7ai: DXC went from")
+
+
+def test_a_headline_already_naming_the_vendor_is_left_alone():
+    dev = ma.finish(ma.dedupe([_candidate(
+        "funding", "Radiant Security raises $40M Series B")])[0])
+    assert dev["headline"] == "Radiant Security raises $40M Series B"
+
+
+def test_the_vendor_name_matches_case_insensitively_and_possessively():
+    dev = ma.finish(ma.dedupe([_candidate(
+        "customer", "Inside 7AI's rollout at a global insurer",
+        vendors=[_vendor("7ai", 112)], voice="vendor")])[0])
+    assert not dev["headline"].startswith("7ai:")
+
+
+def test_any_of_a_multivendor_devs_names_satisfies_the_rule():
+    dev = ma.finish(ma.dedupe([_candidate(
+        "partnership", "Torq and Defy Security partner on deployment",
+        vendors=[_vendor("7ai", 112), _vendor("Torq", 49826)],
+        voice="vendor")])[0])
+    assert dev["headline"] == "Torq and Defy Security partner on deployment"
+
+
+# ---------------------------------------------------------------------------
+# The summary excerpt skips marketing drumroll
+# ---------------------------------------------------------------------------
+
+def test_the_summary_excerpt_drops_hooks_fragments_and_drumroll():
+    """The 7ai case-study post opened on a rhetorical question, a three-word
+    fragment and 'The real story is what came next.' — none carries a fact."""
+    dev = ma.finish(ma.dedupe([_candidate(
+        "customer", "Case study: DXC Technology",
+        summary=("What does agentic security look like at global scale? "
+                 "Ask DXC Technology. Across 25 delivery centers, DXC put "
+                 "7AI's agents into worldwide production in eight weeks. "
+                 "The real story is what came next. Analysts became threat "
+                 "hunters and incident-response leads."),
+        vendors=[_vendor("7ai", 112)], voice="vendor")])[0])
+    assert dev["summary"] == (
+        "Across 25 delivery centers, DXC put 7AI's agents into worldwide "
+        "production in eight weeks. Analysts became threat hunters and "
+        "incident-response leads.")
+
+
+def test_a_plain_summary_passes_through_unchanged():
+    text = ("Torq raised $70M in Series C funding led by Insight Partners. "
+            "The round values the company above $1B.")
+    assert ma.plain_summary(text) == text
+
+
+def test_a_sentence_with_a_promotional_tell_is_dropped():
+    text = ("The company shipped single sign-on for all plans. "
+            "This game-changing capability revolutionizes enterprise access.")
+    assert ma.plain_summary(text) == "The company shipped single sign-on for all plans."

@@ -2,7 +2,40 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-05 — About page copy rewritten in a human register
+## 2026-09-05 — Copy day: about page rewritten, dev cards name their vendor and drop the drumroll
+
+### Fix — development cards: vendor named in the headline, slop kept out of the summary
+Two defects in one card, found by the operator on the 7ai/DXC case study.
+The card's headline is the source record's own sentence, and a vendor
+writing about its customer names the customer, not itself — so the lead
+story read as a DXC announcement with 7ai only in the byline.
+**`market_assessment.py`** `_named_headline`, applied in `finish()`: when
+none of a development's vendor names appears in the headline
+(word-boundary, case-insensitive, so "7AI's" counts), the lead vendor is
+prefixed ("7ai: DXC went from…").
+
+The same card's summary was the post body quoted verbatim from the top,
+marketing intro included ("What does agentic security look like at global
+scale? Ask DXC Technology. … The real story is what came next.").
+`plain_summary`, also in `finish()`: a summary is our excerpt of the
+source, so excerpting now skips rhetorical questions, fragments of four
+words or fewer, drumroll patterns, and any sentence the humanize-mcp
+detector flags — regex only, nothing added to the 3–5 s page build.
+Quoted third-party material elsewhere (voices, social, news river) is
+deliberately untouched: rewriting a quotation would misquote it. A
+detector sweep of all nine rendered surfaces confirmed the remaining
+tells are quotations, product names ("Beacon") or Korean-script false
+positives; the about page and analysis section score zero.
+
+### Verification
+`pytest tests/test_market_assessment.py` — 44 passed (7 new: four
+headline-naming, three excerpt-filter). Job-gated restarts; live card
+verified ("7ai:" prefix present, "real story"/rhetorical opener gone);
+report 200 on all three windows.
+
+### Propagation
+bugfixing only — Market Monitor exists nowhere else.
+
 
 ### Copy — the whole about page, same facts
 The operator flagged the about page as reading like AI text (uniform clipped

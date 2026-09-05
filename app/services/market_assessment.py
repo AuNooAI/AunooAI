@@ -1101,6 +1101,63 @@ def why_it_matters(dev: Dict[str, Any]) -> str:
     return "A change at one vendor."
 
 
+# A summary is our excerpt of the source record, so choosing which of its
+# sentences to keep is editing, not misquoting. These are the sentence shapes
+# a marketing writer (human or model) uses as a drumroll: they carry no fact,
+# and a card has no room for them. The 7ai/DXC case-study summary opened
+# "What does agentic security look like at global scale? Ask DXC Technology."
+# and pivoted on "The real story is what came next." (5 Sep 2026).
+_DRUMROLL = re.compile(
+    r"the (real|best|bigger|full) (story|part|news|picture)|"
+    r"what (came|happened) next|here'?s the (thing|kicker)|"
+    r"but that'?s not all|it gets (better|worse)|plot twist|"
+    r"and (here'?s|that'?s) why", re.IGNORECASE)
+
+
+def _sentence_is_slop(sent: str) -> bool:
+    sent = sent.strip()
+    if not sent:
+        return True
+    if sent.endswith("?"):          # a question in an excerpt is a hook
+        return True
+    if len(sent.split()) <= 4:      # "Ask DXC Technology." — a fragment
+        return True
+    if _DRUMROLL.search(sent):
+        return True
+    try:
+        from humanize_mcp.detection import detect_ai_tells
+        return bool(detect_ai_tells(sent))
+    except ImportError:
+        return False
+
+
+def plain_summary(text: str) -> str:
+    """The excerpt's sentences with the marketing drumroll left out."""
+    if not text:
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    kept = [s for s in sentences if not _sentence_is_slop(s)]
+    return " ".join(kept)
+
+
+def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
+    """The headline with its vendor named, when it doesn't name one already.
+
+    A development's headline is usually the source record's own sentence, and
+    a vendor writing about its customer names the customer, not itself — the
+    7ai case study about DXC read as a DXC announcement (5 Sep 2026). The
+    byline names the vendor too, but small and after the fact.
+    """
+    names = [n for n in ((v.get("vendor") or "").strip()
+                         for v in vendors or []) if n]
+    if not names or not headline:
+        return headline
+    for name in names:
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headline, re.IGNORECASE):
+            return headline
+    return f"{names[0]}: {headline}"
+
+
 def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
     """The public shape of a development, from a deduplicated candidate."""
     evidence = list(dev.get("evidence") or [])
@@ -1118,8 +1175,9 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "date_established": bool(day) and bool(dev.get("date_established", True)),
         "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                     for v in dev.get("vendors") or []],
-        "headline": dev.get("headline") or "Untitled",
-        "summary": (dev.get("summary") or "").strip(),
+        "headline": _named_headline(dev.get("headline") or "Untitled",
+                                    dev.get("vendors") or []),
+        "summary": plain_summary((dev.get("summary") or "").strip()),
         "evidence": [{k: e.get(k) for k in
                       ("uri", "title", "source", "published", "voice",
                        "social", "source_type", "key", "author")}
