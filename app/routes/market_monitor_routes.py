@@ -1883,6 +1883,7 @@ async def market_briefing_detail(market_id: int, briefing_id: int,
 
 class BriefingStatus(BaseModel):
     status: str = Field(..., pattern="^(draft|approved|rejected)$")
+    override: bool = Field(False, description="Approve despite citation findings that would otherwise refuse it.")
 
 
 class BriefingWrite(BaseModel):
@@ -1906,11 +1907,17 @@ async def market_piece_write(market_id: int, body: BriefingWrite,
         try:
             market = _load_market(conn, market_id)
             try:
-                return mbr.create_piece(conn, market, kind=body.kind, title=body.title,
-                                        content=body.report_content,
-                                        author=body.author, saved_by=by)
+                row = mbr.create_piece(conn, market, kind=body.kind, title=body.title,
+                                       content=body.report_content,
+                                       author=body.author, saved_by=by)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
+            # Every save reads each citation against its source (piece_citations);
+            # the findings land in the piece's lint, and approval refuses an
+            # unsupported one.
+            from app.services import piece_citations as pc
+            pc.run_and_store(conn, market_id, row)
+            return mbr.get(conn, market_id, int(row["id"]))
         finally:
             conn.close()
 
@@ -1928,6 +1935,19 @@ async def market_briefing_status(market_id: int, briefing_id: int,
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
+            if body.status == "approved" and not body.override:
+                from app.services import piece_citations as pc
+                current = mbr.get(conn, market_id, briefing_id)
+                if current and current.get("kind") in ("analysis", "note"):
+                    # Re-read the citations now: the index or the text may have
+                    # changed since the last save.
+                    findings = pc.run_and_store(conn, market_id, current)
+                    bad = pc.blocking(findings)
+                    if bad:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Not approved: " + "; ".join(b["detail"] for b in bad)
+                                   + ". Fix the citation, or approve with override=true.")
             if not mbr.set_status(conn, market_id, briefing_id, body.status):
                 raise HTTPException(status_code=404, detail="Briefing not found")
             # An approved briefing is a news-feed item; anything else is not.
@@ -1977,6 +1997,10 @@ async def market_briefing_edit(market_id: int, briefing_id: int, body: BriefingE
                 row = mbr.save_edit(conn, market, briefing_id,
                                     content=body.report_content, title=body.title,
                                     saved_by=by)
+                if row and row.get("kind") in ("analysis", "note"):
+                    from app.services import piece_citations as pc
+                    pc.run_and_store(conn, market_id, row)
+                    row = mbr.get(conn, market_id, briefing_id)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             if not row:

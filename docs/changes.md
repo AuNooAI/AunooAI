@@ -164,6 +164,33 @@ page's AI section. `test_front_page_has_its_sections_and_links` now
 allows for the one-fresh-piece case, where the piece is the lead and the
 Analysis section is rightly absent.
 
+**Pulled.** The operator read the published piece and found that the
+Prophet Security citation was the Astra post, not an evaluation guide. A
+check of all fourteen citations against their sources found two more:
+CrowdStrike's launch cited for reasoning it does not contain, and "one of
+its agents" where the source does not say whose. Three mis-citations in
+one piece; the operator withdrew it (status rejected, feed entry
+withdrawn, page 404) as embarrassing. The text and revisions stay in the
+database. Cause: the model (this session) reached for a URL already on
+its citation list without opening the source; neither the tells detector
+nor the format passes look at whether a citation supports its sentence.
+
+**Guard — `app/services/piece_citations.py`** (new). On every save of an
+analysis or note (`create_piece`, `save_edit` routes) the citations are
+read against their sources: each `[Cn]` marker's sentence with the cited
+article's title and summary, one cheap model call (`PIECE_CITATION_MODEL`,
+default the topics model), verdict yes / partly / no per citation, plus
+model-free findings for a marker with no index entry. Findings go into
+the piece's `lint` (check `citation`), which the dashboard already shows
+in its amber box. `PUT …/briefings/{id}/status` with `approved` re-runs
+the check and refuses with 409 while any citation is judged `no`, unless
+`override: true`. Run on the published text it flagged C1 and C13 as
+unsupported and four as partial; it missed C7. On the corrected text it
+still refuses C1, C12 and C13, because those sentences draw a conclusion
+of the author's from the sources rather than reporting them — strict,
+and that is the point. `tests/test_piece_citations.py`, 3 tests (model
+mocked). Approving piece 18 as it stands returns 409.
+
 **`app/services/market_foresight.py`** (new). `render(conn, kind, market,
 run_id=)` builds the report page from the newest stored run (or a named
 earlier one) with the same `consensus_html` / `horizons_html` builders the
