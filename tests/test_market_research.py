@@ -188,7 +188,7 @@ def test_the_section_renders_groups_with_marks_and_posts_with_their_kind():
     assert "Reports vendors cite" not in only_groups
     empty = html._v2_section("research", "", count=0, days=30, more_href="?view=v2&section=research")
     assert "No analyst report or post in the last 30 days" in empty
-    assert "Latest research" in empty
+    assert "Research firms" in empty
 
 
 @pytest.mark.skipif(os.getenv("DB_TYPE", "postgresql").lower() != "postgresql",

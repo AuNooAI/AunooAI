@@ -2977,8 +2977,9 @@ V2_CSS = """
 .mm-v2 .v2-piece-body h2 { font-size:20px; margin:26px 0 8px; font-weight:500; }
 .mm-v2 .v2-piece-body h3 { font-size:17px; margin:20px 0 6px; font-weight:500; }
 .mm-v2 .v2-piece-body p, .mm-v2 .v2-piece-body li { margin:0 0 12px; }
-.mm-v2 .v2-ai-note { max-width:72ch; margin:28px 0 0; padding:12px 14px; border:1px solid var(--n-line);
-                     border-radius:8px; font-size:13px; line-height:1.5; color:var(--n-muted); }
+.mm-v2 .v2-ai-note { max-width:72ch; margin:28px 0 0; font-size:12px; color:var(--n-muted); }
+.mm-v2 .v2-ai-note .ai-disclosure { border-top-color:var(--n-line) !important; color:var(--n-muted) !important; padding-left:0 !important; }
+.mm-v2 .v2-ai-note p { margin:2px 0 0; }
 .mm-v2 .v2-ai-note a { color:inherit; }
 .mm-v2 .v2-piece-body blockquote { border-left:3px solid var(--n-line); margin:0 0 12px; padding:2px 14px; color:var(--n-muted); }
 .mm-v2 .v2-piece-body table { border-collapse:collapse; font-size:14px; }
@@ -3070,7 +3071,7 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                "thing": "practitioner post",
                "subline": "What practitioners are saying on X, Bluesky, Reddit and "
                           "LinkedIn, newest first, and the most shared posts."},
-    "research": {"heading": "Latest research", "colour": "#ab6400",
+    "research": {"heading": "Research firms", "colour": "#ab6400",
                  "thing": "analyst report or post",
                  "subline": "Reports in which analyst firms have named vendors, and the "
                             "firms' own public posts. The reports are behind paywalls; "
@@ -3366,13 +3367,14 @@ def _v2_piece_page(piece_row: Dict[str, Any], others: List[Dict[str, Any]],
 
 
 def _v2_piece_ai_note(link_params: Optional[Dict[str, Any]]) -> str:
-    """The AI-assistance disclosure at the foot of every piece, as Article
-    50 of the EU AI Act asks: plain words on what the model did and what a
-    person did, with a link to the fuller statement on the About page."""
+    """The site's standard AI disclosure at the foot of every piece: the
+    same Article 50 notice the Anticipate reports carry, from
+    app.compliance.ai_disclosure, followed by the About page's AI section."""
+    from app.compliance.ai_disclosure import disclosure_footer_html
+
     about = "?" + _relink(link_params or {}, view="v2", page="about")
-    return ('<p class="v2-ai-note">An AI model drafted this piece from Aunoo\u2019s analysis '
-            'of the sources above. We reviewed it before publishing. The EU AI Act requires '
-            f'us to tell you this. <a href="{about}#ai">How this site is made.</a></p>')
+    return ('<div class="v2-ai-note">' + disclosure_footer_html(long=True)
+            + f'<p><a href="{about}#ai">AI disclosure</a></p></div>')
 
 
 def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
