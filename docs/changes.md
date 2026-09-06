@@ -12,7 +12,7 @@ rising. The topics half is live. The paid-call half is code-complete and
 tested but shows nothing until Stripe and the calendar are configured
 (see Propagation).
 
-### Feature — "Being discussed" and "Emerging" (stored daily subject run)
+### Feature — "Being discussed" and "Emerging" (stored daily subject run) (`d7c503e4`)
 **`app/services/market_topics.py`** (new). Once a day per market, the last
 30 days of the matched corpus (newest 600, the same vendor-post signal gate
 `market_themes` uses) goes to `bedrock-kimi-k2-5` (override
@@ -91,7 +91,7 @@ fields are checked, since the sample headlines never print — then ranks
 again so a dropped entry is backfilled. `enforce_no_withheld` stays as the
 backstop. The card hides itself when no row exists or the lists are empty.
 
-### Feature — Schedule an inquiry: paid 30/60 minute call (code complete, dark until configured)
+### Feature — Schedule an inquiry: paid 30/60 minute call (`d7c503e4`; live since 17:00 with both calendar links)
 **`app/services/market_inquiry.py`** and **`app/routes/market_inquiry_routes.py`**
 (new; included from the bottom of `market_monitor_routes.py` like the
 entity router, so it rides the module switch and imports nothing back).
@@ -169,11 +169,14 @@ restarts were job-gated: no running `background_tasks` or
 ### Propagation
 bugfixing only — the Market Monitor exists nowhere else. Both migrations
 chain off `mcp_001`, which wiley/wileytest also carry, so a later copy is
-safe. Uncommitted at the time of writing. Still needed before a reader can
-book: the two Google Calendar appointment-schedule URLs in
-`MARKET_INQUIRY_BOOKING_URL_30/60` (Google has no API for them; the
-operator makes them in the Calendar UI), then a restart and one real
-purchase and refund. Until then the button is hidden.
+safe. Committed as `d7c503e4`. The two Google Calendar appointment-schedule
+URLs went into `MARKET_INQUIRY_BOOKING_URL_30/60` at 16:5x (made in the
+Calendar UI on the aunoo.ai account; Google has no API for them) and the
+button has been live since. The operator declined a real purchase; instead
+a self-signed `checkout.session.completed` event to the public webhook
+flipped a row to paid, sent both mails once (Resend ids in the journal at
+17:09), and a replay sent nothing. Stripe's own delivery is unproven
+until the first sale; the dashboard shows it.
 
 ### Lessons
 - ALWAYS `conn.commit()` before a loop that takes minutes on another
