@@ -20,6 +20,7 @@ provider echoes back, and finds its market from the run row.
 """
 
 import asyncio
+from urllib.parse import urlencode
 import json
 import logging
 import os
@@ -1331,6 +1332,7 @@ async def market_report(
     sort: Optional[str] = Query(None, description="view=v2 section pages: newest first by default; 'rank' restores the front page's order."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
     topic: Optional[int] = Query(None, description="view=v2: one discussed or emerging subject as a page of its articles."),
+    run: Optional[str] = Query(None, max_length=40, description="page=consensus|horizons: an earlier run's id; the newest when absent."),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
@@ -1404,8 +1406,21 @@ async def market_report(
             if view == "v2":
                 if section is not None and section not in V2_SECTIONS:
                     raise HTTPException(status_code=404, detail="Section not found")
-                if page is not None and page not in ("about",):
+                if page is not None and page not in ("about", "consensus", "horizons"):
                     raise HTTPException(status_code=404, detail="Page not found")
+                if page in ("consensus", "horizons"):
+                    # Our reports on the coverage: public in full, like the
+                    # editorial pieces, and served as their own document.
+                    from app.services import market_foresight as mf
+                    front = "?" + urlencode({**params, "days": days, "view": "v2"})
+                    try:
+                        blob = mf.render(conn, page, market, run_id=run, front_href=front)
+                    except LookupError:
+                        raise HTTPException(status_code=404, detail="Run not found")
+                    if blob is None:
+                        raise HTTPException(status_code=404,
+                                            detail="No analysis has been run for this market yet")
+                    return blob
                 try:
                     return build_market_report_v2(
                         conn, market, days=days, section=section, piece=piece, page=page,

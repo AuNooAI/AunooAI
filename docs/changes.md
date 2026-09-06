@@ -91,6 +91,76 @@ fields are checked, since the sample headlines never print — then ranks
 again so a dropped entry is backfilled. `enforce_no_withheld` stays as the
 backstop. The card hides itself when no row exists or the lists are empty.
 
+### Feature — First analysis piece, public Consensus and Three-Horizons pages, Forecast Tracker enrolment
+The operator asked for the site's first analysis, built with our own
+tools, and for the consensus and horizons reports to be shared as they
+are on saas.aunoo.ai and wileytest, and tracked over time as on
+wileytest.
+
+**The runs.** The claude.ai Aunoo connector reaches the saas tenant, whose
+topics carry no AI SOC scope, so the analyses ran on this tenant's own
+trend-convergence route for the market's collection topic ("Market
+Monitoring SOC Automation"), `bedrock-kimi-k2-5`, 30-day window, 90
+records — which the sampler took as the newest 90, all from 3–5 Sep.
+First runs came back addressed to Wiley: the tenant's default
+organisational profile is Wiley's. Profile 9, "Cyberfuturists — AI SOC
+market readers", was added (write for the market, not for one company)
+and both reran against it; the Wiley-profiled drafts were deleted.
+`bw_markets.config.foresight.profile_id = 9` records the choice.
+Consensus run `3a973c5f`: four categories with agreement 78/70/75/68%.
+Horizons run `694b215a`. Session minting for the loopback calls:
+itsdangerous `TimestampSigner(FLASK_SECRET_KEY)` over
+`b64(json {"user": ...})` as the `session` cookie, as the saas foresight
+port recorded.
+
+**The piece.** `bw_market_briefings` id 18, kind analysis, author
+Cyberfuturists, status **draft** — "The agentic SOC is a feature now.
+What that leaves for the specialists", ~1,250 words, 14 source links,
+consensus + outliers + our own vendor figures (91 vendors, $1.28B
+disclosed across 44, map of 6 Sep) + the three horizons + a method note
+that says the sample is one week's. Saved through
+`POST /markets/2/briefings/write`; approve it in the dashboard (or
+`PUT …/briefings/18/status`) to put it in the Analysis section and feed.
+
+**`app/services/market_foresight.py`** (new). `render(conn, kind, market,
+run_id=)` builds the report page from the newest stored run (or a named
+earlier one) with the same `consensus_html` / `horizons_html` builders the
+Interactive HTML download uses, and inserts a strip above it: back to the
+front page, the other report, and every earlier run as a dated link.
+Served at `?view=v2&page=consensus` and `page=horizons` (+ `&run=<id>`)
+from `market_report()`; linked from the front-page footer beside About
+and Privacy, and from the piece's method note. Public in full, like the
+editorial pieces — they are our reading of the coverage, not the roster —
+so the withheld-names gate is not applied. `refresh(conn, market, now)`
+makes one new run of each a month by calling the trend-convergence route
+over loopback as `MARKET_FORESIGHT_USER` (default `admin`), with the
+market's profile and `MARKET_FORESIGHT_MODEL` (default the topics model);
+the generation is 500 inline lines in that route, so calling it beats
+copying it, and the route's cache keys, run logs and executive summaries
+come for free. Hooked into the market tick after `_refresh_topics`.
+`tests/test_market_foresight.py`, 5 tests.
+
+**Forecast Tracker.** Topic registered (`forecast_topic_metadata`,
+display name "AI in the SOC", owner Cyberfuturists); the Add-Topic
+wizard's `wizard/build` pipeline ran: a fresh horizons run (`624b5db6`,
+gpt-5.4 → Sonnet, 50 articles, 90 days — the tracked forecast and, being
+newest, the public horizons page), the paired live+placebo assessment,
+and the overlay draft, then overlay approval. `FORECAST_TRACKER_AUTO_RUN=true`
+in `.env`: the monitor re-assesses each topic when its last assessment is
+30 days old, ~15 min and USD 3–8 a run, accepted by the operator. The
+first tick kicked off three paired runs for Wiley topics whose overlay
+files are in git and so on every tenant (Patent Cliffs, Attacks on
+Expertise, U.S. Federal R&D Pullback); each finished in ~15 s because
+this tenant has no corpus for them, so the cost was one small call
+apiece. **`app/tasks/forecast_tracker_monitor.py`** `_load_overlay_topics`
+now drops topics whose `forecast_topic_metadata.status` is `archived`,
+and those five Wiley topics are archived on this tenant. After the
+restart the monitor scheduled nothing; the SOC topic's assessment is from
+today and comes due in 30 days. The wizard's live assessment has
+`evidence_count 0`: the forecast is today's, so there is no
+post-forecast coverage yet; the placebo read 900 records. That is the
+baseline.
+
 ### Feature — Schedule an inquiry: paid 30/60 minute call (`d7c503e4`; live since 17:00 with both calendar links)
 **`app/services/market_inquiry.py`** and **`app/routes/market_inquiry_routes.py`**
 (new; included from the bottom of `market_monitor_routes.py` like the

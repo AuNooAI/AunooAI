@@ -4282,9 +4282,14 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</aside></main>")
 
     about_href = "?" + _relink(link_params, days=days, view="v2", page="about")
+    reports = "".join(
+        f' · <a href="?{_relink(link_params, days=days, view="v2", page=k)}">{label}</a>'
+        for k, label in (("consensus", "Consensus"), ("horizons", "Three horizons"))
+    ) if market.get("is_public") else ""
     body.append('<div class="n-foot">' + _brand_line()
                 + f'<span>{esc(market["name"])} · {esc(period_txt)} · '
-                f'<a href="{about_href}">About</a> · <a href="{about_href}#privacy">Privacy</a></span></div>')
+                f'<a href="{about_href}">About</a> · <a href="{about_href}#privacy">Privacy</a>'
+                f'{reports}</span></div>')
     if teaser:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
     body.append(_contact_panel(market["id"], market["name"], trial=teaser))

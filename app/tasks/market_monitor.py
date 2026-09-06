@@ -393,6 +393,16 @@ async def tick() -> Dict[str, Any]:
                 summary["errors"] += 1
                 logger.exception("market %s topics refresh failed",
                                  market["id"])
+            try:
+                # The public Consensus and Three-Horizons pages read the
+                # newest stored run; one new run of each a month.
+                from app.services import market_foresight as mf
+                await mf.refresh(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s foresight refresh failed",
+                                 market["id"])
     finally:
         conn.close()
     return summary

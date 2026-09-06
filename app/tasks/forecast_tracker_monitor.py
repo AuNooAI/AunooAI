@@ -366,6 +366,20 @@ def _load_overlay_topics() -> set[str]:
                 topics.add(topic)
         except Exception as e:
             logger.warning("Failed to read overlay %s: %s", path.name, e)
+    # An overlay file outlives the topic: the tracked overlays are in git,
+    # so every tenant carries every customer's. A topic archived in this
+    # tenant's metadata is not scheduled here, whatever files are on disk
+    # (bugfixing kicked off three Wiley topics on 6 Sep 2026 this way).
+    try:
+        from app.database import get_database_instance
+        facade = get_database_instance().facade
+        archived = {t for t in topics
+                    if (facade.get_forecast_topic_metadata(t) or {}).get("status") == "archived"}
+        if archived:
+            logger.debug("Skipping archived forecast topics: %s", sorted(archived))
+            topics -= archived
+    except Exception as e:  # noqa: BLE001 — metadata lookup is advisory
+        logger.warning("Could not check forecast topic status: %s", e)
     return topics
 
 

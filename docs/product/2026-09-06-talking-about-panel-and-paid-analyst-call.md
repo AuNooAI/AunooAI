@@ -3,6 +3,19 @@ _2026-09-06 · aisocnews.com — the public AI-in-the-SOC market page, its topic
 
 ## What shipped
 
+- **The first analysis piece**, drafted for approval: "The agentic SOC is
+  a feature now. What that leaves for the specialists." It reads the
+  month's coverage through two of our own reports and sets them against
+  our vendor tracking.
+- **Two public reports.** The Consensus analysis (where the coverage
+  agrees, where it splits, with every source cited) and the Three
+  Horizons scan (what is happening now, next, and later) are pages of the
+  site, linked from the footer. Each keeps its earlier runs, so a reader
+  can open September's reading in December and see what held.
+- **Tracking over time.** The market is enrolled in the Forecast Tracker:
+  the horizons scan is the forecast, and once a month the tracker re-reads
+  the coverage and scores each scenario against the events that followed.
+
 - **"What the market is talking about."** A new card in the sidebar with two
   short lists. "Being discussed" names the five subjects with the most
   coverage in the last seven days. "Emerging" names the subjects whose
@@ -73,6 +86,15 @@ from a free reference into the front door of an advisory practice, priced
 per conversation rather than per subscription.
 
 ## Limits and what's next
+
+- The analysis piece is a draft until Oliver approves it. Its consensus
+  figures describe one week of coverage (3 to 5 September), and the piece
+  says so.
+- The reports name vendors from the coverage, including vendors outside
+  the free roster, the same way the editorial pieces do. That is a
+  decision, not an oversight.
+- The first tracker assessment is a baseline; the "is this bearing out"
+  reading needs the second month's run.
 
 - The subjects are recomputed from scratch every day. Yesterday's list and
   today's are not linked, so there is no "still rising since Tuesday"; the
