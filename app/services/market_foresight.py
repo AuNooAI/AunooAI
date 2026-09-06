@@ -185,6 +185,16 @@ _FOLD_JS = """
     card.classList.add('collapsed');
     h.setAttribute('role','button'); h.tabIndex=0;
     h.setAttribute('aria-expanded', 'false');
+    // The renderer numbers categories ("CATEGORY 2"), which says nothing.
+    // The eyebrow takes the consensus type and its strength from the
+    // card's own metric boxes instead: "MARKET SHIFT · MODERATE CONSENSUS".
+    var eyebrow=h.querySelector('.cat-eyebrow'), type='', strength='';
+    body.querySelectorAll('.metric-box').forEach(function(m){
+      var l=(m.querySelector('.label')||{}).textContent||'', v=(m.querySelector('.value')||{}).textContent||'';
+      l=l.trim().toUpperCase(); v=v.trim();
+      if(l==='CONSENSUS TYPE') type=v; else if(l==='STRENGTH') strength=v;
+    });
+    if(eyebrow && type){ eyebrow.textContent=type+(strength?' · '+strength+' consensus':''); }
     function toggle(){ card.classList.toggle('collapsed'); h.setAttribute('aria-expanded', String(!card.classList.contains('collapsed'))); }
     h.addEventListener('click',function(e){ if(e.target.closest('a')) return; toggle(); });
     h.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });
