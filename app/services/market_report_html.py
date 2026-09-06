@@ -3761,8 +3761,8 @@ def _v2_topics(topics: Optional[Dict[str, Any]], link_params: Dict[str, Any],
         when = _dt.fromisoformat(stamp).strftime("%d %B")
     except ValueError:
         when = stamp[:10]
-    out.append(f'<p class="v2-subline">Grouped {esc(when)}: {int((topics or {}).get("assigned") or 0)} '
-               f'of {int((topics or {}).get("n") or 0)} articles fell into a subject.</p>')
+    out.append(f'<p class="v2-subline">From {int((topics or {}).get("n") or 0)} articles over '
+               f'the last {int((topics or {}).get("window_days") or 30)} days, grouped {esc(when)}.</p>')
     return "".join(out)
 
 

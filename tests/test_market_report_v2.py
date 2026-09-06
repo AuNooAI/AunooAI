@@ -344,7 +344,7 @@ def test_topics_card_shows_both_lists_and_links_each_subject():
     assert card.count("&#9650; 1.9&times;") == 1     # Acme rises too, listed once
     assert "&#9650; 1.2&times;" not in card          # Fal.Con is not above pace
     assert card.count("Fal.Con 2026") == 1 and card.count("7AI funding round") == 2
-    assert "Grouped 06 September: 90 of 300 articles fell into a subject" in card
+    assert "From 300 articles over the last 30 days, grouped 06 September." in card
 
 
 def test_topics_card_is_empty_without_a_run_or_without_entries():
