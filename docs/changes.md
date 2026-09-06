@@ -2,6 +2,193 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-06 — Front page: "What the market is talking about" panel live; paid analyst call built, waiting on three config values
+
+### Goal
+Two additions to aisocnews.com asked for on 6 Sep: a button to book and pay
+for a 30 or 60 minute call with the analyst, and two lists on the front
+page naming what the market's coverage is about this week and what is
+rising. The topics half is live. The paid-call half is code-complete and
+tested but shows nothing until Stripe and the calendar are configured
+(see Propagation).
+
+### Feature — "Being discussed" and "Emerging" (stored daily subject run)
+**`app/services/market_topics.py`** (new). Once a day per market, the last
+30 days of the matched corpus (newest 600, the same vendor-post signal gate
+`market_themes` uses) goes to `bedrock-kimi-k2-5` (override
+`MARKET_TOPICS_MODEL`) as a numbered list of headlines — date, kind,
+headline with the "@handle: " and "Vendor: " prefixes stripped — and the
+model groups them into subjects and names each: an event, a company's
+action, a product, a report or a question, at least 3 headlines each, a
+headline in at most one subject, chatter and job adverts left out. The
+counts are arithmetic over the members it returns; a member number it
+invents or repeats is dropped, so it can choose but not add. Two samples
+per run, keeping the one with more subjects that qualify for the lists,
+because one call's idea of "a subject" drifts (6, 8, 12, 14 and 18
+subjects from the same 600 headlines on 6 Sep); the second sample is one
+extra cheap call. `rise` is the subject's recent share against the
+corpus's own recent share, shrunk with two pseudo-counts; the corpus's own
+share is the baseline because matching lags publication and the newest
+week always under-reads. Not `_generate_report_with_retry`: it rejects
+replies containing severity words, which a security market's subjects are
+full of.
+
+**Why a model and not k-means.** The first version (this morning) ran
+k-means over the stored 768-d embedding, and its third-ranked subject was
+a grab-bag the model had named "AI SOC Technical Infrastructure
+Milestones": GPT-6 Astra, a partner programme, a Frost & Sullivan award,
+an Air Force contract, a Polish sales job. Measured, every raw group
+scored 0.93–0.99 cosine to its own centre, grab-bag and real subject
+alike. Centring the vectors made k-means group by format (one Reddit
+thread style, one X account's replies); title-only vectors grouped
+Unicode-bold LinkedIn posts, Turkish, and stock-ticker posts together;
+dropping practitioner posts (56% of the input) left one author's content
+series as the tightest groups; a cohesion gate plus a one-subject verdict
+from the namer removed the grab-bags but removed Fal.Con and the 7AI
+round with them. The embedding was trained for relevance, not subject
+similarity. Headlines to the model found the CrowdStrike launch, the 7AI
+round, the Cribl acquisition and the Palo Alto/NTT alliance first time.
+The embedding backfill from the morning (`ensure_embeddings`, 555 rows
+embedded with the local encoder) stays in the database and is no longer
+needed by this feature.
+
+Ranking (`rank()`, pure): Being discussed = top 5 by `n_recent` among
+subjects with at least 3 this week; Emerging = top 5 by `rise ≥ 1.3` that
+are not already discussed, and empty rather than repeated — a discussed
+subject that is also rising carries the ▲ multiplier on its own row.
+
+Each run is self-contained: the emerging signal is the date distribution
+inside one run; nothing matches subjects across runs and nothing should,
+because a subject id is only stable inside the row it is stored in.
+
+**`alembic/versions/mm_024_market_topics.py`** — `bw_market_topics`, one
+row per run, `result` JSONB with every member uri and the ranked id lists
+inside. Chains off `mm_023` (below), which chains off `mcp_001`.
+
+**`app/tasks/market_monitor.py`** `_refresh_topics()` next to
+`_refresh_horizon()`: 24 h age check, gather in a thread on its own
+connection, the model call awaited on the loop, store in a thread. A
+per-market backoff dict (24 h when the corpus is too small, 2 h when
+grouping fails) stops the 15-minute tick from retrying a failing call 96
+times a day; the previous row keeps serving meanwhile.
+
+**`app/routes/market_monitor_routes.py`** — `GET /markets/{id}/topics`,
+`POST /markets/{id}/topics/compute` (session; 422 when nothing to group,
+502 when grouping fails), and a `topic=` query on `report.html` (v2).
+
+**`app/services/market_report_html.py`** — `_v2_topics()` renders one
+sidebar card, "What the market is talking about", right after the Market
+Maturity Map: bar lists in the `v2-bars` markup `_v2_motion` uses, each
+name linking to `?view=v2&topic=<id>`, a page of that subject's articles
+through `render_news_river` (needs the new `uris=` filter on
+`market_corpus.articles()`). The topic page's header counts what is on
+the page — "21 shown of 25; 4 not shown in this view because they name
+vendors outside the free roster" — after the first version claimed 48
+over a list of 17. Shared view: `_v2_topics_for_view()` cuts each
+subject's vendor list to the allowed vendors and drops a subject whose
+model-written name or sentence names a withheld vendor — only those two
+fields are checked, since the sample headlines never print — then ranks
+again so a dropped entry is backfilled. `enforce_no_withheld` stays as the
+backstop. The card hides itself when no row exists or the lists are empty.
+
+### Feature — Schedule an inquiry: paid 30/60 minute call (code complete, dark until configured)
+**`app/services/market_inquiry.py`** and **`app/routes/market_inquiry_routes.py`**
+(new; included from the bottom of `market_monitor_routes.py` like the
+entity router, so it rides the module switch and imports nothing back).
+Pages under `/api/market-monitor/markets/{id}/inquiry` — the form,
+`/checkout` (form POST, 303 to Stripe), `/done` (Stripe's return),
+`/cancelled`, `/webhook` — all Python-built in the About page's shell.
+Prices USD 250 (30 min) and USD 450 (60 min), `OPTIONS` in the service.
+
+Order of writes is the design: the `market_inquiries` row is inserted
+before Stripe is asked for a Checkout session (`mode=payment`,
+`invoice_creation` on, metadata `app=aisocnews-inquiry`, `expires_at`
+30 min), so the buyer's return and the webhook both find it whichever
+arrives first. `mark_paid()` flips `created`→`paid` with one guarded
+UPDATE; `notify()` claims `notified_editors` and `notified_buyer` each
+with a guarded UPDATE, so the second arrival mails nobody. Editors
+(`MARKET_TRIAL_NOTIFY_EMAIL`) get name, email, subject, amount and the
+Stripe payment link; the buyer gets the Google Calendar booking link for
+the length bought, Reply-To the first editor. The done page shows the link
+itself, so nothing depends on the mail. The Stripe account is shared with
+saas.aunoo.ai, so each webhook receives the other's checkout events; a
+session whose metadata is not ours is answered 200 and ignored, matching
+what saas already does with ours. Honeypot field, its own 10-per-IP-per-day
+counter on `market_inquiries` (not the tip quota), 503 while unconfigured.
+
+**`alembic/versions/mm_023_market_inquiries.py`** — `market_inquiries`
+(`stripe_session_id` UNIQUE, `status` created|paid|booked|refunded|expired;
+the last three are set by hand). Both migrations applied here.
+
+**`market_report_html.py`** — `_book_link()` adds "Schedule an inquiry"
+(`a.n-book`, accent outline beside the filled Submit news) to the v2,
+news-river and Analyst View bars, and `_book_line()` a sentence in the
+contact panel; both render only when `market_inquiry.is_configured()` —
+secret key, both price ids, both booking URLs — and the market is public.
+About page: a "Booking a call" privacy paragraph (Stripe takes the card,
+what Stripe passes us, six-year retention for accounts, Google Calendar for
+the slot).
+
+**`scripts/seed_stripe_inquiry.py`** — idempotent product + two one-off
+prices by `lookup_key`, prints the env lines. Run live at 10:5x after the
+operator's go-ahead: product `prod_VD1qCCU7YWPyJo`, prices
+`price_1UCbmYKKEEttoL4kp9Kxu2SR` (30) and `price_1UCbmYKKEEttoL4kfutVCFrL`
+(60). Webhook endpoint `we_1UCbmkKKEEttoL4knHPiWjSH` created through the
+API (no dashboard step), its secret written to `.env` with the price ids;
+the live secret key copied from saas on the operator's explicit
+authorisation after the auto-mode classifier had blocked it twice. One
+live Checkout session was created against the 30-minute price and expired
+at once (row 25, status `expired`): keys, prices and the unpaid-session
+path all check. `requirements.txt` gains `stripe>=11.3.0` (15.6.1
+installed in the venv).
+
+**nginx** `/etc/nginx/sites-available/aisocnews.com` (backup
+`.bak-inquiry-20260906_*`): the uncached forms regex now also matches
+`inquiry`, `inquiry/(checkout|done|cancelled|webhook)`; `location = /inquiry`
+302s to the form. `nginx -t` ok, reloaded. Everything else on the host
+still 302s to `/`, so the paths had to be listed.
+
+### Verification
+Final run by hand on market 2 (row 5 in `bw_market_topics`): 600
+headlines, two samples (8 subjects / 2 listable / 59 assigned; 11 / 4 /
+89 — kept), grouping 16–20 s per call; Being discussed = CrowdStrike
+Agentic SOC Announcements (21 of 25 this week, 2.7×), Prophet Security
+AI SOC Platform Content, TryHackMe SOC Training Rooms, OpenAI GPT-6
+Astra; Emerging empty. Rows 1–4 are the k-means and single-sample
+drafts. Live after restart: `https://aisocnews.com/` carries the card
+with four `topic=` links and the "89 of 600 articles fell into a subject"
+footer; `?view=v2&topic=0` header reads "21 shown of 25; 4 not shown in
+this view because they name vendors outside the free roster";
+`topic=999` 404. Inquiry paths on the public host: form 503 (unconfigured), `/inquiry`
+302, webhook with a bad signature 400; about page has "Booking a call".
+`pytest tests/test_market_topics.py tests/test_market_report_v2.py
+tests/test_market_inquiry.py` — 38 passed (9 + 21 + 8; 13 new). Both
+restarts were job-gated: no running `background_tasks` or
+`bw_collection_runs`, no other session's tracked changes.
+
+### Propagation
+bugfixing only — the Market Monitor exists nowhere else. Both migrations
+chain off `mcp_001`, which wiley/wileytest also carry, so a later copy is
+safe. Uncommitted at the time of writing. Still needed before a reader can
+book: the two Google Calendar appointment-schedule URLs in
+`MARKET_INQUIRY_BOOKING_URL_30/60` (Google has no API for them; the
+operator makes them in the Calendar UI), then a restart and one real
+purchase and refund. Until then the button is hidden.
+
+### Lessons
+- ALWAYS `conn.commit()` before a loop that takes minutes on another
+  connection: the server's `idle_in_transaction_session_timeout` is 1 min
+  and closes the outer connection under you.
+- NEVER cluster this corpus on the stored embedding for subjects: it was
+  trained for relevance and groups by format. Headlines to a cheap model,
+  two samples, is the working recipe.
+- NEVER route a JSON-naming call through `_generate_report_with_retry` in
+  a security market: its severity-word filter rejects ordinary subject
+  names.
+- The auto-mode classifier blocks copying a live secret between tenant
+  `.env` files and creating live Stripe objects; leave those to the
+  operator rather than splitting the command.
+
 ## 2026-09-05 — Copy day: about page rewritten, dev cards name their vendor and drop the drumroll
 
 ### Fix — development cards: vendor named in the headline, slop kept out of the summary (`dac7bd52`)

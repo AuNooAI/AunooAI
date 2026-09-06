@@ -386,6 +386,13 @@ async def tick() -> Dict[str, Any]:
                 summary["errors"] += 1
                 logger.exception("market %s horizon refresh failed",
                                  market["id"])
+            try:
+                await _refresh_topics(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s topics refresh failed",
+                                 market["id"])
     finally:
         conn.close()
     return summary
@@ -422,6 +429,69 @@ async def _refresh_horizon(conn, market: Dict[str, Any], now: datetime) -> None:
     row_id = await asyncio.to_thread(_work)
     logger.info("market %s: stored maturity map row %s (daily refresh)",
                 market["id"], row_id)
+
+
+# "Being discussed" and "Emerging" on the front page read the newest stored
+# run. One a day matches the corpus: matching lags publication by days, so a
+# run every tick would show the same groups with the newest one under-read.
+TOPICS_MAX_AGE_HOURS = 24
+# The tick runs about every 15 minutes. A naming call that fails must not be
+# retried 96 times a day, so a failed market waits before its next attempt.
+_TOPICS_RETRY_AFTER: Dict[int, datetime] = {}
+
+
+async def _refresh_topics(conn, market: Dict[str, Any], now: datetime) -> None:
+    """Gather the last 30 days' headlines, have the model group and name
+    them, and store the run when the stored one is a day old. The gather
+    runs in a thread on its own connection; the one model call is awaited
+    on the loop; the store is another short thread hop."""
+    from app.services import market_topics as mt
+
+    market_id = int(market["id"])
+    if _TOPICS_RETRY_AFTER.get(market_id, now) > now:
+        return
+    last = conn.execute(text(
+        "SELECT MAX(computed_at) FROM bw_market_topics WHERE market_id = :m"
+    ), {"m": market_id}).scalar()
+    conn.commit()
+    if last is not None and (now - last) < timedelta(hours=TOPICS_MAX_AGE_HOURS):
+        return
+
+    def _compute() -> Dict[str, Any]:
+        own = get_database_instance()._temp_get_connection()
+        try:
+            return mt.compute(own, market)
+        finally:
+            own.close()
+
+    result = await asyncio.to_thread(_compute)
+    if not result.get("items"):
+        logger.info("market %s: no topics stored (%s)", market_id,
+                    result.get("reason"))
+        _TOPICS_RETRY_AFTER[market_id] = now + timedelta(hours=TOPICS_MAX_AGE_HOURS)
+        return
+    try:
+        await mt.group(result, market["name"])
+    except Exception as exc:
+        logger.warning("market %s: topic grouping failed, previous run stands: %s",
+                       market_id, exc)
+        _TOPICS_RETRY_AFTER[market_id] = now + timedelta(hours=2)
+        return
+    mt.rank(result)
+
+    def _store() -> int:
+        own = get_database_instance()._temp_get_connection()
+        try:
+            return mt.store(own, result)
+        finally:
+            own.close()
+
+    row_id = await asyncio.to_thread(_store)
+    _TOPICS_RETRY_AFTER.pop(market_id, None)
+    logger.info("market %s: stored topics row %s (%d subjects over %d of %d "
+                "headlines, %d discussed, %d emerging)", market_id, row_id,
+                len(result["clusters"]), result.get("assigned", 0), result.get("n", 0),
+                len(result["being_discussed"]), len(result["emerging"]))
 
 
 async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:

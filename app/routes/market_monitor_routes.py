@@ -1330,6 +1330,7 @@ async def market_report(
     page: Optional[str] = Query(None, description="view=v2: a page of the site that is not a section (about)."),
     sort: Optional[str] = Query(None, description="view=v2 section pages: newest first by default; 'rank' restores the front page's order."),
     full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
+    topic: Optional[int] = Query(None, description="view=v2: one discussed or emerging subject as a page of its articles."),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
@@ -1408,9 +1409,9 @@ async def market_report(
                 try:
                     return build_market_report_v2(
                         conn, market, days=days, section=section, piece=piece, page=page,
-                        sort=sort, allowed_brand_ids=allowed, link_params=params)
+                        sort=sort, topic=topic, allowed_brand_ids=allowed, link_params=params)
                 except LookupError:
-                    raise HTTPException(status_code=404, detail="Piece not found")
+                    raise HTTPException(status_code=404, detail="Piece or topic not found")
             builder = (build_market_news_page if view == "news"
                        else build_market_report)
             return builder(
@@ -2676,6 +2677,66 @@ async def market_horizon_compute(market_id: int,
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/topics")
+async def market_topics(market_id: int, session=Depends(verify_session_api)):
+    """The newest stored "Being discussed" and "Emerging" run. 404 until
+    one has been computed; the tick computes one a day."""
+    from app.services import market_topics as mt
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            stored = mt.latest(conn, market_id)
+            if not stored:
+                raise HTTPException(status_code=404, detail="No topics computed yet")
+            return stored
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/topics/compute", status_code=201)
+async def market_topics_compute(
+        market_id: int,
+        model: Optional[str] = Query(None, description="Override the naming model."),
+        session=Depends(verify_session_api)):
+    """Group the last 30 days' headlines now, store and return the run.
+    The gather and the store run in a thread on their own connections; the
+    one model call is awaited on the loop between them."""
+    from app.services import market_topics as mt
+
+    def _compute():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, mt.compute(conn, market)
+        finally:
+            conn.close()
+
+    market, result = await asyncio.to_thread(_compute)
+    if not result.get("items"):
+        raise HTTPException(status_code=422,
+                            detail=result.get("reason") or "Nothing to group")
+    try:
+        await mt.group(result, market["name"], model=model)
+    except mt.GroupingFailed as exc:
+        raise HTTPException(status_code=502, detail=f"Grouping failed: {exc}")
+    mt.rank(result)
+    result.pop("items", None)
+
+    def _store():
+        conn = _conn()
+        try:
+            return mt.store(conn, result)
+        finally:
+            conn.close()
+
+    result["id"] = await asyncio.to_thread(_store)
+    return result
 
 
 class HorizonControls(BaseModel):
@@ -4115,3 +4176,6 @@ async def set_vendor_identifier(market_id: int, brand_id: int,
 from app.routes.market_entity_routes import router as _entity_router  # noqa: E402
 
 router.include_router(_entity_router, prefix="")
+from app.routes.market_inquiry_routes import router as _inquiry_router  # noqa: E402
+
+router.include_router(_inquiry_router, prefix="")

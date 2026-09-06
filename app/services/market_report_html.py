@@ -88,6 +88,9 @@ NEWS_CSS = """
 .mm-news .n-pages a { border-radius:7px; padding:6px 10px; color:#bcbac7;
                       border:1px solid #65636d; font-size:.82rem; white-space:nowrap; }
 .mm-news .n-pages a:hover { background:#2d2a37; color:#fff; }
+/* Schedule an inquiry: outlined in the accent, next to the filled Submit news. */
+.mm-news .n-pages a.n-book { border-color:var(--n-accent); color:#fff; font-weight:600; }
+.mm-news .n-pages a.n-book:hover { background:var(--n-accent); color:#fff; }
 /* The news river: a time, a source, a headline, and the other outlets. */
 .mm-news .n-river { padding:24px; }
 .mm-news .n-day { font-size:13px; font-weight:500; letter-spacing:.04em;
@@ -2212,6 +2215,28 @@ m.textContent='Could not send it from this copy of the page.';});});})();
 """
 
 
+def _book_link(market: Dict[str, Any]) -> str:
+    """The "Schedule an inquiry" link for the top bars: only on a public
+    market, and only when Stripe and the calendar are configured, so a
+    tenant without them shows nothing rather than a dead button."""
+    from app.services import market_inquiry as inq
+
+    if not market.get("is_public") or not inq.is_configured():
+        return ""
+    return f'<a class="n-book" href="{inq.inquiry_href(market["id"])}">Schedule an inquiry</a>'
+
+
+def _book_line(market_id: int) -> str:
+    """One sentence in the contact panel pointing at the paid call, when
+    it is configured."""
+    from app.services import market_inquiry as inq
+
+    if not inq.is_configured():
+        return ""
+    return (f'<p>Want to talk it through? <a href="{inq.inquiry_href(market_id)}">'
+            "Book a 30 or 60 minute analyst call</a>.</p>")
+
+
 def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
     """One form at the foot of the page. A dropdown says what it is about
     — a news tip, a missing vendor, a trial (shared view only) — and shows
@@ -2231,7 +2256,8 @@ def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
         f"<p>Send us a story about {esc(market_name)} that is not here, tell us your company "
         "belongs on the list" + (", or ask for the full report and data" if trial else "")
         + ". We read everything; what goes on the page is our call.</p>"
-        f'<form id="mm-contact-form" data-base="/api/market-monitor/markets/{int(market_id)}/">'
+        + _book_line(market_id)
+        + f'<form id="mm-contact-form" data-base="/api/market-monitor/markets/{int(market_id)}/">'
         '<div class="mm-c-kind"><label for="mm-c-kind">What is it about?</label>'
         f'<select id="mm-c-kind" name="kind">{"".join(opts)}</select></div>'
         + field("news", "url", "Link", True, 'type="url" autocomplete="url" placeholder="https://"')
@@ -2821,7 +2847,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
             + '<nav class="n-pages" aria-label="Pages">'
             f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
             f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
-            f'{rss}</nav>'
+            f'{rss}{_book_link(market)}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>',
             '<main class="n-river">',
             '<div class="n-head"><div>'
@@ -2972,6 +2998,8 @@ V2_CSS = """
 .mm-v2 .v2-bar-fill { height:100%; background:#65636d; border-radius:5px; }
 .mm-v2 .v2-bar-n { text-align:right; font-variant-numeric:tabular-nums; font-weight:500; }
 .mm-v2 .v2-move { font-size:11.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mm-v2 .v2-bar-name a { color:inherit; text-decoration:none; }
+.mm-v2 .v2-bar-name a:hover { color:var(--n-accent); }
 .mm-v2 .v2-move.up { color:var(--n-green); }
 .mm-v2 .v2-move.down { color:var(--n-orange); }
 .mm-v2 .v2-move.same { color:var(--n-muted); }
@@ -3279,6 +3307,13 @@ def _v2_about_page(market: Dict[str, Any], link_params: Optional[Dict[str, Any]]
         'string, and the message is emailed to the editors. We use it to answer you and to '
         'limit repeated submissions from one address, and for nothing else; we do not sell it '
         'or share it. If you want it deleted, write to us through the same forms.</p>'
+        '<p><strong>Booking a call.</strong> If you book an analyst call, payment is taken by '
+        'Stripe on its own pages; we never see your card. Stripe passes us your name, email '
+        'address, the amount paid and, if you gave one, your billing address, and applies '
+        'its own privacy policy to what it holds. We keep that, what you told us the call is '
+        'about, your IP address and browser string, to run the call and for our accounts, '
+        'which UK tax law makes us keep for six years. Choosing a time happens on a Google '
+        'Calendar booking page under Google\u2019s terms.</p>'
         '<p><strong>Links.</strong> Every item links out to a third-party site with its own '
         'privacy terms, and the images shown with posts load from the network they were '
         'posted on.</p>'
@@ -3649,6 +3684,88 @@ def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
     return "".join(out)
 
 
+def _v2_topics_for_view(topics: Dict[str, Any], allowed_brand_ids: Optional[List[int]],
+                        allowed_names: set, withheld: List[str]) -> Dict[str, Any]:
+    """The stored run reduced to what a restricted reader may see.
+
+    A subject's vendor list is cut to the allowed vendors, and a subject
+    whose model-written name or sentence names a withheld vendor is dropped
+    outright. Only the name and sentence are checked: the sample headlines
+    and member uris are never printed on the front page, and a subject lost
+    for a headline nobody sees is a subject lost for nothing. The two lists
+    are ranked again over the survivors so a dropped entry is backfilled.
+    """
+    from app.services import market_entitlements as ent
+    from app.services import market_topics as mt
+
+    slim = dict(topics)
+    kept = []
+    for c in topics.get("clusters") or []:
+        c = dict(c)
+        if ent.drop_text_mentioning([{"name": c.get("name"), "summary": c.get("summary")}],
+                                    withheld) == []:
+            continue
+        c["top_vendors"] = ent.filter_rows(list(c.get("top_vendors") or []),
+                                           allowed_brand_ids, allowed_names)
+        kept.append(c)
+    slim["clusters"] = kept
+    return mt.rank(slim)
+
+
+def _v2_topics(topics: Optional[Dict[str, Any]], link_params: Dict[str, Any],
+               days: int) -> str:
+    """Being discussed and Emerging, as bars. Empty when there is no stored
+    run or neither list has an entry, and the caller emits no card."""
+    from datetime import datetime as _dt
+
+    from app.services import market_topics as mt
+
+    lists = mt.listed(topics)
+    discussed, emerging = lists["being_discussed"], lists["emerging"]
+    if not discussed and not emerging:
+        return ""
+
+    def _bars(rows: List[Dict[str, Any]], rise: bool) -> str:
+        top = max(int(r.get("n_recent") or 0) for r in rows) or 1
+        out = ['<div class="v2-bars">']
+        for r in rows:
+            n = int(r.get("n_recent") or 0)
+            href = "?" + _relink(link_params, days=days, view="v2", topic=r["id"])
+            # The rise shows wherever it is notable, so a subject that is
+            # both the most discussed and rising says so on its one row.
+            show_rise = rise or float(r.get("rise") or 0) >= mt.MIN_RISE
+            move = (f'<span class="v2-move up" title="{n} of {int(r.get("n_total") or 0)}'
+                    f' in the last 7 days">&#9650; {float(r.get("rise") or 0):.1f}&times;</span>'
+                    if show_rise else "<span></span>")
+            out.append('<div class="v2-bar">'
+                       f'<div class="v2-bar-name"><a href="{href}" title="{esc(r.get("summary") or "")}">'
+                       f'{esc(r.get("name") or "")}</a></div>'
+                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                       f'<div class="v2-bar-n">{n}</div>{move}</div>')
+        out.append("</div>")
+        return "".join(out)
+
+    out: List[str] = []
+    if discussed:
+        out.append('<h3 class="v2-sub">Being discussed</h3>'
+                   '<p class="v2-subline">Articles in the last 7 days, by subject. '
+                   '&#9650; marks a subject running above its 30-day pace.</p>'
+                   + _bars(discussed, rise=False))
+    if emerging:
+        out.append('<h3 class="v2-sub">Emerging</h3>'
+                   '<p class="v2-subline">Smaller subjects whose coverage is concentrated '
+                   'in the last 7 days, against the last 30.</p>'
+                   + _bars(emerging, rise=True))
+    stamp = str((topics or {}).get("computed_at") or "")
+    try:
+        when = _dt.fromisoformat(stamp).strftime("%d %B")
+    except ValueError:
+        when = stamp[:10]
+    out.append(f'<p class="v2-subline">Grouped {esc(when)}: {int((topics or {}).get("assigned") or 0)} '
+               f'of {int((topics or {}).get("n") or 0)} articles fell into a subject.</p>')
+    return "".join(out)
+
+
 def _v2_motion(rows: List[Dict[str, Any]],
                logos: Optional[Dict[str, str]] = None) -> str:
     """Who got attention: the vendors whose own posts drew the most reactions,
@@ -3810,10 +3927,15 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                            piece: Optional[int] = None,
                            page: Optional[str] = None,
                            sort: Optional[str] = None,
+                           topic: Optional[int] = None,
                            allowed_brand_ids: Optional[List[int]] = None,
                            link_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
     """The front page, or one of its sections as a page of its own.
+
+    ``topic`` opens one subject from the stored "Being discussed" and
+    "Emerging" run as a page of its articles; an id the newest run does
+    not carry raises LookupError.
 
     Same access rules as the report: a restricted reader's developments are
     computed from the vendors it may see, everything with text is checked
@@ -3867,6 +3989,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
     sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
                       if section is None else None) or {}).get("vendors") or [])
+    # The newest stored subjects run: one indexed read, ranked ids inside.
+    from app.services import market_topics as mt
+    topics = (_safe(mt.latest, conn, market["id"])
+              if (section is None or topic is not None) else None)
+    if topic is not None and mt.topic_by_id(topics, topic) is None:
+        raise LookupError(f"no topic {topic}")
 
     # Every account with a post in the period, not the 80 most reacted-to:
     # the card looks tracked people up in this list, and a followed analyst
@@ -3888,6 +4016,10 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
         sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
         top_voices = ent.filter_rows(top_voices, allowed_brand_ids, allowed_names)
+        if topics:
+            topics = _v2_topics_for_view(topics, allowed_brand_ids, allowed_names, withheld)
+            if topic is not None and mt.topic_by_id(topics, topic) is None:
+                raise LookupError(f"no topic {topic} in this view")
 
 
     developments = assessment["developments"]
@@ -3975,7 +4107,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
               if section else "")
              + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
              f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
-             + rss + '<a class="n-tip" href="#mm-tip">Submit news</a>')
+             + rss + '<a class="n-tip" href="#mm-tip">Submit news</a>' + _book_link(market))
     periods = "".join(
         f'<a href="?{_relink(link_params, days=d, view="v2", section=section)}"'
         + (' aria-current="page"' if d == days else "")
@@ -3995,6 +4127,36 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         others = [p for p in pieces if p["id"] != piece_row["id"]][:6]
         body.append('<main class="v2-grid"><div class="v2-main v2-one">'
                     + piece_slot(_v2_piece_page(piece_row, others, link_params))
+                    + "</div></main>")
+    elif topic is not None:
+        cluster = mt.topic_by_id(topics, topic) or {}
+        member_uris = cluster.get("uris") or []
+        trows = mcorp.articles(conn, market["id"], limit=max(len(member_uris), 1),
+                               uris=member_uris, require_signal_for_social=False)
+        if teaser:
+            trows = ent.drop_text_mentioning(trows, withheld)
+        kind = ("Emerging" if topic in (topics.get("emerging") or [])
+                else "Being discussed")
+        n_recent, n_total = int(cluster.get("n_recent") or 0), int(cluster.get("n_total") or 0)
+        # The count the reader can check against the list below: what is
+        # shown, and why the rest is not.
+        hidden = n_total - len(trows)
+        shown_txt = (f'{len(trows)} shown of {n_total}'
+                     + (f'; {hidden} not shown in this view because they name vendors '
+                        'outside the free roster' if teaser and hidden > 0 else "")
+                     + f'. {n_recent} of the {n_total} are from the last 7 days.')
+        body.append('<header class="v2-mast"><div>'
+                    f'<div class="n-kicker">{esc(market["name"])} · {esc(kind)}</div>'
+                    f'<h1>{esc(cluster.get("name") or "")}</h1>'
+                    f'<p class="n-sub">{esc(cluster.get("summary") or "")} '
+                    f'{esc(shown_txt)} Grouped over the last '
+                    f'{int(topics.get("window_days") or 30)} days.</p></div>'
+                    f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
+                    f'<div class="n-period">Generated {generated.strftime("%d %B %Y, %H:%M UTC")}'
+                    '</div></div></header>')
+        body.append('<main class="v2-grid"><div class="v2-main v2-one">'
+                    + (render_news_river(trows) if trows
+                       else '<p class="v2-subline">Nothing in this subject is readable in this view.</p>')
                     + "</div></main>")
     elif section:
         sec = V2_SECTIONS[section]
@@ -4092,6 +4254,10 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                 horizon, "?" + _relink(link_params, days=days, view="report") + "#mm-horizon")
             body.append('<div class="v2-card"><h2>Market Maturity Map</h2>'
                         + _HORIZON_SLOT + "</div>")
+        topics_card = _v2_topics(topics, link_params, days)
+        if topics_card:
+            body.append('<div class="v2-card"><h2>What the market is talking about</h2>'
+                        + topics_card + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
                     + _v2_moved(assessment.get("main_developments") or [], logos=logos) + "</div>")
         motion = _v2_motion(sov_rows, logos)
@@ -4128,6 +4294,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
 
     title = (f'About — {market["name"]}' if page == "about"
              else f'{piece_row.get("title") or ""} — {market["name"]}' if piece_row is not None
+             else f'{(mt.topic_by_id(topics, topic) or {}).get("name") or ""} — {market["name"]}' if topic is not None
              else f'{market["name"]} — {V2_SECTIONS[section]["heading"]}' if section
              else f'{market["name"]} front page')
     rendered = html_document(title, "".join(body))
@@ -4443,7 +4610,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
                 + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
                    + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
-                + '</nav>'
+                + _book_link(market) + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')

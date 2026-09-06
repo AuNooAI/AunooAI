@@ -318,3 +318,54 @@ def test_front_page_has_no_banned_copy_patterns(conn, market):
     page = html.build_market_report_v2(conn, market, days=30).decode()
     hits = [p for p in BANNED_PATTERNS if re.search(p, page)]
     assert not hits, f"banned copy in the front page: {hits}"
+
+
+def _topics_run(**over):
+    base = {"computed_at": "2026-09-06T10:00:00+00:00", "n": 300, "assigned": 90, "window_days": 30,
+            "clusters": [
+                {"id": 0, "name": "Fal.Con 2026", "summary": "Live from the show.",
+                 "n_recent": 18, "n_total": 51, "rise": 1.18, "top_vendors": [], "uris": []},
+                {"id": 1, "name": "7AI funding round", "summary": "A $130M Series A.",
+                 "n_recent": 9, "n_total": 13, "rise": 2.15, "top_vendors": [], "uris": []},
+                {"id": 2, "name": "Acme launches", "summary": "Acme Corp shipped a thing.",
+                 "n_recent": 6, "n_total": 8, "rise": 1.9,
+                 "top_vendors": [{"brand_id": 99, "vendor": "Acme Corp", "n": 4}], "uris": []},
+            ],
+            "being_discussed": [0, 1, 2], "emerging": [1]}
+    base.update(over)
+    return base
+
+
+def test_topics_card_shows_both_lists_and_links_each_subject():
+    card = html._v2_topics(_topics_run(), {}, 30)
+    assert "Being discussed" in card and ">Emerging<" in card
+    assert "topic=0" in card and "topic=1" in card
+    assert card.count("&#9650; 2.1&times;") == 2     # the rise: on its discussed row and under Emerging
+    assert card.count("&#9650; 1.9&times;") == 1     # Acme rises too, listed once
+    assert "&#9650; 1.2&times;" not in card          # Fal.Con is not above pace
+    assert card.count("Fal.Con 2026") == 1 and card.count("7AI funding round") == 2
+    assert "Grouped 06 September: 90 of 300 articles fell into a subject" in card
+
+
+def test_topics_card_is_empty_without_a_run_or_without_entries():
+    assert html._v2_topics(None, {}, 30) == ""
+    assert html._v2_topics(_topics_run(being_discussed=[], emerging=[]), {}, 30) == ""
+
+
+def test_topics_projection_drops_a_subject_naming_a_withheld_vendor_and_reranks():
+    slim = html._v2_topics_for_view(_topics_run(), [1, 2], {"Fal.Con", "7AI"}, ["Acme Corp"])
+    ids = [c["id"] for c in slim["clusters"]]
+    assert ids == [0, 1]                         # the Acme subject is gone by its own words
+    assert slim["being_discussed"] == [0, 1] and slim["emerging"] == []
+
+
+def test_schedule_an_inquiry_link_appears_only_when_configured_and_public(monkeypatch):
+    for k, v in {"STRIPE_SECRET_KEY": "sk_test_x", "STRIPE_PRICE_INQUIRY_30": "p30",
+                 "STRIPE_PRICE_INQUIRY_60": "p60", "MARKET_INQUIRY_BOOKING_URL_30": "https://c/30",
+                 "MARKET_INQUIRY_BOOKING_URL_60": "https://c/60"}.items():
+        monkeypatch.setenv(k, v)
+    link = html._book_link({"id": 2, "name": "M", "is_public": True})
+    assert 'class="n-book"' in link and "/markets/2/inquiry" in link and "Schedule an inquiry" in link
+    assert html._book_link({"id": 2, "name": "M", "is_public": False}) == ""
+    monkeypatch.delenv("STRIPE_SECRET_KEY")
+    assert html._book_link({"id": 2, "name": "M", "is_public": True}) == ""

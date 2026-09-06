@@ -1070,8 +1070,12 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              min_score: float = 0.0,
              classes: Optional[Sequence[str]] = None,
              require_signal_for_social: bool = True,
-             vendor_id: Optional[int] = None) -> List[Dict[str, Any]]:
+             vendor_id: Optional[int] = None,
+             uris: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """The matched corpus, newest first.
+
+    ``uris`` restricts the result to those articles, for a page that already
+    knows which rows it wants (a stored topic's members, say).
 
     ``require_signal_for_social`` is the rule that lets vendor LinkedIn posts
     back in. They were excluded wholesale because 562 of them against 122 news
@@ -1105,6 +1109,9 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                                 WHERE bac.article_uri = a.uri
                                   AND bac.brand_id = :vendor_id)""")
         params["vendor_id"] = vendor_id
+    if uris is not None:
+        where.append("a.uri = ANY(:uris)")
+        params["uris"] = list(uris)
     if require_signal_for_social:
         # An unreviewed *vendor* post is not yet known to be worth showing, so
         # it is left out with the ones judged noise. Practitioner posts are not
