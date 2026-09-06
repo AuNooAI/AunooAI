@@ -3239,7 +3239,7 @@ def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
             + head
             + (f'<p class="n-story-sum">{esc(_clip(opening, 480 if lead else 260))}</p>' if opening else "")
             + f'<div class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}'
-            f' · <a href="{href}">Read Read the piece &rarr;</a></div></article>rarr;</a></div></article>')
+            f' · <a href="{href}">Read &rarr;</a></div></article>')
 
 
 #: Pages of the site that are not sections: ``?page=about``.
