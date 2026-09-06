@@ -122,6 +122,22 @@ that says the sample is one week's. Saved through
 `POST /markets/2/briefings/write`; approve it in the dashboard (or
 `PUT …/briefings/18/status`) to put it in the Analysis section and feed.
 
+**Rewrite.** The operator read the draft in the dashboard preview and
+called the prose and formatting terrible, and asked whether the
+humanizer had been used. It had not. `humanize_mcp.detection.detect_ai_tells`
+found 17 tells: every paragraph opening on a bold verdict, rule-of-three
+lists, "unveils", "ecosystem", a "direction, not forecast" antithesis.
+Revision 2 of piece 18 (via `PUT …/briefings/18`, the first text kept):
+no bold lead-ins, one idea per sentence, the percentages as sentences,
+fourteen sources as a numbered list with bare URLs instead of links
+stacked inside sentences. Four tells remain, all inside quoted source
+titles and the heading markers. The raw `[text](url)` the operator saw
+was the dashboard preview: `MarketBriefingsView.tsx` `renderMarkdown`
+handled bold, underscores and bare URLs but not markdown links, and its
+underscore rule italicised the inside of `@jp_young_26`. It now renders
+`[text](url)` and only takes underscores at word edges; UI rebuilt and
+deployed (`MarketMonitorTab-DWEf10MQ.js`).
+
 **`app/services/market_foresight.py`** (new). `render(conn, kind, market,
 run_id=)` builds the report page from the newest stored run (or a named
 earlier one) with the same `consensus_html` / `horizons_html` builders the

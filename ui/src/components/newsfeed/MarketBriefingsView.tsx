@@ -60,14 +60,21 @@ function renderMarkdown(md: string, citations?: CitationIndex): string {
   const inline = (s: string) => esc(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*(?!\*)(.+?)\*(?!\*)/g, '$1<em>$2</em>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    // A citation's reference entry ends in a bare URL — the only other link
-    // this renderer needs to produce, so full markdown-link syntax is not
-    // worth the extra rule. Must run BEFORE the citation-marker replace below:
-    // that one injects a real <a href="..."> tag, and if this regex ran after,
-    // it would re-match the URL sitting inside that href and wrap it again,
-    // producing nested/malformed tags that browsers render as literal text.
-    .replace(/(https?:\/\/\S+)/g,
+    // Underscore emphasis only at word edges: an X handle like jp_young_26
+    // or a snake_case name is not italics (the operator saw one mangled).
+    .replace(/(^|[\s(])_(\S(?:.*?\S)?)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    // A markdown link, [text](url), as a person writes in an analysis
+    // piece; the public page renders these, so the preview must too.
+    // Runs before the bare-URL rule, which would otherwise wrap the href.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    // A citation's reference entry ends in a bare URL. Must run BEFORE the
+    // citation-marker replace below: that one injects a real <a href="...">
+    // tag, and if this regex ran after, it would re-match the URL sitting
+    // inside that href and wrap it again, producing nested/malformed tags
+    // that browsers render as literal text. The lookbehind keeps it off the
+    // href the markdown-link rule just wrote.
+    .replace(/(?<!href=")(https?:\/\/[^\s<]+)/g,
              '<a href="$1" target="_blank" rel="noreferrer">$1</a>')
     // An inline citation marker becomes a link to the article it names,
     // right where the reader is, not only in the References list below.
