@@ -231,7 +231,14 @@ def test_front_page_has_its_sections_and_links(conn, market):
             continue   # shown only when a piece of ours is approved
         assert f'id="v2-{key}"' in page
     from app.services import market_briefing as mbr
-    assert ('id="v2-analysis"' in page) == bool(mbr.approved_pieces(conn, market["id"]))
+    pieces = mbr.approved_pieces(conn, market["id"])
+    # A fresh piece takes the lead (2 Sep 2026 rule); the Analysis section
+    # shows only the pieces left after that, so with one fresh piece it is
+    # absent. The lead's own markup says whether it is a piece.
+    lead = page[page.find('id="v2-lead"'):page.find("</section>", page.find('id="v2-lead"'))]
+    lead_is_piece = "piece=" in lead
+    expected = bool(pieces) and (len(pieces) > 1 or not lead_is_piece)
+    assert ('id="v2-analysis"' in page) == expected
     assert 'id="v2-lead"' in page and 'class="v2-grid"' in page
     assert "<h2>Highlights</h2>" in page and '<details class="v2-hl"><summary>' in page
     assert "Most active vendors" in page

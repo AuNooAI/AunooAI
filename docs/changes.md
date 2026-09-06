@@ -150,7 +150,19 @@ References list itself; the hand-written Sources section went.
 **Approved** at the operator's instruction (`PUT …/briefings/18/status`),
 feed entry published; it leads the Analysis section at
 `https://aisocnews.com/?view=v2&piece=18`. The operator retitled it in
-the dashboard to "What does that leave for the specialists".
+the dashboard to "What does that leave for the specialists". The byline
+had read "Drafted with a model, edited by Cyberfuturists" because the
+edit endpoint marks a piece `generation = 'edited'` and
+`provenance_line` writes that; the operator called it cringe. Row set to
+`generation = 'written'`, author "the Cyberfuturists", so it reads "By
+the Cyberfuturists"; the method note inside the piece still says how it
+was made, and the About page carries the site's AI disclosure. Then, at
+the operator's ask, every piece page carries an "AI-assisted" note at
+its foot (`_v2_piece_ai_note`): what the model did, what a person did,
+where the figures come from, Article 50 named, a link to the About
+page's AI section. `test_front_page_has_its_sections_and_links` now
+allows for the one-fresh-piece case, where the piece is the lead and the
+Analysis section is rightly absent.
 
 **`app/services/market_foresight.py`** (new). `render(conn, kind, market,
 run_id=)` builds the report page from the newest stored run (or a named

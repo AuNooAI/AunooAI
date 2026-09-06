@@ -2977,6 +2977,9 @@ V2_CSS = """
 .mm-v2 .v2-piece-body h2 { font-size:20px; margin:26px 0 8px; font-weight:500; }
 .mm-v2 .v2-piece-body h3 { font-size:17px; margin:20px 0 6px; font-weight:500; }
 .mm-v2 .v2-piece-body p, .mm-v2 .v2-piece-body li { margin:0 0 12px; }
+.mm-v2 .v2-ai-note { max-width:72ch; margin:28px 0 0; padding:12px 14px; border:1px solid var(--n-line);
+                     border-radius:8px; font-size:13px; line-height:1.5; color:var(--n-muted); }
+.mm-v2 .v2-ai-note a { color:inherit; }
 .mm-v2 .v2-piece-body blockquote { border-left:3px solid var(--n-line); margin:0 0 12px; padding:2px 14px; color:var(--n-muted); }
 .mm-v2 .v2-piece-body table { border-collapse:collapse; font-size:14px; }
 .mm-v2 .v2-piece-body td, .mm-v2 .v2-piece-body th { border:1px solid var(--n-line); padding:4px 8px; }
@@ -3359,7 +3362,20 @@ def _v2_piece_page(piece_row: Dict[str, Any], others: List[Dict[str, Any]],
             f'<h1>{esc(piece_row.get("title") or "")}</h1>'
             f'<p class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}</p>'
             '<div class="v2-piece-body">' + mbr.render_body(piece_row) + '</div>'
-            + more + "</article>")
+            + _v2_piece_ai_note(link_params) + more + "</article>")
+
+
+def _v2_piece_ai_note(link_params: Optional[Dict[str, Any]]) -> str:
+    """The AI-assistance disclosure at the foot of every piece, as Article
+    50 of the EU AI Act asks: plain words on what the model did and what a
+    person did, with a link to the fuller statement on the About page."""
+    about = "?" + _relink(link_params or {}, view="v2", page="about")
+    return ('<p class="v2-ai-note"><strong>AI-assisted.</strong> This piece was written with '
+            'the help of an AI model, which drafted from Aunoo\u2019s analysis of the cited '
+            'coverage. A person edited it, checked the sources and approved it before '
+            'publication. The figures and quotations come from the sources listed above. '
+            f'Published under Article 50 of the EU AI Act; see <a href="{about}#ai">how this '
+            'site is made</a>.</p>')
 
 
 def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
