@@ -172,7 +172,7 @@ _REPORT_CSS = """
 """
 
 # The download is static. On the site each category folds to its header,
-# the first open, and the key-article list inside folds behind a count,
+# all closed on load, and the key-article list inside folds behind a count,
 # so a reader scans four headlines rather than four screens. No library.
 _FOLD_JS = """
 (function(){
@@ -182,9 +182,9 @@ _FOLD_JS = """
     var body=document.createElement('div'); body.className='cat-body';
     var n=h.nextSibling; while(n){var nx=n.nextSibling; body.appendChild(n); n=nx;}
     card.appendChild(body);
-    if(i>0) card.classList.add('collapsed');
+    card.classList.add('collapsed');
     h.setAttribute('role','button'); h.tabIndex=0;
-    h.setAttribute('aria-expanded', String(i===0));
+    h.setAttribute('aria-expanded', 'false');
     function toggle(){ card.classList.toggle('collapsed'); h.setAttribute('aria-expanded', String(!card.classList.contains('collapsed'))); }
     h.addEventListener('click',function(e){ if(e.target.closest('a')) return; toggle(); });
     h.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });

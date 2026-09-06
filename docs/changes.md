@@ -154,7 +154,7 @@ rewritten for the site. The renderers themselves are untouched: the
 Wiley bundles depend on them. `tests/test_market_foresight.py`, 6 tests.
 On the site each consensus category folds to its header and badge (first
 open, keyboard-operable, key-article lists behind a "Show N key articles"
-button, "Expand all" above) — the download is static and the operator
+button, "Expand all" above; all closed on load) — the download is static and the operator
 found four screens of open cards; plain script injected by
 `market_foresight`, no library. "Consensus" and "Three horizons" also sit
 at the end of the section row after Latest research, outlined as pages.
