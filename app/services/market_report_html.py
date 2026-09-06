@@ -3370,10 +3370,10 @@ def _v2_piece_ai_note(link_params: Optional[Dict[str, Any]]) -> str:
     50 of the EU AI Act asks: plain words on what the model did and what a
     person did, with a link to the fuller statement on the About page."""
     about = "?" + _relink(link_params or {}, view="v2", page="about")
-    return ('<p class="v2-ai-note">An AI model wrote the first draft of this piece, working '
-            'from Aunoo\u2019s analysis of the sources cited above, and we read it and signed '
-            'it off before publishing. We say so because the EU AI Act asks us to. '
-            f'<a href="{about}#ai">More on how this site is made.</a></p>')
+    return ('<p class="v2-ai-note">This piece was drafted by an AI model from Aunoo\u2019s '
+            'analysis of the sources cited above and reviewed by the Cyberfuturists before '
+            'publication. It is AI-assisted content, disclosed in line with Article 50 of the '
+            f'EU AI Act. <a href="{about}#ai">How this site is made.</a></p>')
 
 
 def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
