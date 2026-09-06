@@ -1051,14 +1051,11 @@ def piece(conn, market_id: int, piece_id: int) -> Optional[Dict[str, Any]]:
 
 
 def provenance_line(piece_row: Dict[str, Any]) -> str:
-    """Who wrote it, honestly: a person, or a model with a person's edit."""
+    """The byline. Every piece page carries the site's Article 50
+    disclosure at its foot (6 Sep 2026), so the byline no longer spells
+    out the model's part; ``generation`` stays on the row for the record."""
     author = (piece_row.get("author") or "the Cyberfuturists").strip()
-    gen = piece_row.get("generation") or "written"
-    if gen == "written":
-        return f"By {author}"
-    if gen == "edited":
-        return f"Drafted with a model, edited by {author}"
-    return f"Drafted by a model ({piece_row.get('model_used') or 'unnamed'}), reviewed by {author}"
+    return f"By {author}"
 
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")
