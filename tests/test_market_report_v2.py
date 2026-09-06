@@ -74,8 +74,11 @@ def test_piece_card_says_who_wrote_it():
     card = html._v2_piece_card(row, {"days": 30}, lead=True)
     assert "Our analysis" in card and "By Oliver" in card and "29 Aug 2026" in card
     assert "First paragraph of the piece." in card and "view=v2&amp;piece=7" in card
+    # The byline is the author whatever the generation flag says; the
+    # Article 50 footer on the piece page carries the AI disclosure.
     row["generation"] = "edited"
-    assert "edited by Oliver" in html._v2_piece_card(row, {})
+    assert "By Oliver" in html._v2_piece_card(row, {})
+    assert "Drafted" not in html._v2_piece_card(row, {})
 
 
 def test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view():
