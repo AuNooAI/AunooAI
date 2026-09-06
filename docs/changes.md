@@ -240,6 +240,35 @@ installed in the venv).
 302s to the form. `nginx -t` ok, reloaded. Everything else on the host
 still 302s to `/`, so the paths had to be listed.
 
+### Ops — Arcanna.ai added to market 2, pulled, and on the map (database only)
+Operator add request ("arcanna.ai arcanna"). Brand 49829 (`arcanna-ai`,
+display "Arcanna.ai", keywords `["Arcanna"]`); `bw_market_brands` role
+vendor, sort_order 1084, collection and brand monitoring on, `is_public`
+false. Four identifiers, each verified by web search before insert: domain
+`arcanna.ai`, website, LinkedIn `/company/arcannaai` (confirmed from the
+company's own post URLs; the older `/company/siscaleai` page is the
+pre-rename company), Crunchbase `/organization/siscale` — Arcanna.ai was
+formerly Siscale and its profile still lives under that slug, while the
+tempting `/organization/arcanna` is an unrelated advertising firm. The
+provenance notes carry both facts so the auto-seeder never "corrects" the
+slug. Background for the record: founded 2019, New York, legal name
+Siscale AI Inc., $3.5M seed (Dec 2023/Jan 2024, Lytical Ventures and
+Osage Venture Partners), later the AWS & CrowdStrike Cybersecurity
+Accelerator.
+
+The scheduler tick seeded all 8 source policies (7 eligible; `ats_jobs`
+waits on ATS discovery finding a board). Manual paid runs 1456–1459 all
+succeeded: LinkedIn profile (25 employees, 3,056 followers), 25 company
+posts, 0 open LinkedIn jobs, Crunchbase (private, active, CB rank 38,381,
+heat 62 rising, 8 investors). Map 32 recomputed out of band at 21:13
+rates Arcanna.ai at scale 43.3, momentum 29.8, Building tier (2019
+founding keeps it out of Innovators), holding band — headcount exactly at
+the market median, momentum low until earned coverage accumulates, the
+same start Tuskira had. 87 rated, 3 not; the live 30-day report renders
+the placement. Nothing here is in git — this entry is the durable record;
+a registry rebuild would need the rows above (see the TRUNCATE-recovery
+recipe from 3 Sep).
+
 ### Verification
 Final run by hand on market 2 (row 5 in `bw_market_topics`): 600
 headlines, two samples (8 subjects / 2 listable / 59 assigned; 11 / 4 /
