@@ -4101,6 +4101,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         f'<a href="{section_href(k)}"'
         + (' aria-current="page"' if k == section else "")
         + f'>{esc(v["heading"])}</a>' for k, v in V2_SECTIONS.items())
+    if market.get("is_public"):
+        # The two standing reports sit at the end of the section row, after
+        # Latest research, outlined so they read as pages rather than sections.
+        jump += "".join(
+            f'<a class="n-jump-page" href="?{_relink(link_params, days=days, view="v2", page=k)}">{label}</a>'
+            for k, label in (("consensus", "Consensus"), ("horizons", "Three horizons")))
     rss = (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
            + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
     pages = ((f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'

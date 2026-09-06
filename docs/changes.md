@@ -137,8 +137,30 @@ over loopback as `MARKET_FORESIGHT_USER` (default `admin`), with the
 market's profile and `MARKET_FORESIGHT_MODEL` (default the topics model);
 the generation is 500 inline lines in that route, so calling it beats
 copying it, and the route's cache keys, run logs and executive summaries
-come for free. Hooked into the market tick after `_refresh_topics`.
-`tests/test_market_foresight.py`, 5 tests.
+come for free. Hooked into the market tick after `_refresh_topics`. A new horizons run
+is followed by the executive-summary cards (a second generation step,
+`POST …/horizons/{id}/executive-summary`, same model and profile), which
+the page shows when they exist; the operator caught that the first run
+had none, and five were generated for `624b5db6` by hand (24 s).
+The pages take the site's chrome: the same top bar (brand line, page
+links, and the run list as the jump row, times added when two runs share
+a day) and footer as the front page, DM Sans, and the site's palette
+swapped for the renderer's slate-and-pink inside its style blocks
+(`_restyle`, hex-for-hex, style blocks only). The renderer's brand
+default is Wiley's (`REPORT_BRAND_EYEBROW`), so the public page had said
+"WILEY HORIZONS · CONSENSUS ANALYSIS" until the operator asked for the
+styling pass; the eyebrow, "Produced by AunooAI" and the model ids are
+rewritten for the site. The renderers themselves are untouched: the
+Wiley bundles depend on them. `tests/test_market_foresight.py`, 6 tests.
+On the site each consensus category folds to its header and badge (first
+open, keyboard-operable, key-article lists behind a "Show N key articles"
+button, "Expand all" above) — the download is static and the operator
+found four screens of open cards; plain script injected by
+`market_foresight`, no library. "Consensus" and "Three horizons" also sit
+at the end of the section row after Latest research, outlined as pages.
+A restart at 17:53 went ahead while five collection runs were queued;
+four succeeded and the Crunchbase job reconciles by job id on the next
+tick — the pre-restart check printed the count but did not gate on it.
 
 **Forecast Tracker.** Topic registered (`forecast_topic_metadata`,
 display name "AI in the SOC", owner Cyberfuturists); the Add-Topic

@@ -28,15 +28,29 @@ def test_raw_output_unwraps_one_or_two_layers_of_json():
     assert mf._raw("not json") == {} and mf._raw(None) == {}
 
 
-def test_strip_links_the_front_page_the_other_report_and_earlier_runs():
+def test_chrome_carries_the_site_bar_the_other_report_and_earlier_runs():
     run = {"id": "b", "created_at": datetime(2026, 9, 6)}
     history = [run, {"id": "a", "created_at": datetime(2026, 9, 2)}]
-    strip = mf._strip({"name": "M"}, "consensus", run, history, "/?view=v2")
-    assert "M front page" in strip and "Three horizons" in strip
-    assert "<strong>06 Sep 2026</strong>" in strip
-    assert 'page=consensus&run=a">02 Sep 2026</a>' in strip
-    # One run: no "Earlier runs" list.
-    assert "Earlier runs" not in mf._strip({"name": "M"}, "horizons", run, [run], "/")
+    head, top, foot = mf._chrome({"name": "M"}, "consensus", run, history, "/?view=v2")
+    assert "DM Sans" in head and ".mm-news" in head
+    assert 'class="mm-news mm-v2 mm-report"' in top and "Front page" in top
+    assert "Three horizons" in top and "Three horizons" in foot
+    assert 'page=consensus&run=b" aria-current="page">06 Sep 2026</a>' in top
+    assert 'page=consensus&run=a">02 Sep 2026</a>' in top
+    # One run: no runs row.
+    _, top1, _ = mf._chrome({"name": "M"}, "horizons", run, [run], "/")
+    assert 'aria-label="Runs"' not in top1
+
+
+def test_restyle_swaps_palette_inside_styles_and_the_wiley_eyebrow():
+    html = ('<style>a { color: #d6346c; } body { background: #f8fafc; }</style>'
+            '<div class="eyebrow">WILEY HORIZONS · X</div><p>#d6346c stays in text</p>'
+            '<div>Produced by AunooAI</div>')
+    out = mf._restyle(html)
+    assert "#c2298a" in out and "#f7f6f2" in out
+    assert "<p>#d6346c stays in text</p>" in out          # only style blocks change
+    assert "CYBERFUTURISTS · X" in out and "WILEY" not in out
+    assert "By the Cyberfuturists, made using Aunoo" in out and "AunooAI" not in out
 
 
 def test_session_cookie_needs_the_secret(monkeypatch):
@@ -65,7 +79,7 @@ def test_render_rejects_a_run_of_another_topic():
         page = mf.render(c, "horizons", market)
         if page is None:
             pytest.skip("no horizons run stored for this market")
-        assert b"front page</a>" in page and b"<title>" in page
+        assert b"Front page</a>" in page and b"<title>" in page
     finally:
         c.rollback()
         c.close()

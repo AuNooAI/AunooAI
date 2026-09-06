@@ -29,6 +29,7 @@ import base64
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -122,30 +123,142 @@ def _horizons_articles(conn, run_id: str) -> List[Dict[str, Any]]:
              "published": r["publication_date"]} for i, r in enumerate(rows, 1)]
 
 
-def _strip(market: Dict[str, Any], kind: str, run: Dict[str, Any],
-           history: List[Dict[str, Any]], front_href: str) -> str:
-    """The bar above the report: where it belongs, and the earlier runs."""
-    when = run.get("created_at")
-    when_txt = when.strftime("%d %B %Y") if hasattr(when, "strftime") else str(when)[:10]
-    items = []
-    for r in history:
-        d = r["created_at"]
-        label = d.strftime("%d %b %Y") if hasattr(d, "strftime") else str(d)[:10]
-        if r["id"] == run["id"]:
-            items.append(f"<strong>{esc(label)}</strong>")
-        else:
-            items.append(f'<a href="{esc(front_href)}&page={kind}&run={esc(str(r["id"]))}">{esc(label)}</a>')
+# The report renderers carry the operator deliverables' look (system font,
+# slate greys, the Wiley eyebrow by default). On the market site the page
+# takes the site's chrome and palette instead: the same top bar and footer
+# as the front page, DM Sans, and the site's tokens swapped for the
+# report's colours inside its style blocks. The renderers stay untouched
+# because the Wiley bundles depend on them.
+_PALETTE = (
+    ("#d6346c", "#c2298a"),   # accent
+    ("#111827", "#211f26"),   # dark ground
+    ("#1f2937", "#211f26"),   # body text
+    ("#f8fafc", "#f7f6f2"),   # page background
+    ("#f9fafb", "#fbfaf7"),   # subtle panel
+    ("#e5e7eb", "#dbd8e0"),   # lines
+    ("#6b7280", "#65636d"),   # muted text
+    ("#fbcfe4", "#bcbac7"),   # cover subtitle
+    ("-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+     "'DM Sans', Inter, system-ui, sans-serif"),
+)
+_STYLE_RE = re.compile(r"<style>.*?</style>", re.S)
+_BRAND_SWAPS = (
+    ("WILEY HORIZONS", "CYBERFUTURISTS"),
+    ("Wiley Horizons", "Cyberfuturists"),
+    ("Produced by AunooAI", "By the Cyberfuturists, made using Aunoo"),
+    ("AunooAI", "Aunoo"),
+    ("model: bedrock-kimi-k2-5", "model: Kimi K2.5"),
+    ("model: gpt-5.4", "model: Claude Sonnet"),
+)
+_REPORT_CSS = """
+.mm-report { border-radius:0; margin:0; border:0; }
+.mm-report .container { max-width:1040px; padding-top:1.4rem; }
+.mm-report .cover { border-radius:12px; }
+.mm-report .n-jump { align-items:center; }
+.mm-report .n-jump .n-jump-label { color:#bcbac7; font-size:.8rem; padding:6px 4px 6px 0; }
+.mm-report .n-jump a[aria-current="page"] { background:var(--n-accent); color:#fff; border-color:var(--n-accent); }
+.mm-report .n-pages a, .mm-report .n-jump a, .mm-report .n-foot a, .mm-report .n-brand a { text-decoration:none; }
+/* Consensus categories fold: header and badge stay, the body opens on click. */
+.mm-report .cat-card .cat-header { cursor:pointer; position:relative; padding-right:2.2rem; }
+.mm-report .cat-card .cat-header::after { content:""; position:absolute; right:.6rem; top:1.1rem; width:.6rem; height:.6rem;
+  border-right:2px solid #65636d; border-bottom:2px solid #65636d; transform:rotate(45deg); transition:transform .15s; }
+.mm-report .cat-card.collapsed .cat-header::after { transform:rotate(-45deg); }
+.mm-report .cat-card.collapsed .cat-body, .mm-report .cat-card.collapsed .cat-header .lhs p { display:none; }
+.mm-report .cat-card .cat-header:focus-visible { outline:2px solid var(--n-accent); outline-offset:2px; }
+.mm-report .cat-fold, .mm-report .cat-all { font:inherit; font-size:.82rem; font-weight:600; color:var(--n-accent);
+  background:none; border:1px solid var(--n-line); border-radius:7px; padding:.35rem .7rem; cursor:pointer; margin:.6rem 0 .2rem; }
+.mm-report .cat-fold:hover, .mm-report .cat-all:hover { border-color:var(--n-accent); }
+.mm-report .cat-all { margin:0 0 .8rem; }
+"""
+
+# The download is static. On the site each category folds to its header,
+# the first open, and the key-article list inside folds behind a count,
+# so a reader scans four headlines rather than four screens. No library.
+_FOLD_JS = """
+(function(){
+  var cards=document.querySelectorAll('.cat-card'); if(!cards.length) return;
+  cards.forEach(function(card,i){
+    var h=card.querySelector('.cat-header'); if(!h) return;
+    var body=document.createElement('div'); body.className='cat-body';
+    var n=h.nextSibling; while(n){var nx=n.nextSibling; body.appendChild(n); n=nx;}
+    card.appendChild(body);
+    if(i>0) card.classList.add('collapsed');
+    h.setAttribute('role','button'); h.tabIndex=0;
+    h.setAttribute('aria-expanded', String(i===0));
+    function toggle(){ card.classList.toggle('collapsed'); h.setAttribute('aria-expanded', String(!card.classList.contains('collapsed'))); }
+    h.addEventListener('click',function(e){ if(e.target.closest('a')) return; toggle(); });
+    h.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });
+    var list=body.querySelector('.cat-articles-list');
+    if(list && list.children.length>3){
+      var count=list.children.length, btn=document.createElement('button');
+      btn.type='button'; btn.className='cat-fold'; list.hidden=true;
+      btn.textContent='Show '+count+' key articles';
+      list.parentNode.insertBefore(btn,list);
+      btn.addEventListener('click',function(){ list.hidden=!list.hidden; btn.textContent=(list.hidden?'Show ':'Hide ')+count+' key articles'; });
+    }
+  });
+  var all=document.createElement('button'); all.type='button'; all.className='cat-all';
+  var open=false; function label(){ all.textContent=open?'Collapse all categories':'Expand all categories'; } label();
+  all.addEventListener('click',function(){ open=!open; cards.forEach(function(c){ c.classList.toggle('collapsed',!open); var h=c.querySelector('.cat-header'); if(h) h.setAttribute('aria-expanded',String(open)); }); label(); });
+  cards[0].parentNode.insertBefore(all, cards[0]);
+})();
+"""
+
+
+def _restyle(html: str) -> str:
+    """The report's own style blocks, in the site's colours and type; the
+    Wiley eyebrow and the product name as the site writes them."""
+    def _swap(m: "re.Match[str]") -> str:
+        block = m.group(0)
+        for old, new in _PALETTE:
+            block = block.replace(old, new)
+        return block
+    html = _STYLE_RE.sub(_swap, html)
+    for old, new in _BRAND_SWAPS:
+        html = html.replace(old, new)
+    return html
+
+
+def _chrome(market: Dict[str, Any], kind: str, run: Dict[str, Any],
+            history: List[Dict[str, Any]], front_href: str) -> tuple:
+    """The site's top bar (with the run list as the jump row) and footer,
+    plus the style blocks they need, as (head_extra, top, foot)."""
+    from app.services.market_report_html import (
+        _brand_line, _FONT_LINK, NEWS_CSS, DARK_CSS, V2_CSS, EXTRA_CSS)
+
     other = "horizons" if kind == "consensus" else "consensus"
-    return (
-        '<div style="font:14px/1.5 \'DM Sans\',system-ui,sans-serif;background:#211f26;color:#bcbac7;'
-        'padding:10px 24px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">'
-        f'<a href="{esc(front_href)}" style="color:#fff;text-decoration:none;font-weight:600">'
-        f'&larr; {esc(market["name"])} front page</a>'
-        f'<span>{esc(_LABELS[kind])} · run of {esc(when_txt)}</span>'
-        f'<a href="{esc(front_href)}&page={other}" style="color:#fff">{esc(_LABELS[other])}</a>'
-        + (f'<span style="margin-left:auto">Earlier runs: {" · ".join(items)}</span>'
-           if len(history) > 1 else "")
-        + "</div>")
+    pages = (f'<a href="{esc(front_href)}">Front page</a>'
+             f'<a href="{esc(front_href)}&view=report">Analyst View</a>'
+             f'<a href="{esc(front_href)}&view=news">News river</a>'
+             f'<a href="{esc(front_href)}&page={other}">{esc(_LABELS[other])}</a>')
+    runs_html = ""
+    if len(history) > 1:
+        # Two runs on one day are told apart by their time.
+        days = [str(r["created_at"])[:10] for r in history]
+        items = []
+        for r in history:
+            d = r["created_at"]
+            same_day = days.count(str(d)[:10]) > 1
+            fmt = "%d %b %Y %H:%M" if same_day else "%d %b %Y"
+            label = d.strftime(fmt) if hasattr(d, "strftime") else str(d)[:16 if same_day else 10]
+            cur = ' aria-current="page"' if r["id"] == run["id"] else ""
+            items.append(f'<a href="{esc(front_href)}&page={kind}&run={esc(str(r["id"]))}"{cur}>'
+                         f'{esc(label)}</a>')
+        runs_html = ('<nav class="n-jump" aria-label="Runs">'
+                     f'<span class="n-jump-label">{esc(_LABELS[kind])} runs</span>'
+                     + "".join(items) + "</nav>")
+    about = f"{front_href}&page=about"
+    head_extra = (f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_REPORT_CSS}</style>")
+    top = ('<div class="mm-news mm-v2 mm-report"><div class="n-top">' + _brand_line()
+           + f'<nav class="n-pages" aria-label="Pages">{pages}</nav>'
+           + runs_html
+           + f'<span class="n-market">{esc(market["name"])}</span></div>')
+    foot = ('<div class="n-foot">' + _brand_line()
+            + f'<span>{esc(market["name"])} · {esc(_LABELS[kind])} · '
+            f'<a href="{esc(about)}">About</a> · <a href="{esc(about)}#privacy">Privacy</a> · '
+            f'<a href="{esc(front_href)}&page={other}">{esc(_LABELS[other])}</a></span></div></div>'
+            + (f"<script>{_FOLD_JS}</script>" if kind == "consensus" else ""))
+    return head_extra, top, foot
 
 
 def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = None,
@@ -184,13 +297,16 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
                                    generated_at=generated_at, model_used=model_used,
                                    articles=_horizons_articles(conn, run["id"]))
     html = blob.decode("utf-8") if isinstance(blob, bytes) else str(blob)
-    strip = _strip(market, kind, run, runs(conn, kind, topic), front_href)
+    html = _restyle(html)
+    head_extra, top, foot = _chrome(market, kind, run, runs(conn, kind, topic), front_href)
+    html = html.replace("</head>", head_extra + "</head>", 1)
     i = html.find("<body")
-    if i >= 0:
-        j = html.find(">", i)
-        html = html[:j + 1] + strip + html[j + 1:]
+    j = html.find(">", i) if i >= 0 else -1
+    if j >= 0:
+        html = html[:j + 1] + top + html[j + 1:]
+        html = html.replace("</body>", foot + "</body>", 1)
     else:
-        html = strip + html
+        html = top + html + foot
     return html.encode("utf-8")
 
 
@@ -258,10 +374,35 @@ async def refresh(conn, market: Dict[str, Any], now: datetime, *, force: bool = 
                                      cookies=cookies, headers=headers)
                 if r.status_code != 200:
                     raise RuntimeError(f"{kind}: HTTP {r.status_code} {r.text[:200]}")
+                payload = r.json() or {}
                 done.append(kind)
                 logger.info("market %s: new %s run for %r (%s)", market_id, kind, topic,
-                            (r.json() or {}).get("analysis_id"))
+                            payload.get("analysis_id"))
+                if kind == "horizons":
+                    # The executive-summary cards are a second generation
+                    # step in the app; the page shows them when they exist.
+                    await _executive_summary(client, payload, topic, profile, cookies, headers)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("market %s: %s refresh failed: %s", market_id, kind, exc)
                 _RETRY_AFTER[market_id] = now + timedelta(days=1)
     return done
+
+
+async def _executive_summary(client, payload: Dict[str, Any], topic: str,
+                             profile: Optional[int], cookies: Dict[str, str],
+                             headers: Dict[str, str]) -> None:
+    run_id = payload.get("analysis_id")
+    scenarios = payload.get("scenarios") or []
+    if not run_id or not scenarios:
+        return
+    port = os.getenv("PORT", "10004")
+    body: Dict[str, Any] = {"scenarios": scenarios, "topic": topic, "model": DEFAULT_MODEL}
+    if profile:
+        body["profile_id"] = profile
+    r = await client.post(
+        f"http://127.0.0.1:{port}/api/trend-convergence/horizons/{run_id}/executive-summary",
+        json=body, cookies=cookies, headers=headers)
+    if r.status_code != 200:
+        raise RuntimeError(f"executive summary: HTTP {r.status_code} {r.text[:200]}")
+    cards = ((r.json() or {}).get("executive_summary") or {}).get("summaries") or []
+    logger.info("horizons run %s: %d executive-summary cards", run_id, len(cards))
