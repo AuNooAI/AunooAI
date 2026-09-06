@@ -138,6 +138,20 @@ underscore rule italicised the inside of `@jp_young_26`. It now renders
 `[text](url)` and only takes underscores at word edges; UI rebuilt and
 deployed (`MarketMonitorTab-DWEf10MQ.js`).
 
+Revision 3 followed a second read against Wikipedia's "Signs of AI
+writing": the opener personified the market, "the percentages below…"
+was scaffolding, "the minorities matter more" announced significance,
+the horizons were three drumroll fragments, half the paragraphs turned
+on "not X, but Y". Rewritten to lead each paragraph with the finding;
+first sentences read on their own. Revision 4 turned the `[n]` markers
+into `[C1]`–`[C14]` with a `facts.citation_index` (uri, title, source,
+published), so the renderer links each citation inline and appends the
+References list itself; the hand-written Sources section went.
+**Approved** at the operator's instruction (`PUT …/briefings/18/status`),
+feed entry published; it leads the Analysis section at
+`https://aisocnews.com/?view=v2&piece=18`. The operator retitled it in
+the dashboard to "What does that leave for the specialists".
+
 **`app/services/market_foresight.py`** (new). `render(conn, kind, market,
 run_id=)` builds the report page from the newest stored run (or a named
 earlier one) with the same `consensus_html` / `horizons_html` builders the
