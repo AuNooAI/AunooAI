@@ -91,166 +91,158 @@ fields are checked, since the sample headlines never print — then ranks
 again so a dropped entry is backfilled. `enforce_no_withheld` stays as the
 backstop. The card hides itself when no row exists or the lists are empty.
 
-### Feature — First analysis piece, public Consensus and Three-Horizons pages, Forecast Tracker enrolment
-The operator asked for the site's first analysis, built with our own
-tools, and for the consensus and horizons reports to be shared as they
-are on saas.aunoo.ai and wileytest, and tracked over time as on
-wileytest.
+### Feature — Public Consensus and Three-Horizons pages, refreshed monthly (`d48b5b7a`, `ab4b75a9`, `c28da065`, `bab7d934`)
+The operator asked for the consensus and horizons reports to be shared
+as they are on saas.aunoo.ai and wileytest, and tracked over time as on
+wileytest. saas shares a frozen token link; wileytest downloads the
+Interactive HTML. Here they are pages of the market site.
 
-**The runs.** The claude.ai Aunoo connector reaches the saas tenant, whose
-topics carry no AI SOC scope, so the analyses ran on this tenant's own
-trend-convergence route for the market's collection topic ("Market
+**The runs.** The claude.ai Aunoo connector reaches the saas tenant,
+whose topics carry no AI SOC scope, so the analyses ran on this tenant's
+own trend-convergence route for the market's collection topic ("Market
 Monitoring SOC Automation"), `bedrock-kimi-k2-5`, 30-day window, 90
 records — which the sampler took as the newest 90, all from 3–5 Sep.
 First runs came back addressed to Wiley: the tenant's default
 organisational profile is Wiley's. Profile 9, "Cyberfuturists — AI SOC
-market readers", was added (write for the market, not for one company)
-and both reran against it; the Wiley-profiled drafts were deleted.
+market readers", was added (write for the market, not for one company),
+both reran against it, and the Wiley-profiled drafts were deleted.
 `bw_markets.config.foresight.profile_id = 9` records the choice.
-Consensus run `3a973c5f`: four categories with agreement 78/70/75/68%.
-Horizons run `694b215a`. Session minting for the loopback calls:
-itsdangerous `TimestampSigner(FLASK_SECRET_KEY)` over
-`b64(json {"user": ...})` as the `session` cookie, as the saas foresight
-port recorded.
+Consensus run `3a973c5f`: four categories at 78/70/75/68% agreement.
+Session minting for loopback calls: itsdangerous
+`TimestampSigner(FLASK_SECRET_KEY)` over `b64(json {"user": ...})` as
+the `session` cookie, as the saas foresight port recorded.
 
-**The piece.** `bw_market_briefings` id 18, kind analysis, author
-Cyberfuturists, status **draft** — "The agentic SOC is a feature now.
-What that leaves for the specialists", ~1,250 words, 14 source links,
-consensus + outliers + our own vendor figures (91 vendors, $1.28B
-disclosed across 44, map of 6 Sep) + the three horizons + a method note
-that says the sample is one week's. Saved through
-`POST /markets/2/briefings/write`; approve it in the dashboard (or
-`PUT …/briefings/18/status`) to put it in the Analysis section and feed.
+**`app/services/market_foresight.py`** (new). `render(conn, kind,
+market, run_id=)` builds the page from the newest stored run, or a
+named earlier one, with the same `consensus_html` / `horizons_html`
+builders the download uses. Served at `?view=v2&page=consensus` and
+`page=horizons` (+ `&run=<id>`) from `market_report()`; linked from the
+section row after Research firms, outlined as pages, and from the
+footer. Public in full, like the editorial pieces: they are our reading
+of the coverage, not the roster, so the withheld-names gate is not
+applied. `refresh(conn, market, now)` makes one new run of each a month
+by calling the trend-convergence route over loopback as
+`MARKET_FORESIGHT_USER` (default `admin`) with the market's profile and
+`MARKET_FORESIGHT_MODEL` (default the topics model): the generation is
+500 inline lines in that route, so calling it beats copying it, and the
+route's cache keys, run logs and executive summaries come for free.
+Hooked into the market tick after `_refresh_topics`. A new horizons run
+is followed by the executive-summary cards (`POST
+…/horizons/{id}/executive-summary`, same model and profile), which the
+first run had lacked; five were generated for `624b5db6` by hand (24 s).
 
-**Rewrite.** The operator read the draft in the dashboard preview and
-called the prose and formatting terrible, and asked whether the
-humanizer had been used. It had not. `humanize_mcp.detection.detect_ai_tells`
-found 17 tells: every paragraph opening on a bold verdict, rule-of-three
-lists, "unveils", "ecosystem", a "direction, not forecast" antithesis.
-Revision 2 of piece 18 (via `PUT …/briefings/18`, the first text kept):
-no bold lead-ins, one idea per sentence, the percentages as sentences,
-fourteen sources as a numbered list with bare URLs instead of links
-stacked inside sentences. Four tells remain, all inside quoted source
-titles and the heading markers. The raw `[text](url)` the operator saw
-was the dashboard preview: `MarketBriefingsView.tsx` `renderMarkdown`
-handled bold, underscores and bare URLs but not markdown links, and its
-underscore rule italicised the inside of `@jp_young_26`. It now renders
-`[text](url)` and only takes underscores at word edges; UI rebuilt and
-deployed (`MarketMonitorTab-DWEf10MQ.js`).
+**Site chrome.** The pages carry the front page's top bar and footer,
+with the run list as the jump row (times added when two runs share a
+day), DM Sans, and the site's palette swapped for the renderer's
+slate-and-pink inside its style blocks (`_restyle`, hex-for-hex, style
+blocks only). The renderer's brand default is Wiley's
+(`REPORT_BRAND_EYEBROW`), so the public page had read "WILEY HORIZONS ·
+CONSENSUS ANALYSIS" until this pass; the eyebrow, "Produced by AunooAI"
+and the model ids are rewritten for the site. The renderers are
+untouched: the Wiley bundles depend on them. Consensus categories fold
+to their header and badge, all closed on load, keyboard-operable,
+key-article lists behind a "Show N key articles" button, "Expand all"
+above; the eyebrow shows the consensus type and strength ("MARKET SHIFT
+· MODERATE CONSENSUS") rather than "CATEGORY n", which said nothing.
+Plain script injected by `market_foresight`, no library.
+`tests/test_market_foresight.py`, 6 tests.
 
-Revision 3 followed a second read against Wikipedia's "Signs of AI
-writing": the opener personified the market, "the percentages below…"
-was scaffolding, "the minorities matter more" announced significance,
-the horizons were three drumroll fragments, half the paragraphs turned
-on "not X, but Y". Rewritten to lead each paragraph with the finding;
-first sentences read on their own. Revision 4 turned the `[n]` markers
-into `[C1]`–`[C14]` with a `facts.citation_index` (uri, title, source,
-published), so the renderer links each citation inline and appends the
-References list itself; the hand-written Sources section went.
-**Approved** at the operator's instruction (`PUT …/briefings/18/status`),
-feed entry published; it leads the Analysis section at
-`https://aisocnews.com/?view=v2&piece=18`. The operator retitled it in
-the dashboard to "What does that leave for the specialists". The byline
-had read "Drafted with a model, edited by Cyberfuturists" because the
-edit endpoint marks a piece `generation = 'edited'` and
-`provenance_line` writes that; the operator called it cringe. Row set to
-`generation = 'written'`, author "the Cyberfuturists", so it reads "By
-the Cyberfuturists"; the method note inside the piece still says how it
-was made, and the About page carries the site's AI disclosure. Then, at
-the operator's ask, every piece page carries an "AI-assisted" note at
-its foot (`_v2_piece_ai_note`): what the model did, what a person did,
-where the figures come from, Article 50 named, a link to the About
-page's AI section. `test_front_page_has_its_sections_and_links` now
-allows for the one-fresh-piece case, where the piece is the lead and the
-Analysis section is rightly absent.
-
-**Pulled.** The operator read the published piece and found that the
-Prophet Security citation was the Astra post, not an evaluation guide. A
-check of all fourteen citations against their sources found two more:
-CrowdStrike's launch cited for reasoning it does not contain, and "one of
-its agents" where the source does not say whose. Three mis-citations in
-one piece; the operator withdrew it (status rejected, feed entry
-withdrawn, page 404) as embarrassing. The text and revisions stay in the
-database. Cause: the model (this session) reached for a URL already on
-its citation list without opening the source; neither the tells detector
-nor the format passes look at whether a citation supports its sentence.
-
-**Guard — `app/services/piece_citations.py`** (new). On every save of an
-analysis or note (`create_piece`, `save_edit` routes) the citations are
-read against their sources: each `[Cn]` marker's sentence with the cited
-article's title and summary, one cheap model call (`PIECE_CITATION_MODEL`,
-default the topics model), verdict yes / partly / no per citation, plus
-model-free findings for a marker with no index entry. Findings go into
-the piece's `lint` (check `citation`), which the dashboard already shows
-in its amber box. `PUT …/briefings/{id}/status` with `approved` re-runs
-the check and refuses with 409 while any citation is judged `no`, unless
-`override: true`. Run on the published text it flagged C1 and C13 as
-unsupported and four as partial; it missed C7. On the corrected text it
-still refuses C1, C12 and C13, because those sentences draw a conclusion
-of the author's from the sources rather than reporting them — strict,
-and that is the point. `tests/test_piece_citations.py`, 3 tests (model
-mocked). Approving piece 18 as it stands returns 409.
-
-**`app/services/market_foresight.py`** (new). `render(conn, kind, market,
-run_id=)` builds the report page from the newest stored run (or a named
-earlier one) with the same `consensus_html` / `horizons_html` builders the
-Interactive HTML download uses, and inserts a strip above it: back to the
-front page, the other report, and every earlier run as a dated link.
-Served at `?view=v2&page=consensus` and `page=horizons` (+ `&run=<id>`)
-from `market_report()`; linked from the front-page footer beside About
-and Privacy, and from the piece's method note. Public in full, like the
-editorial pieces — they are our reading of the coverage, not the roster —
-so the withheld-names gate is not applied. `refresh(conn, market, now)`
-makes one new run of each a month by calling the trend-convergence route
-over loopback as `MARKET_FORESIGHT_USER` (default `admin`), with the
-market's profile and `MARKET_FORESIGHT_MODEL` (default the topics model);
-the generation is 500 inline lines in that route, so calling it beats
-copying it, and the route's cache keys, run logs and executive summaries
-come for free. Hooked into the market tick after `_refresh_topics`. A new horizons run
-is followed by the executive-summary cards (a second generation step,
-`POST …/horizons/{id}/executive-summary`, same model and profile), which
-the page shows when they exist; the operator caught that the first run
-had none, and five were generated for `624b5db6` by hand (24 s).
-The pages take the site's chrome: the same top bar (brand line, page
-links, and the run list as the jump row, times added when two runs share
-a day) and footer as the front page, DM Sans, and the site's palette
-swapped for the renderer's slate-and-pink inside its style blocks
-(`_restyle`, hex-for-hex, style blocks only). The renderer's brand
-default is Wiley's (`REPORT_BRAND_EYEBROW`), so the public page had said
-"WILEY HORIZONS · CONSENSUS ANALYSIS" until the operator asked for the
-styling pass; the eyebrow, "Produced by AunooAI" and the model ids are
-rewritten for the site. The renderers themselves are untouched: the
-Wiley bundles depend on them. `tests/test_market_foresight.py`, 6 tests.
-On the site each consensus category folds to its header and badge (first
-open, keyboard-operable, key-article lists behind a "Show N key articles"
-button, "Expand all" above; all closed on load; the eyebrow shows the consensus type and strength rather than "CATEGORY n") — the download is static and the operator
-found four screens of open cards; plain script injected by
-`market_foresight`, no library. "Consensus" and "Three horizons" also sit
-at the end of the section row after Latest research, outlined as pages.
-A restart at 17:53 went ahead while five collection runs were queued;
-four succeeded and the Crunchbase job reconciles by job id on the next
-tick — the pre-restart check printed the count but did not gate on it.
-
-**Forecast Tracker.** Topic registered (`forecast_topic_metadata`,
-display name "AI in the SOC", owner Cyberfuturists); the Add-Topic
-wizard's `wizard/build` pipeline ran: a fresh horizons run (`624b5db6`,
-gpt-5.4 → Sonnet, 50 articles, 90 days — the tracked forecast and, being
-newest, the public horizons page), the paired live+placebo assessment,
-and the overlay draft, then overlay approval. `FORECAST_TRACKER_AUTO_RUN=true`
-in `.env`: the monitor re-assesses each topic when its last assessment is
-30 days old, ~15 min and USD 3–8 a run, accepted by the operator. The
-first tick kicked off three paired runs for Wiley topics whose overlay
-files are in git and so on every tenant (Patent Cliffs, Attacks on
-Expertise, U.S. Federal R&D Pullback); each finished in ~15 s because
-this tenant has no corpus for them, so the cost was one small call
-apiece. **`app/tasks/forecast_tracker_monitor.py`** `_load_overlay_topics`
-now drops topics whose `forecast_topic_metadata.status` is `archived`,
-and those five Wiley topics are archived on this tenant. After the
-restart the monitor scheduled nothing; the SOC topic's assessment is from
-today and comes due in 30 days. The wizard's live assessment has
-`evidence_count 0`: the forecast is today's, so there is no
+### Feature — Forecast Tracker enrolment for the SOC topic (`d48b5b7a`)
+Topic registered (`forecast_topic_metadata`, display name "AI in the
+SOC", owner Cyberfuturists); the Add-Topic wizard's `wizard/build`
+pipeline ran: a fresh horizons run (`624b5db6`, gpt-5.4 → Sonnet, 50
+articles, 90 days — the tracked forecast and, being newest, the public
+horizons page), the paired live+placebo assessment, the overlay draft,
+then overlay approval (display name corrected to "AI in the SOC").
+`FORECAST_TRACKER_AUTO_RUN=true` in `.env`: the monitor re-assesses a
+topic when its last assessment is 30 days old, ~15 min and USD 3–8 a
+run, accepted by the operator. The wizard's live assessment has
+`evidence_count 0`, because the forecast is today's and there is no
 post-forecast coverage yet; the placebo read 900 records. That is the
 baseline.
+
+**Incident, small.** The monitor's first tick kicked off paired runs for
+three Wiley topics whose overlay files are in git and so on every tenant
+(Patent Cliffs, Attacks on Expertise, U.S. Federal R&D Pullback). Each
+finished in ~15 s because this tenant has no corpus for them, so the cost
+was one small call apiece. **`app/tasks/forecast_tracker_monitor.py`**
+`_load_overlay_topics` now drops topics whose
+`forecast_topic_metadata.status` is `archived`; the five Wiley topics are
+archived on this tenant. After the restart the monitor scheduled nothing.
+
+### Incident — The first analysis piece went out with three mis-citations and was withdrawn (`b1878770`, `02babc2a`, `9e76f39c`–`3006a7d8`, `61a21a12`, `9b439c63`, `e34f9f1b`)
+The operator asked for the site's first analysis, written with our own
+tools. `bw_market_briefings` id 18, kind analysis, "The agentic SOC is a
+feature now. What does that leave for the specialists": the consensus
+and outliers, our vendor figures (91 vendors, $1.28B disclosed across
+44, map of 6 Sep), the three horizons, and a method note. Saved through
+`POST /markets/2/briefings/write`, approved at the operator's
+instruction at 21:4x, live at `?view=v2&piece=18` and in the feed.
+
+**The prose took five texts.** The operator read the first in the
+dashboard preview and called it terrible. `detect_ai_tells` found 17
+tells: every paragraph opening on a bold verdict, rule-of-three lists,
+"unveils", "ecosystem", a "direction, not forecast" antithesis. Revision
+2 removed those. The operator then pointed at Wikipedia's "Signs of AI
+writing", and the regex detector cannot see what that list names: the
+opener personified the market, "the percentages below…" was
+scaffolding, "the minorities matter more" announced significance, the
+horizons were three drumroll fragments, half the paragraphs turned on
+"not X, but Y". Revisions 3 and 5 cut those. Revision 4 turned `[n]`
+markers into `[C1]`–`[C14]` with a `facts.citation_index`, so the
+renderer links each citation inline and appends the References list.
+The operator edited the text himself in the dashboard at 22:46, which
+replaced revision 5 with his wording of revision 3; the site served
+revision 5 from cache for a minute after, which looked like two
+different texts on two surfaces. Every text is in
+`bw_market_briefing_revisions` (ids 7–12).
+
+**The disclosure.** The byline had read "Drafted with a model, edited by
+Cyberfuturists", because the edit endpoint marks a saved piece
+`generation = 'edited'` and `provenance_line` wrote that; the operator
+called it cringe. Four wordings of an "AI-assisted" footnote of mine
+followed, each rejected; the operator's answer was the site's standard
+Article 50 disclosure that the Anticipate reports carry
+(`app.compliance.ai_disclosure.disclosure_footer_html`), which every
+piece page now carries at its foot with a link to the About page's AI
+section (`_v2_piece_ai_note`). `provenance_line` returns the author
+only for every piece; the footer carries the disclosure. Also in this
+run: the dashboard preview's `renderMarkdown` (`MarketBriefingsView.tsx`)
+handled bold, underscores and bare URLs but not `[text](url)`, and its
+underscore rule italicised the inside of `@jp_young_26`; it now renders
+links and takes underscores only at word edges (UI rebuilt,
+`MarketMonitorTab-DWEf10MQ.js`). "Latest research" renamed "Research
+firms"; the piece card's link reads "Read →" (a sed with `&` in the
+replacement first wrote "Read Read the piece →" to the live page for a
+minute, fixed in `bdf0c773`).
+
+**Withdrawn.** The operator found that the Prophet Security citation
+was the Astra post, not an evaluation guide. A read of all fourteen
+citations against their sources found two more: CrowdStrike's launch
+cited for reasoning it does not contain, and "one of its agents" where
+the source does not say whose. Three mis-citations in one piece. The
+operator withdrew it at 23:0x: status rejected, feed entry withdrawn,
+page 404. The text and revisions stay in the database. Cause: the model
+(this session) reached for URLs already on its citation list without
+opening the sources, and none of the checks in the pipeline — the tells
+detector, the format passes, a person reading for prose — looks at
+whether a citation supports its sentence.
+
+**Guard — `app/services/piece_citations.py`** (new, `e34f9f1b`). On
+every save of an analysis or note (`create_piece` and `save_edit`
+routes) each `[Cn]` marker's sentence is put next to the cited article's
+title and summary and a cheap model (`PIECE_CITATION_MODEL`, default the
+topics model) returns yes / partly / no per citation; a marker with no
+index entry is a finding without a model. Findings go into the piece's
+`lint` (check `citation`), which the dashboard already shows in its
+amber box. `PUT …/briefings/{id}/status` with `approved` re-runs the
+check and refuses with 409 while any citation is judged `no`, unless
+`override: true`. Run on the text as published it flagged C1 and C13 as
+unsupported and four as partial; it missed C7. On the corrected text it
+still refuses C1, C12 and C13, because those sentences draw a
+conclusion of the author's from the sources rather than reporting them:
+strict, and that is the point. Approving piece 18 as it stands returns
+409. `tests/test_piece_citations.py`, 3 tests (model mocked).
 
 ### Feature — Schedule an inquiry: paid 30/60 minute call (`d7c503e4`; live since 17:00 with both calendar links)
 **`app/services/market_inquiry.py`** and **`app/routes/market_inquiry_routes.py`**
@@ -352,9 +344,17 @@ this view because they name vendors outside the free roster";
 `topic=999` 404. Inquiry paths on the public host: form 503 (unconfigured), `/inquiry`
 302, webhook with a bad signature 400; about page has "Booking a call".
 `pytest tests/test_market_topics.py tests/test_market_report_v2.py
-tests/test_market_inquiry.py` — 38 passed (9 + 21 + 8; 13 new). Both
-restarts were job-gated: no running `background_tasks` or
-`bw_collection_runs`, no other session's tracked changes.
+tests/test_market_inquiry.py tests/test_market_foresight.py
+tests/test_piece_citations.py` — 47 passed (9 + 21 + 8 + 6 + 3; 22 new)
+at the end of the day. Report pages: `?view=v2&page=consensus` and
+`page=horizons` 200 on aisocnews.com, `&run=nope` 404, four of four
+categories collapsed on load (headless Chromium), the eyebrows "TECHNICAL
+ADVANCEMENT · STRONG CONSENSUS" and so on. Piece 18: approving it
+returns 409 with the C1 finding; `?view=v2&piece=18` 404 after the
+withdrawal. Restarts were job-gated except one at 17:53, which went ahead
+while five collection runs were queued because the check printed the
+count without gating on it; four succeeded and the Crunchbase job
+reconciled by job id on the next tick.
 
 ### Propagation
 bugfixing only — the Market Monitor exists nowhere else. Both migrations
@@ -381,6 +381,18 @@ until the first sale; the dashboard shows it.
 - The auto-mode classifier blocks copying a live secret between tenant
   `.env` files and creating live Stripe objects; leave those to the
   operator rather than splitting the command.
+- NEVER cite a source you have not opened. Three of fourteen citations
+  in the first piece pointed at the wrong article or claimed more than
+  the article said, and every automated check passed. The citation guard
+  now reads each one; it is strict and should stay strict.
+- The tells detector is regex and sees words, not structure. Read every
+  paragraph's first sentence on its own before saving a piece; that is
+  the check that catches drumroll fragments and "not X, but Y".
+- `save_edit` sets `generation = 'edited'` on every save. The byline no
+  longer depends on it, but anything else that reads the flag will see
+  "edited" after a person's dashboard save.
+- Do not use `sed` with `&` in the replacement on this file; it wrote
+  "Read Read the piece →" to the live site.
 
 ## 2026-09-05 — Copy day: about page rewritten, dev cards name their vendor and drop the drumroll
 
