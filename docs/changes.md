@@ -192,8 +192,9 @@ wbm were one commit behind (pre-`966fa946`); wiley and wileytest carry local
 edits (an older `get_relevance_threshold()` without the topic argument). The
 patch applied cleanly and compiled on all seven trees plus bwtemplate.
 Restarted job-gated 2026-09-07 ~18:15: bugfixing, sunstar, oviva, abm, wbm,
-wiley all login 200; wileytest was mid-collection and restarts when idle;
-bwtemplate inactive by design. Dormant trees get it on revival.
+wiley all login 200; wileytest was mid-collection and restarted at 18:46 once
+idle, login 200; bwtemplate inactive by design. Dormant trees get it on
+revival.
 
 ### Fix: emerging-topics deep analysis cut off at 2000 tokens
 **`app/services/emerging_topics/deep_analyzer.py`** capped the per-topic
