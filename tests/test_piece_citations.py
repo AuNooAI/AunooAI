@@ -54,6 +54,26 @@ def test_verdicts_become_findings_and_only_no_blocks(monkeypatch):
     assert [b["id"] for b in pc.blocking(findings)] == ["C2"]
 
 
+def test_prompt_carries_the_source_url(monkeypatch):
+    # The judge sees only what the prompt shows it; the URL is how it can
+    # credit "Tuskira's guide" when the guide lives on tuskira.ai and the
+    # summary never names the vendor.
+    seen = {}
+    class _Msg:  content = json.dumps({"citations": [{"id": "C1", "supports": "yes", "why": "ok"}]})
+    class _Choice: message = _Msg()
+    class _Resp: choices = [_Choice()]
+    def _completion(**kw):
+        seen["prompt"] = kw["messages"][-1]["content"]
+        return _Resp()
+    monkeypatch.setattr("litellm.completion", _completion)
+    monkeypatch.setattr("app.ai_models.resolve_litellm_call_params", lambda m: {"model": m})
+    index = {"C1": {"uri": "https://a/1", "title": "Launch story"}}
+    findings = pc.check(_Conn(), _row("Their own guide says so [C1].", index))
+    assert findings == []
+    assert "SOURCE URL: https://a/1" in seen["prompt"]
+    assert "domain says who published" in seen["prompt"]
+
+
 def test_merge_lint_replaces_only_citation_entries():
     existing = [{"check": "slop", "detail": "x"}, {"check": "citation", "id": "C1", "severity": "no", "detail": "old"}]
     out = pc.merge_lint(json.dumps(existing), [{"check": "citation", "id": "C3", "severity": "partly", "detail": "new"}])

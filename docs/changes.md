@@ -2,6 +2,52 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-07 — Citation checker sees source domains; analysis piece 18 approved with every citation supported
+
+### Goal
+Approving analysis piece 18 was refused: the citation checker judged C1
+(CrowdStrike launch) and C14 (teams building their own agents) unsupported.
+The operator asked for the citations fixed rather than an override, then for
+the five advisory "partly" findings tightened too, then for the checker's
+domain blindness fixed.
+
+### Copy — piece 18, seven citation sentences reworded (database only)
+Every fix is the same move: the cited sentence now says only what the
+source's title and summary say, and the interpretation stands as its own
+uncited sentence. C1 ("the week's largest example" moved out of the cited
+sentence), C14 (building-agents fact cited, shared-market conclusion ours),
+C3 (A2A phrased as the post's own thesis), C8 ("respond", the source's word,
+not "fix"), C9 (the "without damaging the business underneath" reading split
+off), C10 (Bhutta phrasing matched to the interview summary), C12/C13
+("guides on how to evaluate AI SOC platforms" — the titles' own words).
+Edits went through `market_briefing.save_edit`, so every prior text is a
+revision on the piece; the piece is approved and live. The checker verdicts
+vary run to run on borderline cases — one run's pass is another run's
+"partly" — which is why chasing every advisory finding by rewording alone
+does not converge.
+
+### Fix — `piece_citations` prompt carries the source URL
+**`app/services/piece_citations.py`**: the judge saw only each source's
+title and summary, so it flagged true publisher attributions — "Tuskira's
+guide" on tuskira.ai, "Omer Bhutta of Secure.com" on secure.com's own blog —
+as unsupported. Each prompt entry now carries a `SOURCE URL:` line and the
+instructions say the URL's domain identifies the publisher, so a sentence
+naming the publisher is supported by the domain even when the summary does
+not repeat the name.
+
+### Verification
+`pytest tests/test_piece_citations.py tests/test_market_briefing_citations.py`
+— 23 passed, including a new test that the prompt carries the URL and the
+domain instruction. Live re-run against piece 18 before the wording fix
+credited "Tuskira published" from the URL; after the final wording fix the
+full re-check returned zero findings — all 14 citations pass. Jobs guard
+clean, service restarted, /login 200, the piece page serves the final text.
+
+### Propagation
+bugfixing only — Market Monitor exists nowhere else. The piece edits are
+database rows (`bw_market_briefings` 18 plus revisions); this entry is
+their durable record.
+
 ## 2026-09-07 — Bluesky collector dropped posts with an empty image embed; sunstar ops from the weekend watch
 
 ### Goal

@@ -48,17 +48,22 @@ def _prompt(entries: List[Dict[str, Any]]) -> str:
     lines = []
     for e in entries:
         lines.append(f"\n[{e['id']}] SOURCE TITLE: {e.get('title') or ''}")
+        if e.get("uri"):
+            lines.append(f"SOURCE URL: {e['uri']}")
         if e.get("summary"):
             lines.append(f"SOURCE SUMMARY: {e['summary']}")
         for c in e["claims"]:
             lines.append(f"SENTENCE CITING IT: {c}")
-    return ("For each citation below, judge whether the source, as described by its title "
-            "and summary, supports what the sentence uses it for. \"yes\" means the source "
+    return ("For each citation below, judge whether the source, as described by its title, "
+            "URL and summary, supports what the sentence uses it for. \"yes\" means the source "
             "says that. \"partly\" means the source is on the subject but the sentence claims "
             "more than it says, or attributes to it a reason, actor or detail the summary does "
             "not contain. \"no\" means the source is about something else or contradicts the "
             "sentence. Judge only the part of the sentence the citation is attached to; a "
-            "sentence may cite two sources for two different things.\n"
+            "sentence may cite two sources for two different things. The URL's domain says who "
+            "published the source: a sentence naming the publisher — a vendor's own guide, an "
+            "author writing on a company's site — is supported by the domain even when the "
+            "summary does not repeat the name.\n"
             "Reply with JSON only: {\"citations\": [{\"id\": \"C1\", \"supports\": "
             "\"yes|partly|no\", \"why\": \"one short sentence\"}]}\n" + "\n".join(lines))
 
@@ -84,7 +89,7 @@ def check(conn, row: Dict[str, Any], model: Optional[str] = None) -> List[Dict[s
             continue
         art = conn.execute(text("SELECT title, summary FROM articles WHERE uri = :u"),
                            {"u": ref.get("uri")}).mappings().first()
-        entries.append({"id": cid, "claims": claims,
+        entries.append({"id": cid, "claims": claims, "uri": ref.get("uri") or "",
                         "title": (art["title"] if art else None) or ref.get("title") or "",
                         "summary": ((art["summary"] if art else "") or "")[:700]})
     if not entries:
