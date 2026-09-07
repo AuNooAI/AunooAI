@@ -26,6 +26,27 @@ for a one-image embed. Sunstar journal since the 2026-09-04 19:17 restart showed
 the error at 2026-09-06 14:57, 2026-09-07 04:33 and 04:45; the last two came
 from `Searching Bluesky for 'Colgate'` and `'Colgate-Palmolive'`.
 
+### Fix: emerging-topics deep analysis cut off at 2000 tokens
+**`app/services/emerging_topics/deep_analyzer.py`** capped the per-topic
+analysis reply at `max_tokens=2000`. Since sunstar's emerging topics moved to
+kimi-k2.5 (below), the JSON reply was cut off mid-string on three runs: two of
+six topics on the manual run 57 (2026-09-06, `Unterminated string ... char
+10715` and `Expecting value ... char 9330`) and one of seven on the scheduled
+run 58 (2026-09-07 10:52, `char 9877`). All three broke between 9,300 and
+10,700 characters, which is what 2000 tokens looks like from that model. The
+topic then kept a placeholder analysis. The cap is now 6000. The other three
+callers in the pipeline (`theme_proposer` 2000, `article_validator` 1500,
+`topic_summarizer` 1000) have not truncated and keep their caps. Committed
+with this entry.
+
+Verification: compiles. The first live test is the next scheduled run on each
+site, around 10:45 daily; no run has happened on the new cap yet.
+
+Propagation: all eight trees were on the identical file (md5 `f55408db9bc4…`),
+now all on `3e281fa7bc9b…`. Restarted job-gated 2026-09-07 ~11:45: bugfixing,
+sunstar, oviva, abm, wbm, wileytest all login 200; wiley was mid-collection
+and restarts when idle; bwtemplate copied, inactive by design.
+
 ### Ops: sunstar emerging topics moved off Haiku after a Bedrock outage
 At 2026-09-06 10:50 sunstar's daily emerging-topics run (detection run 56)
 failed with `litellm.ServiceUnavailableError: Bedrock is unable to process

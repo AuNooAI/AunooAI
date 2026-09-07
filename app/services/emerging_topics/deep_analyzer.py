@@ -419,7 +419,9 @@ When analyzing organization_implications, specifically address how this topic af
                 return result
 
             if hasattr(model, 'generate'):
-                response = await model.generate(prompt, max_tokens=2000)
+                # 2000 cut kimi's JSON off around 10k characters on three
+                # sunstar runs (6 and 7 Sep 2026); the full analysis needs more.
+                response = await model.generate(prompt, max_tokens=6000)
             else:
                 logger.error("Model does not have generate method")
                 return result
