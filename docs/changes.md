@@ -96,6 +96,60 @@ for a one-image embed. Sunstar journal since the 2026-09-04 19:17 restart showed
 the error at 2026-09-06 14:57, 2026-09-07 04:33 and 04:45; the last two came
 from `Searching Bluesky for 'Colgate'` and `'Colgate-Palmolive'`.
 
+### Fix: Market Monitor tab did nothing on oviva (stale UI bundle)
+Reported as "market monitor does not load on oviva" with a console 404 on
+`POST /api/dashboard/article-insights/Brand%20Monitoring`. The 404 was a red
+herring: it is the Narratives view's designed cache-only page-load path for
+the leftover plain "Brand Monitoring" topic at the top of oviva's
+`config.json`, which has no keyword group and no articles (every real topic
+there is per-brand). Not touched, per the never-edit-config.json rule.
+
+The real fault was the deployed React bundle. Oviva served
+`newsfeed-BY_fgfXE.js`, built 2026-09-04 12:26, whose dedicated-tenant tab
+list was `["brand_watcher","agents","timeline"]`. `NewsFeedPage.tsx` snaps a
+dedicated Brand Watcher site back to `brand_watcher` for any tab outside that
+list, so every click on Market Monitor was reverted before the tab mounted.
+Canonical's source (line 222, since `19c5cafc` 2026-09-03) and its current
+build `newsfeed-C4LxUzdV.js` include `market_monitor`. Reproduced headlessly
+with Playwright: click the tab, active tab stays Brand Watcher, zero
+`/api/market-monitor` requests. The backend was fine throughout: all eleven
+load-time endpoints answered 200 within 40 ms when called directly.
+
+Fix: oviva's `static/trend-convergence` and `templates` backed up to the
+session scratchpad, then rsynced from canonical (`--delete` on static; only
+asset hashes differed in templates), service restarted while idle. Verified
+headlessly: active tab Market Monitor, 13 `/api/market-monitor` responses all
+200, Findings view renders (12 findings, 7 vendors). The new bundle calls
+none of the two market-topics routes oviva's backend lacks (`/topics`,
+`/topics/compute`, added in `d7c503e4` for the public market page).
+
+Not touched: abm, wbm, wiley and wileytest serve `newsfeed--XQzDZwa.js` and
+sunstar `newsfeed-CTiatjKH.js`, both older than canonical. Only oviva was
+reported broken.
+
+### Ops: oviva nginx body limit for the BrightData webhook (64m)
+Oviva's vhost had no `client_max_body_size`, so nginx's 1m default rejected
+every BrightData LinkedIn company-post delivery (156 records) with 413, four
+retries per run, 82 rejections since 2026-09-03. No data was lost: the
+collector claims the job by polling ten minutes after queueing (run 63:
+queued 14:01:22, `claimed ... by polling` 14:11:24, 153 posts attributed),
+so each run was slow rather than empty. Added a `location =` block for
+`/api/market-monitor/webhooks/brightdata/linkedin` with `client_max_body_size
+64m`, mirroring bugfixing's vhost; previous file kept as
+`oviva.aunoo.ai.bak-bodysize-20260907`. `nginx -t` passed, reloaded. Verified:
+a 2 MB POST to the webhook path gets 401 (the app's secret check), the same
+body to another API path still gets 413, login 200.
+
+BrightData itself, checked after the account recharge: oviva run 63
+(2026-09-07 14:01, $0.234) and bugfixing runs 1493 (09:37) and 1496 (16:22,
+Crunchbase, $0.138) all succeeded; no balance, payment or quota errors in any
+tenant journal since 2026-09-06.
+
+### Ops: Xpoz after the top-up
+Direct search with the shared key at 2026-09-06 10:26 returned posts on
+Twitter and Reddit. No collector restart needed; the "Usage limit exceeded"
+replies were Xpoz's own and stopped once funded.
+
 ### Fix: articles with no text looped through enrichment every cycle
 **`app/services/automated_ingest_service.py`**. Each keyword cycle sends every
 collected article through the ingest pipeline again (the 12:06 cycle on sunstar
