@@ -686,7 +686,14 @@ def scan(conn, market_id: int, *,
         return {"error": "no usable terms", "terms": 0, "scanned": 0,
                 "matched": 0, "inserted": 0, "updated": 0}
 
-    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat"]
+    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat",
+             # Our own approved briefings and analysis pieces come back through
+             # the feed as articles rows (market_briefing.FEED_ORIGIN). A site
+             # must not cite itself as market coverage: left in, a piece
+             # matches its own market's terms, gets attributed to the first
+             # vendor it names, and comes out as a "development" sourced to
+             # this host (7 Sep 2026, piece 18 credited to 7ai).
+             "COALESCE(a.article_origin, '') <> 'report'"]
     params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
     if require_analyzed:
         where.append("a.analyzed = true")

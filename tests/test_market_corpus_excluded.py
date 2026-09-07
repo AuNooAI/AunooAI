@@ -58,3 +58,17 @@ def test_an_excluded_row_leaves_the_corpus_and_the_verdict_survives_a_rescan(con
     assert conn.execute(text("SELECT review_verdict FROM bw_market_articles WHERE id=:i"),
                         {"i": row["id"]}).scalar() == "excluded"
     assert not present()
+
+
+def test_our_own_feed_rows_never_join_the_corpus(conn):
+    # An approved piece returns through the feed as an articles row with
+    # article_origin = 'report' (market_briefing.FEED_ORIGIN). The scan must
+    # not read it: a site citing itself came out as a vendor development.
+    uri = "https://test.invalid/api/market-monitor/markets/2/report.html?piece=999999"
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, article_origin)
+        VALUES (:u, 'Agentic SOC is a feature now', 'agentic SOC everywhere',
+                'Aunoo Market Monitor', 'report')
+        ON CONFLICT (uri) DO NOTHING"""), {"u": uri})
+    result = mcorp.scan(conn, 2, terms=["agentic SOC"], dry_run=True, limit=50000)
+    assert all(s["uri"] != uri for s in result.get("samples") or [])

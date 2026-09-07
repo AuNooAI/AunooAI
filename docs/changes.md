@@ -72,6 +72,32 @@ tests pass (the file's 5 failures are identical on the untouched tree);
 /login 200 after restart; the news view's first day header is 7 September.
 Propagation: bugfixing only — Market Monitor exists nowhere else.
 
+### Incident — the site cited itself: our analysis came back as a "7ai" development
+The operator caught the front page's top development reading "7ai: The
+agentic SOC is a feature now…", 1 source, "Source: bugfixing.aunoo.ai".
+That is our own analysis piece 18. The loop: approving a piece writes it
+into `articles` for the tenant's own feed (uri on APP_URL, so the internal
+host; `article_origin = 'report'`), the corpus scan had no self-exclusion,
+so the 17:34 catch-up scan matched the piece on "agentic SOC" and attached
+it as market coverage; the assessment then attributed it to the first
+vendor named in the text (7AI) and `_named_headline` prefixed the vendor.
+The monthly briefing (7) had been attached the same way.
+
+**`app/services/market_corpus.py`** `scan()` now excludes
+`article_origin = 'report'` rows — a site must not cite itself as market
+coverage. The two self-attach rows were then deleted from
+`bw_market_articles`; the delete holds only because the scan can no longer
+re-attach them (this file's own docstring warns a bare delete never
+survives a rescan). New test in `tests/test_market_corpus_excluded.py`:
+a feed row matching the market's terms stays out of a dry-run scan. That
+file's pre-existing test fails identically on the untouched tree — not
+from this change, left alone.
+
+Verification: new test passes; after a guarded restart the front page has
+zero occurrences of the bad headline and zero of `bugfixing.aunoo.ai`; the
+piece still renders in the Analysis section under its byline. Propagation:
+bugfixing only — Market Monitor exists nowhere else.
+
 ## 2026-09-07 — Bluesky collector dropped posts with an empty image embed; sunstar ops from the weekend watch
 
 ### Goal
