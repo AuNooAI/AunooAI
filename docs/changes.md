@@ -2,6 +2,101 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-07 — Bluesky collector dropped posts with an empty image embed; sunstar ops from the weekend watch
+
+### Goal
+The sunstar error monitor caught a Bluesky post being dropped three times in
+14 hours, always from the Colgate searches on the Colgate-Palmolive brand topic.
+Fix it and record the other things the weekend watch turned up: the Xpoz quota
+outage, the Haiku outage that took out emerging topics, the pbm vhost, and the
+model-alias issue written up for the team.
+
+### Fix: Bluesky post with an image embed but no images
+**`app/collectors/bluesky_collector.py`** built the post's thumbnail by indexing
+`post.record.embed.images[0]`. A post can carry an image embed whose `images`
+list is empty; the `IndexError` was caught by the per-post handler, logged as
+`Error processing Bluesky post: list index out of range`, and the whole post
+was skipped. Because the same post surfaces on every search cycle, it was never
+collected. The lookup now reads the list once and only asks for a thumbnail
+when it has at least one entry. Committed with this entry.
+
+Verification: the module compiles; the guarded expression returns `None` for an
+empty embed and `https://cdn.bsky.app/img/feed_thumbnail/plain/<did>/<cid>@jpeg`
+for a one-image embed. Sunstar journal since the 2026-09-04 19:17 restart showed
+the error at 2026-09-06 14:57, 2026-09-07 04:33 and 04:45; the last two came
+from `Searching Bluesky for 'Colgate'` and `'Colgate-Palmolive'`.
+
+### Ops: sunstar emerging topics moved off Haiku after a Bedrock outage
+At 2026-09-06 10:50 sunstar's daily emerging-topics run (detection run 56)
+failed with `litellm.ServiceUnavailableError: Bedrock is unable to process
+your request` on `bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0`.
+Bugfixing hit the same error three times in the same window. Only Haiku was
+affected: wileytest served 2016 kimi-k2.5 and 4680 nova-lite calls in the same
+half hour with no errors.
+
+The settings row said `gpt-4o-mini`, which `litellm_config.yaml` maps to Haiku.
+Fixed on sunstar only: `emerging_topics_settings.model = 'bedrock-kimi-k2-5'`
+(the scheduler re-reads the row every 60 s, no restart), then a manual run via
+`POST /api/emerging-topics/detect` with the same model. Run 57 completed:
+250 articles sampled, 6 topics, 197.5 s. Two of the six got placeholder deep
+analysis because kimi's JSON was cut off at the deep analyzer's
+`max_tokens=2000` (see the reasoning-model truncation note); the other four
+are complete. Every other site still has `gpt-4o-mini` for this feature.
+
+**`docs/ISSUE_MODEL_ALIAS_CLEANUP.md`** (new) is the team writeup of the
+underlying problem: 20 `legacy_alias` entries in the yaml, 84 files with a
+hardcoded gpt-* default (212 occurrences of `gpt-5.4-mini`/`gpt-5.4`), and a
+per-site table of what the six settings tables hold. It proposes a four-stage
+fix and lists four decisions for the team. Also published as a private artifact
+for the discussion.
+
+### Ops: Xpoz quota exhausted 2026-09-04 18:59 to 2026-09-06 ~10:00
+Every Xpoz call on the brand-watcher sites returned `Usage limit exceeded` from
+abm at 2026-09-04 18:59, then wbm 21:37, sunstar 2026-09-05 01:04, bugfixing
+02:16, wileytest 04:00, oviva 12:12. The key is shared, so one budget covered
+all of them. Sunstar's social posts scored per day: 1910 (09-03), 1176 (09-04),
+168 (09-05), 23 (09-06 to 10:26); the remainder came from Bluesky. The account
+was funded on 2026-09-06 morning; a direct search with the shared key returned
+posts on Twitter and Reddit at 10:26 and the collectors need no restart. The
+sunstar monitor now emits one alert per hour if the message returns.
+
+### Ops: pbm.aunoo.ai vhost disabled (2026-09-04 evening)
+`/etc/nginx/sites-available/pbm.aunoo.ai` proxied to `127.0.0.1:10019`, which
+is now sunstar's port, so the dormant pbm hostname served sunstar's login page
+and a scanner's empty login POSTs showed up in sunstar's journal. Removed the
+`sites-enabled` symlink (config kept in `sites-available`), `nginx -t` passed,
+reloaded. pbm now gets a TLS `unrecognized name` alert on 443 and a dropped
+connection on 80; sunstar still answers 200. Before pbm is revived it needs its
+own port, since the stored config still points at 10019.
+
+### Ops: weekend watch, other findings
+- Sunstar error monitor re-armed 2026-09-06 (session-local, not a service).
+  Ignores the known noise plus `Enrichment validation failed` lines, which are
+  attempt-one failures whose retries succeed; 0 rows have ever reached
+  `ingest_status = 'enrichment_failed'` on sunstar.
+- Scanner traffic: 93.123.109.165 (417 requests 2026-09-06, WordPress REST
+  probes) and 34.78.211.143 (162 requests 2026-09-07, `.env` path probes). All
+  404/422. Not blocked.
+- Semantic Scholar 500 then rate-limited 2026-09-06 12:04 on sunstar; the site
+  has no Semantic Scholar key, so it shares the anonymous quota. One query cycle
+  returned 0 papers.
+- Host memory 2026-09-06 ~11:00: 64 GB total, 5.5 GB available, swap 4 GB fully
+  used, no kernel OOM kill. Largest process was `saas-worker.service` at 5.2 GB,
+  started 08:17 that morning by someone else; wileytest 4.5 GB, sunstar 3.8 GB,
+  LiteLLM proxy 3 GB. Not changed.
+
+### Propagation
+Bluesky fix copied to the trees on the current collector version and restarted
+job-gated: bugfixing, sunstar (PID 177061), oviva (PID 177058), all login 200;
+bwtemplate copied, service inactive by design. md5 `ed7dcc9909bb…` on all four.
+abm, wbm, wiley and wileytest were **not** touched: they run older canonical
+versions of the collector (abm at the pre-`cef96fb0` blob, the other three at
+the pre-`38748eb5` blob, both verified with `git hash-object`) that never build
+a thumbnail, so they cannot hit this crash. Catching them up would also bring
+the August social author/engagement metadata change, which is a separate
+decision. Dormant trees (vc, testbed, skunkworkx, pbm, interroll, pearson,
+ibaset) get the file on revival.
+
 ## 2026-09-06 — Front page: "What the market is talking about" panel live; paid analyst call built, waiting on three config values
 
 ### Goal
