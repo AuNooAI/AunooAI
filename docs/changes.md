@@ -96,6 +96,51 @@ for a one-image embed. Sunstar journal since the 2026-09-04 19:17 restart showed
 the error at 2026-09-06 14:57, 2026-09-07 04:33 and 04:45; the last two came
 from `Searching Bluesky for 'Colgate'` and `'Colgate-Palmolive'`.
 
+### Fix: articles with no text looped through enrichment every cycle
+**`app/services/automated_ingest_service.py`**. Each keyword cycle sends every
+collected article through the ingest pipeline again (the 12:06 cycle on sunstar
+reported `processed: 100, enriched: 91, saved: 38`); the analyzer's 24 h cache
+absorbs the cost for articles already done. Articles with no text never got that
+far. The enrichment step reads only the collector's `summary` or `content`
+(scraped text is stored raw and never analysed), so a Semantic Scholar paper
+with no abstract hit `Insufficient content for analysis`, came back with
+`analyzed=False`, and the validation branch logged "Marking as
+enrichment_failed" without any code writing that status. The row stayed at
+`ingest_status NULL` and the paper was relevance-scored, bias-checked and
+failed again on every cycle. Sunstar had 60 such papers cycling from
+2026-08-31 to 09-07 (23 `Enrichment validation failed` lines on 09-07 alone,
+three of them for rows first saved 08-31), plus the same two Haleon URLs from
+Reuters and Investing.com each day. This corrects the 2026-09-04 note that
+these errors cost nothing: the retries never succeeded, the rows were simply
+never marked.
+
+Two changes, both using the same save path and terminal-status mechanism as
+the unknown-topic guard added in June for the same kind of loop:
+- A no-text guard before the quick relevance check. An article with a title
+  and no summary or content is marked `enrichment_failed` with
+  `overall_match_explanation = "Enrichment failed: the source returned no
+  summary or body text, so there was nothing to analyse."` and returned as
+  `filtered / no_text` before any model call.
+- The validation-failed branch now writes `enrichment_failed` too, so any other
+  silent enrichment failure also stops looping.
+
+Verification: compiles; a unit call of `_process_single_article_async` with a
+title-only article returns `{'status': 'filtered', 'reason': 'no_text'}` and
+the saved row carries `ingest_status = 'enrichment_failed'`. All collectors set
+`summary` or `content` for real posts, so social posts do not trip the guard.
+Not yet observed live: at commit time no Semantic Scholar cycle had run on the
+new code and sunstar still had 0 `enrichment_failed` rows. The 60 papers should
+flip on the next cycle.
+
+Propagation: this file drifts, so the two hunks went out as a patch per tree,
+not a file copy. sunstar, oviva and bwtemplate matched canonical HEAD; abm and
+wbm were one commit behind (pre-`966fa946`); wiley and wileytest carry local
+edits (an older `get_relevance_threshold()` without the topic argument). The
+patch applied cleanly and compiled on all seven trees plus bwtemplate.
+Restarted job-gated 2026-09-07 ~18:15: bugfixing, sunstar, oviva, abm, wbm,
+wiley all login 200; wileytest was mid-collection and restarts when idle;
+bwtemplate inactive by design. Dormant trees get it on revival.
+
 ### Fix: emerging-topics deep analysis cut off at 2000 tokens
 **`app/services/emerging_topics/deep_analyzer.py`** capped the per-topic
 analysis reply at `max_tokens=2000`. Since sunstar's emerging topics moved to

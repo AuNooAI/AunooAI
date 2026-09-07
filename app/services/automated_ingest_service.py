@@ -934,6 +934,43 @@ class AutomatedIngestService:
                     "topic": topic,
                 }
 
+            # Step 0b: NO-TEXT GUARD. Enrichment reads only the collector's
+            # summary/content (scraped text is stored raw, never analysed), so
+            # an article with a title and nothing else can only end in
+            # "Insufficient content" -> analyzed=False -> validation failure.
+            # Semantic Scholar returns papers with no abstract on every search,
+            # and each one used to cost a relevance embedding and a bias call
+            # per cycle before failing with no status written (sunstar: 60 such
+            # papers cycling 2026-08-31 to 09-07). Mark terminally and stop.
+            if not (article.get('summary') or article.get('content')) or not article.get('title'):
+                self.logger.info(
+                    f"⛔ Article {article_uri}: no usable text (title only) — "
+                    f"marking enrichment_failed, no model calls made"
+                )
+                article.update({
+                    "topic": topic,
+                    "ingest_status": "enrichment_failed",
+                    "keyword_relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "confidence_score": 0.0,
+                    "overall_match_explanation": (
+                        "Enrichment failed: the source returned no summary or "
+                        "body text, so there was nothing to analyse."
+                    ),
+                })
+                try:
+                    await self.async_db.save_below_threshold_article(article)
+                except Exception as save_err:
+                    self.logger.warning(
+                        f"Failed to persist enrichment_failed for {article_uri}: {save_err}"
+                    )
+                return {
+                    "status": "filtered",
+                    "uri": article_uri,
+                    "reason": "no_text",
+                    "topic": topic,
+                }
+
             # Step 1: QUICK relevance check FIRST (before expensive operations)
             # Use only title and existing summary to save costs
             try:
@@ -1131,6 +1168,26 @@ class AutomatedIngestService:
                             f"Article passed quality check but 'analyzed' flag is False. "
                             f"This indicates enrichment failed silently. Marking as enrichment_failed."
                         )
+                        # Actually write the status the log line above has
+                        # always claimed. Without it the row stayed at NULL
+                        # and the ingest loop re-selected it every cycle;
+                        # sunstar had 60 Semantic Scholar papers with no
+                        # abstract cycling this way (2026-08-31 to 09-07).
+                        # Same terminal mechanism as the unknown-topic guard.
+                        try:
+                            enriched_article.update({
+                                "topic": topic,
+                                "ingest_status": "enrichment_failed",
+                                "overall_match_explanation": (
+                                    "Enrichment failed: analysis produced no "
+                                    "result (usually no usable article text)"
+                                ),
+                            })
+                            await self.async_db.save_below_threshold_article(enriched_article)
+                        except Exception as mark_err:
+                            self.logger.error(
+                                f"Could not mark {article_uri} enrichment_failed: {mark_err}"
+                            )
                         return {
                             "status": "error",
                             "uri": article_uri,
