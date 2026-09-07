@@ -172,7 +172,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_CRUNCHBASE: slow * 7,  # weekly — rounds do not close daily
         SOURCE_JOBS: slow * 3,        # twice weekly — the spec's hiring signal
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
-        SOURCE_CORPUS: slow,          # daily — also free, also local
+        SOURCE_CORPUS: timedelta(hours=4),  # free and local; a daily read left the news river a day stale
         SOURCE_FOLLOW: fast,          # followed accounts: a timeline read per account
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
         SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged

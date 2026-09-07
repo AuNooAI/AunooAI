@@ -48,6 +48,30 @@ bugfixing only — Market Monitor exists nowhere else. The piece edits are
 database rows (`bw_market_briefings` 18 plus revisions); this entry is
 their durable record.
 
+### Fix — news river a day stale: corpus scan every 4 hours
+The operator reported https://aisocnews.com/?days=30&view=news showing
+nothing newer than yesterday. Collection was fine (group 16 ran 09:58);
+the gap is the attach step — articles join `bw_market_articles` only when
+the `corpus_match` scan runs, and that sat on the daily cadence (last run
+6 Sep 19:33), so the morning's collection waited until evening.
+**`app/tasks/market_monitor.py`**: `SOURCE_CORPUS` moved from `slow` (24h)
+to a fixed 4 hours in the cadence table. The table is the right place: the
+per-market `config['sources']` override clamps at `MIN_INTERVAL_HOURS = 6`,
+a floor written for paid sources, and this scan is free and local (reads
+`articles`, writes `bw_market_articles`, touches no provider).
+
+Two catch-up notes. A queued manual run failed with "no collector
+dispatched source 'corpus_match'" — that source runs on the tick directly,
+never through the dispatch queue (run 1497, failed, harmless). The real
+catch-up ran through the tick's own open_run/scan/close_run path: run 1499,
+2,059 scanned, 45 attached. After a guarded restart (waited out a running
+generation) the river leads with Monday 7 September.
+
+Verification: py_compile ok; `tests/test_market_collection.py` cadence
+tests pass (the file's 5 failures are identical on the untouched tree);
+/login 200 after restart; the news view's first day header is 7 September.
+Propagation: bugfixing only — Market Monitor exists nowhere else.
+
 ## 2026-09-07 — Bluesky collector dropped posts with an empty image embed; sunstar ops from the weekend watch
 
 ### Goal
