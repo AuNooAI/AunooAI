@@ -89,12 +89,16 @@ own port, since the stored config still points at 10019.
 Bluesky fix copied to the trees on the current collector version and restarted
 job-gated: bugfixing, sunstar (PID 177061), oviva (PID 177058), all login 200;
 bwtemplate copied, service inactive by design. md5 `ed7dcc9909bb…` on all four.
-abm, wbm, wiley and wileytest were **not** touched: they run older canonical
-versions of the collector (abm at the pre-`cef96fb0` blob, the other three at
-the pre-`38748eb5` blob, both verified with `git hash-object`) that never build
-a thumbnail, so they cannot hit this crash. Catching them up would also bring
-the August social author/engagement metadata change, which is a separate
-decision. Dormant trees (vc, testbed, skunkworkx, pbm, interroll, pearson,
+abm, wbm, wiley and wileytest were caught up in a second pass the same
+morning: they had been running older canonical versions of the collector (abm
+at the pre-`cef96fb0` blob, the other three at the pre-`38748eb5` blob, both
+verified with `git hash-object`) that never built a thumbnail, so they could
+not hit this crash, but they also lacked the August `social_meta`
+author/engagement block and, on abm, the post titles. The newer collector adds
+no imports and writes the same `social_meta` shape their ingest paths already
+consume for Xpoz posts. Copied, compiled in each tree's venv, restarted while
+all four were idle: abm PID 281571, wbm 281572, wiley 281573, wileytest 281600,
+all login 200. Every active tree is now on md5 `ed7dcc9909bb…`. Dormant trees (vc, testbed, skunkworkx, pbm, interroll, pearson,
 ibaset) get the file on revival.
 
 ## 2026-09-06 — Front page: "What the market is talking about" panel live; paid analyst call built, waiting on three config values
