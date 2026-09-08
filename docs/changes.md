@@ -2,6 +2,54 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-08 — Briefing composer stops staging junk and stale picks; sentiment chart gets daily buckets
+
+Both fixes landed inside other sessions' ride-along commits (`a19f302c`,
+`3c8dfc52`/`d3c62c4d`), whose subjects describe different work — this entry
+is where to find them.
+
+### Fix — "Compose today's briefing" staged random articles (`a19f302c`)
+wileytest's 8 Sep draft staged a GitHub release-tag page, a quantum-platform
+PR piece and week-old picks; the operator deleted three by hand. From the
+run's own diagnostics: candidates carried alignment 0.8–0.9 but recency
+weighed only 0.10 of the composite with a 3-day half-life, so 6-day-old
+items beat yesterday's, and nothing stopped a non-article URL that matched a
+topic on embedding similarity. **`daily_briefing_ranking.py`**: code-forge
+URLs (GitHub/GitLab/Bitbucket repo, release, tag, blob, commit) never enter
+the pool; recency reweighted 0.10→0.20 (alignment 0.45, confidence 0.05 pay
+for it) — safe now because the alignment floor and the social exclusion
+guard the pool, and the pinned invariant still holds: a 0.5 alignment gap
+(0.225) outweighs the whole recency component. Matches the measured analyst
+behaviour (median pick ~1 day old over 74 briefings). 87 briefing tests
+pass, including new ones for both changes. Copied to wiley and wileytest
+(byte-identical files); all three restarted job-gated.
+
+### Fix — Brand Watcher "Sentiment Over Time" flat on short windows (`3c8dfc52`, `d3c62c4d`)
+The endpoint bucketed by week, so the default 7-day view collapsed a week
+of classified sentiment into one point — reported as "not being tracked" on
+wileytest, where the data was present all along (72 rows that week).
+**`brand_watcher_routes.py`** `get_sentiment_trends`: windows ≤31 days
+bucket by day, longer stay weekly; the UI tooltip drops its "Week of"
+prefix. Underneath the display bug, a real observation: Wiley's news
+coverage thinned after 3 Sep (35 classified news items/day → 4–9); most
+brand-topic arrivals are social posts, which the news-sentiment chart
+excludes on purpose — sparse days are the coverage, not the pipeline.
+
+### Propagation
+The route file has drifted into five versions across tenants, so the
+sentiment fix was applied as a surgical, anchor-verified edit — never a file
+copy — to all seventeen trees that have the endpoint: the seven running
+tenants (bugfixing, wiley, wileytest, wbm, abm, sunstar, oviva — all
+restarted job-gated, /login 200) and ten stopped ones (bwtemplate — so
+clones inherit it — pearson, ibaset, helpnet, interroll, pbm, sage, vc,
+opendemo, skunkworkx, abbott; they load it when started). Four older trees
+carry the same weekly DATE_TRUNC twice; the second is the risk-assessment
+aggregate and was left untouched (verified on pearson). Rebuilt UI synced
+to wiley and wileytest; stopped tenants keep the cosmetic "Week of" tooltip
+until their next UI sync. spiros, community, testbed have no Brand Watcher
+routes file. The briefing fix is wiley/wileytest/bugfixing only — the
+Briefing Desk exists nowhere else.
+
 ## 2026-09-08 — Oviva logins for three strategy users; Brand Watcher sites no longer run the news briefing on every Explore load; aisocnews.com moved onto its design system
 
 ### Goal
