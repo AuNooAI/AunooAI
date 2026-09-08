@@ -197,7 +197,7 @@ export function WileyDeliverablesPanel() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
-              a.download = `wiley_forecast_${cadence}${updatesOnly ? '_updates' : ''}.pptx`;
+              a.download = `forecast_bundle_${cadence}${updatesOnly ? '_updates' : ''}.pptx`;
               document.body.appendChild(a);
               a.click();
               setTimeout(() => {
@@ -327,7 +327,7 @@ export function WileyDeliverablesPanel() {
         <div className="flex items-center gap-2">
           {open ? <ChevronDown className="w-4 h-4 text-pink-700 dark:text-pink-300" /> : <ChevronRight className="w-4 h-4 text-pink-700 dark:text-pink-300" />}
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Wiley deliverables
+            Scheduled deliverables
           </h3>
           <span className="text-xs text-gray-500 dark:text-gray-400">
             Monthly per-topic · Quarterly bundle · scheduled email
@@ -366,7 +366,7 @@ export function WileyDeliverablesPanel() {
 
             {configs.length === 0 ? (
               <div className="text-xs text-gray-500 dark:text-gray-400 italic py-2">
-                No topics configured yet. To add a topic to a cadence, open the topic's Forecast Tracker tab — there's a "Wiley cadence" control inline with the assessment header.
+                No topics configured yet. To add a topic to a cadence, open the topic's Forecast Tracker tab — there's a "Delivery cadence" control inline with the assessment header.
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -589,7 +589,7 @@ function ConfigRow({
           type="text"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="recipient@wiley.com"
+          placeholder="recipient@example.com"
           className="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:text-gray-100 w-56"
         />
       </td>
@@ -664,7 +664,7 @@ function BundleCard({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `wiley_forecast_${cadence}${updatesOnly ? '_updates' : ''}.docx`;
+      a.download = `forecast_bundle_${cadence}${updatesOnly ? '_updates' : ''}.docx`;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {
@@ -692,7 +692,7 @@ function BundleCard({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `wiley_foresight_${cadence}${updatesOnly ? '_updates' : ''}.html`;
+      a.download = `foresight_bundle_${cadence}${updatesOnly ? '_updates' : ''}.html`;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
@@ -717,7 +717,7 @@ function BundleCard({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `wiley_forecast_${cadence}${updatesOnly ? '_updates' : ''}.md`;
+      a.download = `forecast_bundle_${cadence}${updatesOnly ? '_updates' : ''}.md`;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {

@@ -2,6 +2,48 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-08 — Forecast tracker: Wiley name removed from labels, placeholders and download filenames
+
+### Goal
+The sunstar demo site's Forecast Tracker showed a control labelled "Wiley
+cadence for this topic" with a `recipient@wiley.com` placeholder. The
+delivery cadence control, the deliverables panel and the bundle downloads
+were written for Wiley and nothing gates them per customer site, so every
+site showed another customer's name. Commit `4315c753`.
+
+### Fix — neutral wording in the three forecast tracker components
+**`ForecastAssessment.tsx`** `TopicCadenceInline` now reads "Delivery
+cadence for this topic" and the placeholder is `recipient@example.com`.
+**`WileyDeliverablesPanel.tsx`** heading is "Scheduled deliverables", its
+empty-state hint points at the "Delivery cadence" control, and its
+placeholder matches. **`TopicReportsPanel.tsx`** describes "long-form
+report decks" rather than "Wiley-style report decks". Component and
+service file names are unchanged; only user-visible strings moved.
+
+### Fix — download and email attachment filenames
+The four browser downloads in `WileyDeliverablesPanel.tsx`, the four
+route filenames in **`forecast_assessment_routes.py`** and the scheduled
+email attachment in **`wiley_delivery_service.py`** now use
+`forecast_bundle_{cadence}` (PPTX, DOCX, Markdown) and
+`foresight_bundle_{cadence}` (HTML) instead of `wiley_forecast_` and
+`wiley_foresight_`. Browser and server names agree, as before.
+
+### Verification
+`npm run typecheck` on sunstar: no new errors (230, all in the known
+baseline). `py_compile` on both Python files passed in bugfixing and
+sunstar. After `deploy-react-ui.sh` on sunstar the served
+`main-CvDKPa_A.js` bundle contains "Delivery cadence for this topic" and
+`forecast_bundle_`. No pytest covers these strings.
+
+### Propagation
+bugfixing (canonical, committed) and sunstar (same edits applied by sed,
+UI rebuilt, service restarted after the running ingest batch finished).
+wiley, wileytest, pearson, ibaset, oviva and bwtemplate still show the old
+wording until their UI is rebuilt from canonical; on the two Wiley sites
+the old label was not wrong, only inconsistent. wileytest's copies of
+`ForecastAssessment.tsx` and `WileyDeliverablesPanel.tsx` differ from
+canonical, so apply the string edits there surgically rather than copying.
+
 ## 2026-09-08 — Add-Topic wizard suggests anchored keywords and keeps them; Swiss elections disinformation topic set up in three languages
 
 ### Goal
