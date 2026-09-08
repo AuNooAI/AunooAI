@@ -59,6 +59,37 @@ above were edited live by the parallel Market Monitor session and are swept
 into this commit unreviewed beyond a compile check, per the never-cherry-pick
 rule.
 
+### Fix: the below-threshold save always wrote `filtered_relevance`, whatever status the caller set
+**`app/services/async_db.py`**, `save_below_threshold_article`. Follow-up to
+yesterday's no-text guard. By 11:13 the guard had fired 44 times on sunstar
+(36 image-only Bluesky posts, the two Haleon pages, a Princeton page, a
+Reuters story, a TikTok post) and each row carried the guard's explanation
+text, yet `ingest_status = 'enrichment_failed'` counted 0. The helper's
+parameter list passed the literal `"filtered_relevance"` for `ingest_status`
+instead of the caller's value, so every status routed through it was
+rewritten: the new `enrichment_failed`, and also the June unknown-topic
+guard's `skipped_unknown_topic` and `relevance_check_failed`, which had
+therefore never persisted either. The rows still stopped looping, which is
+why nobody saw it.
+
+One line: `article_data.get("ingest_status") or "filtered_relevance"`. The
+default is unchanged for the relevance filter, which sets no status of its
+own.
+
+Verification: compiles; a probe row saved through the helper on the dev
+database (`test`) with `ingest_status='enrichment_failed'` read back as
+`enrichment_failed`, then deleted. Rows already written with the wrong
+status keep it; the next cycle rewrites them, since the pipeline
+re-processes collected articles each time.
+
+Propagation: all eight trees held the identical file (blob `3f8c37c62e`);
+copied and compiled everywhere. Restarted job-gated 2026-09-08 ~11:20:
+bugfixing, sunstar, oviva, abm, wbm, wiley all login 200; wileytest
+mid-collection, restarts when idle; bwtemplate inactive.
+
+Ride-along: `app/services/market_report_html.py`, edited live by the
+parallel Market Monitor session, compile-checked only.
+
 ### Fix: account profiler said "No twitter account found" when the provider was refusing
 Oviva's Brand Watcher "Top critics" panel offered to profile @meddidocc; the
 profile call came back `No twitter account found for 'meddidocc'`. The account

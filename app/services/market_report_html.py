@@ -2889,12 +2889,12 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     if market.get("is_public"):
         rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
                'title="Subscribe in a feed reader">RSS</a>' + _AI_FEED_LINK.format(days=days))
-    body = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>", '<div class="mm-news">',
+    body = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>", '<div class="mm-news mm-v2">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
             f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
             f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
-            f'{rss}{_book_link(market)}</nav>'
+            f'{rss}{_book_link(market)}{_theme_toggle()}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>',
             '<main class="n-river">',
             '<div class="n-head"><div>'
@@ -2903,13 +2903,13 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
             f'<p class="n-sub">{len(rows)} articles and posts matched in the '
             f'period, {len(clustered)} stories, newest first.</p></div>'
             f'<div><nav class="n-periods" aria-label="Reporting period">'
-            f'{periods}{rss}</nav></div></div>',
-            render_news_river(clustered),
+            f'{periods}</nav><nav class="n-periods" aria-label="Feeds">{rss}</nav></div></div>',
+            '<section class="v2-river">' + render_news_river(clustered) + "</section>",
             "</main>",
             '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>',
             "</div>"]
-    rendered = html_document(f'{market["name"]} — news river', "".join(body))
+    rendered = v2_document(f'{market["name"]} — news river', "".join(body))
     rendered = ent.enforce_no_withheld(rendered, withheld,
                                        context=f'market {market["id"]} news river')
     return rendered.encode("utf-8")
@@ -3000,13 +3000,14 @@ body { font-family:var(--font-sans); color:var(--text-primary); }
 .container > .ai-disclosure, .container > p.mm-src { color:var(--text-on-dark) !important;
   border-top-color:var(--separator-dark) !important; font-family:var(--font-sans); }
 .container > .ai-disclosure a, .container > p.mm-src a { color:var(--accent-text-active); }
-/* The old names, remapped so the shared news rules pick up the new values. */
-.mm-news.mm-v2 { font-family:var(--font-sans);
-  --n-bg:var(--area-bg); --n-shell:var(--wrap); --n-panel:var(--wrap); --n-text:var(--text-primary);
+/* The old names, remapped so the shared news rules pick up the new values.
+   Also on a nested .mm-news, whose own rule would otherwise reset them. */
+.mm-news.mm-v2, .mm-v2 .mm-news { --n-bg:var(--area-bg); --n-shell:var(--wrap); --n-panel:var(--wrap); --n-text:var(--text-primary);
   --n-muted:var(--text-muted); --n-line:var(--sidebar-border); --n-accent:var(--accent-ink);
   --n-accent-soft:var(--accent-tint-08); --n-blue:var(--beat-launches); --n-green:var(--beat-hiring);
   --n-orange:var(--beat-cases); --n-purple:var(--beat-moves); --n-cyan:var(--beat-social);
-  --n-amber:var(--beat-research);
+  --n-amber:var(--beat-research); }
+.mm-news.mm-v2 { font-family:var(--font-sans);
   margin:0 0 var(--s-4); border:0; border-radius:var(--r-area); box-shadow:var(--shadow-panel);
   background:var(--area-bg); color:var(--text-primary); line-height:1.5; }
 .mm-v2 ::selection { background:var(--accent-tint-30); }
@@ -3066,10 +3067,11 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .n-jump-page { border:0; color:var(--text-on-dark); }
 .mm-v2 .n-top .n-market { display:none; }
 /* ---- masthead */
-.mm-v2 .v2-mast { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap;
+.mm-v2 .v2-mast, .mm-v2 div.n-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap;
+  margin:0;
   gap:var(--s-4) var(--s-6); padding:var(--s-7) var(--s-7) var(--s-5);
   border-bottom:1px solid var(--sidebar-border); }
-.mm-v2 .v2-mast h1 { font-size:clamp(32px,4.8vw,52px); font-weight:600; line-height:1.0;
+.mm-v2 .v2-mast h1, .mm-v2 div.n-head h1 { font-size:clamp(32px,4.8vw,52px); font-weight:600; line-height:1.0;
   letter-spacing:-.038em; color:var(--text-primary); }
 .mm-v2 .n-kicker { color:var(--text-muted); font-size:var(--fs-meta); font-weight:500;
   letter-spacing:.006em; text-transform:none; margin:0 0 var(--s-2); }
@@ -3126,9 +3128,6 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
   border-bottom:1px solid var(--sidebar-border); padding-bottom:var(--s-3); margin-bottom:var(--s-3); }
 .mm-v2 .v2-side .n-block h3 { font-size:var(--fs-lead); font-weight:600; line-height:1.32; margin:var(--s-2) 0; }
 .mm-v2 .v2-side .n-block > p { margin:0 0 var(--s-3); }
-.mm-v2 .v2-side .n-block .mm-btn { background:transparent; color:var(--accent-ink) !important;
-  padding:0; min-height:0; margin:0; font-weight:500; }
-.mm-v2 .v2-side .n-block .mm-btn:hover { background:transparent; text-decoration:underline !important; }
 .mm-v2 .n-updated { color:var(--text-muted); font-size:var(--fs-meta); letter-spacing:.006em; }
 /* ---- stories */
 .mm-v2 .n-story { padding:var(--s-4) 0; border-bottom:1px solid var(--sidebar-border); }
@@ -3325,7 +3324,10 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-about h2 { font-size:var(--fs-h2); letter-spacing:-.022em; text-transform:none; margin:0 0 var(--s-2);
   border:0; padding:0; }
 .mm-v2 .v2-about p { margin:0 0 var(--s-3); }
-.mm-v2 .v2-one > .mm-news { margin:0; box-shadow:none; }
+.mm-v2 .mm-news { margin:0; border:0; border-radius:0; box-shadow:none; background:transparent; overflow:visible; }
+.mm-v2 .n-block > p:not([class]), .mm-v2 .section p:not([class]), .mm-v2 .section li, .mm-v2 .mm-drawer-body > p:not([class]) {
+  font-family:var(--font-read); font-optical-sizing:auto; font-weight:var(--w-read); font-size:var(--fs-body); line-height:1.6;
+  color:var(--text-secondary); max-width:66ch; }
 .mm-v2 .v2-one > .mm-news .n-river { padding:0; }
 .mm-v2 .n-day { color:var(--text-muted); font-size:var(--fs-meta); font-weight:500; letter-spacing:.006em;
   text-transform:none; border-bottom:1px solid var(--sidebar-border); padding-bottom:var(--s-2); margin:var(--s-5) 0 var(--s-1); }
@@ -3342,19 +3344,19 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .mm-teaser-cta > div, .mm-v2 .v2-callout { background:var(--accent-tint-08); border:1px solid var(--sidebar-border);
   border-left:2px solid var(--accent); border-radius:0 var(--r-md) var(--r-md) 0; padding:var(--s-3) var(--s-4);
   max-width:none; text-align:left; font-size:var(--fs-small); color:var(--text-secondary); box-shadow:none; }
-/* ---- buttons and the form */
-.mm-v2 .mm-btn { display:inline-flex; align-items:center; justify-content:center; min-height:40px;
+/* ---- buttons and the form. One filled button per view (Hick's Law): the
+   form's submit. Every other .mm-btn on a page is a link in the accent ink. */
+.mm-v2 .mm-btn { display:inline; min-height:0; padding:0; margin:0; border:0; background:transparent;
+  color:var(--accent-ink) !important; font:inherit; font-size:var(--fs-small); font-weight:500; cursor:pointer;
+  text-decoration:underline !important; text-decoration-color:var(--chip-count) !important; }
+.mm-v2 .mm-btn:hover { background:transparent; text-decoration-color:currentColor !important; }
+.mm-v2 .mm-trial .mm-btn, .mm-v2 .v2-inq .mm-btn { display:inline-flex; align-items:center; justify-content:center; min-height:40px;
   padding:0 var(--s-4); margin:0; border:0; border-radius:var(--r-control); background:var(--accent-strong);
   color:var(--on-accent) !important; font-family:inherit; font-size:var(--fs-small); font-weight:500; line-height:1.2;
   cursor:pointer; text-decoration:none !important; transition:background var(--t-fast); }
-.mm-v2 .mm-btn:hover { background:var(--accent-strong-hover); }
-.mm-v2 .mm-btn:active { background:var(--accent-strong-hover); transform:translateY(1px); }
+.mm-v2 .mm-trial .mm-btn:hover, .mm-v2 .v2-inq .mm-btn:hover { background:var(--accent-strong-hover); }
+.mm-v2 .mm-trial .mm-btn:active, .mm-v2 .v2-inq .mm-btn:active { background:var(--accent-strong-hover); transform:translateY(1px); }
 .mm-v2 .mm-btn:disabled { opacity:.55; cursor:default; transform:none; }
-/* The ask inside a callout is a link, not a second filled button (Hick's Law). */
-.mm-v2 .mm-teaser-cta .mm-btn { display:inline; min-height:0; padding:0; margin:0; background:transparent;
-  color:var(--accent-ink) !important; font-weight:500; text-decoration:underline !important;
-  text-decoration-color:var(--chip-count) !important; }
-.mm-v2 .mm-teaser-cta .mm-btn:hover { background:transparent; text-decoration-color:currentColor !important; }
 .mm-v2 .mm-trial h2 { font-size:var(--fs-h3); letter-spacing:-.02em; margin:0 0 var(--s-2); }
 .mm-v2 .mm-trial > p { margin:0 0 var(--s-3); max-width:66ch; }
 .mm-v2 .mm-trial form { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:var(--s-4); align-items:end;
@@ -3376,6 +3378,141 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 > p.mm-src { margin:var(--s-5) var(--s-6) 0; font-size:var(--fs-meta); color:var(--text-muted); line-height:1.6;
   letter-spacing:.006em; max-width:66ch; }
 .mm-v2 > p.mm-src a { color:var(--accent-ink); }
+
+/* ---- Analyst View, news river and briefing: the same shell, other blocks */
+.mm-v2 .n-main, .mm-v2 .n-river { padding:0; }
+.mm-v2 .n-main > .n-head, .mm-v2 .n-river > .n-head { margin-bottom:var(--s-5); }
+.mm-v2 .v2-mast > div:last-child, .mm-v2 div.n-head > div:last-child { display:grid; justify-items:end; gap:var(--s-2); }
+.mm-v2 .v2-mast .n-periods, .mm-v2 div.n-head .n-periods { margin-bottom:0; }
+.mm-v2 .n-main > .n-block, .mm-v2 .n-main > .mm-drawer, .mm-v2 .n-main > .n-grid, .mm-v2 .n-main > .n-distil,
+.mm-v2 > .mm-drawer, .mm-v2 .n-river > .n-block, .mm-v2 .n-river > .n-distil, .mm-v2 .n-river > .v2-river {
+  margin:0 var(--s-6) var(--s-5); }
+.mm-v2 .n-main > .n-block, .mm-v2 .n-grid > section, .mm-v2 .n-card, .mm-v2 .mm-drawer, .mm-v2 .n-river > .n-block,
+.mm-v2 .v2-river { background:var(--wrap); border:1px solid var(--sidebar-border); border-radius:var(--r-card);
+  padding:var(--s-5) var(--s-6) var(--s-4); min-width:0; max-width:none; box-shadow:none; }
+.mm-v2 .n-card { padding:var(--s-5); }
+.mm-v2 .n-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:var(--s-5); align-items:start; }
+.mm-v2 .n-aside { display:grid; gap:var(--s-5); align-content:start; min-width:0; }
+.mm-v2 .n-block, .mm-v2 .n-block .n-sec-head { margin-bottom:0; }
+.mm-v2 .n-sec-head { border:0; border-bottom:1px solid var(--sidebar-border); padding:0 0 var(--s-3); margin:0 0 var(--s-3);
+  align-items:baseline; gap:var(--s-3); }
+.mm-v2 .n-sec-head h2, .mm-v2 .n-card-title h2 { font-size:var(--fs-h2); font-weight:600; line-height:1.24; letter-spacing:-.022em;
+  color:var(--text-primary); text-transform:none; }
+.mm-v2 .n-card-title { border-bottom:1px solid var(--sidebar-border); padding-bottom:var(--s-3); margin-bottom:var(--s-3); }
+.mm-v2 .n-card-title h2 { font-size:var(--fs-h3); letter-spacing:-.02em; }
+.mm-v2 .n-sec-actions { gap:var(--s-2); }
+.mm-v2 .n-sec-actions .n-rss { display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 var(--s-3);
+  border:1px solid var(--sidebar-border); border-radius:var(--r-control); background:transparent; color:var(--text-muted);
+  font-size:var(--fs-small); font-weight:500; }
+.mm-v2 .n-sec-actions .n-rss:hover { color:var(--accent-ink); border-color:var(--accent-ink); }
+.mm-v2 .n-block h3 { font-size:var(--fs-h3); letter-spacing:-.02em; line-height:1.32; margin:0 0 var(--s-2); }
+/* Findings: the number is a numeral, not a filled circle */
+.mm-v2 .n-finding { padding:var(--s-3) 0 var(--s-3) 34px; border-bottom:1px solid var(--sidebar-border); }
+.mm-v2 .n-finding::before { top:var(--s-3); width:22px; height:auto; border-radius:0; background:transparent;
+  color:var(--accent-ink); font-size:var(--fs-small); font-weight:600; font-variant-numeric:tabular-nums; display:block; line-height:1.5; }
+.mm-v2 .n-finding h3 { font-size:var(--fs-h3); font-weight:600; line-height:1.32; letter-spacing:-.018em; margin:0 0 var(--s-1); }
+.mm-v2 .n-finding p { font-family:var(--font-read); font-optical-sizing:auto; font-weight:var(--w-read); font-size:var(--fs-body);
+  line-height:1.6; color:var(--text-secondary); max-width:66ch; }
+/* Synthesis tiles nest on the panel colour */
+.mm-v2 .n-synth { gap:var(--s-3); }
+.mm-v2 .n-synth-item { background:var(--area-bg); border:1px solid var(--sidebar-border); border-radius:var(--r-xl); padding:var(--s-3) var(--s-4); }
+.mm-v2 .n-synth-item h3 { font-size:var(--fs-body); font-weight:600; margin:0 0 var(--s-1); }
+.mm-v2 .n-synth-item p { font-family:var(--font-read); font-optical-sizing:auto; font-weight:var(--w-read); font-size:var(--fs-body);
+  line-height:1.6; color:var(--text-secondary); }
+.mm-v2 .n-coverage, .mm-v2 .mm-cover { font-family:var(--font-sans); font-size:var(--fs-micro); font-weight:500; letter-spacing:.01em;
+  color:var(--m-amber); background:color-mix(in srgb, var(--m-amber) 13%, transparent); border:0; border-radius:var(--r-sm);
+  padding:var(--s-1) var(--s-3); display:inline-flex; margin:var(--s-2) 0 0; }
+.mm-v2 .mm-cover.full { color:var(--m-green); background:color-mix(in srgb, var(--m-green) 13%, transparent); }
+.mm-v2 .n-state { grid-template-columns:12px 40px minmax(0,1fr); padding:var(--s-2) 0; border-bottom:1px solid var(--sidebar-border);
+  font-size:var(--fs-small); }
+.mm-v2 .n-state:last-of-type { border-bottom:0; }
+/* Tables */
+.mm-v2 .mm-table { font-size:var(--fs-small); }
+.mm-v2 .mm-table th { font-size:var(--fs-meta); font-weight:500; text-transform:none; letter-spacing:.006em; color:var(--text-muted);
+  padding:var(--s-2) var(--s-2); border-bottom:1px solid var(--sidebar-border); }
+.mm-v2 .mm-table td { padding:var(--s-2); border-bottom:1px solid var(--sidebar-border); color:var(--text-secondary); }
+.mm-v2 .mm-table tr:last-child td { border-bottom:0; }
+.mm-v2 .mm-table strong, .mm-v2 .n-moved a { color:var(--text-primary); font-weight:500; }
+.mm-v2 .n-why-cell { color:var(--text-muted); font-size:var(--fs-meta); }
+.mm-v2 .mm-kind { font-size:var(--fs-micro); font-weight:500; letter-spacing:.01em; padding:2px var(--s-2); border:0;
+  border-radius:var(--r-sm); color:var(--m-green); background:color-mix(in srgb, var(--m-green) 13%, transparent); }
+.mm-v2 .n-more > summary { font-size:var(--fs-small); font-weight:500; color:var(--accent-ink); padding:var(--s-2) 0; }
+/* Stat tiles inside the evidence drawer */
+.mm-v2 .mm-stats { gap:var(--s-3); margin:var(--s-3) 0 var(--s-4); }
+.mm-v2 .mm-stat { background:var(--area-bg); border:1px solid var(--sidebar-border); border-radius:var(--r-xl); padding:var(--s-3) var(--s-4); }
+.mm-v2 .mm-stat .v { font-size:28px; font-weight:600; line-height:1; letter-spacing:-.036em; color:var(--text-primary);
+  font-variant-numeric:tabular-nums; margin:var(--s-2) 0 var(--s-1); }
+.mm-v2 .mm-stat .l { font-size:var(--fs-meta); font-weight:400; text-transform:none; letter-spacing:.006em; color:var(--text-muted); }
+.mm-v2 .mm-stat .h { font-size:var(--fs-micro); color:var(--text-subtle); }
+.mm-v2 .n-plain .n-metric { background:var(--area-bg); }
+/* Drawers: a content box whose summary is one disclosure row */
+.mm-v2 .mm-drawer { margin-top:0; }
+.mm-v2 .mm-drawer > summary { position:relative; display:grid; grid-template-columns:minmax(0,1fr) 28px; gap:var(--s-1) var(--s-3);
+  align-items:center; min-height:52px; margin:calc(-1 * var(--s-3)) calc(-1 * var(--s-2)); padding:var(--s-3) var(--s-2);
+  border-radius:var(--r-control); cursor:pointer; list-style:none; }
+.mm-v2 .mm-drawer > summary::-webkit-details-marker { display:none; }
+.mm-v2 .mm-drawer > summary::after { content:"+"; position:static; grid-column:2; grid-row:1 / span 2; color:var(--text-subtle);
+  font-size:18px; line-height:1; text-align:center; }
+.mm-v2 .mm-drawer[open] > summary::after { content:"\\2212"; }
+.mm-v2 .mm-drawer > summary:hover { background:var(--chip-soft); }
+.mm-v2 .mm-drawer > summary:hover .mm-drawer-t, .mm-v2 .mm-drawer > summary:hover::after { color:var(--accent-ink); }
+.mm-v2 .mm-drawer-t { font-size:var(--fs-h3); font-weight:500; line-height:1.35; letter-spacing:-.012em; color:var(--text-primary); }
+.mm-v2 .mm-drawer-b { font-size:var(--fs-meta); color:var(--text-muted); letter-spacing:.006em; max-width:66ch; }
+.mm-v2 .mm-drawer-body { padding:var(--s-4) 0 0; animation:v2-reveal .16s ease; }
+.mm-v2 .mm-drawer[open] > summary { margin-bottom:0; border-bottom:1px solid var(--sidebar-border); border-radius:var(--r-control) var(--r-control) 0 0; }
+.mm-v2 .section { margin-top:var(--s-5); }
+.mm-v2 .section:first-child { margin-top:0; }
+.mm-v2 .section h2 { font-size:var(--fs-h2); font-weight:600; letter-spacing:-.022em; margin:0 0 var(--s-2); }
+.mm-v2 .section h3 { font-size:var(--fs-lead); font-weight:600; letter-spacing:-.018em; margin:var(--s-4) 0 var(--s-2); }
+.mm-v2 .section p, .mm-v2 .section li { font-size:var(--fs-body); line-height:1.6; color:var(--text-secondary); max-width:66ch; }
+.mm-v2 .section p.mm-src, .mm-v2 .section .mm-src { font-size:var(--fs-meta); color:var(--text-muted); letter-spacing:.006em; }
+.mm-v2 .section-eyebrow { color:var(--text-muted); font-size:var(--fs-meta); font-weight:500; letter-spacing:.006em; text-transform:none; }
+.mm-v2 .mm-fold { margin:var(--s-3) 0; border-top:1px solid var(--sidebar-border); }
+.mm-v2 .mm-fold > summary { font-size:var(--fs-small); font-weight:500; color:var(--text-secondary); padding:var(--s-3) 0; }
+.mm-v2 .mm-fold > summary::marker { color:var(--text-subtle); }
+.mm-v2 .mm-fold > summary:hover { color:var(--accent-ink); }
+.mm-v2 .mm-reading { font-size:var(--fs-body); }
+.mm-v2 .mm-reading.pos { color:var(--m-green); } .mm-v2 .mm-reading.pos .dot { background:var(--m-green); }
+.mm-v2 .mm-reading.neg { color:var(--m-red); } .mm-v2 .mm-reading.neg .dot { background:var(--m-red); }
+.mm-v2 .mm-reading.neutral { color:var(--text-secondary); } .mm-v2 .mm-reading.neutral .dot { background:var(--text-subtle); }
+/* Charts drawn with literal colours: remapped so they follow the theme */
+.mm-v2 svg.mm-chart [fill="#f8fafc"], .mm-v2 svg.mm-chart [fill="#eef2f6"] { fill:var(--wrap-2); }
+.mm-v2 svg.mm-chart [stroke="#e5e7eb"], .mm-v2 svg.mm-chart [stroke="#e2e8f0"], .mm-v2 svg.mm-chart [stroke="#cbd5e1"] { stroke:var(--sidebar-border); }
+.mm-v2 svg.mm-chart [fill="#64748b"], .mm-v2 svg.mm-chart [fill="#6b7280"], .mm-v2 svg.mm-chart [fill="#475569"],
+.mm-v2 svg.mm-chart [fill="#374151"], .mm-v2 svg.mm-chart [fill="#334155"] { fill:var(--text-muted); }
+.mm-v2 svg.mm-chart [stroke="#64748b"], .mm-v2 svg.mm-chart [stroke="#475569"], .mm-v2 svg.mm-chart [stroke="#334155"],
+.mm-v2 svg.mm-chart [stroke="#9ca3af"] { stroke:var(--text-muted); }
+.mm-v2 svg.mm-chart [fill="#94a3b8"], .mm-v2 svg.mm-chart [fill="#9ca3af"], .mm-v2 svg.mm-chart [fill="#8b93a1"] { fill:var(--text-subtle); }
+.mm-v2 svg.mm-chart [fill="#d4d8de"] { fill:var(--chip-count); }
+.mm-v2 svg.mm-chart [fill="#0f172a"], .mm-v2 svg.mm-chart [fill="#1e293b"] { fill:var(--text-primary); }
+.mm-v2 svg.mm-chart [stroke="#0f172a"] { stroke:var(--text-primary); }
+.mm-v2 svg.mm-chart [fill="#30a46c"] { fill:var(--m-green); } .mm-v2 svg.mm-chart [stroke="#30a46c"] { stroke:var(--m-green); }
+.mm-v2 svg.mm-chart [stroke="#1d4ed8"] { stroke:var(--mention); } .mm-v2 svg.mm-chart [stroke="#b45309"] { stroke:var(--m-amber); }
+.mm-v2 svg.mm-chart text { font-family:var(--font-sans); }
+/* The news river as a box of day groups */
+.mm-v2 .v2-river .n-day:first-child { margin-top:0; }
+.mm-v2 .n-item .n-src { color:var(--text-muted); }
+.mm-v2 .n-item .n-more, .mm-v2 .n-item .n-more a { color:var(--text-muted); font-size:var(--fs-meta); }
+.mm-v2 .n-item .n-more a:hover { color:var(--accent-ink); }
+/* Briefing body */
+.mm-v2 .v2-briefing { max-width:66ch; }
+.mm-v2 .v2-briefing h2 { font-size:var(--fs-h2); letter-spacing:-.022em; margin:var(--s-6) 0 var(--s-2); }
+.mm-v2 .v2-briefing h3 { font-size:var(--fs-h3); letter-spacing:-.02em; margin:var(--s-5) 0 var(--s-2); }
+.mm-v2 .v2-briefing p, .mm-v2 .v2-briefing li { font-family:var(--font-read); font-optical-sizing:auto; font-weight:var(--w-read);
+  font-size:var(--fs-lead); line-height:1.6; color:var(--text-secondary); margin:0 0 var(--s-3); }
+.mm-v2 .v2-briefing ul, .mm-v2 .v2-briefing ol { padding-left:20px; }
+@media (max-width:1080px) { .mm-v2 .n-grid { grid-template-columns:1fr; } }
+@media (max-width:860px) {
+  .mm-v2 .n-main > .n-block, .mm-v2 .n-main > .mm-drawer, .mm-v2 .n-main > .n-grid, .mm-v2 .n-main > .n-distil,
+  .mm-v2 > .mm-drawer, .mm-v2 .n-river > .n-block, .mm-v2 .n-river > .n-distil, .mm-v2 .n-river > .v2-river { margin:0 var(--s-5) var(--s-4); }
+  .mm-v2 .n-main > .n-block, .mm-v2 .n-grid > section, .mm-v2 .mm-drawer, .mm-v2 .v2-river { padding:var(--s-4) var(--s-5); }
+}
+@media (max-width:560px) {
+  .mm-v2 .n-main > .n-block, .mm-v2 .n-main > .mm-drawer, .mm-v2 .n-main > .n-grid, .mm-v2 .n-main > .n-distil,
+  .mm-v2 > .mm-drawer, .mm-v2 .n-river > .n-block, .mm-v2 .n-river > .n-distil, .mm-v2 .n-river > .v2-river { margin:0 var(--s-4) var(--s-4); }
+  .mm-v2 .n-main > .n-block, .mm-v2 .n-grid > section, .mm-v2 .n-card, .mm-v2 .mm-drawer, .mm-v2 .v2-river { padding:var(--s-4); }
+  .mm-v2 .n-metrics { grid-template-columns:1fr; }
+}
 /* ---- motion */
 html { scroll-behavior:smooth; }
 .mm-v2 [id] { scroll-margin-top:var(--s-5); }
@@ -3392,7 +3529,7 @@ html { scroll-behavior:smooth; }
 }
 @media (max-width:860px) {
   .container { padding:var(--s-3) var(--s-3) var(--s-7); }
-  .mm-v2 .v2-mast { padding:var(--s-6) var(--s-5) var(--s-4); align-items:flex-start; }
+  .mm-v2 .v2-mast, .mm-v2 div.n-head { padding:var(--s-6) var(--s-5) var(--s-4); align-items:flex-start; }
   .mm-v2 .v2-mast > div:last-child { text-align:left; }
   .mm-v2 .n-period { text-align:left; }
   .mm-v2 .v2-grid { padding:var(--s-4) var(--s-5); }
@@ -3409,7 +3546,7 @@ html { scroll-behavior:smooth; }
 @media (max-width:560px) {
   .mm-news.mm-v2 { border-radius:var(--r-2xl); }
   .mm-v2 .n-top, .mm-v2 .n-foot { padding:var(--s-3) var(--s-4); }
-  .mm-v2 .v2-mast { padding:var(--s-5) var(--s-4) var(--s-4); }
+  .mm-v2 .v2-mast, .mm-v2 div.n-head { padding:var(--s-5) var(--s-4) var(--s-4); }
   .mm-v2 .v2-grid { padding:var(--s-4); }
   .mm-v2 .v2-sec, .mm-v2 .v2-card, .mm-v2 .v2-lead > .v2-lead-story, .mm-v2 .v2-findings,
   .mm-v2 .v2-side > .n-block, .mm-v2 .mm-trial, .mm-v2 .v2-about, .mm-v2 .v2-one > .v2-piece-page { padding:var(--s-4); }
@@ -4772,9 +4909,10 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
 
     nav = ('<div class="n-top">' + _brand_line()
            + '<nav class="n-pages" aria-label="Pages">'
+           f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
            f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
-           f'<a href="?{_relink(link_params, days=days, view="news")}">News</a>'
-           '</nav>'
+           f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
+           f'{_theme_toggle()}</nav>'
            f'<span class="n-market">{esc(market["name"])}</span></div>')
     if not briefing:
         main = ('<main class="n-river"><div class="n-head"><div>'
@@ -4800,12 +4938,13 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
                 f'<div class="n-kicker">Market monitor · '
                 f'{esc(briefing.get("period_label", ""))}</div>'
                 f'<h1>{esc(briefing.get("title", ""))}</h1></div></div>'
-                + mbr.render_body(briefing) + more + "</main>")
-    body = (f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>" '<div class="mm-news">'
+                '<section class="n-block v2-briefing">' + mbr.render_body(briefing) + more
+                + "</section></main>")
+    body = (f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>" '<div class="mm-news mm-v2">'
             + nav + main
             + '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])}</span></div></div>')
-    rendered = html_document(f'{market["name"]} — briefing', body)
+    rendered = v2_document(f'{market["name"]} — briefing', body)
     rendered = ent.enforce_no_withheld(rendered, withheld,
                                        context=f'market {market["id"]} briefing page')
     return rendered.encode("utf-8")
@@ -4984,7 +5123,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             announced[name] = announced.get(name, 0) + 1
 
     generated = datetime.now(timezone.utc)
-    body: List[str] = [f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}</style>"]
+    body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>"]
 
     period_range = _fmt_range(*pc["current_range"]) if pc else None
     period_txt = (period_range or f"last {days} days")
@@ -5005,7 +5144,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     # ================================================================
     # The lead
     # ================================================================
-    body.append('<div class="mm-news">')
+    body.append('<div class="mm-news mm-v2">')
     body.append('<div class="n-top">'
                 + _brand_line()
                 + '<nav class="n-jump" aria-label="Jump to section">'
@@ -5021,7 +5160,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
                 + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
                    + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
-                + _book_link(market) + '</nav>'
+                + _book_link(market) + _theme_toggle() + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')
@@ -5135,7 +5274,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     body.append("</aside></div></main>")
     body.append('<div class="n-foot">' + _brand_line()
                 + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>')
-    body.append("</div>")
+    # The panel stays open: the trial ask and the drawers below sit inside
+    # it as content boxes, and the page closes it at the end.
     body.append(f"<script>{_NEWS_JS}</script>")
     if teaser:
         body.append(_trial_panel(market["id"]))
@@ -5794,9 +5934,10 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
 
     if allowed_brand_ids is not None:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
+    body.append("</div>")   # closes .mm-news.mm-v2
 
-    rendered = html_document(f'{market["name"]} Market Maturity Map',
-                             "".join(body))
+    rendered = v2_document(f'{market["name"]} Market Maturity Map',
+                           "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)
 
