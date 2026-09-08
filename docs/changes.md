@@ -330,6 +330,61 @@ above were edited live by the parallel Market Monitor session and are swept
 into this commit unreviewed beyond a compile check, per the never-cherry-pick
 rule.
 
+### Fix: Trend Convergence page re-requested a missing topic ten times a second
+Found while chasing an evening memory squeeze on the host: sunstar's journal
+was filling with `Completed analysis run log … 'failed'` and nginx showed one
+address (Oliver's own browser) hitting
+`GET /api/trend-convergence/Oral-Systemic%20Health?…&cache_only=true&tab=horizons`
+at 373–683 requests per minute from 16:34 to ~21:30, 196,510 requests in
+the day, every one a 404 `No articles found for topic`. The topic in that
+browser's saved page state, "Oral-Systemic Health", no longer exists on
+sunstar (renamed to "Oral-Systemic Health Research"). Nothing was written to
+the database (`analysis_run_logs` had 0 rows for it); the cost was server
+work and log volume.
+
+Mechanism: `App.tsx`'s tab-sync effect calls `loadCached()` when
+localStorage has nothing for the topic+tab. A backend hit lands in
+localStorage and the guard stops the cycle; a 404 stores nothing, so any
+re-run of the effect probes again, forever. The 2026-09-02 fix (`1e5a022d`,
+`updateConfig` no-ops when unchanged) closed the main re-run trigger but
+sunstar, abm and wbm were still serving the 6 August bundle
+(`index-DzJ-ahB2.js`) that predates it.
+
+**`ui/src/App.tsx`**: a `probedCacheRef` set records each topic+tab key
+once probed; the effect skips keys already probed this page load. The
+settings panel's explicit re-check clears the key for the current pair so a
+user-initiated re-probe still works. Belt and braces on top of `1e5a022d`.
+
+Verification: `npm run typecheck` clean against baseline. Headless on
+sunstar with the new bundle and the stale topic seeded into localStorage
+exactly as the looping browser had it: 2 requests in 20 s (the cache probe
+and the `/previous` fallback), then silence. Nginx: 0 requests for the stale
+topic in the minute after deploy, from 573 the minute before.
+
+Propagation: rebuilt with `./ui/deploy-react-ui.sh` (`main-CTO20hjD.js`);
+every active site ran a different, older main chunk, so static and
+templates were rsynced to sunstar, oviva, abm, wbm, wiley and wileytest after
+a per-site backup to the session scratchpad. Templates differed only by
+asset hashes except abm and wbm, which lacked canonical's newer Beta badge in
+the shared nav. All six restarted idle ~21:32, login 200.
+
+Ride-along from the parallel Market Monitor session (compile-checked, its
+test file passes): `app/services/market_report_html.py`,
+`tests/test_market_report_v2.py`.
+
+### Ops: nova-lite circuit breaker on sunstar, 18:30–18:35
+Bedrock answered a few nova-lite calls at 18:30:06 with
+`"Inference Profile ARN not found"` (over 280 had succeeded in the two
+minutes before; a direct call succeeded seconds later). The app's circuit
+breaker opened for nova-lite for 300 s. `nova-lite` has no entry in the yaml
+fallback map (every gpt alias falls back to kimi/nova; nova itself falls
+back to nothing), so every relevance-scoring call in the window returned an
+error and the hybrid scorer used its local score. 0 rows reached
+`relevance_check_failed`. The enrichment batch ended before the breaker
+released, so no further nova-lite call was attempted that evening. Not
+changed: adding `nova-lite: [bedrock-kimi-k2-5]` to the fallback map is the
+one-line follow-up.
+
 ### Ops/config: every scheduled feature and every Haiku-tier code literal now runs on kimi-k2.5
 Prompted by oviva's emerging-topics run at 11:56 reporting `gpt-4o-mini` and
 returning malformed JSON from Haiku. Nothing calls OpenAI; the gpt-* names are

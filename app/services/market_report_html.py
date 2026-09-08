@@ -4304,10 +4304,26 @@ def _v2_topics(topics: Optional[Dict[str, Any]], link_params: Dict[str, Any],
 
 
 def _v2_motion(rows: List[Dict[str, Any]],
-               logos: Optional[Dict[str, str]] = None) -> str:
+               logos: Optional[Dict[str, str]] = None,
+               prev: Optional[List[Dict[str, Any]]] = None) -> str:
     """Who got attention: the vendors whose own posts drew the most reactions,
     and the vendors others wrote about most. ``rows`` are share_of_voice's
-    per-vendor rows, already reduced to the vendors the reader may see."""
+    per-vendor rows, already reduced to the vendors the reader may see;
+    ``prev`` is the same for the window before, so each bar can carry an
+    up/down marker — without it a 30-day rolling sum reads as static."""
+    def _delta(vendor: str, key: str, now: int) -> str:
+        if prev is None:
+            return ""
+        before = next((int(p.get(key) or 0) for p in prev
+                       if p.get("vendor") == vendor), 0)
+        if now > before:
+            return (f'<span class="v2-move up" title="{before:,} in the period '
+                    f'before">&#9650; {now - before:,}</span>')
+        if now < before:
+            return (f'<span class="v2-move down" title="{before:,} in the period '
+                    f'before">&#9660; {before - now:,}</span>')
+        return '<span class="v2-move same" title="the same in the period before">=</span>'
+
     by_reactions = sorted((r for r in rows if int(r.get("reactions") or 0) > 0),
                           key=lambda r: -int(r.get("reactions") or 0))[:_V2_TOP_VENDORS]
     by_earned = sorted((r for r in rows if int(r.get("earned") or 0) > 0),
@@ -4326,7 +4342,9 @@ def _v2_motion(rows: List[Dict[str, Any]],
                        f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
                        f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
                        f'<div class="v2-bar-n">{n:,}</div>'
-                       f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span></div>')
+                       + (_delta(r["vendor"], "reactions", n) or
+                          f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span>')
+                       + '</div>')
         out.append("</div>")
     if by_earned:
         top = max(int(r["earned"]) for r in by_earned) or 1
@@ -4338,7 +4356,9 @@ def _v2_motion(rows: List[Dict[str, Any]],
             out.append('<div class="v2-bar">'
                        f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
                        f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
-                       f'<div class="v2-bar-n">{n}</div><span></span></div>')
+                       f'<div class="v2-bar-n">{n}</div>'
+                       + (_delta(r["vendor"], "earned", n) or "<span></span>")
+                       + '</div>')
         out.append("</div>")
     return "".join(out)
 
@@ -4543,6 +4563,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     hiring = _safe(man.hiring, conn, market["id"], days=days) or {}
     sov_rows = list(((_safe(man.share_of_voice, conn, market["id"], days=days)
                       if section is None else None) or {}).get("vendors") or [])
+    # The same numbers for the window before this one, so the attention card
+    # can mark movement — a 30-day rolling sum barely shifts day to day and
+    # read as "not updating" without it (8 Sep 2026).
+    sov_prev = list(((_safe(man.share_of_voice, conn, market["id"],
+                            days=2 * days, until_days_ago=days)
+                      if section is None else None) or {}).get("vendors") or [])
     # The newest stored subjects run: one indexed read, ranked ids inside.
     from app.services import market_topics as mt
     topics = (_safe(mt.latest, conn, market["id"])
@@ -4569,6 +4595,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
         allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
         sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
+        sov_prev = ent.filter_rows(sov_prev, allowed_brand_ids, allowed_names)
         top_voices = ent.filter_rows(top_voices, allowed_brand_ids, allowed_names)
         if topics:
             topics = _v2_topics_for_view(topics, allowed_brand_ids, allowed_names, withheld)
@@ -4821,7 +4848,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append('<div class="v2-card"><h2>Who moved</h2>'
                     + _v2_moved(_recent_movers(assessment.get("developments") or []),
                                 logos=logos) + "</div>")
-        motion = _v2_motion(sov_rows, logos)
+        motion = _v2_motion(sov_rows, logos, prev=sov_prev)
         if motion:
             body.append('<div class="v2-card"><h2>Who got attention</h2>' + motion + "</div>")
         tracked = _safe_list(_v2_tracked_voices, conn)

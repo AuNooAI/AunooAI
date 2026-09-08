@@ -397,3 +397,18 @@ def test_recent_movers_prefers_this_weeks_motion_over_old_heavyweights():
     assert [d["date"] for d in out[:3]] == ["2026-09-07", "2026-09-04", "2026-09-03"]
     assert all(d.get("date") for d in out)
     assert all(d["event_type"] != "significant_hiring" for d in out)
+
+
+def test_attention_bars_carry_a_delta_against_the_period_before():
+    from app.services.market_report_html import _v2_motion
+
+    rows = [{"vendor": "7ai", "reactions": 500, "earned": 12, "measured": 9},
+            {"vendor": "Torq", "reactions": 300, "earned": 20, "measured": 4}]
+    prev = [{"vendor": "7ai", "reactions": 200, "earned": 12},
+            {"vendor": "Torq", "reactions": 400, "earned": 5}]
+    html = _v2_motion(rows, prev=prev)
+    assert 'v2-move up' in html and "&#9650; 300" in html      # 7ai reactions up
+    assert 'v2-move down' in html and "&#9660; 100" in html    # Torq reactions down
+    assert "the same in the period before" in html             # 7ai earned unchanged
+    # Without a previous window the engagement bar keeps its posts note.
+    assert "9 posts" in _v2_motion(rows, prev=None)

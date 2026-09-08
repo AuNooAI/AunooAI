@@ -449,6 +449,9 @@ function App() {
     }
   }, []);
 
+  // topic+tab keys whose backend cache has already been probed this page load
+  const probedCacheRef = useRef<Set<string>>(new Set());
+
   // Sync active tab to config and load cached data (never auto-generates)
   useEffect(() => {
     // Map UI tab names to backend tab parameter values
@@ -470,8 +473,13 @@ function App() {
       const tabKey = tcDataKey(config.topic, backendTab);
       const cachedData = localStorage.getItem(tabKey);
 
-      // If no localStorage data and we have a topic, try backend cache (never generates)
-      if (!cachedData && config.topic && !loading && !error) {
+      // If no localStorage data and we have a topic, try backend cache (never generates).
+      // Probe at most once per topic+tab: when the backend has nothing (404, e.g.
+      // a topic that was renamed under a saved selection) nothing lands in
+      // localStorage, and any re-run of this effect would probe again. On
+      // sunstar that spun at ~10 req/s for two hours (196k requests, 8 Sep).
+      if (!cachedData && config.topic && !loading && !error && !probedCacheRef.current.has(tabKey)) {
+        probedCacheRef.current.add(tabKey);
         console.log(`No localStorage data for ${backendTab} tab, checking backend cache...`);
         loadCached();
       }
@@ -799,6 +807,7 @@ function App() {
     // Clear localStorage for current tab so loadCached re-checks backend with new config
     if (config.tab) {
       localStorage.removeItem(tcDataKey(config.topic, config.tab));
+      probedCacheRef.current.delete(tcDataKey(config.topic, config.tab));
     }
     // Trigger cache load for the (possibly new) config
     loadCached();
