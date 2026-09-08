@@ -3533,7 +3533,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                           if (!d) return null;
                           return (
                             <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2">
-                              <p className="font-semibold mb-1">Week of {label}</p>
+                              <p className="font-semibold mb-1">{label}</p>
                               <div className="space-y-0.5">
                                 <p><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />Positive: {d.Positive}</p>
                                 <p><span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: '#94a3b8' }} />Neutral: {d.Neutral}</p>

@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-08 — Oviva logins for three strategy users; Brand Watcher sites no longer run the news briefing on every Explore load
+## 2026-09-08 — Oviva logins for three strategy users; Brand Watcher sites no longer run the news briefing on every Explore load; aisocnews.com moved onto its design system
 
 ### Goal
 Oviva asked for logins for three people (VP Strategy, Director Strategy and
@@ -85,7 +85,7 @@ re-processes collected articles each time.
 Propagation: all eight trees held the identical file (blob `3f8c37c62e`);
 copied and compiled everywhere. Restarted job-gated 2026-09-08 ~11:20:
 bugfixing, sunstar, oviva, abm, wbm, wiley all login 200; wileytest
-mid-collection, restarts when idle; bwtemplate inactive.
+restarted at 12:02 once idle, login 200; bwtemplate inactive.
 
 Ride-along: `app/services/market_report_html.py`, edited live by the
 parallel Market Monitor session, compile-checked only.
@@ -162,6 +162,93 @@ compile with no function-local `import json` left. Restarted job-gated
 2026-09-08 10:13: sunstar, oviva, abm, wbm, wiley all login 200; bugfixing
 restarted at 10:15 and wileytest at 10:19 once idle, both login
 200; bwtemplate inactive.
+
+### Feature: aisocnews.com renders from the design-system spec, with a light/dark toggle
+The spec is `aunoo-aisocnews-design-system.md` in the tenant root (extracted
+2026-09-04 from a styled copy of the front page). That styled copy could not
+be found, so the stylesheet was rebuilt from the spec against the live
+markup and checked with playwright screenshots in both themes at 1280px and
+420px. Committed as ride-alongs in `a19f302c` (front page, section, piece,
+topic and about pages; Consensus and Three horizons; the paid-call pages)
+and `6d9f82c5` (Analyst View, news river, briefing page).
+
+**`app/services/market_report_html.py`**. `V2_CSS` is now the whole look.
+The spec's tokens sit on `<html>` for light and on `html[data-theme="dark"]`
+for dark: page ground dark in both themes, one light panel with a 16px
+gutter, content boxes as fill plus 1px hairline with no shadows, 2px
+beat-hue caps on the sections, violet accent `#6E56CF` with the text-safe
+`#5B45B8` for links, Geist for headings, labels and numbers, Literata for
+summaries, quotes and body prose. The old `--n-*` names are remapped inside
+`.mm-news.mm-v2` (and on a nested `.mm-news`, whose own rule would reset
+them), so the shared `NEWS_CSS` rules pick up the new values without edits.
+New `_FONT_LINK_V2` loads Geist and Literata in one request; `_theme_toggle()`
+is the 36px icon button in the chrome bar; `_THEME_JS` applies a stored
+choice from `localStorage` (`aisocnews-theme`) before first paint and updates
+`aria-pressed` and `aria-label`; `v2_document()` wraps `html_document` and
+stamps `data-theme="light"` on `<html>`. `prefers-color-scheme` is not
+consulted, as the spec asks. The Social and Research firms sections take
+`var(--n-cyan)` / `var(--n-amber)` instead of literal hex so they have dark
+values. The contact form's URL fields normalise on blur (`example.com` becomes
+`https://example.com`), which the spec describes and the shipped script did
+not do.
+
+Same file, second pass: the Analyst View (`?view=report`), news river
+(`?view=news`) and briefing page use the same shell (`mm-news mm-v2`,
+`_FONT_LINK_V2`, `v2_document`, the toggle). The analyst view's panel
+`</div>` now closes after the evidence, tracked-vendors and method drawers,
+so the drawers are content boxes inside the panel rather than white cards on
+the dark ground. Tables, stat tiles, coverage chips, sentiment readings and
+the bar charts were retokened; the charts' literal fills are remapped with
+attribute selectors (`svg.mm-chart [fill="#64748b"] { fill:var(--text-muted) }`)
+so the theme reaches them without touching the drawing code. The river's day
+groups sit in one `.v2-river` box under a masthead; the briefing body sits in
+`.n-block.v2-briefing`.
+
+**`app/services/market_foresight.py`**. `_PALETTE`, which rewrites the
+Consensus and Three horizons report stylesheets, now maps the report's
+literals to the tokens (`#d6346c` → `var(--accent)`, `#111827` →
+`var(--nav-bg)`, `#1f2937` → `var(--text-secondary)`, and so on), so those
+report bodies follow the theme. The card swap is the exact string
+`background: #fff;` on purpose: a bare `#fff` also matches `#fff7e6`.
+`_REPORT_CSS` keeps the dark cover's type light; the first pass had made the
+cover title dark-on-dark. **`app/services/market_inquiry.py`**: `INQUIRY_CSS`
+retokened (40px fields, 8px radius, sentence-case labels); the shell takes the
+fonts, toggle and `v2_document`.
+
+Two deliberate calls from the spec's Hick's-Law rule, one filled button per
+view. In the chrome bar only Submit news is filled; Schedule an inquiry is a
+quiet link. Every `.mm-btn` inside `.mm-v2` is a link in the accent ink;
+only the contact form's submit (`.mm-trial .mm-btn`) and the paid-call form's
+(`.v2-inq .mm-btn`) are the filled primary. So "Request a trial", "Get the
+full report" and "Is your company missing?" are links now. Kickers and card
+titles lost their uppercase letter-spaced treatment (spec: no eyebrows);
+heading text itself was not changed. Case-study orange is the spec's darker
+`#BF4900`, which passes AA at badge size where `#CC4E00` does not.
+
+Python `"""` strings eat `\2212`: the disclosure markers are written
+`\\2212` in the source so the CSS gets `\2212`. The original `V2_CSS` had
+the single-backslash form and emitted a control character.
+
+Verification: `ast.parse` on the three files with SyntaxWarnings as errors.
+After each restart (10:50, 11:02, 11:14) all page types return 200 from the
+tenant with `Host: aisocnews.com`: front page, `section=moves`, `page=about`,
+`piece=18`, `topic=0`, `page=consensus`, `page=horizons`, `inquiry`,
+`view=report`, `view=news`, `view=briefing`. Full-page playwright screenshots
+(system python, chromium-1223) of the front page and the analyst view in
+both themes, and of every other page type in light, were read chunk by
+chunk; the fixes above (drawer marker escape, cover title colour, bar rows
+that had lost `display:grid`, briefing card header wrapping) came out of
+that pass. `https://aisocnews.com/` served the new markup with `x-cache: HIT`
+at 10:53. The signed-in full-briefing layout is styled but was not rendered
+(no session in the check).
+
+Propagation: bugfixing only, which is the only tree that serves the Market
+Monitor site. sunstar, oviva and bwtemplate hold older copies of
+`market_report_html.py` without `market_foresight.py` or
+`market_inquiry.py`; they are not part of this change and would need the
+whole Market Monitor set, not this file alone. The design-system doc still
+lists "theme choice doesn't persist" under known gaps; it now persists on the
+domain. Not edited.
 
 ## 2026-09-08 — Self-citation's second door closed; xpoz text artifacts; Auspex finds vendor coverage
 

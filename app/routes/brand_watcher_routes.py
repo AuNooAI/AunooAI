@@ -3225,16 +3225,21 @@ async def get_sentiment_trends(
     days_back: int = Query(365, ge=0, le=730),
     session=Depends(verify_session),
 ):
-    """Weekly sentiment trends per category for a brand."""
+    """Sentiment trends per category for a brand.
+
+    Bucketed by day for windows up to a month, by week beyond that. A 7-day
+    window bucketed weekly produced a single point, which reads as the chart
+    not tracking at all (wileytest, 8 Sep 2026)."""
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
         start_date, end_date = _get_date_range(days_back)
         topic_filter, topic_params = _build_topics_filter(topics)
         params = {"bid": brand_id, "start": start_date, "end": end_date, **topic_params}
+        bucket = "day" if 0 < days_back <= 31 else "week"
 
         result = conn.execute(text(f"""
-            SELECT DATE_TRUNC('week', a.publication_date::timestamp)::date as week,
+            SELECT DATE_TRUNC('{bucket}', a.publication_date::timestamp)::date as week,
                    bac.category,
                    a.sentiment,
                    COUNT(*) as cnt
