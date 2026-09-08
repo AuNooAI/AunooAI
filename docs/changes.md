@@ -36,13 +36,17 @@ sunstar. After `deploy-react-ui.sh` on sunstar the served
 `forecast_bundle_`. No pytest covers these strings.
 
 ### Propagation
-bugfixing (canonical, committed) and sunstar (same edits applied by sed,
-UI rebuilt, service restarted after the running ingest batch finished).
-wiley, wileytest, pearson, ibaset, oviva and bwtemplate still show the old
-wording until their UI is rebuilt from canonical; on the two Wiley sites
-the old label was not wrong, only inconsistent. wileytest's copies of
-`ForecastAssessment.tsx` and `WileyDeliverablesPanel.tsx` differ from
-canonical, so apply the string edits there surgically rather than copying.
+Source edits applied to every tenant tree that has the forecast tracker
+(bugfixing, sunstar, abm, oviva, wbm, wiley, wileytest, abbott, bwtemplate,
+ibaset, interroll, pbm, pearson, sage). UI rebuilt and service restarted
+on bugfixing, sunstar, abm, oviva, wbm and wiley; abm and wbm built with
+`SKIP_TYPECHECK=1` because their `node_modules` lack `tsc`. wileytest got
+the backend change and a restart, but not the UI: its `ui/src` is stale by
+design and the copy of bugfixing's built `static/trend-convergence/` and
+`*_react.html` templates was blocked by the session's permission policy,
+so it still shows the old label until that copy is done by hand. The
+stopped tenants have the source edits only; those without `node_modules`
+(bwtemplate, ibaset, interroll, pearson, sage) build on next provision.
 
 ## 2026-09-08 — Add-Topic wizard suggests anchored keywords and keeps them; Swiss elections disinformation topic set up in three languages
 
