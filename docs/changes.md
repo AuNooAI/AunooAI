@@ -598,6 +598,19 @@ the exact query on the market topic: 30 articles, 7 mentioning Dropzone
 and 7 mentioning ExaForce, from the Brand Watch topics the scoped search
 never opened.
 
+### Fix — "Who moved" answers a recency question (`market_report_html.py`, afternoon)
+The operator read the card as stale: every row 17–31 Aug on 8 Sep. It
+showed `main_developments` — the importance-ranked top slice — so on a
+30-day window August's independently reported events permanently outranked
+the week's vendor-sourced motion. New `_recent_movers`: the newest dated
+developments regardless of importance, excluding only `headcount_change`
+and `significant_hiring` (chart material, not moves). Second layer found
+while verifying: the public page masks non-public vendors, and most of
+September's motion belongs outside the earned tier — so the public card
+leads with the public vendors' newest (1–2 Sep launches after the fix)
+while the internal view leads with 3 Sep. Test updated; suite 22 passed;
+restarted job-gated and the live card reads strictly newest-first.
+
 ### Fix — a vendor name inside a URL is not a mention (`market_corpus.py`, afternoon)
 The operator caught a Bluesky post on the public social section whose
 whole text is a truncated Spotify link — the playlist ID starts with

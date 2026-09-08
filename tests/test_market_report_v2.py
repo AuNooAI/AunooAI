@@ -379,3 +379,21 @@ def test_schedule_an_inquiry_link_appears_only_when_configured_and_public(monkey
     assert html._book_link({"id": 2, "name": "M", "is_public": False}) == ""
     monkeypatch.delenv("STRIPE_SECRET_KEY")
     assert html._book_link({"id": 2, "name": "M", "is_public": True}) == ""
+
+
+def test_recent_movers_prefers_this_weeks_motion_over_old_heavyweights():
+    # 8 Sep 2026: the Who moved card showed only 17-31 Aug because it took
+    # the importance-ranked slice; a mover card answers a recency question.
+    from app.services.market_report_html import _recent_movers
+
+    old_high = [{"date": f"2026-08-{d:02d}", "importance": "high",
+                 "event_type": "acquisition"} for d in (17, 19, 20, 25, 26, 28, 31)]
+    new_low = [{"date": f"2026-09-{d:02d}", "importance": "low",
+                "event_type": "product_launch"} for d in (3, 4, 7)]
+    undated = [{"date": None, "importance": "high", "event_type": "funding"}]
+    hiring = [{"date": "2026-09-08", "importance": "low",
+               "event_type": "significant_hiring"}]
+    out = _recent_movers(old_high + new_low + undated + hiring, limit=8)
+    assert [d["date"] for d in out[:3]] == ["2026-09-07", "2026-09-04", "2026-09-03"]
+    assert all(d.get("date") for d in out)
+    assert all(d["event_type"] != "significant_hiring" for d in out)

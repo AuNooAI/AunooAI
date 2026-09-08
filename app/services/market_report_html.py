@@ -4343,6 +4343,23 @@ def _v2_motion(rows: List[Dict[str, Any]],
     return "".join(out)
 
 
+def _recent_movers(devs: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    """The newest dated developments worth a mover row, newest first.
+
+    The card asks "who moved", which is a recency question. It used to show
+    ``main_developments`` — the importance-ranked top slice — so on a 30-day
+    window August's independently reported events permanently outranked the
+    current week's vendor-sourced launches, and the operator read the card as
+    stale (8 Sep 2026: every row was 17–31 Aug while launches from 3–7 Sep
+    sat lower in the list). The cut is by kind, not importance: a
+    vendor-sourced launch from this week is a mover even at low importance,
+    while headcount and hiring-volume rows are chart material, not moves."""
+    skip = {"headcount_change", "significant_hiring"}
+    pool = [d for d in devs
+            if d.get("date") and d.get("event_type") not in skip]
+    return sorted(pool, key=lambda d: d.get("date") or "", reverse=True)[:limit]
+
+
 def _v2_moved(devs: List[Dict[str, Any]], limit: int = 8,
               logos: Optional[Dict[str, str]] = None) -> str:
     """Who moved, as a sidebar list: the vendor, the kind and the date on
@@ -4802,7 +4819,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             body.append('<div class="v2-card"><h2>What the market is talking about</h2>'
                         + topics_card + "</div>")
         body.append('<div class="v2-card"><h2>Who moved</h2>'
-                    + _v2_moved(assessment.get("main_developments") or [], logos=logos) + "</div>")
+                    + _v2_moved(_recent_movers(assessment.get("developments") or []),
+                                logos=logos) + "</div>")
         motion = _v2_motion(sov_rows, logos)
         if motion:
             body.append('<div class="v2-card"><h2>Who got attention</h2>' + motion + "</div>")
