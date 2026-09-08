@@ -84,8 +84,9 @@ Propagation: sunstar, oviva, wiley, wileytest and bwtemplate matched
 canonical (md5 `00b050e2f7d6…`) and got the file; abm and wbm run the
 2026-08-18 version (`3bb82831`) and got the four-line patch. All eight
 compile with no function-local `import json` left. Restarted job-gated
-2026-09-08 ~11:05: sunstar, oviva, abm, wbm, wiley all login 200; bugfixing
-and wileytest were mid-job and restart when idle; bwtemplate inactive.
+2026-09-08 10:13: sunstar, oviva, abm, wbm, wiley all login 200; bugfixing
+restarted at 10:15 and wileytest at 10:19 once idle, both login
+200; bwtemplate inactive.
 
 ## 2026-09-08 — Self-citation's second door closed; xpoz text artifacts; Auspex finds vendor coverage
 
