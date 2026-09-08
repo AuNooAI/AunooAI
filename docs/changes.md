@@ -2,6 +2,87 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-08 — Self-citation's second door closed; xpoz text artifacts; Auspex finds vendor coverage
+
+### Goal
+Three operator reports in one morning: the site's front page showed "New
+funding for 7ai" evidenced by our own analysis piece (again, through a
+different path than 7 Sep's fix); a followed voice's card rendered raw
+"\n" escapes and "&gt;" entities; and Auspex answered a Dropzone-vs-
+ExaForce battle-card request with "no coverage of either vendor" while
+157 articles about them sat in the database.
+
+### Incident — self-citation, door two: the vendor-name scan (`market_corpus.py`)
+The 7 Sep fix excluded `article_origin = 'report'` rows from the phrase
+scan, but `attribute_vendors` — the vendor-NAME scan — has its own
+article query and its own `bw_market_articles` insert. It re-attached
+piece 18 at 21:43 (the piece says "7AI raised a 130 million dollar
+Series A", so it filed a 7ai "Financial Performance" category row), and
+the findings builder turned that into "New funding for 7ai" with our
+piece as evidence. `attribute_vendors` now carries the same
+`article_origin <> 'report'` exclusion. Deleted what the second pass
+wrote: the attach row, the `bw_article_categories` row, and the entity
+link and mention (all brand 112); no stored events cited our pages.
+Verification: 23 corpus tests pass; after a guarded restart all three
+public report windows (7/30/90) show zero occurrences of the headline
+and of `bugfixing.aunoo.ai`.
+
+### Fix — xpoz text stored raw: entities and escapes (`market_follow.py`, `xpoz_collector.py`)
+A followed voice's post (@anton_chuvakin, 8 Sep) rendered with literal
+"\n" and "&gt;" on the Voices card. Two holes: `market_follow.
+collect_followed` stored the provider's text with no cleanup at all (new
+`clean_post_text()` — entity decode + escape collapse — now applied),
+and the xpoz collector's `_clean` collapsed escapes but never decoded
+entities (now does, before collapsing). Stored data repaired in place:
+186 of 694 social rows carried the artifacts, all cleaned; the card now
+reads "> do security architecture …" correctly.
+
+### Fix — Auspex topic map: real topic names, on this tenant too (`auspex_service.py`)
+Auspex's topic-guidance block had two failures. It only activated when
+`BW_DEDICATED_MODE` was set — this tenant is a market workspace, so
+Auspex had no topic map at all and searched only the market topic's
+recent slice (262 analyzed articles, zero mentions of either vendor).
+And where it did activate, it invented topic names ("Brand Monitoring
+{name}") while the collection writes "{name} - Brand Watch" — Dropzone
+has 77 articles under the real name and 11 under the guessed one. The
+block now reads the actual distinct topic strings from `articles`,
+applies on any tenant with brand or market topics (dedicated BW tenants
+keep their stricter wording on top), and instructs: a question about a
+company searches that company's own brand topic, and "no coverage" may
+only be said after searching the name across all topics.
+
+The prompt alone did not fix it — the operator's retry got the same "no
+coverage" answer, because an Auspex chat is bound to one topic and the
+search tool scopes every query to it regardless of what the prompt says.
+The working fix is in the tool: `QueryRouter._entity_search` now runs a
+named-brand fallback after the topic-scoped search. When the query names
+an enabled `bw_brands` entry (matched on the name's distinctive token,
+4+ chars, generic words like "Security" skipped) and the scoped results
+never mention it, the brand's articles are pulled by name across all
+topics (ILIKE on title/summary, rejected rows excluded, newest first)
+and merged ahead of the scoped results, `search_method` suffixed
+`+named_brand_keyword`. Live test with the exact query: 14 articles by
+name (7 ExaForce, 7 Dropzone) from the Brand Watch topics the scoped
+search never opened.
+
+### Verification
+py_compile on all four files; `pytest tests/test_market_corpus_excluded.py
+tests/test_market_corpus_names.py` 23 passed, `test_market_follow_judge.py`
+passed; `_dedicated_bw_block()` on this tenant now lists "Dropzone AI -
+Brand Watch", "exaforce - Brand Watch" and "Market Monitoring SOC
+Automation"; two guarded restarts, /login 200 after each.
+
+### Propagation
+`xpoz_collector.py` copied to wiley, wbm and wileytest — all three had
+the identical older blob with no local changes; each copy compiles under
+its own venv. Their services were NOT restarted (wileytest is prod, wbm
+restarts fire overdue observer agents); the fix loads on each tenant's
+next routine restart. `market_corpus.py` and `market_follow.py` are
+Market Monitor — bugfixing only. `auspex_service.py` is shared code that
+should follow the normal copy rule on the next catch-up; the changed
+block is inert on tenants without brand/market topics. The 186-row data
+repair is bugfixing's database only.
+
 ## 2026-09-07 — Citation checker sees source domains; analysis piece 18 approved with every citation supported
 
 ### Goal

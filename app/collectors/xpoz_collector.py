@@ -114,16 +114,20 @@ def _clean_url(value: Optional[str]) -> Optional[str]:
 
 
 def _clean(text: Optional[str], limit: int = 1000) -> str:
-    """Collapse whitespace, including the escaped kind.
+    """Collapse whitespace, including the escaped kind, and decode entities.
 
     The provider returns some posts with a literal backslash-n — two
     characters, not a newline — so the whitespace pattern never matched it and
     39 stored titles read "...INTO A FIXED BUG IN 4 MINUTES" followed by two
     visible escape sequences. Turn those into real whitespace, then collapse.
+    It also ships HTML entities in post text ("&gt;" where the author typed
+    ">"); 41 stored rows carried them onto the cards, so decode those first.
     """
+    import html as html_mod
+
     if not text:
         return ""
-    value = str(text)
+    value = html_mod.unescape(str(text))
     value = re.sub(r"\\+[nrt]", " ", value)
     return re.sub(r"\s+", " ", value).strip()[:limit]
 

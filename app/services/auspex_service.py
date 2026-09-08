@@ -287,13 +287,17 @@ _dedicated_bw_cache = {"block": None, "at": 0.0}
 
 
 def _dedicated_bw_block() -> str:
-    """Brand-focus block for dedicated Brand Watcher tenants (cached 10 min).
+    """Topic-map block for tenants with brand or market coverage (cached 10 min).
 
-    Names the tenant's actual brands and monitoring topics so Auspex scopes
-    its research to brand data and steers off-topic requests back."""
+    Names the tenant's actual brands and the real topic strings so Auspex
+    scopes its research to where the data is. On a dedicated Brand Watcher
+    tenant it also steers off-topic requests back; on a tenant with brand or
+    market topics but no dedicated flag it still maps the topics, because a
+    vendor question answered from the market topic alone misses the vendor's
+    own coverage (8 Sep 2026: a Dropzone/ExaForce battle card was answered
+    "no coverage of either vendor" while 157 articles sat under their
+    "<name> - Brand Watch" topics)."""
     from app.core.modules import is_dedicated_bw
-    if not is_dedicated_bw():
-        return ""
     import time as _time
     now = _time.time()
     if _dedicated_bw_cache["block"] is not None and now - _dedicated_bw_cache["at"] < 600:
@@ -305,17 +309,39 @@ def _dedicated_bw_block() -> str:
             "SELECT display_name, is_primary FROM bw_brands WHERE enabled = true "
             "ORDER BY is_primary DESC, display_name", [])
         names = [f"{r['display_name']} (primary)" if r['is_primary'] else r['display_name'] for r in rows]
-        topics = ", ".join(f'"Brand Monitoring {r["display_name"]}"' for r in rows)
+        # The real topic strings, not a guessed naming scheme. This block once
+        # said 'Brand Monitoring {name}' for every brand while the collection
+        # writes '{name} - Brand Watch', so Auspex searched near-empty topics
+        # and reported vendors with 80 stored articles as having no coverage.
+        topic_rows = db.fetch_all(
+            "SELECT DISTINCT topic FROM articles WHERE topic LIKE '% - Brand Watch' "
+            "OR topic LIKE 'Brand Monitoring %' OR topic LIKE 'Market Monitoring %' "
+            "ORDER BY topic", [])
+        topics = ", ".join(f'"{r["topic"]}"' for r in topic_rows)
     except Exception:
         names, topics = [], ""
-    block = f"""
+    if not topics and not is_dedicated_bw():
+        # Nothing to map and no dedicated posture to enforce.
+        _dedicated_bw_cache["block"] = ""
+        _dedicated_bw_cache["at"] = now
+        return ""
+    scope_lines = f"""- When searching the database, these are the coverage topics (per-company coverage lives under the "<company> - Brand Watch" topics; market-wide coverage under the "Market Monitoring" ones): {topics or 'topics ending in "- Brand Watch" or starting with "Brand Monitoring" or "Market Monitoring"'}.
+- A question about a specific company must search that company's own brand topic, not only a market topic. Before saying a company has no coverage, search its name across all topics — coverage of a vendor usually lives in its brand topic, not the market's."""
+    if is_dedicated_bw():
+        block = f"""
 
 ## Dedicated Brand Monitoring Workspace
 This tenant is a dedicated brand monitoring workspace. Brands under watch: {', '.join(names) or 'see the Brand Watcher tab'}.
 - Focus every answer on brand perception, reputation, risk, coverage and competitive positioning for these brands.
-- When searching the database, scope searches to the brand monitoring topics: {topics or 'topics starting with "Brand Monitoring"'}.
-- Do not use articles from other topics — this workspace's users only work with brand data.
+{scope_lines}
 - If asked about unrelated subjects, answer briefly if trivial, then steer back to what this workspace covers: brand and competitor intelligence.
+"""
+    else:
+        block = f"""
+
+## Coverage Topics in This Workspace
+Companies tracked here: {', '.join(names) or 'see the Brand Watcher tab'}.
+{scope_lines}
 """
     _dedicated_bw_cache["block"] = block
     _dedicated_bw_cache["at"] = now
@@ -1240,9 +1266,76 @@ class QueryRouter:
 
     async def _entity_search(self, query: str, topic: str, limit: int) -> Dict:
         """Search for entity-focused queries using keyword + vector hybrid."""
-        # For now, delegate to smart vector search
-        # The existing entity detection in _original_chat_database_logic handles this
-        return await self._smart_vector_search(query, topic, limit)
+        result = await self._smart_vector_search(query, topic, limit)
+        # A chat is bound to one topic, but a tracked company's coverage
+        # usually lives under its own brand topic. When the query names a
+        # tracked brand and the topic-scoped results never mention it, pull
+        # that brand's articles by name across all topics — otherwise the
+        # answer becomes "no coverage of either vendor" while 157 articles
+        # sit one topic over (8 Sep 2026, Dropzone/ExaForce battle card).
+        try:
+            extra = self._named_brand_fallback(query, result.get('articles') or [], limit)
+        except Exception:  # noqa: BLE001 — the fallback must never break search
+            self.logger.exception("named-brand fallback failed")
+            extra = []
+        if extra:
+            seen = {a.get('uri') for a in result.get('articles') or []}
+            merged = [a for a in extra if a.get('uri') not in seen]
+            merged += result.get('articles') or []
+            result['articles'] = merged[:max(limit, len(extra))]
+            result['search_method'] = f"{result.get('search_method', '')}+named_brand_keyword"
+            result.setdefault('metadata', {})['named_brand_articles'] = len(extra)
+        return result
+
+    _GENERIC_NAME_WORDS = {"security", "labs", "cyber", "tech", "data", "cloud",
+                           "group", "systems", "networks", "software", "solutions"}
+
+    def _named_brand_fallback(self, query: str, articles: List[Dict], limit: int) -> List[Dict]:
+        """Articles naming a tracked brand that the topic-scoped search missed."""
+        q = (query or "").lower()
+        rows = self.db.fetch_all(
+            "SELECT display_name FROM bw_brands WHERE enabled = true", []) or []
+        named = []
+        for r in rows:
+            name = (r["display_name"] or "").strip()
+            tokens = [t for t in re.split(r"[^a-z0-9]+", name.lower())
+                      if len(t) >= 4 and t not in self._GENERIC_NAME_WORDS]
+            token = tokens[0] if tokens else name.lower()
+            if token and re.search(rf"(?<!\w){re.escape(token)}(?!\w)", q):
+                named.append((name, token))
+        if not named:
+            return []
+        have = " ".join(f"{a.get('title') or ''} {a.get('summary') or ''}"
+                        for a in articles).lower()
+        out: List[Dict] = []
+        per_brand = max(5, limit // (2 * len(named)))
+        for name, token in named:
+            if re.search(rf"(?<!\w){re.escape(token)}(?!\w)", have):
+                continue  # the scoped search already surfaced this brand
+            found = self.db.fetch_all(
+                "SELECT uri, title, summary, category, sentiment, "
+                "publication_date, news_source, topic FROM articles "
+                "WHERE (title ILIKE ? OR summary ILIKE ?) "
+                "AND COALESCE(ingest_status, '') <> 'rejected' "
+                "ORDER BY COALESCE(publication_date, submission_date) DESC "
+                "LIMIT ?",
+                [f"%{token}%", f"%{token}%", per_brand]) or []
+            for f in found:
+                out.append({
+                    "uri": f.get("uri", ""), "url": f.get("uri", ""),
+                    "title": f.get("title") or "Unknown Title",
+                    "summary": f.get("summary") or "",
+                    "category": f.get("category") or "Uncategorized",
+                    "sentiment": f.get("sentiment") or "Neutral",
+                    "future_signal": "None", "time_to_impact": "Unknown",
+                    "publication_date": f.get("publication_date") or "",
+                    "news_source": f.get("news_source") or "Unknown",
+                    "topic": f.get("topic") or "Unknown",
+                    "similarity_score": 1.0,
+                })
+            self.logger.info("named-brand fallback: %s -> %d articles by name",
+                             name, len(found))
+        return out
 
     async def _smart_vector_search(self, query: str, topic: str, limit: int,
                                    citation_limit: Optional[int] = None) -> Dict:

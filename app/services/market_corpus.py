@@ -543,7 +543,12 @@ def attribute_vendors(conn, market_id: int, *,
              # A vendor's LinkedIn post is attributed when it lands, by the
              # account it came from, which is exact. Re-reading it here would
              # only re-find the vendor's name in the vendor's own words.
-             "COALESCE(a.bias_source, '') <> 'vendor:linkedin'"]
+             "COALESCE(a.bias_source, '') <> 'vendor:linkedin'",
+             # Our own approved pieces (market_briefing.FEED_ORIGIN): this
+             # scan is the second door the 7 Sep self-citation came through —
+             # the piece names 7AI, so the name scan attributed it and put
+             # the article back after the phrase scan's exclusion.
+             "COALESCE(a.article_origin, '') <> 'report'"]
     params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
     if days:
         where.append("COALESCE(a.publication_date, a.submission_date) >= :since")

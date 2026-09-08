@@ -35,6 +35,20 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+def clean_post_text(value: Optional[str]) -> str:
+    """Provider text with the transport artifacts removed.
+
+    The xpoz API ships both HTML entities ("&gt;") and two-character
+    backslash escapes ("\\n") straight out of its JSON; a followed post
+    stored raw rendered exactly like that on the Voices card (8 Sep,
+    @anton_chuvakin). Decode the entities, collapse the escapes and real
+    whitespace alike."""
+    import html
+    value = html.unescape(str(value or ""))
+    value = re.sub(r"\\+[nrt]", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
 FOLLOW_PLATFORMS = ("twitter", "bluesky", "reddit")
 FETCHABLE = ("twitter", "bluesky")
 SOURCE = "watchlist_posts"
@@ -201,7 +215,7 @@ def collect_followed(conn, market: Dict[str, Any], *, days: int = WINDOW_DAYS,
             url = canonical_url(platform, handle, post)
             if not url or not post.get("id") or (when and when < since):
                 continue
-            body = (post.get("text") or "").strip()
+            body = clean_post_text(post.get("text"))
             hits = touches_market(body, terms, vendors, markers)
             meta = {"platform": platform, "author": handle, "external_id": str(post["id"]),
                     "followed": True}
