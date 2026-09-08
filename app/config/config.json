@@ -136,7 +136,7 @@
     },
     {
       "name": "Swiss Federal Elections 2027 Disinfo Monitoring",
-      "description": "Topic for monitoring disinformation, misinformation, propaganda and coordinated influence operations targeting the 2027 Swiss Federal Elections. Tracks foreign and domestic information operations, synthetic media, narrative manipulation, and platform-based influence campaigns.",
+      "description": "Topic for monitoring disinformation, misinformation, propaganda and coordinated influence operations targeting Swiss federal politics: the 2027 Federal Elections and the federal referendums and popular initiatives held in the run-up to them (for example the neutrality initiative). Tracks foreign and domestic information operations aimed at Swiss voters, synthetic media, narrative manipulation, platform-based influence campaigns, and the response of Swiss federal bodies, parties, media and fact-checkers.",
       "categories": [
         "Foreign State Operations",
         "Domestic Disinformation",
@@ -180,21 +180,19 @@
       ],
       "keywords": [
         "Swiss election disinformation",
-        "Switzerland election interference",
-        "Swiss federal elections 2027",
         "Switzerland foreign interference",
         "Swiss deepfake",
-        "Switzerland Russia influence",
         "Swiss Bundesrat disinformation",
         "Switzerland Doppelganger campaign",
         "Switzerland Pravda network",
         "Switzerland neutrality initiative Russia",
-        "Swiss information operations",
         "Desinformation Schweiz",
         "Einflussnahme Schweiz",
         "Neutralitätsinitiative Russland",
         "désinformation Suisse",
-        "ingérence Suisse"
+        "ingérence Suisse",
+        "\"neutrality initiative\"",
+        "\"Swiss federal elections\""
       ]
     }
   ],

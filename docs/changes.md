@@ -105,6 +105,27 @@ change (now committed alongside). The check-now language fix does not
 apply to wiley/wileytest: they have no `keyword_groups.language` column
 (kg_lang_001 never reached them). wbm and the other tenants not touched.
 
+### Second pass on the keywords (same day)
+Measured every term over 30 days against its own collector. The firehose
+matches each word anywhere in the full text, so six English terms were
+noise generators and were dropped: `company:Keystone-SDA` (50 hits, the
+wire byline on every bluewin.ch story), `company:Swissinfo` (34, a
+menafn.com syndication tag), `Swiss information operations` (50,
+Globenewswire), `Switzerland Russia influence` (43, market reports),
+`Swiss federal elections 2027` (18, FIFA's 2027 presidential election) and
+`Switzerland election interference` (13, Infantino, FBI). Added two quoted
+phrases, which the firehose passes through intact: `"neutrality initiative"`
+(19 hits/30d, bluewin.ch and swissinfo.ch) and `"Swiss federal elections"`
+(0 now, exact once the campaign starts). German dropped `Fake News Schweiz`
+(Bitcoin, dialect column) and `company:Bundesamt für Cybersicherheit` (50,
+all phishing); French dropped `fake news Conseil fédéral` (an EV tax
+story). Now 14 / 11 / 8 terms. The `config.json` description widened to
+cover federal referendums and popular initiatives in the run-up to 2027,
+naming the neutrality initiative; the gate reads it per call, no restart.
+Verified with a manual run of group 21: the quoted phrase returned 2
+bluewin.ch pieces in the 7-day window; Russia-angle pieces pass at
+0.80–0.88, plain campaign coverage is rejected at 0.2–0.4.
+
 ### Open
 Group 23 acquired reddit, xpoz and bluesky providers from the UI during the
 session; Reddit returns 429 on every call and the Bluesky posts were about
