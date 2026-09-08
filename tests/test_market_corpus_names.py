@@ -292,3 +292,15 @@ def test_a_period_before_collection_began_is_not_comparable(conn, market):
     else:
         assert not coverage_rows
         assert blocked and "no earlier period" in blocked[0]["reason"]
+
+
+def test_a_vendor_name_inside_a_url_is_not_a_mention():
+    # A Bluesky post whose whole text was a truncated Spotify URL containing
+    # "7aI" was attributed to 7ai and shown on the site (8 Sep 2026).
+    from app.services.market_corpus import _without_urls
+
+    post = "open.spotify.com/playlist/7aIbCdEf.. \U0001fac2 also https://x.com/7ai/status/1"
+    assert "7ai" not in _without_urls(post).lower()
+    prose = "7ai announced a partnership; Secure.com wrote about it"
+    cleaned = _without_urls(prose)
+    assert "7ai" in cleaned and "Secure.com" in cleaned

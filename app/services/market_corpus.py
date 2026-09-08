@@ -449,6 +449,21 @@ def _distinctive(term: str) -> bool:
     return bool(t) and any(ch.isdigit() or ch == "." for ch in t)
 
 
+#: URL-like tokens: full links, bare www hosts, and host/path fragments the
+#: way social posts truncate them ("open.spotify.com/playlist/7aI.."). A
+#: bare domain with no path ("Secure.com" in prose) is left alone.
+_URLISH = re.compile(r"https?://\S+|\bwww\.\S+|\b\S+\.[a-z]{2,4}/\S*", re.I)
+
+
+def _without_urls(text: str) -> str:
+    """Text with URL-like tokens removed before name matching.
+
+    A vendor name inside a link is not a mention: a Bluesky post whose whole
+    text was a truncated Spotify playlist URL containing "7aI" was attributed
+    to 7ai and shown on the public site (8 Sep 2026)."""
+    return _URLISH.sub(" ", text or "")
+
+
 def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
                  ) -> List[Tuple[Dict[str, Any], str]]:
     """``[(vendor, term that matched)]`` for one article's text.
@@ -572,7 +587,7 @@ def attribute_vendors(conn, market_id: int, *,
     rejected: List[Dict[str, Any]] = []
     per_vendor: Dict[str, int] = {}
     for row in rows:
-        content = f"{row['title'] or ''} {row['summary'] or ''}"
+        content = _without_urls(f"{row['title'] or ''} {row['summary'] or ''}")
         hits = _vendor_hits(content, vendors)
         if not hits:
             continue

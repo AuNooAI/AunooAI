@@ -126,6 +126,53 @@ Verified with a manual run of group 21: the quoted phrase returned 2
 bluewin.ch pieces in the 7-day window; Russia-angle pieces pass at
 0.80–0.88, plain campaign coverage is rejected at 0.2–0.4.
 
+### Ops — the firehose now collects Swiss German/French/Italian press
+The NewsFirehose (`/opt/newsfirehose`, our own aggregator) fetched from
+NewsData.io in English only: a slice could set priority tier, category and
+article count, and language/country were global. **`fetch_newsdata.py`**
+now lets a slice carry `language`, `country`, `domain`, `excludedomain`,
+and treats `prioritydomain` as optional (a single country is too small to
+tier). A sixth slice was appended to `NEWSDATA_SLICES` (1,000 articles)
+and `NEWSDATA_SLICES_WE` (600): `country=ch`, `language=de,fr,it`,
+`category=politics,world,domestic`. NewsData's Swiss pool per 24h,
+measured: German 1,976, French 616, Italian 143, English 334; the
+politics/world/domestic cut across de/fr/it is 922, about 19 requests at
+50 per request. Today's weekday run used 530 of the ~650-request budget.
+A hand-run 100-article test slice inserted 48 German, 33 French and 19
+Italian articles (Tages-Anzeiger, Tribune de Genève, Ticino Libero, RSI,
+ajour.ch); the monolith collector then found them with `language=de/fr/it`
+("russische Diplomaten" 3, "cantonali" 6). Worker restarted (acks_late, no
+queue loss); the first scheduled Swiss fetch is tomorrow 08:00. Groups 22
+and 23 gained `newsfirehose` as a second provider. Caveats: the firehose
+full-text index is English-stemmed, so German/French terms match exactly
+but not inflected forms; the firehose's own `disinformation` topic is
+English-keyworded and will not tag these articles, which the monolith does
+not need. The firehose tree is a deploy checkout of a teammate's repo
+(`/home/laouad/git/NewsFirehose.git`) with a dirty `semantic_config.yaml`;
+the change was made in place and NOT committed there. Seen in passing: the
+firehose's LLM classification step has been failing all day with
+"You have no credits remaining" from OpenAI; DeBERTa and keyword steps
+still run. Not touched.
+
+### Ops — firehose LLM classification repointed from OpenAI to Bedrock
+The firehose classifier still called OpenAI directly (gpt-4o-mini) with
+Anthropic direct (claude-haiku-4-5) as fallback; both accounts ran out of
+credits on 5 Sep (2,331 "no credits remaining" and 355 "credit balance is
+too low" errors in the worker log since). The firehose never got the July
+Bedrock migration — its LLM config was last touched in February. It speaks
+plain OpenAI chat completions to a base URL, so `/opt/newsfirehose/.env`
+now points `LLM_BASE_URL` at Bedrock's OpenAI-compatible endpoint with the
+tenant's `AWS_BEDROCK_API_KEY`. Model choice per docs (bulk classification
+= cheapest that fits, Kimi reserved for complex work): Nova and Haiku are
+NOT served on that endpoint, gpt-oss wraps answers in reasoning tags the
+parser cannot take; qwen3-32b and kimi-k2.5 both return clean JSON. Ran
+the real classifier on real articles: qwen3-32b and kimi assigned the same
+topics (geopolitics 0.85 vs 0.92, ai 0.85 both) at 0.5–0.7s vs 1.2–4.4s.
+Primary `qwen.qwen3-32b-v1:0`, fallback `moonshotai.kimi-k2.5`. Old values
+kept as comments; `.env.bak-openai-20260908` alongside. Worker + API
+restarted; 30 articles re-queued as a live test: 28 classified, 2 reached
+the LLM step, 0 errors. Volume is ~15% of ~25k articles/day.
+
 ### Open
 Group 23 acquired reddit, xpoz and bluesky providers from the UI during the
 session; Reddit returns 429 on every call and the Bluesky posts were about
@@ -550,6 +597,21 @@ excluded, newest first) and merged ahead of the scoped results,
 the exact query on the market topic: 30 articles, 7 mentioning Dropzone
 and 7 mentioning ExaForce, from the Brand Watch topics the scoped search
 never opened.
+
+### Fix — a vendor name inside a URL is not a mention (`market_corpus.py`, afternoon)
+The operator caught a Bluesky post on the public social section whose
+whole text is a truncated Spotify link — the playlist ID starts with
+"7aI", "7ai" is a distinctive term (skips the market-context gate), and
+the ".." after it is a word boundary, so the name scan attributed the
+post to 7ai. `attribute_vendors` now strips URL-like tokens (full links,
+bare www hosts, host/path fragments) from the text before matching; a
+bare domain in prose ("Secure.com wrote…") still counts. A sweep of all
+162 vendor_name attributions found exactly two URL-only false positives —
+the Spotify post and a YouTube post whose video ID contains "-7aI" —
+removed from all four stores (market attach, category, entity mentions
+and links); the fixed matcher cannot re-add them. New test covers the
+Spotify shape and the prose counter-case; suite 22 passed. Restarted
+job-gated; the social section serves zero trace of either post.
 
 ### Verification
 py_compile on all four files; `pytest tests/test_market_corpus_excluded.py
