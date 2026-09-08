@@ -89,6 +89,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class ProfileLookupUnavailable(RuntimeError):
+    """The provider could not serve the lookup right now (quota, rate limit,
+    outage). Distinct from "no such account" so callers do not tell the user
+    an account does not exist when the truth is that we could not ask. The
+    message is user-facing and deliberately says nothing about credits or
+    quotas."""
+
+    USER_MESSAGE = ("Account lookup is temporarily unavailable. "
+                    "Please try again in a few minutes.")
+
+    def __init__(self, reason: str = ""):
+        super().__init__(self.USER_MESSAGE)
+        self.reason = reason
+
+
 class SocialProfileService:
     def __init__(self):
         self.api_key = _api_key()
@@ -105,14 +120,16 @@ class SocialProfileService:
             try:
                 user = ns.get_user(handle, fields=_USER_FIELDS.get(platform))
             except Exception as e:  # noqa: BLE001
-                # A rate limit is not "no such account". Say which it was, so a
-                # caller can wait and try again instead of recording a miss.
-                if "429" in str(e) or "Too Many Requests" in str(e):
-                    raise RuntimeError(
-                        f"xpoz rate limit (429) looking up {platform}/{handle}; "
-                        "try again in a minute") from e
-                logger.warning("xpoz get_user(%s/%s) failed: %s", platform, handle, e)
-                return None
+                # Only a malformed handle means "no such account" here. Every
+                # other failure (usage limit, 429, outage) is the provider not
+                # answering, and used to fall through to "No X account found"
+                # in the UI (oviva, 2026-09-08, during an xpoz quota outage).
+                msg = str(e)
+                if "Validation failed" in msg or "Invalid" in msg:
+                    logger.info("xpoz get_user(%s/%s): rejected handle: %s", platform, handle, msg[:160])
+                    return None
+                logger.warning("xpoz get_user(%s/%s) unavailable: %s", platform, handle, msg[:200])
+                raise ProfileLookupUnavailable(msg) from e
             if user is None:
                 return None
             ident = self._map_identity(platform, user)

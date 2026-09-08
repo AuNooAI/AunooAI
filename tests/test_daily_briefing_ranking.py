@@ -134,10 +134,27 @@ class TestRelevanceBeatsRecency:
         assert [r["uri"] for r in ordered] == ["newer", "older"]
 
     def test_recency_cannot_outweigh_a_large_alignment_gap(self):
-        """Recency is worth 0.10 at most; a 0.5 alignment gap is worth 0.25."""
+        """Recency is worth 0.20 at most; a 0.5 alignment gap is worth 0.225."""
         fresh_weak = score_article(article("a", align=0.40, days_ago=0), now=NOW)["composite"]
         stale_strong = score_article(article("b", align=0.90, days_ago=10), now=NOW)["composite"]
         assert stale_strong > fresh_weak
+
+    def test_a_day_fresh_pick_beats_a_week_old_near_equal(self):
+        """The 8 Sep retune: a daily briefing must prefer this-day material
+        when alignment is close — the analyst's real picks are ~1 day old."""
+        stale = article("stale", align=0.90, days_ago=6)
+        fresh = article("fresh", align=0.84, days_ago=0.5)
+        ordered = rank(annotate_candidates([stale, fresh], topic="t", now=NOW))
+        assert [r["uri"] for r in ordered] == ["fresh", "stale"]
+
+    def test_code_forge_release_pages_never_enter_the_pool(self):
+        """A GitHub release tag matched 'open science' on embedding similarity
+        and was staged into briefing 145 (8 Sep 2026). Not an article."""
+        release = article("https://github.com/aipoch/open-science/releases/tag/v0.26.0",
+                          align=0.9, days_ago=0.2)
+        news = article("https://example.com/story", align=0.7, days_ago=2)
+        kept = annotate_candidates([release, news], topic="t", now=NOW)
+        assert [r["uri"] for r in kept] == ["https://example.com/story"]
 
     def test_a_missing_date_does_not_crash_or_win(self):
         dated = article("dated", align=0.8, days_ago=1)
@@ -148,7 +165,7 @@ class TestRelevanceBeatsRecency:
 
     def test_missing_optional_signals_contribute_zero_not_a_neutral_value(self):
         bare = score_article(article("a", align=1.0, days_ago=99), now=NOW)
-        assert bare["composite"] == pytest.approx(0.50, abs=1e-3)
+        assert bare["composite"] == pytest.approx(0.45, abs=1e-3)
 
     def test_user_preference_is_a_small_bounded_adjustment(self):
         base = score_article(article("a", align=0.8, days_ago=1), now=NOW)["composite"]

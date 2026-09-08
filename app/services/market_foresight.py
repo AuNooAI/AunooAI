@@ -129,17 +129,21 @@ def _horizons_articles(conn, run_id: str) -> List[Dict[str, Any]]:
 # as the front page, DM Sans, and the site's tokens swapped for the
 # report's colours inside its style blocks. The renderers stay untouched
 # because the Wiley bundles depend on them.
+# The site's tokens (aunoo-aisocnews-design-system.md); the report's own
+# stylesheet is static, so its literals become the variables and the theme
+# toggle reaches the report body too.
 _PALETTE = (
-    ("#d6346c", "#c2298a"),   # accent
-    ("#111827", "#211f26"),   # dark ground
-    ("#1f2937", "#211f26"),   # body text
-    ("#f8fafc", "#f7f6f2"),   # page background
-    ("#f9fafb", "#fbfaf7"),   # subtle panel
-    ("#e5e7eb", "#dbd8e0"),   # lines
-    ("#6b7280", "#65636d"),   # muted text
-    ("#fbcfe4", "#bcbac7"),   # cover subtitle
+    ("#d6346c", "var(--accent)"),         # accent
+    ("#111827", "var(--nav-bg)"),         # dark ground
+    ("#1f2937", "var(--text-secondary)"), # body text
+    ("#f8fafc", "var(--area-bg)"),        # page background
+    ("#f9fafb", "var(--wrap-2)"),         # subtle panel
+    ("#e5e7eb", "var(--sidebar-border)"), # lines
+    ("#6b7280", "var(--text-muted)"),     # muted text
+    ("#fbcfe4", "var(--text-on-dark)"),   # cover subtitle
+    ("background: #fff;", "background: var(--wrap);"),  # cards
     ("-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-     "'DM Sans', Inter, system-ui, sans-serif"),
+     "var(--font-sans)"),
 )
 _STYLE_RE = re.compile(r"<style>.*?</style>", re.S)
 _BRAND_SWAPS = (
@@ -151,9 +155,19 @@ _BRAND_SWAPS = (
     ("model: gpt-5.4", "model: Claude Sonnet"),
 )
 _REPORT_CSS = """
-.mm-report { border-radius:0; margin:0; border:0; }
+.mm-report { border-radius:0; margin:0; border:0; box-shadow:none; }
 .mm-report .container { max-width:1040px; padding-top:1.4rem; }
-.mm-report .cover { border-radius:12px; }
+.mm-report .cover { border-radius:var(--r-card); }
+/* The cover is a dark band in both themes; its type stays light. */
+.mm-report .cover h1, .mm-report .cover h2, .mm-report .topic-divider h2 { color:#fff; font-size:clamp(26px,3.2vw,36px);
+  letter-spacing:-.03em; }
+.mm-report .cover .subtitle { color:var(--text-on-dark); }
+.mm-report .cover .eyebrow, .mm-report .topic-divider .eyebrow { color:var(--accent-text-active); }
+.mm-report .card, .mm-report .es-card, .mm-report .scenario-card { border-radius:var(--r-card); }
+.mm-report .card h3, .mm-report .card h4, .mm-report .es-card h3, .mm-report .scenario-card h4,
+.mm-report .section h2, .mm-report .es-signal { color:var(--text-primary); }
+.mm-report .section-eyebrow, .mm-report .es-signal-label, .mm-report .es-window .tf,
+.mm-report .cat-eyebrow { color:var(--accent-ink); }
 .mm-report .n-jump { align-items:center; }
 .mm-report .n-jump .n-jump-label { color:#bcbac7; font-size:.8rem; padding:6px 4px 6px 0; }
 .mm-report .n-jump a[aria-current="page"] { background:var(--n-accent); color:#fff; border-color:var(--n-accent); }
@@ -234,7 +248,7 @@ def _chrome(market: Dict[str, Any], kind: str, run: Dict[str, Any],
     """The site's top bar (with the run list as the jump row) and footer,
     plus the style blocks they need, as (head_extra, top, foot)."""
     from app.services.market_report_html import (
-        _brand_line, _FONT_LINK, NEWS_CSS, DARK_CSS, V2_CSS, EXTRA_CSS)
+        _brand_line, _theme_toggle, _FONT_LINK_V2, _THEME_JS, NEWS_CSS, DARK_CSS, V2_CSS, EXTRA_CSS)
 
     other = "horizons" if kind == "consensus" else "consensus"
     pages = (f'<a href="{esc(front_href)}">Front page</a>'
@@ -258,9 +272,12 @@ def _chrome(market: Dict[str, Any], kind: str, run: Dict[str, Any],
                      f'<span class="n-jump-label">{esc(_LABELS[kind])} runs</span>'
                      + "".join(items) + "</nav>")
     about = f"{front_href}&page=about"
-    head_extra = (f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_REPORT_CSS}</style>")
-    top = ('<div class="mm-news mm-v2 mm-report"><div class="n-top">' + _brand_line()
-           + f'<nav class="n-pages" aria-label="Pages">{pages}</nav>'
+    head_extra = (f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_REPORT_CSS}</style>")
+    # The theme script goes first in the body so a stored dark choice applies
+    # before anything paints; the light theme itself is declared on <html>.
+    top = (f"<script>{_THEME_JS}</script>"
+           '<div class="mm-news mm-v2 mm-report"><div class="n-top">' + _brand_line()
+           + f'<nav class="n-pages" aria-label="Pages">{pages}{_theme_toggle()}</nav>'
            + runs_html
            + f'<span class="n-market">{esc(market["name"])}</span></div>')
     foot = ('<div class="n-foot">' + _brand_line()
@@ -310,6 +327,7 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
     html = _restyle(html)
     head_extra, top, foot = _chrome(market, kind, run, runs(conn, kind, topic), front_href)
     html = html.replace("</head>", head_extra + "</head>", 1)
+    html = html.replace('<html lang="en">', '<html lang="en" data-theme="light">', 1)
     i = html.find("<body")
     j = html.find(">", i) if i >= 0 else -1
     if j >= 0:

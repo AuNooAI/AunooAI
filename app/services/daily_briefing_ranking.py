@@ -9,7 +9,8 @@ What it replaces: the old flow sorted every candidate by publication date, so
 the newest row won regardless of whether it was on topic. A Bluesky post about
 a city council election, scored 0.00 against "Brand Monitoring Pearsons
 Education", was the top candidate the curator saw. Here, topic alignment
-carries half the composite score and recency carries a tenth of it.
+carries the largest share of the composite score; recency reorders
+near-equal candidates but can never outweigh a large alignment gap.
 
 The three stages a candidate passes through:
 
@@ -42,14 +43,31 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 #: flat bonus for "the analyzer filled this in" rather than a quality signal.
 #: It is kept at the spec's weight rather than silently zeroed; drop it to 0.0
 #: and give the 0.10 to alignment if that stays true.
+#: Retuned 8 Sep 2026: with the alignment floor and the social exclusion in
+#: place, the pool junk that once won on freshness cannot enter at all, but a
+#: daily briefing was staging 3-6 day old picks while ~3,000 articles arrived
+#: per day (the analyst's real picks are median ~1 day old, measured over 74
+#: briefings). Recency 0.10→0.20 so it reorders near-equal candidates a full
+#: day apart; alignment 0.50→0.45 and confidence 0.10→0.05 pay for it. The
+#: invariant below still holds: a 0.5 alignment gap (0.225) outweighs the
+#: whole recency component (0.20).
 WEIGHTS: Dict[str, float] = {
-    "alignment": 0.50,
+    "alignment": 0.45,
     "keyword": 0.15,
     "quality": 0.10,
-    "confidence": 0.10,
+    "confidence": 0.05,
     "credibility": 0.05,
-    "recency": 0.10,
+    "recency": 0.20,
 }
+
+#: Pages that are not articles: code-forge release/repo pages matched a topic
+#: on embedding similarity and were staged into a briefing (8 Sep 2026: a
+#: GitHub release tag for an "open science" tool, hand-deleted by the
+#: analyst). These are never briefing material regardless of score.
+NON_ARTICLE_URL_RE = re.compile(
+    r"https?://(www\.)?(github|gitlab|bitbucket)\.(com|org)/[^/\s]+/[^/\s]+"
+    r"(/(releases|tags|blob|tree|commit|wiki)(/|$)|/?$)",
+    re.IGNORECASE)
 
 #: Days for the recency component to halve. Recency is a freshness nudge and a
 #: tie-breaker, never the primary sort key.
@@ -338,6 +356,9 @@ def annotate_candidates(
     out: List[Dict[str, Any]] = []
     for raw in rows:
         row = dict(raw)
+        uri = str(row.get("canonical_url") or row.get("uri") or "")
+        if NON_ARTICLE_URL_RE.match(uri):
+            continue
         scored = score_article(row, now=now)
         row["_score"] = scored["composite"]
         row["_components"] = scored["components"]

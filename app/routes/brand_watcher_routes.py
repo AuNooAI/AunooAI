@@ -6610,6 +6610,9 @@ class AccountAnnotationRequest(BaseModel):
     text: Optional[str] = None
 
 
+from app.services.social_profile_service import ProfileLookupUnavailable
+
+
 def _social_profile_service():
     from app.services.social_profile_service import SocialProfileService
     return SocialProfileService()
@@ -6621,6 +6624,11 @@ async def build_account_profile(req: AccountProfileRequest, session=Depends(veri
     svc = _social_profile_service()
     try:
         prof = await svc.build_profile(get_database_instance(), req.platform, req.handle, brand=req.brand)
+    except ProfileLookupUnavailable as e:
+        # Provider could not answer (quota, rate limit, outage). 503 with a
+        # neutral message: not a 404, which the UI renders as "no such account".
+        logger.warning(f"build_account_profile: lookup unavailable: {e.reason[:200]}")
+        raise HTTPException(status_code=503, detail=ProfileLookupUnavailable.USER_MESSAGE)
     except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -6651,6 +6659,11 @@ async def account_deep_dive(platform: str, handle: str, brand: Optional[str] = N
     svc = _social_profile_service()
     try:
         dd = await svc.deep_dive(get_database_instance(), platform, handle, brand=brand)
+    except ProfileLookupUnavailable as e:
+        # Provider could not answer (quota, rate limit, outage). 503 with a
+        # neutral message: not a 404, which the UI renders as "no such account".
+        logger.warning(f"account_deep_dive: lookup unavailable: {e.reason[:200]}")
+        raise HTTPException(status_code=503, detail=ProfileLookupUnavailable.USER_MESSAGE)
     except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

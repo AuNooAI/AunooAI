@@ -284,33 +284,38 @@ def notify(c, row: Dict[str, Any], market: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 INQUIRY_CSS = """
-.mm-v2 .v2-inq form { display:grid; gap:14px; max-width:640px; }
-.mm-v2 .v2-inq .opts { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
-.mm-v2 .v2-inq .opt { display:block; border:1px solid var(--n-line); border-radius:10px; padding:14px 16px; cursor:pointer; }
-.mm-v2 .v2-inq .opt:has(input:checked) { border-color:var(--n-accent); box-shadow:0 0 0 1px var(--n-accent) inset; }
-.mm-v2 .v2-inq .opt input { margin:0 8px 0 0; }
-.mm-v2 .v2-inq .opt .price { float:right; font-weight:600; }
-.mm-v2 .v2-inq .opt p { margin:8px 0 0; font-size:13px; color:var(--n-muted); }
-.mm-v2 .v2-inq label.f { display:block; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--n-muted); margin-bottom:4px; }
+.mm-v2 .v2-inq form { display:grid; gap:var(--s-4); max-width:640px; }
+.mm-v2 .v2-inq .opts { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:var(--s-3); }
+.mm-v2 .v2-inq .opt { display:block; background:var(--area-bg); border:1px solid var(--sidebar-border);
+  border-radius:var(--r-xl); padding:var(--s-4); cursor:pointer; }
+.mm-v2 .v2-inq .opt:has(input:checked) { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+.mm-v2 .v2-inq .opt input { margin:0 var(--s-2) 0 0; accent-color:var(--accent); }
+.mm-v2 .v2-inq .opt .price { float:right; font-weight:600; font-variant-numeric:tabular-nums; }
+.mm-v2 .v2-inq .opt p { margin:var(--s-2) 0 0; font-size:var(--fs-small); color:var(--text-muted); font-family:var(--font-sans); }
+.mm-v2 .v2-inq label.f { display:block; font-size:var(--fs-meta); font-weight:500; letter-spacing:.006em;
+  text-transform:none; color:var(--text-secondary); margin-bottom:var(--s-1); }
 .mm-v2 .v2-inq input[type=text], .mm-v2 .v2-inq input[type=email], .mm-v2 .v2-inq textarea {
-  width:100%; box-sizing:border-box; border:1px solid var(--n-line); border-radius:6px; padding:9px 10px; font:inherit; background:var(--n-panel); color:inherit; }
+  width:100%; box-sizing:border-box; min-height:40px; border:1px solid var(--sidebar-border); border-radius:var(--r-control);
+  padding:var(--s-2) var(--s-3); font:inherit; font-size:var(--fs-body); background:var(--area-bg); color:var(--text-primary); }
+.mm-v2 .v2-inq input:focus, .mm-v2 .v2-inq textarea:focus { outline:0; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-tint-15); }
 .mm-v2 .v2-inq textarea { min-height:110px; }
 .mm-v2 .v2-inq .hp { position:absolute; left:-9999px; }
-.mm-v2 .v2-inq .err { color:#ce2c31; font-size:14px; }
-.mm-v2 .v2-inq .fine { font-size:13px; color:var(--n-muted); }
-.mm-v2 .v2-inq .big { display:inline-block; font-size:16px; padding:12px 18px; }
+.mm-v2 .v2-inq .err { color:var(--m-red); font-size:var(--fs-body); }
+.mm-v2 .v2-inq .fine { font-size:var(--fs-small); color:var(--text-muted); font-family:var(--font-sans); }
+.mm-v2 .v2-inq .big { display:inline-flex; font-size:var(--fs-lead); min-height:44px; padding:0 var(--s-5); }
 """
 
 
 def _shell(market: Dict[str, Any], *, title: str, kicker: str, h1: str, sub: str,
            inner: str, front_href: str, about_href: str) -> str:
     from app.services.market_report_html import (
-        _brand_line, _FONT_LINK, EXTRA_CSS, NEWS_CSS, DARK_CSS, V2_CSS)
+        _brand_line, _theme_toggle, v2_document, _FONT_LINK_V2, EXTRA_CSS, NEWS_CSS, DARK_CSS, V2_CSS)
 
-    body = (f"{_FONT_LINK}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{INQUIRY_CSS}</style>"
+    body = (f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{INQUIRY_CSS}</style>"
             '<div class="mm-news mm-v2"><div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
-            f'<a href="{esc(front_href)}">Front page</a><a href="{esc(about_href)}">About</a></nav>'
+            f'<a href="{esc(front_href)}">Front page</a><a href="{esc(about_href)}">About</a>'
+            f'{_theme_toggle()}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>'
             '<main class="v2-grid"><div class="v2-main v2-one">'
             '<article class="v2-about v2-inq">'
@@ -320,7 +325,7 @@ def _shell(market: Dict[str, Any], *, title: str, kicker: str, h1: str, sub: str
             '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])} · <a href="{esc(about_href)}">About</a> · '
             f'<a href="{esc(about_href)}#privacy">Privacy</a></span></div></div>')
-    return html_document(title, body)
+    return v2_document(title, body)
 
 
 def build_inquiry_page(market: Dict[str, Any], *, front_href: str, about_href: str,

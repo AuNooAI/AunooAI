@@ -59,6 +59,50 @@ above were edited live by the parallel Market Monitor session and are swept
 into this commit unreviewed beyond a compile check, per the never-cherry-pick
 rule.
 
+### Fix: account profiler said "No twitter account found" when the provider was refusing
+Oviva's Brand Watcher "Top critics" panel offered to profile @meddidocc; the
+profile call came back `No twitter account found for 'meddidocc'`. The account
+exists (our own stored post is `https://x.com/meddidocc/status/…`); the journal
+showed `xpoz get_user(twitter/meddidocc) failed: Operation failed: Usage limit
+exceeded`. The Xpoz quota funded on 2026-09-06 had run out again at
+2026-09-08 05:18 (sunstar first, 72 refusals; bugfixing 09:00; oviva 10:27),
+about 43 hours after the top-up. Oliver recharged at ~10:30.
+
+**`app/services/social_profile_service.py`**: `_fetch_sync` used to swallow
+every `get_user` exception and return `None`, which the route rendered as
+"no such account". New `ProfileLookupUnavailable(RuntimeError)` with a fixed
+user-facing message, `Account lookup is temporarily unavailable. Please try
+again in a few minutes.`, raised for any provider failure (usage limit, 429,
+outage); the real reason is logged server-side only and never shown. A handle
+Xpoz rejects as malformed (`Validation failed` / `Invalid`) still returns
+`None`, so a genuine bad handle still reads as not found. A well-formed
+handle that does not exist comes back from Xpoz as a user object with
+`status='no_data'` and is handled as before.
+
+**`app/routes/brand_watcher_routes.py`**: `POST /accounts/profile` and the
+deep-dive route catch `ProfileLookupUnavailable` first and answer 503 with
+that message. The Market Monitor profile routes already catch `RuntimeError`
+and return its text, so they show the same neutral line.
+
+Verification: unit test with a stubbed `xpoz.XpozClient`: quota error →
+`ProfileLookupUnavailable`; validation error → `None`; route → `503` with
+the message. Live after the recharge: profile for `twitter/meddidocc` builds
+on oviva (display name, 1487 followers, 17372 posts, topics, sentiment,
+summary).
+
+Propagation: oviva and bwtemplate matched canonical and got both files;
+sunstar took the patch; abm, wbm, wiley and wileytest run an older
+`social_profile_service.py` without the 429 branch, so the class was added by
+patch and the except block replaced directly. All eight compile. Restarted
+job-gated 2026-09-08 10:35–10:37: all seven active sites login 200.
+
+Ride-along in this commit, from two parallel sessions, compile-checked only
+(`tests/test_daily_briefing_ranking.py` 59 passed): daily briefing compose
+and ranking, market_foresight, market_inquiry, market_report_html.
+
+Xpoz burn rate, for the record: one shared key, six sites, four platforms per
+keyword per cycle. Funded Saturday ~10:00, exhausted Monday 05:18. Not changed.
+
 ### Fix: per-article briefing analysis hid its real error behind a `json` shadowing bug
 **`app/services/news_feed_service.py`**. Oviva's daily six-article briefing
 logged `Analysis failed for <article>: cannot access local variable 'json'
