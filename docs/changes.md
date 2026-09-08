@@ -107,6 +107,62 @@ above were edited live by the parallel Market Monitor session and are swept
 into this commit unreviewed beyond a compile check, per the never-cherry-pick
 rule.
 
+### Ops/config: every scheduled feature and every Haiku-tier code literal now runs on kimi-k2.5
+Prompted by oviva's emerging-topics run at 11:56 reporting `gpt-4o-mini` and
+returning malformed JSON from Haiku. Nothing calls OpenAI; the gpt-* names are
+aliases the LiteLLM config maps to Claude on Bedrock, and the default rows and
+code literals still said them (see `docs/ISSUE_MODEL_ALIAS_CLEANUP.md`).
+
+**Settings rows** (database only, schedulers re-read them per run, no restart):
+`emerging_topics_settings.model`, `newsfeed_dashboard_settings.model` and
+`geopolitical_schedules.model` set to `bedrock-kimi-k2-5` on bugfixing,
+sunstar, oviva, abm, wbm, wiley, wileytest and bwtemplate (geo rows exist only
+on bugfixing, wbm, wileytest). Test: dashboard run on bugfixing logged
+`Model used: bedrock-kimi-k2-5` for the briefing, but the per-article reports
+and the highlights step still went to Haiku through code literals.
+
+**`app/config/litellm_config.yaml`** on all eight trees: the seven Haiku-tier
+aliases (`gpt-4o-mini`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-4.1-mini`,
+`gpt-4.1-nano`, `gpt-5-mini`, `gpt-5-nano`) now target
+`bedrock/moonshotai.kimi-k2.5` with kimi's params (`additional_drop_params`
+incl. `thinking`, no `thinking:` block). Chosen over editing the 212 literal
+strings: all 58 files carrying them pass through this file (no file uses a
+direct provider client), it is one edit per tree, and pricing tables and
+settings defaults keyed on the names keep working. The Sonnet-tier names
+(`gpt-5.4`, `gpt-5.5`) are unchanged; that is a separate quality decision.
+Per-tenant yaml files drift, so each was edited in place by a script that
+touches only those seven blocks; `.bak-minikimi-20260908` beside each.
+bwtemplate's yaml still pointed those names at `openai/…`, so a fresh clone
+would have called OpenAI; repointed the same way. The LiteLLM `Router` built
+at startup keeps its own copy of the list, so this needs a restart even
+though `load_model_config` re-reads on mtime.
+
+Verification: direct call through `gpt-5.4-mini` with `temperature=0.3`
+answered `{"ok": true, "model_family": "Kimi"}`, `r.model =
+moonshotai.kimi-k2.5`. Dashboard run on bugfixing after restart: briefing,
+six per-article reports and highlights all `litellm.completion(model=
+bedrock/moonshotai.kimi-k2.5)`, zero Haiku calls, no per-article parse
+failures (Haiku had produced one on the previous run).
+
+### Fix: incident tracking dropped the whole highlights panel on one bad JSON delimiter
+**`app/routes/vector_routes.py`**. Kimi's reply for the highlights step is a
+~35k-character JSON array and slipped a delimiter on the first kimi run
+(bugfixing 12:53, `char 37318`) and on sunstar's user-triggered regenerate at
+12:51 (`char 35145`); the parser threw the whole array away and the run saved
+0 incidents. Added a `json_repair` fallback (library already in every venv):
+on `JSONDecodeError`, repair; if the result is a list, use it and log a
+warning with the count. Re-run on bugfixing: `JSON repaired after parse error
+(… char 35184); 27 incidents recovered`, in line with 31/35/37 on the three
+previous days, and stored in `article_analysis_cache`. Sunstar's failed
+regenerate did not overwrite its cache (still 2026-09-07, 34 incidents).
+
+Propagation: yaml on all eight trees; `vector_routes.py` copied to oviva,
+abm, wiley, wileytest, bwtemplate (matched canonical) and patched on sunstar
+and wbm. Restarts job-gated 2026-09-08: first round for the yaml ~12:50
+(bugfixing, oviva, abm, wbm, wiley, wileytest; sunstar 12:57), second round
+for the repair fallback (bugfixing 12:56; oviva, abm, wbm, wileytest ~12:59;
+sunstar 13:01; wiley 13:01:). All login 200. bwtemplate inactive.
+
 ### Fix: the below-threshold save always wrote `filtered_relevance`, whatever status the caller set
 **`app/services/async_db.py`**, `save_below_threshold_article`. Follow-up to
 yesterday's no-text guard. By 11:13 the guard had fired 44 times on sunstar

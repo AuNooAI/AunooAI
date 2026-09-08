@@ -16,74 +16,74 @@
 model_list:
   # ---- mini / nano / small -> Bedrock Claude Haiku 4.5 ----
   - model_name: gpt-4.1-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-4o-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-4.1-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5.4-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5.4-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   # ---- flagship / standard -> Bedrock Claude Sonnet 4.5 ----
   - model_name: gpt-4o

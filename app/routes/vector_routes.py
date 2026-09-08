@@ -2250,7 +2250,21 @@ Output a pure JSON array only."""
                 import json as json_module
                 json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
                 if json_match:
-                    incidents = json_module.loads(json_match.group())
+                    raw = json_match.group()
+                    try:
+                        incidents = json_module.loads(raw)
+                    except json_module.JSONDecodeError as je:
+                        # A 30k+ character array with one bad delimiter used to
+                        # cost the whole highlights panel (bugfixing 2026-09-08,
+                        # kimi-k2.5, char 37318 of 37k). Repair before giving up.
+                        import json_repair
+                        repaired = json_repair.loads(raw)
+                        if not isinstance(repaired, list):
+                            raise je
+                        logger.warning(
+                            f"Incident tracking JSON repaired after parse error ({je}); "
+                            f"{len(repaired)} incidents recovered")
+                        incidents = repaired
             except json_module.JSONDecodeError as je:
                 logger.error(f"Failed to parse incident tracking response: {je}")
                 return {"incidents": [], "error": "Failed to parse LLM response"}
