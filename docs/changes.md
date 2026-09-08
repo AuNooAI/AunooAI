@@ -59,13 +59,33 @@ above were edited live by the parallel Market Monitor session and are swept
 into this commit unreviewed beyond a compile check, per the never-cherry-pick
 rule.
 
-### Noted, not fixed
-Oviva's daily six-article briefing logs `Analysis failed for <article>:
-cannot access local variable 'json' where it is not associated with a value`
-for every article it analyses (09:32 today, three articles per run). That is
-the `import json` inside a function shadowing the module-level name (see the
-runtime gotchas note). The briefing still completes with basic summaries.
-Separate fix.
+### Fix: per-article briefing analysis hid its real error behind a `json` shadowing bug
+**`app/services/news_feed_service.py`**. Oviva's daily six-article briefing
+logged `Analysis failed for <article>: cannot access local variable 'json'
+where it is not associated with a value` for every article it analysed
+(09:32 today, three per run). `_analyze_article_deeply` had `import json`
+inside its `try` block although the module imports `json` at line 1. A
+function-local import makes the name local for the whole function, so when
+`litellm.acompletion` raised before that line ran, the `except
+json.JSONDecodeError` clause evaluated the unassigned local and raised
+`UnboundLocalError` instead. The article still got its fallback report, but
+whatever the model call actually failed with was never logged.
+
+Removed that local import and the three other redundant ones in the same
+file (`_get_organizational_profile`, twice in
+`_generate_six_articles_report_cached`), which carried the same risk.
+Verification: compiles; with `litellm.acompletion` stubbed to raise, the log
+now reads `Error analyzing article deeply: model call failed` and the
+fallback report is returned. The underlying model error on oviva is still
+unknown: it will show in the log at the next 17:25 briefing. The call uses
+`gpt-5.4-mini` in code, so Haiku 4.5 via the alias table.
+
+Propagation: sunstar, oviva, wiley, wileytest and bwtemplate matched
+canonical (md5 `00b050e2f7d6…`) and got the file; abm and wbm run the
+2026-08-18 version (`3bb82831`) and got the four-line patch. All eight
+compile with no function-local `import json` left. Restarted job-gated
+2026-09-08 ~11:05: sunstar, oviva, abm, wbm, wiley all login 200; bugfixing
+and wileytest were mid-job and restart when idle; bwtemplate inactive.
 
 ## 2026-09-08 — Self-citation's second door closed; xpoz text artifacts; Auspex finds vendor coverage
 
