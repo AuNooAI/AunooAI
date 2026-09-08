@@ -137,6 +137,11 @@ const DEFAULT_VISIBLE_SECTIONS: VisibleSections = {
 export function NewsFeedPage() {
   console.log('[NewsFeedPage] Component rendering');
 
+  // Analysis modules. Resolved first: the feed hook below only fetches the
+  // news river and briefing once this site is known NOT to be a dedicated
+  // Brand Watcher tenant (dedicatedMode === false).
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
+
   // Articles hook
   const {
     articles,
@@ -160,7 +165,7 @@ export function NewsFeedPage() {
     unstarArticle,
     clearError,
     starredArticles,
-  } = useNewsFeed();
+  } = useNewsFeed(dedicatedMode === false);
 
   // Narrative Explorer hook (Highlights & Narratives)
   const {
@@ -211,8 +216,6 @@ export function NewsFeedPage() {
     setDismissedPodcasts(prev => new Set(prev).add(index));
   };
 
-  // Analysis modules
-  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
   type ExploreTab = 'overview' | 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';

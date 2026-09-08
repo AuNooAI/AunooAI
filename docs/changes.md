@@ -2,6 +2,71 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-08 — Oviva logins for three strategy users; Brand Watcher sites no longer run the news briefing on every Explore load
+
+### Goal
+Oviva asked for logins for three people (VP Strategy, Director Strategy and
+the original contact) ahead of a 30-minute overview next week, with the
+requirement that they land on the curated Brand Watcher content and see no
+setup wizard. Verifying that surfaced a stray "Error / Failed to fetch"
+banner on first load, fixed below.
+
+### Ops: three Oviva accounts
+Created through the admin API (`POST /api/users/`, trailing slash; the
+slash-less path 307s) with role `user`, `force_password_change = true`,
+`completed_onboarding = true`, matching the Sunstar account of 2026-09-04.
+Usernames `melanie`, `carlota`, `kinjal` with their oviva.com addresses.
+Temporary passwords handed to Oliver out of band; first login goes straight
+to `/change_password` (8+ chars, upper, digit, special) and then to Explore.
+
+Verified with a throwaway account set up identically (deleted afterwards):
+lands on `/explore` with the Brand Watcher dashboard (7 brands, viewing
+Oviva), tabs Brand Watcher / Market Monitor / Observer Agents / Timeline,
+sidebar Brand Watcher / Settings / App Info, no wizard, no dialog, no admin
+controls.
+
+### Fix: news feed hook fetched the river and the six-article briefing on dedicated Brand Watcher sites
+**`ui/src/hooks/useNewsFeed.ts`**, **`ui/src/pages/NewsFeedPage.tsx`**. The
+Explore page mounts `useNewsFeed()` on every site. Its effects fetched the
+news river and, on first mount, started six-article briefing generation (a
+long model call, `GET /api/news-feed/six-articles?...&model=bedrock-kimi-k2-5`)
+even on a dedicated Brand Watcher tenant where neither is ever shown. When
+that call was cut off, the hook's catch set the page-level error and the
+Brand Watcher dashboard opened under an "Error / Failed to fetch" banner.
+Seen once on oviva at 09:32 during the login verification; nginx logged two
+`499` (client closed) on the six-articles request in the same minute. Not
+reproducible on demand across six further logins, so the fix removes the
+cause rather than the symptom.
+
+`useNewsFeed(feedEnabled = true)` now skips both auto-fetch effects when
+`feedEnabled` is false. `NewsFeedPage` resolves `useModules()` first and
+passes `dedicatedMode === false`, so a normal site fetches once the module
+state is known and a dedicated site never does. Side effect: one fewer
+briefing generation per Explore load on every Brand Watcher site.
+
+Verification: `npm run typecheck` clean against the baseline. Headless
+login on oviva with the new bundle: no `/api/news-feed/articles` and no
+six-articles generation request on load, dashboard renders, no banner. On
+bugfixing (non-dedicated) the hook still runs: `/api/news-feed/articles`
+fetched, briefing effect executed and used its cached snapshot as before.
+
+Propagation: built with `./ui/deploy-react-ui.sh` in canonical (bundle
+`newsfeed-C2U03F68.js`), static and templates rsynced to oviva, oviva
+restarted while idle, login 200. Other sites keep their older bundles.
+
+Ride-along: `app/services/auspex_service.py` and the 2026-09-08 Auspex entry
+above were edited live by the parallel Market Monitor session and are swept
+into this commit unreviewed beyond a compile check, per the never-cherry-pick
+rule.
+
+### Noted, not fixed
+Oviva's daily six-article briefing logs `Analysis failed for <article>:
+cannot access local variable 'json' where it is not associated with a value`
+for every article it analyses (09:32 today, three articles per run). That is
+the `import json` inside a function shadowing the module-level name (see the
+runtime gotchas note). The briefing still completes with basic summaries.
+Separate fix.
+
 ## 2026-09-08 — Self-citation's second door closed; xpoz text artifacts; Auspex finds vendor coverage
 
 ### Goal
@@ -54,16 +119,20 @@ only be said after searching the name across all topics.
 The prompt alone did not fix it — the operator's retry got the same "no
 coverage" answer, because an Auspex chat is bound to one topic and the
 search tool scopes every query to it regardless of what the prompt says.
-The working fix is in the tool: `QueryRouter._entity_search` now runs a
-named-brand fallback after the topic-scoped search. When the query names
-an enabled `bw_brands` entry (matched on the name's distinctive token,
-4+ chars, generic words like "Security" skipped) and the scoped results
-never mention it, the brand's articles are pulled by name across all
-topics (ILIKE on title/summary, rejected rows excluded, newest first)
-and merged ahead of the scoped results, `search_method` suffixed
-`+named_brand_keyword`. Live test with the exact query: 14 articles by
-name (7 ExaForce, 7 Dropzone) from the Brand Watch topics the scoped
-search never opened.
+The working fix is in the tool: `QueryRouter.route()` runs a named-brand
+fallback after whichever search branch executed — in the dispatcher, not
+one branch, because the classifier is loose (the battle-card query
+classified 'comprehensive', so a fallback placed only in _entity_search
+never fired; caught when verifying the fix end to end). When the query
+names an enabled `bw_brands` entry (matched on the name's distinctive
+token, 4+ chars, generic words like "Security" skipped) and the
+topic-scoped results never mention it, the brand's articles are pulled
+by name across all topics (ILIKE on title/summary, rejected rows
+excluded, newest first) and merged ahead of the scoped results,
+`search_method` suffixed `+named_brand_keyword`. End-to-end test with
+the exact query on the market topic: 30 articles, 7 mentioning Dropzone
+and 7 mentioning ExaForce, from the Brand Watch topics the scoped search
+never opened.
 
 ### Verification
 py_compile on all four files; `pytest tests/test_market_corpus_excluded.py

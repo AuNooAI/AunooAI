@@ -1056,19 +1056,42 @@ class QueryRouter:
 
         if query_type == 'temporal_analysis':
             # Use newsletter-style SQL fetch for trend queries
-            return await self._temporal_fetch(query, effective_topic, limit)
+            result = await self._temporal_fetch(query, effective_topic, limit)
 
         elif is_cross_topic and query_type in ('semantic_search', 'comprehensive'):
             # Parallel per-topic vector searches for cross-topic semantic queries
-            return await self._cross_topic_semantic_search(query, limit, citation_limit)
+            result = await self._cross_topic_semantic_search(query, limit, citation_limit)
 
         elif query_type == 'entity_focused':
             # Use existing entity search logic (keyword + vector hybrid)
-            return await self._entity_search(query, effective_topic, limit)
+            result = await self._entity_search(query, effective_topic, limit)
 
         else:
             # Single-topic semantic search with optional query expansion
-            return await self._smart_vector_search(query, effective_topic, limit, citation_limit)
+            result = await self._smart_vector_search(query, effective_topic, limit, citation_limit)
+
+        # Whatever branch ran: a chat is usually bound to one topic, and a
+        # tracked company's coverage lives under its own brand topic. When
+        # the query names a tracked brand the results never mention, pull
+        # that brand's articles by name across all topics. Applied here and
+        # not only in _entity_search because the classifier is loose — the
+        # Dropzone/ExaForce battle-card query classified 'comprehensive'.
+        if effective_topic is not None:
+            try:
+                extra = self._named_brand_fallback(
+                    query, result.get('articles') or [], limit)
+            except Exception:  # noqa: BLE001 — never break search
+                self.logger.exception("named-brand fallback failed")
+                extra = []
+            if extra:
+                seen = {a.get('uri') for a in result.get('articles') or []}
+                merged = [a for a in extra if a.get('uri') not in seen]
+                merged += result.get('articles') or []
+                result['articles'] = merged[:max(limit, len(extra))]
+                result['search_method'] = (
+                    f"{result.get('search_method', '')}+named_brand_keyword")
+                result.setdefault('metadata', {})['named_brand_articles'] = len(extra)
+        return result
 
     async def _temporal_fetch(self, query: str, topic: str, limit: int) -> Dict:
         """Fetch articles by date range (newsletter-style) for temporal queries."""
@@ -1266,26 +1289,9 @@ class QueryRouter:
 
     async def _entity_search(self, query: str, topic: str, limit: int) -> Dict:
         """Search for entity-focused queries using keyword + vector hybrid."""
-        result = await self._smart_vector_search(query, topic, limit)
-        # A chat is bound to one topic, but a tracked company's coverage
-        # usually lives under its own brand topic. When the query names a
-        # tracked brand and the topic-scoped results never mention it, pull
-        # that brand's articles by name across all topics — otherwise the
-        # answer becomes "no coverage of either vendor" while 157 articles
-        # sit one topic over (8 Sep 2026, Dropzone/ExaForce battle card).
-        try:
-            extra = self._named_brand_fallback(query, result.get('articles') or [], limit)
-        except Exception:  # noqa: BLE001 — the fallback must never break search
-            self.logger.exception("named-brand fallback failed")
-            extra = []
-        if extra:
-            seen = {a.get('uri') for a in result.get('articles') or []}
-            merged = [a for a in extra if a.get('uri') not in seen]
-            merged += result.get('articles') or []
-            result['articles'] = merged[:max(limit, len(extra))]
-            result['search_method'] = f"{result.get('search_method', '')}+named_brand_keyword"
-            result.setdefault('metadata', {})['named_brand_articles'] = len(extra)
-        return result
+        # The named-brand fallback runs in route() for every branch,
+        # including this one.
+        return await self._smart_vector_search(query, topic, limit)
 
     _GENERIC_NAME_WORDS = {"security", "labs", "cyber", "tech", "data", "cloud",
                            "group", "systems", "networks", "software", "solutions"}
