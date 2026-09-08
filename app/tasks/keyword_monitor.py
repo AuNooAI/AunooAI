@@ -409,6 +409,28 @@ class KeywordMonitor:
                     logger.info(f"Using group {group_id} relevance threshold {threshold}")
             except Exception as e:
                 logger.warning(f"Could not read group {group_id} relevance threshold: {e}")
+
+        # Same story for the group's language, country and date window. The
+        # scheduler (check_single_group) sets them before calling us; /check-now
+        # did not, so a German group searched TheNewsAPI in English and got
+        # nothing (Swiss elections build, 2026-09-08). Apply them here for a
+        # manual single-group run and put them back at the end.
+        _manual_group_ctx = None
+        if group_id is not None and not getattr(self, '_group_context_applied', False):
+            if group_row is None:
+                try:
+                    group_row = self.db.facade.get_keyword_group_with_settings(group_id)
+                except Exception as e:
+                    logger.warning(f"Could not read group {group_id} settings: {e}")
+            if group_row:
+                _manual_group_ctx = (self.language, self.country, self.search_date_range)
+                self.language = (group_row.get('language') or self.language or 'en').strip().lower()
+                self.country = (group_row.get('country') or '').strip().lower() or None
+                if group_row.get('search_date_range'):
+                    self.search_date_range = group_row['search_date_range']
+                logger.info(
+                    f"Manual run for group {group_id}: language={self.language}, "
+                    f"country={self.country}, date_range={self.search_date_range}d")
         new_articles_count = 0
         processed_keywords = 0
 
@@ -711,7 +733,10 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking keywords: {str(e)}", exc_info=True)
             return {"success": False, "error": str(e), "new_articles": new_articles_count}
-        
+        finally:
+            if _manual_group_ctx is not None:
+                self.language, self.country, self.search_date_range = _manual_group_ctx
+
         # Final safety net - this should never be reached, but just in case
         logger.error("check_keywords reached end without returning - this should not happen!")
         return {"success": False, "error": "Unexpected end of method", "new_articles": new_articles_count}
@@ -1182,6 +1207,7 @@ class KeywordMonitor:
         original_country = self.country
         self.language = (effective.get('language') or original_language or 'en').strip().lower()
         self.country = (effective.get('country') or '').strip().lower() or None
+        self._group_context_applied = True  # tells check_keywords not to redo this
 
         # Store per-group relevance threshold override (used by auto_ingest_pipeline)
         self._group_relevance_threshold = effective.get('min_relevance_threshold')
@@ -1239,6 +1265,7 @@ class KeywordMonitor:
             self.search_date_range = original_search_date_range
             self.language = original_language
             self.country = original_country
+            self._group_context_applied = False
             self._group_relevance_threshold = None
             self._social_only_group = False
 

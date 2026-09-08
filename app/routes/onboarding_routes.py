@@ -795,25 +795,38 @@ Each topic has specific characteristics:
 
 For the keywords section, return a JSON object with these keys: companies, technologies, general, people, exclusions. For companies, technologies, and people, ONLY include real, verifiable entities that are relevant to the topic. If you cannot verify a real company, technology, or person, leave the list empty. Do NOT invent names. For exclusions, include only common spam, scam, or misinformation terms relevant to the topic, or leave blank if none are known.
 
-IMPORTANT - KEYWORD FORMAT RULES (for news API compatibility):
-1. Use SIMPLE, SINGLE-WORD or TWO-WORD keywords only (e.g., "artificial intelligence", "OpenAI")
-2. NO Boolean operators (AND, OR, NOT) - just plain terms
-3. NO parentheses, brackets, or special characters
-4. NO quoted phrases - just plain text
-5. Keep each keyword under 30 characters
-6. For exclusions, prefix with minus sign: -scam, -spam, -unrelated
+HOW KEYWORDS ARE USED: each keyword is sent on its own to a news search that
+matches ALL of its words anywhere in an article, across millions of articles
+from every country. A bare generic word ("disinformation", "regulation",
+"cloud") therefore returns the whole world's coverage of that word, and the
+articles that actually concern this topic are lost in it.
+
+KEYWORD RULES:
+1. Every keyword must carry the topic's own anchor: the place, organisation,
+   product, event or market that distinguishes this topic from the general
+   subject. "Swiss election disinformation", not "disinformation".
+   "Switzerland foreign interference", not "foreign interference".
+2. Two to four words per keyword. Single generic words are not allowed in
+   "general". A single word is fine only when it is itself a specific name
+   (a company, a person, a named institution).
+3. Order each list with the MOST SPECIFIC keywords first. The first few entries
+   are the ones most likely to be kept.
+4. Prefer the names the local press actually uses: the official name of the
+   institution, party or body, in the language of the country concerned, and
+   the English form as a separate keyword if both are in use.
+5. NO Boolean operators (AND, OR, NOT), NO parentheses or brackets, NO quotes,
+   NO trailing punctuation. Keep each keyword under 50 characters.
+6. For exclusions, prefix with a minus sign: -scam, -spam.
 7. For companies/people, use the most common name: "OpenAI" not "OpenAI Inc."
 
-Examples of GOOD keywords:
-- companies: ["OpenAI", "Microsoft", "Google DeepMind"]
-- technologies: ["machine learning", "neural networks", "GPT-4"]
-- general: ["artificial intelligence", "automation", "chatbots"]
-- people: ["Sam Altman", "Demis Hassabis"]
-- exclusions: ["-cryptocurrency", "-scam", "-gaming"]
+Examples of GOOD keywords for a topic "Swiss Federal Elections 2027 Disinformation":
+- general: ["Swiss election disinformation", "Switzerland foreign interference", "Swiss federal elections 2027", "Bundesrat Desinformation"]
+- companies: ["Swiss Federal Chancellery", "Nachrichtendienst des Bundes", "SRG SSR"]
+- technologies: ["Swiss deepfake", "synthetic media Switzerland"]
 
 Examples of BAD keywords (DO NOT USE):
-- "(AI OR ML)" - no parentheses or boolean operators
-- "AI AND robotics" - no boolean operators
+- "disinformation", "propaganda", "misinformation" - generic, no anchor
+- "(AI OR ML)", "AI AND robotics" - no operators or parentheses
 - "\"machine learning\"" - no quotes
 - "OpenAI, Inc." - use simple names
 
@@ -1009,7 +1022,9 @@ async def save_topic(
             "name": topic_data["name"],
             "description": topic_data.get("description", ""),
             "categories": topic_data.get("categories", []),
-            "future_signals": topic_data.get("future_signals", []),
+            # The React wizard posts futureSignals (camelCase); reading only the
+            # snake_case key saved an empty list for every wizard-created topic.
+            "future_signals": topic_data.get("future_signals") or topic_data.get("futureSignals", []),
             "sentiment": topic_data.get("sentiment", standard_topic["sentiment"]),
             "time_to_impact": topic_data.get("time_to_impact", standard_topic["time_to_impact"]),
             "driver_types": topic_data.get("driver_types", standard_topic["driver_types"]),

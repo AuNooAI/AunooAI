@@ -133,6 +133,69 @@
         "Inhibitor",
         "Blocker"
       ]
+    },
+    {
+      "name": "Swiss Federal Elections 2027 Disinfo Monitoring",
+      "description": "Topic for monitoring disinformation, misinformation, propaganda and coordinated influence operations targeting the 2027 Swiss Federal Elections. Tracks foreign and domestic information operations, synthetic media, narrative manipulation, and platform-based influence campaigns.",
+      "categories": [
+        "Foreign State Operations",
+        "Domestic Disinformation",
+        "Synthetic Media & Deepfakes",
+        "Social Media Manipulation",
+        "Platform Policy & Enforcement",
+        "Fact-Checking & Verification",
+        "Media Literacy & Education",
+        "Political Advertising & Messaging",
+        "Coordinated Inauthentic Behavior",
+        "Narrative Analysis & Themes",
+        "Election Integrity & Security",
+        "Legal & Regulatory Response",
+        "Cross-Border Information Flows",
+        "Other"
+      ],
+      "future_signals": [
+        "Foreign interference escalates",
+        "Domestic disinformation dominates",
+        "Deepfakes flood campaigns",
+        "Platforms effectively contain threats",
+        "Mainstream Narrative holds"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Swiss election disinformation",
+        "Switzerland election interference",
+        "Swiss federal elections 2027",
+        "Switzerland foreign interference",
+        "Swiss deepfake",
+        "Switzerland Russia influence",
+        "Swiss Bundesrat disinformation",
+        "Switzerland Doppelganger campaign",
+        "Switzerland Pravda network",
+        "Switzerland neutrality initiative Russia",
+        "Swiss information operations",
+        "Desinformation Schweiz",
+        "Einflussnahme Schweiz",
+        "Neutralitätsinitiative Russland",
+        "désinformation Suisse",
+        "ingérence Suisse"
+      ]
     }
   ],
   "ai_models": [

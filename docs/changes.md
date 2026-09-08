@@ -2,6 +2,115 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-08 — Add-Topic wizard suggests anchored keywords and keeps them; Swiss elections disinformation topic set up in three languages
+
+### Goal
+A new topic on bugfixing, "Swiss Federal Elections 2027 Disinfo Monitoring",
+came out of the wizard with five generic keywords (disinformation,
+misinformation, propaganda, deepfake, generative AI). The first firehose run
+fetched 50 articles and the relevance gate rejected all 39 it saved:
+Verisk press releases, an EU terror story syndicated eight times, a Telegram
+outage. The user asked why the wizard suggests generic terms, and then for
+the topic to be rebuilt with German and French groups. All in commit
+`17ec4625`.
+
+### Fix — the wizard threw the specific keywords away
+The suggestion model (the `gpt-5.4-mini` alias, kimi-k2.5 on Bedrock since
+this morning) had returned "Swiss elections", "Bundesrat", "Nationalrat",
+"Ständerat", "election interference" and "influence operations". They sat at
+positions 7 to 10 of the general list, and **`Step3Keywords.tsx`** kept
+only the first three of each list (`slice(0, 3)`, from the original React
+MVP commit, no reason recorded). The trim is gone: every suggestion is
+shown and the user removes what they do not want. The regenerate button
+used to send its own short `keyword_prompt`, a path on the server that
+skips the keyword rules entirely; it now calls the endpoint without one.
+
+### Fix — the prompt asked for generic words
+**`onboarding_routes.py`** `suggest_topic_attributes` told the model to use
+"SIMPLE, SINGLE-WORD or TWO-WORD keywords", which is exactly what produced
+"disinformation". The rules now explain how a keyword is used (an AND of
+its words across millions of articles from every country) and require every
+keyword to carry the topic's own anchor, two to four words, most specific
+first, and the names the local press uses. Called on the Swiss topic after
+the change, the endpoint returned "Swiss election disinformation",
+"Desinformation Schweiz", "désinformation Suisse", "disinformazione
+Svizzera", the seven Federal Councillors, the Federal Chancellery and the
+Federal Intelligence Service.
+
+### Fix — future signals were never saved
+`save_topic` read `topic_data.get("future_signals")`; the React wizard
+posts `futureSignals`. Every wizard-created topic has had an empty
+signal list. Both keys are read now. The five signals the user entered were
+written into `config.json` for this topic by hand.
+
+### Fix — the 30-character keyword cap cut anchored terms
+**`keyword_normalizer.py`** `MAX_KEYWORD_LENGTH` was 30, truncating at the
+last space: "Switzerland election interference" became "Switzerland
+election", "Switzerland foreign interference" became "Switzerland foreign".
+No collector we use has a limit near that (NewsAPI allows 500). Raised to
+60; the prompt now says under 50.
+
+### Fix — manual "check now" ignored the group's language
+**`keyword_monitor.py`** `/check-now` calls `check_keywords` directly. That
+path had been taught to apply the group's providers and relevance
+threshold, but not its language, country or date window, which only the
+scheduler's `check_single_group` set. The German group searched TheNewsAPI
+in English and every term returned zero. `check_keywords` now reads those
+three from the group row for a single-group manual run and restores them
+in a `finally`; `check_single_group` sets `_group_context_applied` so the
+two paths do not double-apply. **`database_query_facade.py`**
+`get_keyword_group_with_settings` now selects `language, country`, which it
+did not before, so the fix would otherwise have read NULL.
+
+### Ops — the topic rebuilt as three groups
+Group 21 (English, firehose) got 18 Swiss-anchored terms replacing the five
+generic ones. New groups 22 (`- DE`, language de) and 23 (`- FR`, language
+fr) run on TheNewsAPI with 13 and 9 terms, same topic name. Exclusions were
+left out on purpose: the firehose collector strips NOT terms from the
+query and nothing filters them downstream, so a "-Trump" keyword is
+searched as a term. Bare party acronyms were dropped after the first run:
+"GLP" returned GLP-1 weight-loss drugs, "SVP" an arXiv lattice paper, "RTS"
+the Singapore rail link.
+
+`keyword_monitor_settings.search_fields` widened from `title,description`
+to `title,description,content` (mapped to TheNewsAPI `main_text`). Hand
+measurement over 30 days, German: "Desinformation Schweiz" 0 hits on
+title+description, 26 with body; "Einflussnahme Schweiz" 0 vs 33;
+"Deepfake Schweiz" 0 vs 6; "Bundesrat Desinformation" 0 vs 10. The body
+hits are the right stories (RT DE in the neutrality campaign, Russia
+promoting the neutrality initiative, a pink-slime pseudo-media study). Only
+groups 22 and 23 use TheNewsAPI on this tenant and the firehose ignores the
+setting, so the cost change is confined to them. The setting is read once
+at monitor start, so this needed the restart.
+
+### Verification
+After the final restart, a manual run of group 22 logged
+`Manual run for group 22: language=de` and TheNewsAPI returned 8 hits for
+"Desinformation Schweiz" and 3 for "Bundesrat Desinformation". The RT DE
+piece "So viel Interesse an RT DE: Schweizer Medien machen daraus eine
+Podiumsdiskussion" was approved at alignment 0.85; the
+neutrality-initiative pieces scored 0.2 to 0.4 and were rejected, because
+the description is about the 2027 election, not referendums. Topic totals
+at the end of the session: 4 approved, 151 filtered, 80 social-evaluated.
+`npm run typecheck` clean against baseline; UI rebuilt via
+`deploy-react-ui.sh`, the wizard chunk `NotificationBell-BkPB-WYN.js` has
+no `slice(0,3)` and no `keyword_prompt`.
+
+### Propagation
+bugfixing: all of it, restarted three times job-gated. wiley and wileytest:
+`onboarding_routes.py` patched by anchor (both fixes), `keyword_normalizer.py`
+and `Step3Keywords.tsx` copied; neither restarted, UI not rebuilt there
+because this tree carried an unrelated uncommitted `BrandWatcherTab.tsx`
+change (now committed alongside). The check-now language fix does not
+apply to wiley/wileytest: they have no `keyword_groups.language` column
+(kg_lang_001 never reached them). wbm and the other tenants not touched.
+
+### Open
+Group 23 acquired reddit, xpoz and bluesky providers from the UI during the
+session; Reddit returns 429 on every call and the Bluesky posts were about
+rent initiatives and AGOV logins. Left as set. The wizard still has no way
+to set a group's language or providers; those were set by SQL.
+
 ## 2026-09-08 — Briefing composer stops staging junk and stale picks; sentiment chart gets daily buckets
 
 Both fixes landed inside other sessions' ride-along commits (`a19f302c`,

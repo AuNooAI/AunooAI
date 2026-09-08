@@ -613,10 +613,22 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     if (t.includes('neu') || t.includes('cautious') || t === 'mixed') return 'neutral';
     return 'unrated';
   };
-  // Social posts store the author in the title ("Post by @handle") and the real text in summary.
-  const socialAuthorOf = (p: { title?: string | null; news_source?: string | null; platform?: string }) => {
-    const m = (p.title || '').match(/@([\w.\-]+)/);
-    return m ? `@${m[1]}` : (p.news_source || p.platform || 'unknown');
+  // Author handle of a social post (no "@"): the collector's metadata first, then the legacy
+  // "Post by @handle" title prefix, then the handle embedded in the post URL. A bare @mention
+  // in the body is never the author, because the post may be *about* that account (a post
+  // mentioning @WileyGlobal used to get attributed to Wiley).
+  const socialHandleOf = (p: { title?: string | null; uri?: string; social_meta?: { author?: string | null } | null }): string | null => {
+    const sm = (p.social_meta?.author || '').trim();
+    if (sm) return sm;
+    const m = (p.title || '').match(/^Post by @([\w.\-]+)/i);
+    if (m) return m[1];
+    const u = (p.uri || '').match(/^https?:\/\/(?:www\.|mobile\.)?(?:x\.com\/|twitter\.com\/|tiktok\.com\/@|bsky\.app\/profile\/|threads\.net\/@)([\w.\-]+)/i);
+    return u ? u[1] : null;
+  };
+  // Display label for the author; falls back to the source when the account is unknown.
+  const socialAuthorOf = (p: { title?: string | null; uri?: string; news_source?: string | null; platform?: string; social_meta?: { author?: string | null } | null }) => {
+    const h = socialHandleOf(p);
+    return h ? `@${h}` : (p.news_source || p.platform || 'unknown');
   };
   const socialBodyOf = (p: { title?: string | null; summary?: string | null }) => {
     const body = (p.summary || '').trim();
@@ -708,9 +720,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       if (s === 'unrated') return;
       // Only real author handles — NOT the news_source fallback (e.g. "xpoz:instagram"),
       // which isn't a profileable account. Skip posts we can't attribute to an author.
-      const sm = (p as any).social_meta || {};
-      const m = (p.title || '').match(/@([\w.\-]+)/);
-      const handle = (sm.author || (m ? m[1] : '')).trim();
+      const handle = (socialHandleOf(p as any) || '').trim();
       if (!handle || handle === 'unknown' || handle.includes(':')) return;
       const key = `${p.platform}:${handle.toLowerCase()}`;
       if (!byAuthor[key]) byAuthor[key] = {
@@ -851,11 +861,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [socialDayFilter, setSocialDayFilter] = useState<string | null>(null);       // 'YYYY-MM-DD'
   const [socialThemeFilter, setSocialThemeFilter] = useState<string | null>(null);   // theme key | 'other'
   const [socialBrandFilter, setSocialBrandFilter] = useState<string | null>(null);   // brand display name (swimlane click)
-  const postAuthorOf = (p: any): string => {
-    const sm = p.social_meta || {};
-    const m = (p.title || '').match(/@([\w.\-]+)/);
-    return ((sm.author || (m ? m[1] : '')) as string).trim().toLowerCase();
-  };
+  const postAuthorOf = (p: any): string => (socialHandleOf(p) || '').trim().toLowerCase();
   const viewAuthorPosts = (platform: string, author: string) => {
     setSocialAuthorFilter({ platform, author });
     handleTabChange('social');
@@ -975,7 +981,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ backgroundColor: platColor(p.platform) }}>{platLabel(p.platform)}</span>
               {(() => {
-                const h = p.social_meta?.author || (socialAuthorOf(p).startsWith('@') ? socialAuthorOf(p).slice(1) : null);
+                const h = socialHandleOf(p);
                 const canProfile = h && ['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok'].includes(p.platform);
                 return canProfile ? (
                   <button onClick={() => openAccountFromAuthor(p.platform, h)} title={`Profile @${h}`}

@@ -37,21 +37,23 @@ export function Step3Keywords({ topicData, suggestedKeywords, onBack, onComplete
     if (suggestedKeywords) {
       console.log('Populating keywords from Step 2:', suggestedKeywords);
 
-      // Only populate first 3 of each category
+      // Keep every suggestion; the user removes what they don't want. Keeping
+      // only the first three dropped the topic-specific terms whenever the
+      // model listed generic ones first.
       if (suggestedKeywords.companies?.length > 0) {
-        setCompanies(suggestedKeywords.companies.slice(0, 3));
+        setCompanies(suggestedKeywords.companies);
       }
       if (suggestedKeywords.technologies?.length > 0) {
-        setTechnologies(suggestedKeywords.technologies.slice(0, 3));
+        setTechnologies(suggestedKeywords.technologies);
       }
       if (suggestedKeywords.general?.length > 0) {
-        setGeneralKeywords(suggestedKeywords.general.slice(0, 3));
+        setGeneralKeywords(suggestedKeywords.general);
       }
       if (suggestedKeywords.people?.length > 0) {
-        setPeople(suggestedKeywords.people.slice(0, 2));
+        setPeople(suggestedKeywords.people);
       }
       if (suggestedKeywords.exclusions?.length > 0) {
-        setExclusions(suggestedKeywords.exclusions.slice(0, 2));
+        setExclusions(suggestedKeywords.exclusions);
       }
     }
   }, [suggestedKeywords]);
@@ -60,23 +62,21 @@ export function Step3Keywords({ topicData, suggestedKeywords, onBack, onComplete
     setLoadingSuggestions(true);
 
     try {
-      const prompt = `Suggest relevant keywords for the topic "${topicData.name}". Organize them into these categories: Companies & Organizations, Technologies, General Keywords, People, and Exclusion Keywords (misinformation, unrelated terms). Provide only the most relevant and high-quality keywords for each category. Use real company and technology names where possible. Exclusion keywords should help filter out noise or unrelated results. Topic description: ${topicData.description}`;
-
+      // No custom keyword_prompt: that path skips the server's keyword rules
+      // (topic-anchored, specific-first) and came back with generic terms.
       const result = await suggestTopicAttributes({
         topic_name: topicData.name,
-        topic_description: topicData.description,
-        keyword_prompt: prompt
+        topic_description: topicData.description
       });
 
       if (result && result.keywords) {
         console.log('Regenerated keywords:', result.keywords);
 
-        // Replace current keywords with new suggestions (first 3 of each)
-        setCompanies(result.keywords.companies?.slice(0, 3) || []);
-        setTechnologies(result.keywords.technologies?.slice(0, 3) || []);
-        setGeneralKeywords(result.keywords.general?.slice(0, 3) || []);
-        setPeople(result.keywords.people?.slice(0, 2) || []);
-        setExclusions(result.keywords.exclusions?.slice(0, 2) || []);
+        setCompanies(result.keywords.companies || []);
+        setTechnologies(result.keywords.technologies || []);
+        setGeneralKeywords(result.keywords.general || []);
+        setPeople(result.keywords.people || []);
+        setExclusions(result.keywords.exclusions || []);
       }
     } catch (error) {
       console.error('Error regenerating keywords:', error);

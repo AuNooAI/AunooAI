@@ -21,8 +21,11 @@ from typing import Dict, List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
-# Maximum length for a single keyword (universal compatibility)
-MAX_KEYWORD_LENGTH = 30
+# Maximum length for a single keyword. 30 cut anchored three-word terms at
+# the last space ("Switzerland election interference" -> "Switzerland
+# election") and German compounds mid-word; no collector we use has a
+# limit anywhere near this (NewsAPI allows 500 characters).
+MAX_KEYWORD_LENGTH = 60
 
 # Boolean operators to remove
 BOOLEAN_OPERATORS = {'AND', 'OR', 'NOT'}

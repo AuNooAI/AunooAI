@@ -3921,7 +3921,8 @@ class DatabaseQueryFacade:
                 providers, social_platforms, auto_ingest_enabled, min_relevance_threshold,
                 quality_control_enabled, auto_save_approved_only,
                 default_llm_model, llm_temperature, llm_max_tokens,
-                last_checked_at, next_check_at, last_error, updated_at
+                last_checked_at, next_check_at, last_error, updated_at,
+                language, country
             FROM keyword_groups
             WHERE id = :group_id
         """)
