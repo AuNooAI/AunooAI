@@ -304,3 +304,23 @@ def test_a_vendor_name_inside_a_url_is_not_a_mention():
     prose = "7ai announced a partnership; Secure.com wrote about it"
     cleaned = _without_urls(prose)
     assert "7ai" in cleaned and "Secure.com" in cleaned
+
+
+def test_the_other_ai_soc_and_the_other_xdr_stay_out():
+    """"AI SoC" the chip and "XDR" the Apple display match this market's
+    terms letter for letter; the exclusion vocabulary is what tells them
+    apart. The scan skips any article whose text hits an exclude phrase."""
+    _, excludes = mcorp.compile_terms(mcorp.DEFAULT_EXCLUDE_TERMS)
+    patterns = [p for _, p in excludes]
+
+    chip = ("Xiaomi XRING O3: Flagship AI SoC with AnTuTu Score of 5.22M+ "
+            "- The 10-core all-big-core CPU achieves a multi-core score of "
+            "over 15,000")
+    display = ("iPad Pro M5 review: the Liquid Retina XDR display is the "
+               "best panel Apple has shipped")
+    coverage = ("Prophet Security raises $50M to build the autonomous AI SOC: "
+                "alert triage without tier 1 analysts")
+
+    assert any(p.search(chip) for p in patterns)
+    assert any(p.search(display) for p in patterns)
+    assert not any(p.search(coverage) for p in patterns)

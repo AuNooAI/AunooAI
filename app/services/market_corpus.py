@@ -152,6 +152,54 @@ def context_terms(conn, market_id: int) -> List[str]:
     return list(DEFAULT_CONTEXT_TERMS)
 
 
+# Vocabulary that flips a match's meaning. Matching is case-insensitive, so
+# "AI SOC" — this market's own name for itself — also matches "AI SoC", the
+# system-on-chip, and "XDR" also matches Apple's Liquid Retina XDR display.
+# On 9 Sep 2026 that put eleven rows of consumer-tech coverage into a
+# security-operations corpus: Xiaomi XRING benchmark tweets, a Qualcomm
+# Snapdragon thesis, a Mac buying guide, an iPad review. Case cannot
+# separate the readings, but the surrounding vocabulary can: nobody scoring
+# a chipset on AnTuTu or praising a Liquid Retina panel is writing about a
+# security operations center. An article matching any phrase here is skipped
+# by the phrase scan entirely — losing a rare crossover article is a smaller
+# cost than serving consumer-silicon news as market coverage. A market
+# overrides the list with ``bw_markets.config['exclude_terms']``.
+DEFAULT_EXCLUDE_TERMS: List[str] = [
+    "AnTuTu",
+    "Geekbench",
+    "3DMark",
+    "chipset",
+    "system-on-chip",
+    "system on a chip",
+    "Snapdragon",
+    "MediaTek",
+    "Dimensity",
+    "Exynos",
+    "XRING",
+    "MacBook",
+    "iPad",
+    "Liquid Retina",
+    "XDR display",
+]
+
+
+def exclude_terms(conn, market_id: int) -> List[str]:
+    """The market's exclusion phrases, from config or the default list."""
+    cfg = conn.execute(text(
+        "SELECT config FROM bw_markets WHERE id = :m"), {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    terms = cfg.get("exclude_terms")
+    if isinstance(terms, list):
+        return [str(t).strip() for t in terms if str(t).strip()]
+    return list(DEFAULT_EXCLUDE_TERMS)
+
+
+def exclude_patterns(conn, market_id: int) -> List[re.Pattern]:
+    """Compiled exclusion phrases for the phrase scan."""
+    _, py_terms = compile_terms(exclude_terms(conn, market_id))
+    return [pattern for _, pattern in py_terms]
+
+
 def corpus_terms(conn, market_id: int) -> List[str]:
     """Everything the corpus scan matches on.
 
@@ -732,17 +780,25 @@ def scan(conn, market_id: int, *,
         LIMIT :lim
     """), params).mappings().all()
 
+    excludes = exclude_patterns(conn, market_id)
     topic = topic_name or ""
     inserted = 0
     updated = 0
     matched = 0
     below = 0
+    excluded = 0
     samples: List[Dict[str, Any]] = []
 
     for row in rows:
         terms_hit, title_hits, body_hits, score = score_article(
             row["title"], row["summary"], py_terms)
         if not terms_hit:
+            continue
+        # The other "AI SoC": an article whose vocabulary says consumer
+        # silicon is not this market's coverage, whatever phrase it matched.
+        content = f"{row['title'] or ''} {row['summary'] or ''}"
+        if any(p.search(content) for p in excludes):
+            excluded += 1
             continue
         if score < min_score:
             below += 1
@@ -789,6 +845,7 @@ def scan(conn, market_id: int, *,
         "scanned": len(rows),
         "matched": matched,
         "below_min_score": below,
+        "excluded_context": excluded,
         "inserted": inserted,
         "updated": updated,
         "min_score": min_score,

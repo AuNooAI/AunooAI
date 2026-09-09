@@ -22,6 +22,8 @@ export interface ArticleSource {
 export interface NewsArticle {
   uri: string;
   title: string;
+  /** The collected headline when `title` is its English translation. */
+  original_title?: string;
   summary: string;
   url?: string;
   publication_date?: string;

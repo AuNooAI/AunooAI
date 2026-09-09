@@ -1,3 +1,4 @@
+import { OriginalTitle } from './OriginalTitle';
 /**
  * Featured Article Card - Clean card design for news articles
  * Used in "Your Briefing" section and news feed grid
@@ -116,6 +117,7 @@ export function FeaturedArticleCard({
             article.title
           )}
         </h3>
+        <OriginalTitle article={article} className="mb-1.5" />
 
         {/* Summary */}
         <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 flex-1 mb-3">

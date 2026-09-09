@@ -224,6 +224,7 @@ class AsyncDatabase:
             UPDATE articles
             SET
                 title = COALESCE(?, title),
+                original_title = COALESCE(?, original_title),
                 summary = COALESCE(?, summary),
                 auto_ingested = TRUE,
                 ingest_status = ?,
@@ -257,6 +258,7 @@ class AsyncDatabase:
 
         params = (
             article_data.get("title"),
+            article_data.get("original_title"),
             article_data.get("summary"),
             article_data.get("ingest_status"),
             article_data.get("quality_score"),

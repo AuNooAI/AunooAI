@@ -510,7 +510,7 @@ export function NewsFeedPage() {
     try {
       const fullArticle = await getArticleByUri(article.uri);
       if (fullArticle) {
-        setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
+        setSelectedArticle(hasBWData ? ({ ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } as NewsArticle) : fullArticle);
       } else {
         // The by-uri fetch can miss (alert-payload/syndicated URLs) — keep every
         // field the caller passed rather than degrading to an "Unknown" stub.

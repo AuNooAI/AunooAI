@@ -451,7 +451,8 @@ class NewsFeedService:
                 'media_type': article_dict.get('media_type'),
                 'popularity': article_dict.get('popularity'),
                 'future_signal': article_dict.get('future_signal'),
-                'future_signal_explanation': article_dict.get('future_signal_explanation')
+                'future_signal_explanation': article_dict.get('future_signal_explanation'),
+                'original_title': article_dict.get('original_title'),
             })
         
         return {

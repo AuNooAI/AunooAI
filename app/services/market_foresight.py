@@ -97,6 +97,21 @@ def runs(conn, kind: str, topic: str, limit: int = HISTORY_LIMIT) -> List[Dict[s
     return [dict(r) for r in rows]
 
 
+def hidden_runs(conn, market: Dict[str, Any]) -> set:
+    """Run ids the public pages must not list or serve.
+
+    A test run lands in the same table as the monthly refresh's real
+    ones — an operator trying a model or a prompt stores a run like any
+    other — and the run picker listed them all (operator, 9 Sep 2026:
+    "users should not see test runs"). Ids in
+    ``bw_markets.config['foresight_hidden_runs']`` are dropped from the
+    picker and refused by id, for consensus and horizons alike."""
+    cfg = conn.execute(text("SELECT config FROM bw_markets WHERE id = :m"),
+                       {"m": market["id"]}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    return {str(x) for x in (cfg.get("foresight_hidden_runs") or [])}
+
+
 def load_run(conn, kind: str, topic: str, run_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """One run with its payload: the newest, or the one asked for as long
     as it belongs to this topic."""
@@ -297,7 +312,17 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
     topic = topic_for(market)
     if not topic:
         return None
+    hidden = hidden_runs(conn, market)
+    if run_id and str(run_id) in hidden:
+        raise LookupError(f"no {kind} run {run_id} for this market")
+    history = [r for r in runs(conn, kind, topic)
+               if str(r["id"]) not in hidden]
     run = load_run(conn, kind, topic, run_id)
+    if run is not None and run_id is None and str(run["id"]) in hidden:
+        # The newest run is a hidden test run; the page serves the newest
+        # visible one instead of exposing it as the default.
+        run = (load_run(conn, kind, topic, str(history[0]["id"]))
+               if history else None)
     if run is None:
         if run_id:
             raise LookupError(f"no {kind} run {run_id} for this market")
@@ -325,7 +350,7 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
                                    articles=_horizons_articles(conn, run["id"]))
     html = blob.decode("utf-8") if isinstance(blob, bytes) else str(blob)
     html = _restyle(html)
-    head_extra, top, foot = _chrome(market, kind, run, runs(conn, kind, topic), front_href)
+    head_extra, top, foot = _chrome(market, kind, run, history, front_href)
     html = html.replace("</head>", head_extra + "</head>", 1)
     html = html.replace('<html lang="en">', '<html lang="en" data-theme="light">', 1)
     i = html.find("<body")

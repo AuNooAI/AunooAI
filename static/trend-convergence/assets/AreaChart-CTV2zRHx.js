@@ -1,0 +1,1 @@
+import{aD as a,X as r,Y as s,aE as i}from"./newsfeed-CquThDm5.js";import{A as x}from"./LineChart-CKMx52NC.js";var o=a({chartName:"AreaChart",GraphicalChild:x,axisComponents:[{axisType:"xAxis",AxisComp:r},{axisType:"yAxis",AxisComp:s}],formatAxisMap:i});export{o as A};

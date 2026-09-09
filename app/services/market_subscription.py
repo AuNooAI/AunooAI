@@ -530,6 +530,10 @@ def _whats_inside(totals: Optional[Dict[str, int]]) -> str:
         "<li>Every section page, period and chart works the same way: no withheld "
         "rows, no masked names.</li>"
         "</ul>"
+        f"<p>You also get industry benchmarking data for all {total} vendors, their "
+        "latest announcements as we collect them (launches, funding, partnerships, "
+        "customer wins), and marketing reach data: each vendor's audience, posting "
+        "activity, engagement and earned coverage.</p>"
         "<p>The MCP plan adds the layer under the pages: the collected articles and "
         "posts, vendor profiles and sentiment, queryable by your own tools rather "
         "than read off a chart.</p>")

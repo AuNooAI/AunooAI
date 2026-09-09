@@ -6,6 +6,7 @@ import hashlib
 from .prompt_templates import PromptTemplates, PromptTemplateError
 from .cache import AnalysisCache, CacheError
 from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
+from app.utils.title_translation import english_title
 import json
 import traceback
 import re
@@ -252,6 +253,15 @@ Article text:
             result["uri"] = uri
             # Extract publication date using only article_text
             result["publication_date"] = self.extract_publication_date(article_text)
+
+            # English headline. The summary above is already English whatever the
+            # article's language; the title is not. Translate it when it is not
+            # English; the original travels as original_title so callers can
+            # show both. An English title leaves the result untouched.
+            shown, original = english_title(result.get("title") or title)
+            if original:
+                result["title"] = shown
+                result["original_title"] = original
 
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 

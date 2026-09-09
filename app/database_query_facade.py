@@ -5133,7 +5133,7 @@ class DatabaseQueryFacade:
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
                 'ingest_status', 'auto_ingested', 'article_origin',
-                'opoint_entities'
+                'opoint_entities', 'original_title'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -5885,6 +5885,7 @@ class DatabaseQueryFacade:
         statement = select(
             articles.c.uri,
             articles.c.title,
+            articles.c.original_title,
             articles.c.summary,
             articles.c.news_source,
             articles.c.publication_date,
@@ -6139,6 +6140,7 @@ class DatabaseQueryFacade:
         statement = select(
             articles.c.uri,
             articles.c.title,
+            articles.c.original_title,
             articles.c.summary,
             articles.c.news_source,
             articles.c.publication_date,

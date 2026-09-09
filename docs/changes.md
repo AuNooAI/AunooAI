@@ -2,6 +2,301 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-09 — English headlines for non-English articles; the collected title kept alongside
+
+### Goal
+The analysis step already writes the summary in English whatever language
+the article is in, but the headline stayed as collected, so sunstar's feed
+showed Japanese and French titles over English summaries. On sunstar 3,337
+of 14,373 articles from the last 30 days carried a Japanese title. The
+operator chose the cheap option: translate the headline, keep the original,
+leave social posts that never reach the analysis step alone.
+
+### Feature — title translation in the analysis step
+**`app/utils/title_translation.py`** (new). `looks_english()` decides
+offline: any non-Latin script or accented Latin letter means "not English";
+a plain Latin title counts as English when it holds at least one English
+function word that is not also common in German, French, Spanish, Italian or
+Dutch ("the", "and", "of", "with"…; "an", "in", "die", "will" are deliberately
+left out — "Anbieter kündigt neue Plattform an" passed as English on the
+first draft). Everything else goes to `translate_title()`, one nova-lite call
+that returns the headline unchanged when it is already English.
+`english_title()` returns `(shown, original_or_None)`; `same_headline()`
+treats case, spacing and punctuation differences as "unchanged" so a model
+that rewrites " . .. ." as ". . ." does not produce a bogus original.
+
+**`app/analyzers/article_analyzer.py`** — after the parsed result is built,
+`english_title(result.title or title)` runs; when a translation happened the
+result carries `title` (English) and `original_title`. English titles change
+nothing and cost nothing. The result is cached with the rest of the analysis.
+
+**`app/services/automated_ingest_service.py`** — both merge sites (sync
+`_analyze_article_content` and the async twin) copy `title`/`original_title`
+onto the article only when `original_title` is set, so the model's title
+never overwrites a collector title for English articles.
+
+**`app/services/async_db.py`** `update_article_with_enrichment` writes
+`original_title = COALESCE(?, original_title)`; **`database_query_facade.py`**
+`upsert_article` allow-list and the two news-feed selects
+(`get_news_feed_articles_for_date_range`, `get_news_feed_articles_chronological`)
+carry the column; **`database_models.py`** declares it;
+**`news_feed_service.py`** serialises it.
+
+### Migration — branched off the tenants' revision
+**`alembic/versions/art_title_001_original_title.py`** adds
+`articles.original_title TEXT`, `down_revision = 'mcp_001'`. Every customer
+site sits at `mcp_001`; canonical is three market-monitor revisions ahead
+(`mm_023`–`mm_025`) that were never copied to the tenants. Branching off
+`mcp_001` lets the same file apply everywhere.
+**`merge_art_title_mm_026.py`** (`mm_026`, revises `mm_025` + `art_title_001`)
+joins the heads in canonical only. Do NOT copy the merge file to a tenant: it
+names `mm_025`, which they do not have, and alembic refuses the whole
+directory.
+
+### UI — original headline under the English one
+**`ui/src/components/newsfeed/OriginalTitle.tsx`** (new): a muted one-line
+`<p>` with the collected headline, rendered only when `original_title` is
+set and differs from `title`. Wired into `FeaturedArticleCard`,
+`CompactArticleCard`, `ArticleListView` and `ArticleDetailPanel`;
+`NewsArticle` in `newsFeedApi.ts` gains `original_title?: string`.
+`NewsFeedPage.tsx:513` casts the merged Brand Watcher article to
+`NewsArticle` (the added optional field turned a latent union-type error
+into a real one). Bundle `newsfeed-CquThDm5.js`.
+
+### Ops — backfill of existing titles
+**`scripts/backfill_english_titles.py`** (new): selects rows with
+`original_title IS NULL`, keeps the ones `looks_english()` rejects, sends 40
+per nova-lite call as a numbered list expecting a JSON map, writes
+`title`/`original_title` where the answer differs. Re-runnable. Must run as
+the service user (`sudo -u orochford env PYTHONPATH=$PWD .venv/bin/python
+scripts/backfill_english_titles.py --days 30`) — see the root-owned cache
+incident earlier today.
+
+Flagged titles over the last 30 days, from the dry runs: sunstar 6,574 of
+14,545; oviva 443 of 1,345; abm 508 of 3,275; wbm 2,636 of 12,649; wiley
+1,679 of 10,693; wileytest 19,406 of 132,275; bugfixing 3,757 of 23,641. The
+runs go site by site in the background (`title_backfills.log` in the
+scratchpad); at commit time sunstar had 1,619 titles rewritten and the rest
+had not started. Most flagged titles are short English X posts without a
+function word; the model returns those unchanged.
+
+### Verification
+- `looks_english()` on ten sample titles: Japanese ×3, French, German ×2,
+  Italian, Spanish → not English; two English headlines with function words
+  → English; "Haleon posts Q2 results" → model, returned unchanged.
+- End-to-end on bugfixing (`e2e_title.py`, scratchpad): a German article
+  through `_analyze_article_content_async` + `update_article_with_enrichment`
+  → `title` "AI-supported SOC automation: Provider announces new platform for
+  security teams", `original_title` the German line, summary English.
+  `GET /api/news-feed/articles/list` returned both fields. Test row deleted.
+- Backfill on bugfixing, `--limit 80`: 16 changed, 64 unchanged, 0 failed, 14 s.
+- `npm run typecheck`: clean (229 errors, all known).
+- `alembic upgrade head` on test → `mm_026`; on the six tenants → `art_title_001`;
+  `information_schema.columns` shows `original_title` on all seven.
+- Startup after restart: `/login` 200 on all six sites, no tracebacks.
+
+### Propagation
+Backend patch applied to sunstar, oviva, abm, wbm, wiley, wileytest and
+bwtemplate (wileytest's `upsert_article` allow-list has a local
+`social_meta` entry; the hunk was applied by hand). New files copied. UI
+static + templates rsynced to the six active sites (backups
+`<site>_ui_backup_20260909_title.tgz` in the scratchpad). All six restarted
+job-gated at 19:37. The tightened `same_headline()` reached the trees after
+the restart; the running services carry the strict-equality version until
+their next restart, which only affects whether a punctuation-only rewrite
+stores an `original_title`. bwtemplate: files only, not restarted, no
+migration (no live DB).
+
+### Ride-along (parallel session)
+`app/services/market_analysis.py`, `market_corpus.py`,
+`market_subscription.py` and `tests/test_market_corpus_names.py`: reviewed
+rows excluded from market coverage queries, and a default exclude-term list
+that keeps consumer-silicon coverage ("AI SoC", "XDR" display) out of the AI
+SOC market corpus. Compiles; the test file passes 23/23. Committed together
+under the `git add -u` rule.
+
+### Lessons
+- English function words shared with German/French ("an", "in", "die",
+  "will") make a useless language detector. Use the ones that are English
+  only.
+- A migration for all sites must branch from the revision the sites are
+  actually on, not from canonical's head; keep the merge revision canonical-only.
+
+## 2026-09-09 — The other "AI SoC": chip and display posts out of the market corpus
+
+### Goal
+The operator flagged a Xiaomi XRING benchmark tweet on aisocnews.com:
+"wrong ai soc". Matching is case-insensitive, so the context term
+"AI SOC" also matches "AI SoC" the system-on-chip — and, it turned out,
+"XDR" also matches Apple's "Liquid Retina XDR display". Thirteen rows of
+consumer-tech coverage had attached to market 2, from Xiaomi's foldable
+launch to an iPad review, and the highest-engagement ones topped the
+social section's "Most shared posts" and seeded a front-page topic.
+
+### Exclusion vocabulary in the phrase scan
+**`market_corpus.py`** — `DEFAULT_EXCLUDE_TERMS` (AnTuTu, Geekbench,
+3DMark, chipset, Snapdragon, MediaTek, Dimensity, Exynos, XRING,
+MacBook, iPad, Liquid Retina, XDR display, system-on-chip variants),
+overridable per market via `bw_markets.config['exclude_terms']`, the
+same shape as `context_terms`. `scan()` skips any article whose text
+hits an exclude phrase, whatever term it matched, and reports the count
+as `excluded_context` — a dry run over the 30-day window skipped 8 and
+left 743 real matches untouched. Losing a rare crossover article is a
+smaller cost than serving consumer-silicon news as market coverage.
+
+### The excluded verdict now holds everywhere
+The cleanup used `review_verdict = 'excluded'` (13 rows, reason
+recorded), which survives rescans — but nine aggregate queries in
+**`market_analysis.py`** joined `bw_market_articles` without the
+verdict filter, so excluded rows still ranked in `social_highlights`
+("Most shared posts"), the `top_voices` counts, and the coverage-volume
+figures. All nine now carry `COALESCE(ma.review_verdict,'') <>
+'excluded'`, matching `market_corpus.articles`. The stored topics run
+also predated the verdicts; one recompute (run 10, kimi, the same call
+the daily tick makes) replaced the Xiaomi subject with CrowdStrike,
+Cisco, Prophet, TryHackMe and Proofpoint.
+
+### Verification
+48 tests pass (corpus names/excluded + report v2), including the new
+`test_the_other_ai_soc_and_the_other_xdr_stay_out`. Live after
+restarts: front page, social section and news river all show zero
+Xiaomi/XRING/AnTuTu mentions; the topics card reads real market
+subjects. One restart mid-fix loaded a parallel session's transient git
+state and kept serving unfiltered code — the second restart behind the
+guard settled it.
+
+### Propagation
+bugfixing only — Market Monitor exists nowhere else.
+
+## 2026-09-09 — Oviva: 12-month news backfill, body-text search switched on, root-owned cache fixed, Xpoz back
+
+### Goal
+Oviva's news corpus held nothing from before 3 September and none of the
+2026 press the customer would expect (the €200M round, the Salesforce
+Switzerland announcement, the weight-loss-jab sick-days study). The
+operator asked for a one-off backfill. Running it exposed why the scheduled
+collection had been missing those items too.
+
+### Ops — one-off 12-month backfill on oviva
+Two passes, both run as a separate process from the oviva tree
+(`PYTHONPATH=<tree> .venv/bin/python <script>`), each building its own
+`KeywordMonitor(db)` so it read the widened window without touching the
+live service. `keyword_monitor_settings.search_date_range` was set to 365
+for the run and restored to 7 by a watcher when the script printed
+`BACKFILL DONE`. Scripts: `oviva_backfill.py` and `oviva_backfill2.py` in
+the session scratchpad; not in the repo.
+
+Pass 1, all nine news groups (ids 1–8, 12), 11:06–11:26:
+
+| Group | New |
+|---|---|
+| Oviva - Brand Watch | 4 |
+| Second Nature | 23 |
+| Numan | 37 |
+| Voy | 28 |
+| Juniper | 10 |
+| Noom | 32 |
+| WeightWatchers | 53 |
+| Oviva - Brand Watch DE | 1 |
+| Oviva - Market Watch | 25 |
+
+157 rows, publication dates back to 2025-10, but the Oviva groups got
+almost nothing and none of the known press items. Two causes:
+
+1. **Oviva's search setting did not cover the article body.**
+   `keyword_monitor_settings.search_fields` was `title,description` on
+   oviva (also on abm, wbm, wiley, wileytest); bugfixing and sunstar have
+   `title,description,content`. TheNewsAPI, queried directly for `Oviva`
+   over 12 months: 0 English hits on title+description, 3 with the body
+   included; 4 German hits on title+description, 26 with the body. The
+   press items mention Oviva in the body only. Setting changed to
+   `title,description,content` (the collector maps `content` to
+   TheNewsAPI's `main_text` and adds `keywords`, see the 2026-08-31 entry).
+   `KeywordMonitor` reads `search_fields` once at init, so oviva was
+   restarted (idle, 11:37) to pick it up for the scheduled runs.
+2. **The German group ran in English.** The backfill loaded each group
+   with `get_keyword_group_with_settings`, which on oviva's tree does not
+   select `language`/`country`. Canonical fixed that on 2026-09-08
+   (`58e80cce`, check-now language fix) but the fix has not been copied to
+   oviva or the other Brand Watcher tenants, so their manual "check now"
+   on a German group has the same gap. The second-pass script merged
+   `language`/`country` from `keyword_groups` itself.
+
+Pass 2, Oviva groups only, 365-day window, 11:32–11:37:
+
+| Group | New |
+|---|---|
+| Oviva - Brand Watch (en) | 5 |
+| Oviva - Brand Watch DE (de) | 29 |
+| Oviva - Market Watch | 2 |
+
+The corpus now holds the €200M round (deutsche-startups.de, 22 Jan,
+`approved`), the sick-days study (ladbible.com, 15 May), both Salesforce
+Switzerland pieces (netzwoche.ch 8 Jul, smallbiztrends.com 13 Jul), the
+DiGA reimbursement item (kbv.de, 25 Mar) and three deutsche-startups.de
+HealthTech lists. Only the €200M item passed the relevance gate
+(`topic_alignment_score` 0.90); the rest sit at 0.0–0.3 as
+`filtered_relevance`, because the model read Oviva as a passing mention.
+They are stored and searchable but do not count as approved brand coverage.
+
+### Incident — backfill ran as root and left the analyzer cache unwritable
+The backfill processes ran as root. `ArticleAnalyzer` writes its result
+cache under `<tree>/cache/<xx>/`, creating the two-character subfolder on
+first use, so the runs left 41 root-owned folders (55 files) in oviva's
+cache. The service runs as `orochford` and from 11:55 every analysis in the
+manual social run logged
+`app.analyzers.cache - ERROR - Error writing to cache: [Errno 13] Permission denied`.
+Analyses still completed; they were just not cached, so a re-run would pay
+for the model call again. Fixed with `chown -R orochford:orochford cache`
+on oviva; the same sweep found and fixed older root-owned cache files on
+abm (1), wbm (2) and wiley (1610, dating from May and August). sunstar,
+wileytest and bugfixing were clean. No cache errors on oviva after 12:01.
+
+### Ops — Xpoz recharged; oviva social groups run by hand
+The shared Xpoz key was topped up again (operator, 11:40). Zero
+`Usage limit exceeded` lines on any of the six sites in the following two
+hours; engagement refreshes on sunstar, wbm and wileytest completing
+normally. Oviva's three social groups (9, 10, 11) run on a 12-hour cycle
+and had not come due, so they were triggered through
+`POST /api/keyword-monitor/check-now` with a minted admin session:
+
+| Group | New posts |
+|---|---|
+| Oviva - Social | 2 |
+| Noom - Social | 7 |
+| WeightWatchers - Social | 46 |
+
+All four Xpoz platforms answered for every keyword. Of roughly 200 posts
+returned, the collector kept 46 that actually contain the query terms;
+Oviva's own posts are mostly hashtag-only mentions and get dropped.
+
+### Verification
+- `select search_fields, search_date_range from keyword_monitor_settings where id=1` on oviva → `title,description,content | 7`.
+- Direct TheNewsAPI counts above, from `curl` with the tenant key, `published_after=2025-09-09`.
+- Backfill logs `oviva_backfill.log`, `oviva_backfill2.log` (scratchpad) — every group `"success": true`, no TheNewsAPI HTTP errors, 36 + 12 API calls.
+- `find cache -not -user orochford | wc -l` → 0 on oviva, abm, wbm, wiley.
+- oviva restarted 11:37:50, `/login` 200, keyword monitor started in per-group mode.
+
+### Propagation
+No code changed. Settings changed on oviva only: `search_fields` (kept)
+and `search_date_range` (restored to 7). abm, wbm, wiley and wileytest
+still search title+description only; switching them is a one-row change
+plus a restart each, not done because nobody asked. The 2026-09-08
+check-now language fix (`58e80cce`, `database_query_facade.py` +
+`keyword_monitor.py`) is still canonical-only and is needed on oviva for
+its German group's manual runs.
+
+### Lessons
+- NEVER run a one-off script inside a tenant tree as root. Use
+  `sudo -u orochford` so anything the app creates (cache folders, uploads,
+  logs) stays writable by the service.
+- A per-tenant `search_fields` without `content` silently hides body-only
+  brand mentions from TheNewsAPI. Check it before concluding a source has
+  no coverage.
+- `get_keyword_group_with_settings` is the wrong loader for a scripted
+  group run on any tree that predates `58e80cce`; use
+  `get_due_keyword_groups` or merge `language`/`country` by hand.
+
 ## 2026-09-09 — Three vendors added on request; a vendor's own website fetch now works
 
 ### Goal
@@ -39,7 +334,7 @@ brought the vendors forward. Never-tried policies sort first, so the new
 vendors led every source's next run.
 
 ### Fix: a vendor-scoped website run reached nothing
-**`app/tasks/market_monitor.py`** (`a833356a`) — `_claim_manual_runs` marked a
+**`app/tasks/market_monitor.py`** (`e5fd9713`, the commit that also carries this entry and the product note) — `_claim_manual_runs` marked a
 vendor's own "Fetch now" for `vendor_web` or `vendor_web_discovery` as
 running, but `_poll_market` only dispatched those two sources market-wide,
 so `_fail_undispatched` closed every such run with "no collector dispatched"
@@ -77,7 +372,11 @@ overridden: a careers page is a hiring signal, not news.
   followers), posts 1544 (24 new), jobs 1545 (10 new); Securaa profile 1539
   (headcount 58), posts 1540 (19 new). Market-wide `vendor_web` 1547 read 392
   pages, 21 changed, and reached all three new vendors. BlinkOps Crunchbase
-  1546 still at the provider at time of writing.
+  1546 was still at the provider when this entry was committed; the
+  reconciler claims it on a later tick.
+- Both submitters were told by mail from the operator's Gmail: NextSOC
+  (admin@nextsoc.ai) with a request for a LinkedIn page, Securaa
+  (sheethal.kt@securaa.io) with an apology for the two-day wait.
 - `market_vendor_requests`: every form submission (ids 13–28) now has a
   brand in market 2.
 
@@ -221,6 +520,11 @@ benchmark, and the MCP layer under the pages. The numbers are computed
 per render, so adding a vendor never leaves the page quoting a stale
 count, and each claim mirrors what the entitlement code actually
 withholds — the docstring says the list moves when the policy moves.
+A follow-up on the operator's ask added a paragraph naming the data
+layers behind the pages: industry benchmarking data across the roster,
+the latest announcements per vendor (launches, funding, partnerships,
+customer wins), and marketing reach data (audience, posting activity,
+engagement, earned coverage).
 `test_form_page_says_what_the_free_view_holds_back` covers it (14 tests
 pass).
 

@@ -422,6 +422,10 @@ class AutomatedIngestService:
                 'analyzed': True,
                 '_enrichment_method': 'llm_only'
             }
+            if analysis_result.get('original_title'):
+                # Non-English headline: show the English one, keep the original.
+                final_result['title'] = analysis_result['title']
+                final_result['original_title'] = analysis_result['original_title']
 
             # Override with SLM results for high-confidence fields
             if slm_fields_used:
@@ -1372,6 +1376,10 @@ class AutomatedIngestService:
                 'tags': tags_str,
                 'analyzed': True
             })
+            if analysis_result.get('original_title'):
+                # Non-English headline: show the English one, keep the original.
+                article_data['title'] = analysis_result['title']
+                article_data['original_title'] = analysis_result['original_title']
 
             self.logger.debug(f"Async analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}, summary_length={len(analysis_result.get('summary', ''))}")
             

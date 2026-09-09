@@ -1157,6 +1157,7 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
@@ -1233,6 +1234,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
@@ -1258,6 +1260,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             FROM bw_market_articles ma
             JOIN articles a ON a.uri = ma.article_uri
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' IS NOT NULL
               AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
               {window}
@@ -1294,6 +1297,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
@@ -1401,6 +1405,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             JOIN articles a ON a.uri = ma.article_uri,
                  UNNEST(ma.matched_terms) AS term
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' = ANY(:handles)
               {window}
         """), {**params, "handles": handles}).fetchall():
@@ -1416,6 +1421,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             JOIN bw_brands b ON b.id = bac.brand_id
             JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' = ANY(:handles)
               {window}
         """), {**params, "handles": handles}).fetchall():
@@ -1437,6 +1443,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND (a.news_source = 'bluesky' OR a.news_source LIKE 'xpoz%')
           {window}
@@ -1672,7 +1679,8 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
                  AS engagement
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
-        WHERE ma.market_id = :m AND a.social_meta IS NOT NULL {window}
+        WHERE ma.market_id = :m AND COALESCE(ma.review_verdict, '') <> 'excluded'
+          AND a.social_meta IS NOT NULL {window}
         ORDER BY engagement DESC
         LIMIT 500
     """), params).mappings().all()
@@ -1860,6 +1868,7 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
             SELECT COUNT(*) FROM bw_market_articles ma
             JOIN articles a ON a.uri = ma.article_uri
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND COALESCE(a.publication_date, a.submission_date) >= :start
               AND COALESCE(a.publication_date, a.submission_date) < :end
         """), {"m": market_id, "start": start, "end": end}).scalar() or 0
