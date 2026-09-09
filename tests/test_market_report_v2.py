@@ -293,24 +293,28 @@ def test_section_page_renders_and_unknown_section_raises(conn, market):
 
 
 @pytestmark_db
-def test_shared_view_names_only_authorized_vendors(conn, market):
+def test_shared_view_opens_text_but_keeps_metrics_to_authorized(conn, market):
+    """Operator policy, 9 Sep 2026: a restricted reader sees every vendor's
+    news, posts and developments; KPIs and metrics stay with the authorized
+    set. So the page may name withheld vendors in editorial surfaces, but
+    the attention bars must only carry authorized vendors."""
+    import re
+
     from app.services import market_entitlements as ent
 
     allowed = ent.authorized_brand_ids(conn, market["id"], 10)
-    withheld = ent.withheld_names(conn, market["id"], allowed)
+    withheld = set(ent.withheld_names(conn, market["id"], allowed))
     if not withheld:
         pytest.skip("this market has no vendors to withhold")
     page = html.build_market_report_v2(conn, market, days=30,
                                        allowed_brand_ids=allowed).decode()
-    # The Horizon names every rated vendor by decision (27 August 2026) and
-    # is put back after the production check, so it is taken out here the
-    # same way the check never saw it.
-    import re
-    checked = re.sub(r'<div class="mm-hz v2-hz[^"]*">.*?<div class="mm-hz-tip" hidden></div></div>',
-                     "", page, flags=re.S)
-    ent.assert_no_withheld(checked, withheld, context="front page")
-    shown = ent.vendor_names(conn, market["id"], allowed).values()
-    assert any(n in page for n in shown), "no authorized vendor appears either"
+    shown = set(ent.vendor_names(conn, market["id"], allowed).values())
+    assert any(n in page for n in shown), "no authorized vendor appears"
+    # The attention bars are a metric surface: no withheld vendor's row.
+    bar_names = set(re.findall(r'v2-bar-name">(?:<[^>]*>)*([^<]+)<', page))
+    assert bar_names, "no attention bars rendered"
+    assert not (bar_names & withheld), (
+        f"withheld vendors in the attention bars: {bar_names & withheld}")
     assert "shared view" in page and 'id="mm-trial"' in page
     # The hiring top five and the figures are readable in the shared view;
     # the only blur on the front page is the tail of the influencers list.

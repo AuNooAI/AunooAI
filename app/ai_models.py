@@ -776,11 +776,16 @@ class LiteLLMModel(AIModel):
         local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
         default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
 
-        config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-
-        fallbacks_config = config.get("fallbacks", [])
+        # Merge the fallback lists of both files, as the Router does at startup.
+        # This used to read ONLY the .local file when one existed; every tenant
+        # has one (seven self-hosted models, no fallbacks), so the breaker's
+        # fallback list was empty for every model on every site since 2025-12
+        # (found 2026-09-09 while adding the nova-lite fallback).
+        fallbacks_config = []
+        for path in (default_config_path, local_config_path):
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    fallbacks_config.extend((yaml.safe_load(f) or {}).get("fallbacks", []) or [])
 
         # Find fallbacks for the current model
         for fallback_dict in fallbacks_config:

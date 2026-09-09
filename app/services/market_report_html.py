@@ -2871,8 +2871,8 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
     rows = mcorp.articles(conn, market["id"], limit=2000, days=days,
                           require_signal_for_social=False)
-    if allowed_brand_ids is not None:
-        rows = ent.drop_text_mentioning(rows, withheld)
+    # News is editorial: open to every vendor's coverage for any reader
+    # (operator policy, 9 Sep 2026). Metrics stay tier-restricted elsewhere.
     vendor_names = [d["vendor"] for d in mp.build_dataset(conn, market["id"])]
     clustered = mcorp.cluster(rows, vendor_names) if rows else []
     try:
@@ -2910,7 +2910,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
             + f'<span>{esc(market["name"])} · {esc(period_txt)}</span></div>',
             "</div>"]
     rendered = v2_document(f'{market["name"]} — news river', "".join(body))
-    rendered = ent.enforce_no_withheld(rendered, withheld,
+    rendered = ent.enforce_no_withheld(rendered, [],
                                        context=f'market {market["id"]} news river')
     return rendered.encode("utf-8")
 
@@ -4585,22 +4585,21 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     period_txt = _fmt_range(*pc["current_range"]) if pc else f"last {days} days"
 
     if teaser:
-        for key in ("developments", "main_developments", "other_developments",
-                    "discussion", "findings"):
-            assessment[key] = ent.drop_text_mentioning(assessment.get(key) or [],
-                                                       withheld)
-        rows = ent.drop_text_mentioning(rows, withheld)
-        highlights = ent.drop_text_mentioning(highlights, withheld)
+        # Operator policy, 9 Sep 2026: a restricted reader sees the news,
+        # posts and developments of EVERY vendor — the editorial surfaces
+        # are open, because a movers card capped to the public tier sat on
+        # 2 Sep while the market moved. What stays restricted to the
+        # authorized set are KPIs and metrics: the attention bars, the
+        # hiring figures, and the benchmark report (view=report keeps its
+        # full masking). The maturity map names every rated vendor by the
+        # 27 Aug decision; the earlier drop_text_mentioning calls on
+        # developments, rows, highlights, topics and voices are gone on
+        # purpose.
         # Masked, not filtered: the count of open roles is the market's.
         hiring = ent.mask_rows(hiring, allowed_brand_ids) or {}
         allowed_names = set(ent.vendor_names(conn, market["id"], allowed_brand_ids).values())
         sov_rows = ent.filter_rows(sov_rows, allowed_brand_ids, allowed_names)
         sov_prev = ent.filter_rows(sov_prev, allowed_brand_ids, allowed_names)
-        top_voices = ent.filter_rows(top_voices, allowed_brand_ids, allowed_names)
-        if topics:
-            topics = _v2_topics_for_view(topics, allowed_brand_ids, allowed_names, withheld)
-            if topic is not None and mt.topic_by_id(topics, topic) is None:
-                raise LookupError(f"no topic {topic} in this view")
 
 
     developments = assessment["developments"]
@@ -4720,18 +4719,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         member_uris = cluster.get("uris") or []
         trows = mcorp.articles(conn, market["id"], limit=max(len(member_uris), 1),
                                uris=member_uris, require_signal_for_social=False)
-        if teaser:
-            trows = ent.drop_text_mentioning(trows, withheld)
         kind = ("Emerging" if topic in (topics.get("emerging") or [])
                 else "Being discussed")
         n_recent, n_total = int(cluster.get("n_recent") or 0), int(cluster.get("n_total") or 0)
-        # The count the reader can check against the list below: what is
-        # shown, and why the rest is not.
-        hidden = n_total - len(trows)
+        # The count the reader can check against the list below.
         shown_txt = (f'{len(trows)} shown of {n_total}'
-                     + (f'; {hidden} not shown in this view because they name vendors '
-                        'outside the free roster' if teaser and hidden > 0 else "")
-                     + f'. {n_recent} of the {n_total} are from the last 7 days.')
+                     f'. {n_recent} of the {n_total} are from the last 7 days.')
         body.append('<header class="v2-mast"><div>'
                     f'<div class="n-kicker">{esc(market["name"])} · {esc(kind)}</div>'
                     f'<h1>{esc(cluster.get("name") or "")}</h1>'
@@ -4852,12 +4845,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         if motion:
             body.append('<div class="v2-card"><h2>Who got attention</h2>' + motion + "</div>")
         tracked = _safe_list(_v2_tracked_voices, conn)
-        if teaser:
-            tracked = ent.drop_text_mentioning(tracked, withheld)
         voices_card = _v2_voices_card(tracked, top_voices, teaser=teaser)
         if voices_card:
             body.append('<div class="v2-card"><h2>Influence and Influencers</h2>' + voices_card + "</div>")
-        body.append(_render_briefing_card(conn, market, withheld=withheld,
+        # withheld=[]: the briefing summary is editorial text, open under the
+        # 9 Sep policy; ``restricted`` still gates the layout.
+        body.append(_render_briefing_card(conn, market, withheld=[],
                                           restricted=teaser, link_params=link_params))
         # Last in the column (user, 29 Aug). The assessment already masks a
         # withheld vendor's name here, so the list stays readable in the
@@ -4893,7 +4886,11 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     rendered = v2_document(title, "".join(body))
     if teaser:
         rendered = _apply_teasers(rendered)
-    rendered = ent.enforce_no_withheld(rendered, withheld,
+    # The name tripwire is off for this page by the 9 Sep policy: editorial
+    # text may name any vendor, and the metric surfaces are structurally
+    # filtered above rather than scrubbed after the fact. view=report keeps
+    # the full check.
+    rendered = ent.enforce_no_withheld(rendered, [],
                                        context=f'market {market["id"]} front page')
     rendered = rendered.replace(_HORIZON_SLOT, horizon_html)
     for fragment in pieces_html:

@@ -275,6 +275,12 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
 fallbacks:
+  # nova-lite scores relevance on every collected article and had no fallback:
+  # a 4-call Bedrock blip on 2026-09-08 opened the circuit breaker for 300 s and
+  # every scoring call in that window got an error instead of another model.
+  - nova-lite:
+      - bedrock-kimi-k2-5
+      - nova-pro
   - bedrock-kimi-k2-5:
       - bedrock-claude-haiku
       - nova-lite

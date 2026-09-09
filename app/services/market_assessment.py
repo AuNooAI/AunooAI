@@ -2320,6 +2320,14 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
                                          {**v, "vendor": ent.WITHHELD_LABEL,
                                           "withheld": True}
                                          for v in d["vendors"]]})
+                continue
+            # Everything else is editorial and open (operator policy, 9 Sep
+            # 2026): a restricted reader sees every vendor's news, posts and
+            # developments by name — the movers card sat on 2 Sep while the
+            # market moved. Only KPIs and metrics stay with the authorized
+            # set (the hiring/headcount masking above, the distribution rows
+            # below, share-of-voice and the benchmark report).
+            kept.append(d)
         devs = kept
         material["developments"] = devs
         material["total"] = len(devs)

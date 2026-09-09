@@ -273,6 +273,57 @@ until their next UI sync. spiros, community, testbed have no Brand Watcher
 routes file. The briefing fix is wiley/wileytest/bugfixing only — the
 Briefing Desk exists nowhere else.
 
+## 2026-09-09 — nova-lite gets a fallback, and the breaker's fallback list turns out to have been empty since December
+
+### Goal
+Give nova-lite, the model behind ~90% of all calls (relevance scoring on
+every collected article), a fallback so a Bedrock blip no longer degrades
+scoring for the breaker's 300 s hold, as it did on sunstar 2026-09-08 18:30.
+
+### Ops/config: `nova-lite` fallback in every `litellm_config.yaml`
+`fallbacks:` on all eight trees now begins with
+`nova-lite: [bedrock-kimi-k2-5, nova-pro]`, inserted at the top of the list
+with a comment; the per-tenant files drift, so each was edited in place, not
+copied. All eight parse. Kimi first because that is the tier decision of
+2026-09-08; nova-pro second so a broken nova-lite inference profile still has
+a same-family option.
+
+### Fix: the app's circuit-breaker fallback handler ignored the default yaml
+**`app/ai_models.py`**, `_try_fallback_model`. Driving the handler for
+`nova-lite` after adding the entry found *no* fallbacks. The handler read
+`litellm_config.yaml.local` whenever that file existed and never looked at
+the default file. Every site has a `.local` (dated 2025-12-18 on six trees,
+2026-02 on wiley/wileytest) that lists seven self-hosted models and has no
+`fallbacks:` section, so the breaker's fallback list has been `[]` for every
+model on every site since then. LiteLLM's own Router merges both files at
+startup and was unaffected; the app-level path, the one that runs when the
+breaker is open, was the dead one. The handler now merges the `fallbacks`
+lists of both files, in the Router's order.
+
+Verification: compiles; `LiteLLMModel.get_instance("nova-lite")
+._try_fallback_model(...)` with `nova-lite` marked attempted logs `Found 2
+fallback models: ['bedrock-kimi-k2-5', 'nova-pro']`, `Attempting fallback to
+bedrock-kimi-k2-5`, `Fallback to bedrock-kimi-k2-5 succeeded`, and returns
+the model's reply. Before the handler fix the same call returned `None`.
+
+Propagation: `ai_models.py` copied to sunstar, oviva, abm, wbm, wiley and
+bwtemplate (matched canonical HEAD) and patched onto wileytest (local
+edits); all compile. The breaker path re-reads the yaml on every attempt, so
+the fallback was live at once; the Router copy needs a restart. Restarted
+idle 2026-09-09 ~08:17: sunstar, oviva, abm, wbm, wiley, login 200;
+bugfixing and wileytest mid-job, restart when idle; bwtemplate inactive.
+
+Ride-along from the parallel Market Monitor session (compile-checked, its
+test file passes): `app/services/market_assessment.py`,
+`app/services/market_report_html.py`, `tests/test_market_report_v2.py`.
+
+### Noted, not fixed
+- The breaker trips on four failures inside one second, which yesterday
+  turned a sub-second Bedrock burst into a five-minute hold. Threshold and
+  window live in `app/utils/circuit_breaker.py`.
+- `thenewsapi_collector` logs the full request URL, API token included, on
+  an HTTP error (sunstar 06:01 today). Mask it.
+
 ## 2026-09-08 — Oviva logins for three strategy users; Brand Watcher sites no longer run the news briefing on every Explore load; aisocnews.com moved onto its design system
 
 ### Goal
