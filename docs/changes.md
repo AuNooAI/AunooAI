@@ -2,6 +2,49 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-09 — Policy: restricted readers see every vendor's news and posts; KPIs stay with the public tier
+
+### Goal
+The operator asked why the front page looked old. The pipeline was
+current; the market was quiet post-Fal.Con — but the public movers card
+also sat on 2 Sep while September's motion (Spectrum Security, RedCarbon,
+Spharaka) belonged to vendors outside the earned public tier and was
+dropped from restricted views. Operator decision, verbatim intent: "we
+can show news and posts from the non-public tier — but not kpis or
+metrics." (Code rode along in `14fdab6c`, an unrelated subject; this
+entry is the record.)
+
+### The policy, applied in two layers
+**`market_assessment.assess`** no longer drops non-authorized vendors'
+developments from restricted views — they pass through named. Unchanged
+by design: the 2 Sep hiring/headcount masking (counts kept, names and
+evidence withheld) and the withheld distribution rows.
+
+**`market_report_html.py`**: the v2 editorial surfaces stop masking —
+developments, news rows, social highlights, topics, tracked voices and
+the briefing summary render for every vendor, and the page-level name
+tripwire is off for the v2 page and the news river (names are now
+policy-legal; the metric surfaces are structurally filtered, not
+scrubbed). Still restricted to the authorized set: the attention bars,
+hiring figures and their teaser, and the classic `view=report` benchmark,
+which keeps its full masking and tripwire. The maturity map continues to
+name every rated vendor per the 27 Aug decision. The topic pages' "not
+shown because they name vendors outside the free roster" caveat is gone —
+nothing is hidden any more.
+
+### Verification
+91 tests pass across the three suites, including the rewritten
+`test_shared_view_opens_text_but_keeps_metrics_to_authorized` (text may
+name withheld vendors; attention bars must not). Live public site after a
+guarded restart: all seven surfaces 200; movers lead with Imperum's 7 Sep
+launch and name Spectrum Security and RedCarbon; the bars carry only the
+eight public-tier vendors; the hiring section keeps its masking; the
+classic report body (map stripped) contains zero non-public names —
+Spectrum, RedCarbon, Arcanna.ai, Tuskira all absent.
+
+### Propagation
+bugfixing only — Market Monitor exists nowhere else.
+
 ## 2026-09-08 — Forecast tracker: Wiley name removed from labels, placeholders and download filenames
 
 ### Goal
