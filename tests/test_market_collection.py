@@ -1326,3 +1326,126 @@ def test_the_indeed_ingest_reports_provider_errors():
     assert 'provider_errors' in body
     assert '"provider_errors": provider_errors' in body, (
         'the count must be returned, not just computed')
+
+
+# ── Vendor-scoped website runs ───────────────────────────────────────────────
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+    def scalar(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def first(self):
+        return None
+
+
+class _FakeConn:
+    def __init__(self, vendors):
+        self.vendors = vendors
+
+    def execute(self, *_a, **_k):
+        return _FakeResult(self.vendors)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+def test_vendor_scoped_website_run_reaches_the_pages_poller(monkeypatch):
+    import asyncio
+    asyncio.run(_scoped_run_reaches_pages(monkeypatch))
+
+
+async def _scoped_run_reaches_pages(monkeypatch):
+    """A vendor's own "Fetch now" for its website used to be claimed and then
+    failed as undispatched. It must reach _poll_pages scoped to that vendor."""
+    from app.tasks import market_monitor as mm
+
+    vendors = [{"brand_id": 1, "display_name": "A"},
+               {"brand_id": 2, "display_name": "B"}]
+    manual = {(mm.SOURCE_PAGES, 2): 77, (mm.SOURCE_DISCOVERY, 1): 78}
+    seen = []
+
+    async def _noop_async(*_a, **_k):
+        return 0
+
+    def _noop(*_a, **_k):
+        return 0
+
+    async def fake_pages(conn, market, vs, now, forced_run_id=None):
+        seen.append(("pages", [v["brand_id"] for v in vs], forced_run_id))
+        return 1
+
+    async def fake_discover(conn, market, vs, now, forced_run_id=None):
+        seen.append(("discovery", [v["brand_id"] for v in vs], forced_run_id))
+        return 1
+
+    monkeypatch.setattr(mm, "_claim_manual_runs", lambda conn, m: dict(manual))
+    for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
+                 "_write_briefing", "_discover_ats", "_poll_ats_jobs"):
+        monkeypatch.setattr(mm, name, _noop_async)
+    for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
+        monkeypatch.setattr(mm, name, _noop)
+    monkeypatch.setattr(mm, "_poll_pages", fake_pages)
+    monkeypatch.setattr(mm, "_discover_feeds", fake_discover)
+    monkeypatch.setattr(mm, "_fail_undispatched", lambda *a, **k: None)
+    import app.services.brightdata_linkedin as bd_mod
+    monkeypatch.setattr(bd_mod, "linkedin_enabled", lambda: False)
+
+    await mm._poll_market(_FakeConn(vendors), {"id": 9, "name": "M"},
+                          datetime.now(timezone.utc))
+
+    # Market-wide calls carry every vendor and no forced run; the scoped
+    # calls carry exactly the requested vendor and its run id.
+    assert ("pages", [1, 2], None) in seen
+    assert ("discovery", [1, 2], None) in seen
+    assert ("pages", [2], 77) in seen
+    assert ("discovery", [1], 78) in seen
+
+
+def test_vendor_scoped_website_run_for_a_non_collecting_vendor_fails_clearly(monkeypatch):
+    import asyncio
+    asyncio.run(_scoped_run_non_collecting(monkeypatch))
+
+
+async def _scoped_run_non_collecting(monkeypatch):
+    from app.tasks import market_monitor as mm
+    from app.services import market_collect as mc
+
+    closed = []
+    monkeypatch.setattr(mm, "_claim_manual_runs",
+                        lambda conn, m: {(mm.SOURCE_PAGES, 99): 5})
+
+    async def _noop_async(*_a, **_k):
+        return 0
+
+    for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
+                 "_write_briefing", "_discover_ats", "_poll_ats_jobs",
+                 "_discover_feeds", "_poll_pages"):
+        monkeypatch.setattr(mm, name, _noop_async)
+    for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
+        monkeypatch.setattr(mm, name, lambda *a, **k: 0)
+    monkeypatch.setattr(mm, "_fail_undispatched", lambda *a, **k: None)
+    monkeypatch.setattr(mc, "close_run",
+                        lambda conn, run_id, **kw: closed.append((run_id, kw)))
+    import app.services.brightdata_linkedin as bd_mod
+    monkeypatch.setattr(bd_mod, "linkedin_enabled", lambda: False)
+
+    await mm._poll_market(_FakeConn([{"brand_id": 1, "display_name": "A"}]),
+                          {"id": 9, "name": "M"}, datetime.now(timezone.utc))
+
+    assert closed and closed[0][0] == 5
+    assert closed[0][1]["status"] == "failed"

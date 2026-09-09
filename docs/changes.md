@@ -2,6 +2,98 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-09 — Three vendors added on request; a vendor's own website fetch now works
+
+### Goal
+Blink's marketing team asked, through a contact, to be added to the AI SOC
+list. Working the queue behind that request turned up one more vendor
+submission we had missed and five news tips nobody had acted on. Forcing
+collection for the new vendors then exposed that a single vendor's website
+fetch could never run.
+
+### Vendors added to market 2 (AI in the SOC)
+All three went in through `POST /api/market-monitor/markets/2/vendors`, the
+same route the operator UI uses, then got the identifiers and category their
+peers carry.
+
+- **BlinkOps** (brand 49830, blinkops.com). The company calls itself
+  BlinkOps; "Blink" is the product, which is why the request said "Blink".
+  Match keywords are `BlinkOps` and `Blink Ops`, because bare "Blink" with the
+  market's "security" qualifier matches Amazon's Blink cameras. Two wrong
+  identifiers were corrected after the first collection pass: LinkedIn
+  `/company/blinkops` is a showcase page, the company page is
+  `/company/blink-ops` (Bright Data's profile response named it); the
+  Crunchbase slug is `blink-ffe8`, not a guess from the name.
+- **NextSOC** (brand 49831, nextsoc.ai), from vendor request 28, a
+  self-described stealth founder. No LinkedIn page exists on its site or in
+  search, so its three LinkedIn source policies are ineligible until someone
+  adds one. Told the submitter by mail and asked for the page.
+- **Securaa** (brand 49832, securaa.io), from vendor requests 21 and 22, the
+  first under its legal name Bytamorph Zona Pvt Ltd, both from 7 September.
+  Both had been sitting unanswered. LinkedIn page found by search:
+  `/company/securaa-io`; the legal name is stored as a `former_name` alias.
+
+`entity_scheduler.seed_policies` created the 8 policy rows per vendor. The
+market tick does that itself on its next pass; calling it by hand only
+brought the vendors forward. Never-tried policies sort first, so the new
+vendors led every source's next run.
+
+### Fix: a vendor-scoped website run reached nothing
+**`app/tasks/market_monitor.py`** (`a833356a`) — `_claim_manual_runs` marked a
+vendor's own "Fetch now" for `vendor_web` or `vendor_web_discovery` as
+running, but `_poll_market` only dispatched those two sources market-wide,
+so `_fail_undispatched` closed every such run with "no collector dispatched"
+(runs 1537, 1538, 1542 today). The scoped run now goes to the same poller
+with the vendor list cut to that one vendor. A run for a vendor that is not
+collecting in the market fails with "vendor is not collecting in this
+market" instead of a wiring error.
+
+**`tests/test_market_collection.py`** — two tests drive `_poll_market` with a
+fake connection and stubbed pollers: one checks the scoped call carries
+exactly the requested vendor and run id next to the market-wide call, one
+checks the non-collecting case closes the run as failed. They call
+`asyncio.run` directly because this venv has no `pytest-asyncio` (the
+file's three existing `@pytest.mark.asyncio` tests fail here for that reason).
+
+### News tips ingested
+Five `market_news_tips` rows had sat in status `new` since 31 August. Two
+(Artemis case studies) were already articles from Artemis's own site, scored
+0.6 and 0.8 on topic alignment. Three (Simbian's LLM defence benchmark, a
+CrowdStrike press release naming Artemis, Artemis's careers page) were raw
+rows or absent. They went through `AutomatedIngestService.process_articles_batch`
+under the market topic with the relevance filter off, then the corpus scan
+attributed Simbian's piece to Simbian and the CrowdStrike release to Artemis
+Security. All five are now `accepted`. The CrowdStrike release and the
+careers page scored 0.3 on topic alignment, below the 0.4 gate customer-facing
+selections use, so they sit in the corpus but do not surface publicly. Not
+overridden: a careers page is a hiring signal, not news.
+
+### Verification
+- `pytest tests/test_market_collection.py -k vendor_scoped`: 2 passed.
+- Service restarted 12:27 after the tick that held the queued runs finished.
+- Vendor-scoped runs through the new path after restart: 1549 (Securaa
+  `vendor_web`) succeeded, 2 pages read; 1550 (NextSOC discovery) succeeded.
+- Forced runs before the fix: BlinkOps profile 1543 (headcount 126, 16,712
+  followers), posts 1544 (24 new), jobs 1545 (10 new); Securaa profile 1539
+  (headcount 58), posts 1540 (19 new). Market-wide `vendor_web` 1547 read 392
+  pages, 21 changed, and reached all three new vendors. BlinkOps Crunchbase
+  1546 still at the provider at time of writing.
+- `market_vendor_requests`: every form submission (ids 13–28) now has a
+  brand in market 2.
+
+### Propagation
+`app/tasks/market_monitor.py` exists only on bugfixing; wiley and wileytest
+do not carry the market monitor. Nothing to copy. The vendor rows, tips and
+identifiers are DB state on bugfixing's `test` database.
+
+### Lessons
+- A LinkedIn `/company/<slug>` URL can be a showcase page. Bright Data
+  returns `url` as `/showcase/...` and lists the parent under `affiliated`;
+  check that before trusting a slug that "looks right".
+- Vendor requests have no status column, only `notified`. The only way to
+  close one is to add the vendor, so the table has to be re-read against
+  `bw_brands` to find the misses.
+
 ## 2026-09-09 — The intelligence feed: monthly subscriptions on aisocnews.com
 
 (Named "Get the full dataset" for the first hours; renamed on the

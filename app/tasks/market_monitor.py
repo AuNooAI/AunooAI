@@ -539,6 +539,22 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
                               forced_run_id=manual.get((SOURCE_PAGES, None)))
+    # A vendor's own "Fetch now" for its website: the same sweep, scoped to
+    # that one vendor. Until this existed, a vendor-scoped vendor_web or
+    # vendor_web_discovery run was claimed and then failed by
+    # _fail_undispatched ("no collector dispatched"), so a vendor added
+    # between sweeps could not be read on demand (BlinkOps and NextSOC,
+    # runs 1537 and 1538, 9 September 2026).
+    for source, poller in ((SOURCE_DISCOVERY, _discover_feeds),
+                           (SOURCE_PAGES, _poll_pages)):
+        for brand_id, run_id in _vendor_claims(source):
+            scoped = [v for v in vendors if int(v["brand_id"]) == brand_id]
+            if not scoped:
+                mc.close_run(conn, run_id, status="failed",
+                             error="vendor is not collecting in this market")
+                conn.commit()
+                continue
+            runs += await poller(conn, market, scoped, now, forced_run_id=run_id)
     # Free and unauthenticated, so outside the provider-budget gate below.
     runs += await _discover_ats(conn, market, vendors, now,
                                 forced_run_id=manual.get((SOURCE_ATS_DISCOVERY, None)))
