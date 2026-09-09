@@ -2,6 +2,147 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-09 — The intelligence feed: monthly subscriptions on aisocnews.com
+
+(Named "Get the full dataset" for the first hours; renamed on the
+operator's call the same day — plan labels, page copy, mails, the Stripe
+product name and price nicknames all say "intelligence feed" now.)
+
+### Goal
+Sell what the free tier withholds. Two plans, both monthly through
+Stripe: **Full dataset** at $179 (the whole site with every vendor named
+and every figure shown) and **Full dataset + MCP access** at $279 (the
+same, plus a bearer key for the app's MCP server so the buyer's AI tools
+can query the data directly). Built dark, like the analyst call: no
+button shows until the Stripe env values exist.
+
+### The credential: a subscriber key on report.html
+**`app/routes/market_monitor_routes.py`** — `report.html` takes a new
+`key=` query parameter. A key that hashes to an active (or `past_due`)
+`market_subscriptions` row for the market gets
+`Entitlement("full", None, "active subscription")`: every vendor named,
+every KPI, on all views. The key travels in `link_params`, so every
+internal link keeps it, the way signed links already work. A bad or
+cancelled key simply falls back to whatever the request would otherwise
+be (the public view on a public market) — it never errors. Access is
+logged as `subscription <id>`.
+
+### The purchase flow
+**`app/services/market_subscription.py`** + **`app/routes/market_subscription_routes.py`**,
+mirroring the analyst-call flow and sharing its plumbing (same Stripe
+account, same page shell). Checkout runs in subscription mode. The row is
+written before Stripe is asked for a session; `activate()` flips
+`created` to `active` with one guarded UPDATE, and only the winner of
+that UPDATE mints the credentials — the `dsk_` access token (stored as
+sha256, shown once) and, on the MCP plan, an `aunoo_` bearer key — and
+sends the two mails. So the webhook and the buyer's browser can arrive
+in either order without double-minting or double-mailing.
+
+Lifecycle is Stripe's: the webhook (`/subscribe/webhook`, its own
+signing secret `STRIPE_SUB_WEBHOOK_SECRET`) handles
+`customer.subscription.updated` (`active` ↔ `past_due`; access is kept
+through Stripe's retry window) and `customer.subscription.deleted`
+(status `cancelled`, the site key stops resolving on the next request,
+the MCP key is revoked). `is_configured()` requires the webhook secret
+on purpose — without lifecycle events a cancelled buyer would keep
+access forever, so the product refuses to sell until revocation works.
+
+MCP keys must belong to an active user, so subscriber keys hang off a
+dedicated service user `mcp-subscriber`, created on first use with a
+thrown-away random password (it cannot be logged into). Deactivating
+that user is the kill switch for every subscriber key at once.
+
+### Table and migration
+**`alembic/versions/mm_025_market_subscriptions.py`** —
+`market_subscriptions`: plan, amounts, Stripe ids (session, customer,
+subscription), status, the access-token hash and display prefix, the
+`mcp_api_keys` row id, the buyer's host (`site`, for building the access
+link in mail), notified flags. Applied on bugfixing.
+
+### Surfaces
+**`market_report_html.py`** — "Get the full dataset" joins the top bars
+beside "Schedule an inquiry" (`_subscribe_link`, hidden until
+configured) on the v2 pages, the news river and the classic report, and
+one sentence with both prices joins the contact panel
+(`_subscribe_line`). **nginx** (`aisocnews.com`, backup
+`.bak-subscribe-*`): the form/checkout/done/cancelled/webhook paths
+proxy uncached like the inquiry ones, and `/subscribe` 302s to the form.
+
+### Verification
+`pytest tests/test_market_subscription.py tests/test_market_inquiry.py`
+— 18 passed (activate-once, key-per-market, cancellation revokes,
+past_due keeps access, per-IP limit, webhook signature). Report suites:
+33 passed, 1 pre-existing failure (`test_the_lead_answers_before_it_shows_evidence`,
+design-system rework, unrelated). Live after a guarded restart: `/login`
+200, front page 200, `/subscribe` 503 (dark, as configured). A test row
+inserted directly: `report.html?key=…` rendered zero withheld labels
+against five on the public view and 34 links carrying the key; flipping
+the row to `cancelled` brought the withheld labels back; row deleted.
+
+### Go-live (done same day on the operator's "go live on stripe")
+Product `prod_VE9qgiCSBCWNfa` with monthly prices
+`price_1UDhWUKKEEttoL4kT7CC2e8Z` ($179) and
+`price_1UDhWVKKEEttoL4k4tcPEdbk` ($279) via
+`scripts/seed_stripe_subscriptions.py`; webhook endpoint
+`we_1UDhXdKKEEttoL4kCKgiPvFU` created over the API with the four events;
+the three env values appended to `.env` (backup `.env.bak-subscribe-*`)
+and the service restarted behind the guard.
+
+### The full flow, proven with a real subscription
+A single-use 100%-off promotion code let a real MCP-plan purchase run
+end to end at $0 (Playwright drove Stripe's hosted page; the code
+entered via the promo field was rejected as invalid — a new-promotions-
+API quirk — so the discount was attached at session creation instead).
+Everything the money path touches ran live: the webhook won the
+activation race, minted the `dsk_` token and the `aunoo_` key, created
+the `mcp-subscriber` service user on first use, and sent both Resend
+mails. The re-issued site key rendered the full view on aisocnews.com
+(zero withheld labels) and the MCP key answered `tools/list` on
+`/mcp`. `stripe.Subscription.cancel` then flipped the row to
+`cancelled` via the lifecycle webhook within seconds: the site key fell
+back to the restricted view and the MCP key got a 401. Promo
+deactivated, coupon deleted, test rows removed. `allow_promotion_codes`
+and `payment_method_collection="if_required"` stay on the sessions.
+
+### Re-issue: recovery for a lost link or a lost mail
+The activation winner is the only holder of the plaintexts, so a failed
+buyer mail used to strand the credentials. Now the Checkout
+``session_id`` from Stripe's success redirect — a secret only the buyer
+holds — is proof of ownership: POST `/subscribe/reissue` rotates the
+credentials (new link and key shown once, old ones die, mail re-sent),
+the done page offers it as a button, and the done page also rotates
+automatically when the row is active, the buyer mail never went out,
+and the activation is older than three minutes (the grace keeps it from
+racing a webhook whose mail is still in flight). A cancelled
+subscription gets a "no longer active" page instead. Verified live and
+in `test_reissue_rotates_the_key_and_kills_the_old_one` /
+`test_reissue_refuses_cancelled_and_foreign` (13 tests pass).
+
+### The plans page says what the free view holds back
+`roster_counts` fetches the roster size and the public limit live, and
+`_whats_inside` renders them as a concrete comparison on `/subscribe`:
+"We monitor 94 vendors … rankings and figures stop at the 10
+most-covered", then one line each for the attention figures (all
+vendors, with movement against the period before), the hiring names
+(free view keeps counts, withholds names), the masked analyst
+benchmark, and the MCP layer under the pages. The numbers are computed
+per render, so adding a vendor never leaves the page quoting a stale
+count, and each claim mirrors what the entitlement code actually
+withholds — the docstring says the list moves when the policy moves.
+`test_form_page_says_what_the_free_view_holds_back` covers it (14 tests
+pass).
+
+### MCP setup guide
+`/subscribe/help` (short link aisocnews.com/mcp-help) — a public,
+secret-free page with copy-paste configs for Claude Code, Claude
+Desktop (via mcp-remote), Cursor, VS Code and a raw curl check, plus
+what a 401 means. Linked from the buyer mail and the done page's MCP
+block. Requested after the first real buyer mail landed; modelled on
+the agentic.aunoo.ai idea but rendered in the site's own shell.
+
+### Propagation
+bugfixing only — Market Monitor's public site exists nowhere else.
+
 ## 2026-09-09 — Policy: restricted readers see every vendor's news and posts; KPIs stay with the public tier
 
 ### Goal

@@ -2284,6 +2284,30 @@ def _book_line(market_id: int) -> str:
             "Book a 30 or 60 minute analyst call</a>.</p>")
 
 
+def _subscribe_link(market: Dict[str, Any]) -> str:
+    """The "Intelligence feed" link for the top bars: only on a public
+    market, and only when Stripe is configured, so a tenant without it
+    shows nothing rather than a dead button."""
+    from app.services import market_subscription as msub
+
+    if not market.get("is_public") or not msub.is_configured():
+        return ""
+    return (f'<a class="n-book" href="{msub.subscribe_href(market["id"])}">'
+            "Intelligence feed</a>")
+
+
+def _subscribe_line(market_id: int) -> str:
+    """One sentence in the contact panel pointing at the subscription,
+    when it is configured."""
+    from app.services import market_subscription as msub
+
+    if not msub.is_configured():
+        return ""
+    return (f'<p>The <a href="{msub.subscribe_href(market_id)}">intelligence feed</a> '
+            "opens the whole site for $179 a month; with MCP access for your AI "
+            "tools it is $279.</p>")
+
+
 def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
     """One form at the foot of the page. A dropdown says what it is about
     — a news tip, a missing vendor, a trial (shared view only) — and shows
@@ -2303,7 +2327,7 @@ def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
         f"<p>Send us a story about {esc(market_name)} that is not here, tell us your company "
         "belongs on the list" + (", or ask for the full report and data" if trial else "")
         + ". We read everything; what goes on the page is our call.</p>"
-        + _book_line(market_id)
+        + _subscribe_line(market_id) + _book_line(market_id)
         + f'<form id="mm-contact-form" data-base="/api/market-monitor/markets/{int(market_id)}/">'
         '<div class="mm-c-kind"><label for="mm-c-kind">What is it about?</label>'
         f'<select id="mm-c-kind" name="kind">{"".join(opts)}</select></div>'
@@ -2894,7 +2918,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
             + '<nav class="n-pages" aria-label="Pages">'
             f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
             f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
-            f'{rss}{_book_link(market)}{_theme_toggle()}</nav>'
+            f'{rss}{_subscribe_link(market)}{_book_link(market)}{_theme_toggle()}</nav>'
             f'<span class="n-market">{esc(market["name"])}</span></div>',
             '<main class="n-river">',
             '<div class="n-head"><div>'
@@ -4693,7 +4717,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
               if section else "")
              + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
              f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
-             + rss + '<a class="n-tip" href="#mm-tip">Submit news</a>' + _book_link(market))
+             + rss + '<a class="n-tip" href="#mm-tip">Submit news</a>'
+             + _subscribe_link(market) + _book_link(market))
     periods = "".join(
         f'<a href="?{_relink(link_params, days=d, view="v2", section=section)}"'
         + (' aria-current="page"' if d == days else "")
@@ -5202,7 +5227,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
                 + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
                    + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
-                + _book_link(market) + _theme_toggle() + '</nav>'
+                + _subscribe_link(market) + _book_link(market) + _theme_toggle() + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
     body.append('<main class="n-main"><span id="mm-overview"></span>')

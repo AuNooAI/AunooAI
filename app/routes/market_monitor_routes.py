@@ -1324,6 +1324,8 @@ async def market_report(
     days: int = Query(30, ge=1, le=365),
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
+    key: Optional[str] = Query(None, max_length=120,
+                               description="A subscriber's access key: the full dataset, no session needed."),
     view: str = Query("v2", description="v2 (the front page, the default), report (the assessment), news, briefing."),
     id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
     section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social, research)."),
@@ -1350,9 +1352,12 @@ async def market_report(
     assessment. ``view=news`` is the river: every record in the period as a
     time-ordered list of headlines, no analysis.
 
-    Three ways in, in order: a valid signed link, a session, or a public
-    market. Anything else is a 404 rather than a redirect — a redirect is what
-    made the feed unusable for machines.
+    Four ways in, in order: a valid signed link, a session, a subscriber's
+    ``key``, or a public market. Anything else is a 404 rather than a
+    redirect — a redirect is what made the feed unusable for machines. A
+    subscriber's key is the one credential that renders the full dataset
+    without a session; it is sold on the subscribe page and revoked by
+    Stripe's lifecycle webhook.
     """
     import hmac
     import time
@@ -1376,28 +1381,41 @@ async def market_report(
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            if not (signed or session or market.get("is_public")):
+            # A paying subscriber's key opens the full dataset without a
+            # session. It is looked up by hash and dies with the Stripe
+            # subscription, on the next request.
+            subscriber = None
+            if key:
+                from app.services import market_subscription as msub
+                subscriber = msub.active_by_key(conn, market_id, key)
+            if not (signed or session or subscriber or market.get("is_public")):
                 raise HTTPException(status_code=404, detail="Market not found")
             # A signed link and a public market are both shared views. Neither
             # is the account holder, so neither gets the whole roster: this
             # report used to name all 84 vendors to anybody with the URL, and
             # because is_public was true it needed no token at all.
             full_view = bool(session) and full == 1
-            entitlement = ent.resolve(
-                session=session if full_view else None,
-                signed_link=signed or bool(session),
-                market_is_public=bool(market.get("is_public")))
+            if subscriber:
+                entitlement = ent.Entitlement("full", None, "active subscription")
+            else:
+                entitlement = ent.resolve(
+                    session=session if full_view else None,
+                    signed_link=signed or bool(session),
+                    market_is_public=bool(market.get("is_public")))
             allowed = ent.authorized_brand_ids(
                 conn, market_id, entitlement.vendor_limit)
             ent.log_access(market_id=market_id, entitlement=entitlement,
                            surface="report.html",
-                           viewer=(session or {}).get("user")
-                           if isinstance(session, dict) else None)
+                           viewer=(f"subscription {subscriber['id']}" if subscriber
+                                   else (session or {}).get("user")
+                                   if isinstance(session, dict) else None))
             # The signed pair travels with every period link. Without it a
             # shared reader switching from 30 days to 7 loses the token and
             # lands on a 404 — and `days` is not part of what the token
-            # signs, so changing the window is safe.
-            params = ({"exp": exp, "token": token} if signed
+            # signs, so changing the window is safe. A subscriber's key
+            # travels the same way.
+            params = ({"key": key} if subscriber
+                      else {"exp": exp, "token": token} if signed
                       else ({"full": 1} if full_view else {}))
             if view == "briefing":
                 return build_market_briefing_page(
@@ -4218,3 +4236,6 @@ router.include_router(_entity_router, prefix="")
 from app.routes.market_inquiry_routes import router as _inquiry_router  # noqa: E402
 
 router.include_router(_inquiry_router, prefix="")
+from app.routes.market_subscription_routes import router as _subscription_router  # noqa: E402
+
+router.include_router(_subscription_router, prefix="")
