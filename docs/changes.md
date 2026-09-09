@@ -310,8 +310,9 @@ Propagation: `ai_models.py` copied to sunstar, oviva, abm, wbm, wiley and
 bwtemplate (matched canonical HEAD) and patched onto wileytest (local
 edits); all compile. The breaker path re-reads the yaml on every attempt, so
 the fallback was live at once; the Router copy needs a restart. Restarted
-idle 2026-09-09 ~08:17: sunstar, oviva, abm, wbm, wiley, login 200;
-bugfixing and wileytest mid-job, restart when idle; bwtemplate inactive.
+idle 2026-09-09 08:16: sunstar, oviva, abm, wbm, wiley, login 200;
+bugfixing restarted 08:24 and wileytest 08:27 once idle, login 200;
+bwtemplate inactive.
 
 Ride-along from the parallel Market Monitor session (compile-checked, its
 test file passes): `app/services/market_assessment.py`,
