@@ -26,7 +26,7 @@ from sqlalchemy import text  # noqa: E402
 from app.database import get_database_instance  # noqa: E402
 from app.utils.title_translation import looks_english, same_headline, _default_model, _clean_model_title  # noqa: E402
 
-BATCH = 40
+BATCH = 15  # 40 Japanese tweets overran nova-lite's 2000-token reply and lost the whole batch
 
 
 def translate_batch(model, titles):
@@ -42,17 +42,23 @@ def translate_batch(model, titles):
     ]
     raw = model.generate_response(messages)
     raw = raw if isinstance(raw, str) else str(raw or "")
-    start, end = raw.find("{"), raw.rfind("}")
-    if start < 0 or end < 0:
+    start = raw.find("{")
+    if start < 0:
         return {}
+    end = raw.rfind("}")
+    body = raw[start:end + 1] if end > start else raw[start:]
     try:
-        parsed = json.loads(raw[start:end + 1])
+        parsed = json.loads(body)
     except json.JSONDecodeError:
+        # A reply cut off by the token cap has no closing brace or a torn
+        # last value; json_repair salvages the complete pairs before the cut.
         try:
             import json_repair
-            parsed = json_repair.loads(raw[start:end + 1])
+            parsed = json_repair.loads(body)
         except Exception:
             return {}
+    if not isinstance(parsed, dict):
+        return {}
     out = {}
     for k, v in (parsed or {}).items():
         try:

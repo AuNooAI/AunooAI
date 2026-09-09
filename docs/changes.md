@@ -75,10 +75,17 @@ incident earlier today.
 Flagged titles over the last 30 days, from the dry runs: sunstar 6,574 of
 14,545; oviva 443 of 1,345; abm 508 of 3,275; wbm 2,636 of 12,649; wiley
 1,679 of 10,693; wileytest 19,406 of 132,275; bugfixing 3,757 of 23,641. The
-runs go site by site in the background (`title_backfills.log` in the
-scratchpad); at commit time sunstar had 1,619 titles rewritten and the rest
-had not started. Most flagged titles are short English X posts without a
-function word; the model returns those unchanged.
+runs went site by site in the background (`title_backfills*.log` in the
+scratchpad). The first pass sent 40 titles per call and lost whole batches:
+40 Japanese tweets translate to more than nova-lite's 2,000-token reply, the
+JSON was cut off, and the parser returned nothing (sunstar 2,808 "failed",
+wbm 1,040). The script now sends 15 per call and salvages the complete
+entries of a truncated reply with `json_repair`; the second pass ran clean.
+Rows with an `original_title` after both passes: sunstar 4,787, wileytest
+1,783, wbm 969, bugfixing 558, wiley 336, abm 183, oviva 144. Most flagged
+titles are short English X posts without a function word; the model returns
+those unchanged. 68 sunstar rows where the model only changed punctuation
+(first pass, before `same_headline()`) were reverted by SQL.
 
 ### Verification
 - `looks_english()` on ten sample titles: Japanese ×3, French, German ×2,
@@ -121,6 +128,34 @@ under the `git add -u` rule.
   only.
 - A migration for all sites must branch from the revision the sites are
   actually on, not from canonical's head; keep the merge revision canonical-only.
+
+## 2026-09-09 — Foresight pages: test runs hidden from the public run picker
+
+### Goal
+The Three Horizons page listed every stored run — including two made
+while building the pages (6 Sep 17:24 and 2 Sep, alongside the 6 Sep
+17:40 run the page serves). Operator: "users should not see test runs."
+A test run lands in the same table as the monthly refresh's real ones,
+so the picker cannot tell them apart on its own.
+
+### Hidden runs, by config
+**`market_foresight.py`** — `hidden_runs()` reads
+`bw_markets.config['foresight_hidden_runs']` (a list of run ids,
+consensus and horizons alike). `render()` drops those ids from the run
+picker, refuses them by direct `run=` URL (404), and, when the newest
+stored run is itself hidden, serves the newest visible one instead of
+exposing it as the default. Unhiding is deleting the id from the config
+list. Market 2's two build-time horizon runs are hidden; the 6 Sep
+17:40 run stays as the live page.
+
+### Verification
+Live after a guarded restart: the run picker is gone (one visible run;
+the picker only renders with more than one), the hidden run's direct
+URL returns 404, the kept run returns 200, and the consensus page (one
+run, untouched) still serves.
+
+### Propagation
+bugfixing only — the public foresight pages exist nowhere else.
 
 ## 2026-09-09 — The other "AI SoC": chip and display posts out of the market corpus
 
