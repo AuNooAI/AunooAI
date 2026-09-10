@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './ai-disclosure-footer.css';
+import { getDeployedModelNames, loadDeployedModelNames } from '../services/aiDisclosureModels';
 
 interface AIDisclosureFooterProps {
   dashboardName: string;
@@ -10,26 +11,14 @@ interface AIDisclosureFooterProps {
 
 // This is a compliance disclosure (EU AI Act Art. 50): the models it names
 // must be the ones that actually ran on this deployment. When the caller
-// can't pass the model it used, we ask the server for the models with real
-// calls in the usage ledger (most-used first). We used to copy the first
-// entries of the model picker, which is ordered flagship-first, so sites
-// whose enrichment runs on Kimi and Nova were labelled as Claude Sonnet/Opus.
-let cachedModelNames: string | null = null;
+// can't pass the model it used, we show the deployment's real model list
+// from the usage ledger (see services/aiDisclosureModels.ts).
 function useDeployedModelNames(enabled: boolean): string | null {
-  const [names, setNames] = useState<string | null>(cachedModelNames);
+  const [names, setNames] = useState<string | null>(getDeployedModelNames());
   useEffect(() => {
-    if (!enabled || cachedModelNames) return;
-    fetch('/api/ai-disclosure/models', { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : null))
-      .then((data: { models?: Array<{ name?: string }> } | null) => {
-        const models = data?.models;
-        if (Array.isArray(models) && models.length > 0) {
-          cachedModelNames = models.map(m => m.name).filter(Boolean).join(', ');
-          setNames(cachedModelNames);
-        }
-      })
-      .catch(() => undefined);
-  }, [enabled]);
+    if (!enabled || names) return;
+    loadDeployedModelNames().then(n => { if (n) setNames(n); });
+  }, [enabled, names]);
   return names;
 }
 
@@ -42,7 +31,7 @@ export function AIDisclosureFooter({
   const deployedNames = useDeployedModelNames(!modelUsed);
   const modelText = modelUsed
     || deployedNames
-    || (aiTools && aiTools.length ? aiTools.join(', ') : 'site-configured models');
+    || (aiTools && aiTools.length ? aiTools.join(', ') : 'the large language models configured for this site');
   // Get user info from session (if available in window object from server-side rendering)
   const userName = (window as any).userSession?.username;
   const userEmail = (window as any).userSession?.email;

@@ -23,6 +23,7 @@ import '../../styles/citations.css';
 import TrendsRadarCompact, { TREND_TO_PILLAR } from './TrendsRadarCompact';
 import ScenarioMiniMatrix from './ScenarioMiniMatrix';
 import RecommendationCard from './RecommendationCard';
+import { getDeployedModelNames } from '../../services/aiDisclosureModels';
 
 // Qualitative level type and helpers
 type QualitativeLevel = 'none' | 'low' | 'medium' | 'high' | 'very_high';
@@ -2025,7 +2026,7 @@ const AIDisclaimer: React.FC<{ modelUsed: string }> = ({ modelUsed }) => {
         <div className="text-sm text-amber-800">
           <p className="font-medium mb-1">AI-Generated Analysis Disclaimer</p>
           <p className="text-amber-700">
-            This analysis was generated using <strong>{modelUsed || 'AI'}</strong> based on the referenced articles.
+            This analysis was generated using <strong>{modelUsed || getDeployedModelNames() || 'AI'}</strong> based on the referenced articles.
             AI-generated content may contain inaccuracies, biases, or outdated information.
             This analysis is intended for informational purposes only and should not be the sole basis for
             strategic decisions. Always verify critical information with primary sources and consult

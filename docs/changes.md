@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-10 — AI disclosure footer names the models that actually ran
+## 2026-09-10 — AI disclosure footer and exports name the models that actually ran
 
 ### Goal
 The EU AI Act Art. 50 footer on sunstar's Brand Watcher read "AI Model:
@@ -31,7 +31,30 @@ prefix and version suffix). If the ledger table is missing or empty it falls
 back to the full picker list, unsliced, with `source: "configured"`. Commit
 `8f4d2ff3`.
 
+### Fix — exports and inline notices say the same thing
+Six export paths in **`ui/src/services/exportService.ts`** carried the
+placeholder "site-configured large language models": the generic dashboard
+Markdown export, the extreme-scenario PDF and Markdown, the focus-group
+PDF and Markdown, and the Future Horizons HTML/PDF disclosure block. Five
+more (briefing, incidents ×3, narratives) fell back to the bare word "AI"
+when the caller passed no model. **`ui/src/services/aiDisclosureModels.ts`**
+(new) fetches `/api/ai-disclosure/models` once per page load on import and
+caches the joined names; `deployedModelsPhrase()` and
+`getDeployedModelNames()` read the cache synchronously, which the export
+functions need because they run on a click. The footer, the PAM dashboard
+disclaimer and the Briefing Desk "Generated with" line use the same cache,
+so every surface on a site names the same list. If the request failed the
+wording is "the large language models configured for this site". The
+scenario and focus-group runs pick models per agent on the server and do
+not return them, so the site list is the best these exports can say.
+
 ### Verification
+Bundle `index-Doy1Ip_4.js` contains the new route string and the fallback
+wording (grep on the built asset). Sunstar serves the new hash on /gather,
+/trend-convergence and /explore without a restart, because the templates
+auto-reload; the asset returns 200 on the other five sites. No restart was
+needed for the second change since no backend file moved.
+
 Called the live route on two sites after restart with a minted session cookie:
 
 | site | models returned (30 days, calls) |
@@ -45,7 +68,9 @@ on 2026-09-02 are absent because none succeeded. `npm run typecheck` clean
 (no new errors); `py_compile` passed on the patched wbm/abm/pbm copies.
 
 ### Propagation
-Route file copied whole to sunstar, oviva, wiley, wileytest, bwtemplate
+Second change (exports): `aiDisclosureModels.ts` and the footer source
+copied to all eight sites; rebuilt bundle and templates rsynced to the six
+active ones, no restart. Route file copied whole to sunstar, oviva, wiley, wileytest, bwtemplate
 (zero drift from canonical). wbm, abm and pbm carry an older route file, so
 the new block was inserted by anchor before the `{topic}` route
 (`scratchpad/patch_route.py`, idempotent). Footer source copied to all
