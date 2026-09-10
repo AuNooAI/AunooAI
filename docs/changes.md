@@ -193,7 +193,33 @@ route's fetcher never sets; the facade returns `sentiment`, `category`,
 articles went in as neutral / unknown / no categories. It now reads
 either shape.
 
+### Fix — persona cap applies, one persona per archetype
+`max_personas` was applied to the clusters after clustering but never to
+the personas profiling returned; the prompt said "for each archetype,
+create a detailed persona" without saying one, and Kimi returned 8 for
+3 archetypes. The prompt now says exactly one per archetype and names
+the total, and `_cap_personas` keeps the first persona per archetype in
+archetype order, lets personas naming no known archetype fill leftover
+slots, and cuts at `max_personas`, logging when it had to.
+
+### Fix — stage timeouts raised with the output caps
+Raising `max_tokens` made the stages slower: discovery took 74 s to
+write 60 mentions on the first post-fix run and hit the 90 s
+`discovery_timeout` on the next, which throws the whole stage away and
+returns "Stage timed out". Focus-group timeouts are now 300/180/300/180 s
+(discovery/clustering/profiling/synthesis, were 90/90/120/90); EOS
+180/240/300/240 s (weak_signals/amplification/scenario/implications,
+were 60/90/120/90).
+
 ### Verification
+- Persona cap: unit check with 6 personas over 3 archetypes returns one
+  per archetype in archetype order for a cap of 3, adds the unassigned
+  one for a cap of 6, and takes the first two when no archetypes exist.
+  Live run on bugfixing, `max_personas=3`, 243 s: 60 mentions, 3
+  archetypes, 3 personas (Marcus Wei / AI Product Builders, Dr. Amara
+  Okonkwo / AI Safety Researchers, Elena Kowalski / Government Regulators
+  & Policymakers). The run before the timeout change failed at 90 s in
+  discovery.
 - Unit: the guard on the real cut reply salvages 41 mentions and records
   the cut; a complete reply passes through; a reply cut before its first
   item, one missing the field, and non-JSON each raise with a recorded
@@ -204,15 +230,13 @@ either shape.
   call before the fix: 0 / 0 / 0.
 - Real EOS run, 2 scenarios, 168 s: 12 signals, 8 pathways, 2 scenarios,
   no truncation warnings in the journal.
-- Not fixed, noted: profiling returned 8 personas for `max_personas=3`;
-  the profiling prompt writes several personas per archetype and nothing
-  applies the cap. Predates this change.
 
 ### Propagation
 `ai_models.py` copied whole to sunstar, oviva, wbm, abm, wiley,
 bwtemplate; wileytest and pbm carry a drifted copy, so the helper block
 was inserted by anchor (`patch_ai_models.py`). Both service files copied
-to all eight. Compile-checked per venv. Restarted sunstar, oviva, wbm,
+to all eight, then again after the persona-cap and timeout fixes, with
+restarts of the six active sites each time. Compile-checked per venv. Restarted sunstar, oviva, wbm,
 abm, wiley, wileytest after the usual checks (0 overdue agents, 0
 non-enrichment LLM calls in 10 min); all active, wileytest
 focus-groups/health 200. pbm and bwtemplate stopped, not restarted.

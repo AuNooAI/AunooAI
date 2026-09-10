@@ -228,11 +228,14 @@ class FGConfig:
     profiling_temp: float = 0.5
     synthesis_temp: float = 0.5
 
-    # Timeouts (seconds)
-    discovery_timeout: int = 90
-    clustering_timeout: int = 90
-    profiling_timeout: int = 120
-    synthesis_timeout: int = 90
+    # Timeouts (seconds). Sized for the Bedrock models writing up to the
+    # stage's max_tokens: Kimi K2.5 took 74 s to write 60 mentions and
+    # timed out at the old 90 s on the next run. A timeout here throws the
+    # whole stage away, so it must sit well above the slow case.
+    discovery_timeout: int = 300
+    clustering_timeout: int = 180
+    profiling_timeout: int = 300
+    synthesis_timeout: int = 180
 
 
 class FocusGroupService:
@@ -693,7 +696,7 @@ ARTICLE CONTEXT:
 ARCHETYPES TO PROFILE:
 {json.dumps(state.persona_clusters, indent=2)}
 
-For each archetype, create a detailed persona with:
+Create exactly ONE persona per archetype: {len(state.persona_clusters)} personas in total, no more. Each persona must carry the "cluster_id" of its archetype. For each, include:
 
 IDENTITY (4 attributes):
 - name: A representative fictional name
@@ -794,6 +797,12 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
                                        errors=state.errors, max_tokens=max_tokens)
             raw_personas = result.get("personas", [])
 
+            # One persona per archetype, at most max_personas in total. The
+            # prompt says so, but Kimi returned 8 for 3 archetypes; the first
+            # persona for each archetype wins, in archetype order, and any
+            # persona that names no known archetype fills remaining slots.
+            raw_personas = self._cap_personas(raw_personas, state.persona_clusters, config.max_personas)
+
             yield {"status": "processing", "progress": 0.7}
 
             # Convert to Persona objects
@@ -851,6 +860,27 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
         except Exception as e:
             logger.error(f"Profiling stage failed: {e}")
             yield {"status": "error", "progress": 0.9, "error": str(e)}
+
+    @staticmethod
+    def _cap_personas(raw_personas: List[Dict], clusters: List[Dict], max_personas: int) -> List[Dict]:
+        """Keep one persona per archetype, in archetype order, capped at max_personas."""
+        limit = max(1, int(max_personas or 1))
+        cluster_order = [c.get("cluster_id") for c in clusters if c.get("cluster_id")]
+        by_cluster: Dict[str, Dict] = {}
+        unassigned: List[Dict] = []
+        for raw in raw_personas:
+            cid = raw.get("cluster_id")
+            if cid in cluster_order:
+                by_cluster.setdefault(cid, raw)
+            else:
+                unassigned.append(raw)
+        kept = [by_cluster[cid] for cid in cluster_order if cid in by_cluster]
+        kept.extend(unassigned)
+        if len(raw_personas) > len(kept[:limit]):
+            logger.warning(
+                f"Profiling returned {len(raw_personas)} personas for {len(cluster_order)} archetypes "
+                f"(max_personas={limit}); keeping {len(kept[:limit])}")
+        return kept[:limit]
 
     async def _run_synthesis(self, state: FGState, config: FGConfig):
         """

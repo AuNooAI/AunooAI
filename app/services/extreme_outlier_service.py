@@ -194,10 +194,12 @@ class EOSConfig:
     implications_temp: float = 0.4
 
     # Timeouts (seconds)
-    weak_signals_timeout: int = 60
-    amplification_timeout: int = 90
-    scenario_timeout: int = 120
-    implications_timeout: int = 90
+    # Sized for the Bedrock models writing up to the stage's max_tokens; a
+    # timeout throws the whole stage away, so it sits well above the slow case.
+    weak_signals_timeout: int = 180
+    amplification_timeout: int = 240
+    scenario_timeout: int = 300
+    implications_timeout: int = 240
 
 
 class ExtremeOutlierService:
