@@ -453,6 +453,7 @@ class NewsFeedService:
                 'future_signal': article_dict.get('future_signal'),
                 'future_signal_explanation': article_dict.get('future_signal_explanation'),
                 'original_title': article_dict.get('original_title'),
+                'original_summary': article_dict.get('original_summary'),
             })
         
         return {

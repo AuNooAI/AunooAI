@@ -13,3 +13,28 @@ export const OriginalTitle: React.FC<{ article: Pick<NewsArticle, 'title' | 'ori
     </p>
   );
 };
+
+/**
+ * The post or description as collected, behind a "Show original" toggle under
+ * its English translation. Renders nothing for text that was English already.
+ */
+export const OriginalSummary: React.FC<{ article: Pick<NewsArticle, 'summary' | 'original_summary'>; className?: string }> = ({ article, className = '' }) => {
+  const [open, setOpen] = React.useState(false);
+  if (!article.original_summary || article.original_summary === article.summary) return null;
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+      >
+        {open ? 'Hide original' : 'Show original'}
+      </button>
+      {open && (
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line" lang="">
+          {article.original_summary}
+        </p>
+      )}
+    </div>
+  );
+};

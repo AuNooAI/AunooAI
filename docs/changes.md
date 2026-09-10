@@ -2,6 +2,121 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-10 — English text for non-English posts and rejected articles; the original kept alongside
+
+### Goal
+The 2026-09-09 change gave every article an English headline, but on
+sunstar the text under the headline stayed Japanese for most of the feed.
+The analysis step writes its summary in English, and that is the only
+place a translation happened; social posts (whose `summary` is the post
+itself) and news the relevance gate rejects never reach that step. Over
+the last 30 days on sunstar, 2,886 of 11,202 rows had Japanese in
+`summary`: 2,431 social posts, 454 rejected news items, and 1 analysed
+article. Translation now happens once, at the first insert of every
+collected row, and covers both the title and the text.
+
+### Translation at the first insert
+**`app/database_query_facade.py`** `create_article` calls
+`english_fields(article)` before inserting a new row. That helper (in
+**`app/utils/title_translation.py`**) translates `summary` when it does not
+look English, then the title: a social post's title is the head of its
+body (xpoz takes `body[:120]`, Bluesky writes `@handle: body`), so the
+title is cut from the body's translation rather than sent to the model a
+second time; any other non-English title goes through the existing
+`english_title`. The article dict is changed in place, so the analysis
+step downstream sees the English title and skips its own translation.
+The insert writes `original_title` and the new `original_summary`.
+
+**`app/tasks/keyword_monitor.py`** carries `original_title` /
+`original_summary` into the ingest pipeline's dict;
+**`app/services/async_db.py`** keeps `original_summary` through the
+enriched-article update with `COALESCE`, and the relevance-rejected upsert
+never touched title or summary, so nothing downstream overwrites the
+originals. `save_article`'s allow-list and both feed selects in the facade
+carry the column; **`app/services/news_feed_service.py`** returns it.
+
+### Cheaper "is this English" for text
+Post bodies and summaries use a new `looks_english_text`: script share
+first (more than 15% of letters outside Latin script means not English;
+a share, not a single character, so an English abstract with a "β" or a
+"≥" is not sent for translation), then English function words weighed
+against a German/French/Spanish/Italian/Dutch/Portuguese list, with
+accents deciding a tie. A Latin-script text with neither kind of word
+(hashtags, a product name, "lol") counts as English, because on wileytest
+that call would otherwise run for thousands of English posts a day. Words
+that are also ordinary English ("do", "per", "con", "van", "met", "plus",
+"com", "os", "um") are left off the foreign list on purpose. The title
+detector `looks_english` keeps its stricter rule but now uses the same
+script-share test. Quote stripping on model replies now removes only a
+pair that wraps the whole reply; a title that opens with a quoted phrase
+used to lose its first quote.
+
+Model: `nova-lite`, one call per social post, two per non-English news
+item, 1 to 3 s each in the collector's save thread. Text is cut at 3,000
+characters for the model with an ellipsis appended; the original is kept
+in full.
+
+### Schema
+**`alembic/versions/art_text_001_original_summary.py`** adds
+`articles.original_summary` (Text), branching off `art_title_001`, which
+every customer site has. **`merge_art_text_mm_027.py`** merges it with
+the canonical head `mm_026`; canonical only, do not copy to customer sites.
+`Column('original_summary', Text)` in **`app/database_models.py`**.
+
+### UI
+**`ui/src/components/newsfeed/OriginalTitle.tsx`** gains `OriginalSummary`,
+a "Show original" toggle rendered under the summary in
+**`ArticleDetailPanel.tsx`**; `original_summary?: string` on `NewsArticle`
+in `newsFeedApi.ts`. Bundle `newsfeed-DRQrT_12.js`.
+
+### Emerging topics on abm: the jobs bundle without the jobs backend
+The 14:26 propagation put the server-side-jobs newsfeed bundle on abm,
+whose July-era backend has no `/api/emerging-topics/detect/jobs` routes, so
+its Detect button posted to a 404 from then until this fix.
+**`EmergingTopicsTab.tsx`** now falls back to the old in-request stream
+(`/detect` or `/detect/batch`) when the jobs endpoint answers 404, with the
+same progress panel and elapsed timer. On abm a page reload still cancels
+the run, as it always did there; the mount-time `/detect/jobs/active` probe
+already tolerated a 404.
+
+### Backfill
+**`scripts/backfill_english_text.py`** (new): rows with a non-English
+`summary` and no `original_summary`, newest first, 8 per model call as a
+numbered JSON object with `json_repair` salvage of a cut reply; derives
+the title from the same translation under the same head-of-body rule,
+including the Bluesky `@handle:` prefix. `--days/--limit/--dry-run`.
+
+### Verification
+- `english_fields` on four real sunstar rows (two tweets, a prtimes.jp
+  item, an English review): the two tweets translated in one call each,
+  the news item in two, the English row untouched.
+- Detector tests: 11 text cases (English abstract with β and ≥, Japanese
+  with a brand and URL, German, French, Dutch "Kies je voor GUM of
+  Oral-B", hashtags-only) and 4 title cases all as expected.
+- `npm run typecheck` clean (228 known). Migration applied on test,
+  sunstar, oviva, abm, wbm, wiley, wileytest; bwtemplate's database is at
+  `kg_lang_001` with no `.env` and stays unmigrated like the rest of its
+  backlog.
+- sunstar feed API returns `original_summary`; Brand Watcher `/social`
+  for Sunstar showed 4 of 100 posts still with Japanese text 8 minutes
+  into the backfill.
+- sunstar backfill (30 days), still running at commit time: 1,576 of 3,847
+  rows done at 14:58, 1,473 changed (22 of them also got a title), 68
+  returned unchanged by the model, 35 failed (reply cut or model error;
+  a re-run picks them up). Final counts in the next entry.
+- Ingest-time path: not yet exercised by a live cycle at commit time; the
+  Japanese social group runs at 15:52 and is checked after.
+
+### Propagation
+Patch applied to sunstar, oviva, abm, wbm, wiley, wileytest, bwtemplate
+(wileytest's facade allow-list edited by hand, it has a local `social_meta`
+entry); migration, script, `title_translation.py` and the UI sources
+copied; static + templates rsynced; all seven services restarted except
+bwtemplate (inactive). Restarts were done between ingest batches; on
+canonical after detection run 3553 completed. Backfill run on sunstar
+only; other sites translate from now on and can run the script when
+wanted.
+
 ## 2026-09-10 — AI disclosure names the models that actually ran: footer, exports, and per-run for scenarios and focus groups
 
 ### Goal

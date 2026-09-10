@@ -398,6 +398,7 @@ t_articles = Table(
     Column('article_origin', Text, server_default=text("'unknown'")),  # 'aunoo', 'external', 'unknown'
     Column('opoint_entities', JSONB),  # Opoint per-article entity/topic enrichment (brand/competitor signal)
     Column('original_title', Text),  # collector title when `title` is an English translation of it
+    Column('original_summary', Text),  # collected post/description when `summary` is its English translation
     Column('social_meta', JSONB),  # Social post media + engagement (thumbnail, likes/reposts/comments/plays) for xpoz posts
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),

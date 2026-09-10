@@ -442,13 +442,25 @@ class DatabaseQueryFacade:
         try:
             inserted_new_article = False
             if not article_exists:
+                # English title and text for a row collected in another language.
+                # Done here, at the first insert, because social posts and news
+                # the relevance gate rejects never reach the analysis step. The
+                # dict is changed in place, so the analysis step downstream sees
+                # the English title and does not translate it again.
+                try:
+                    from app.utils.title_translation import english_fields
+                    english_fields(article)
+                except Exception as _te:
+                    self.logger.warning(f"Translation skipped for {article_url}: {_te}")
                 # Save new article
                 self._execute_with_rollback(insert(articles).values(
                     uri=article_url,
                     title=article['title'],
+                    original_title=article.get('original_title'),
                     news_source=article['source'],
                     publication_date=article['published_date'],
                     summary=article.get('summary', ''),
+                    original_summary=article.get('original_summary'),
                     topic=topic,
                     analyzed=False,
                     opoint_entities=article.get('opoint_entities'),
@@ -5133,7 +5145,7 @@ class DatabaseQueryFacade:
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
                 'ingest_status', 'auto_ingested', 'article_origin',
-                'opoint_entities', 'original_title'
+                'opoint_entities', 'original_title', 'original_summary'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -5886,6 +5898,7 @@ class DatabaseQueryFacade:
             articles.c.uri,
             articles.c.title,
             articles.c.original_title,
+            articles.c.original_summary,
             articles.c.summary,
             articles.c.news_source,
             articles.c.publication_date,
@@ -6141,6 +6154,7 @@ class DatabaseQueryFacade:
             articles.c.uri,
             articles.c.title,
             articles.c.original_title,
+            articles.c.original_summary,
             articles.c.summary,
             articles.c.news_source,
             articles.c.publication_date,

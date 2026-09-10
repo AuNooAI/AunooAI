@@ -25,6 +25,8 @@ export interface NewsArticle {
   /** The collected headline when `title` is its English translation. */
   original_title?: string;
   summary: string;
+  /** The collected post or description when `summary` is its English translation. */
+  original_summary?: string;
   url?: string;
   publication_date?: string;
   source: ArticleSource;

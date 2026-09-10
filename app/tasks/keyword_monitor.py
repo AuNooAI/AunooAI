@@ -1020,6 +1020,8 @@ class KeywordMonitor:
                     'news_source': article.get('source', ''),
                     'publication_date': article.get('published_date', ''),
                     'summary': article.get('summary', ''),
+                    'original_title': article.get('original_title'),      # set by the first insert when
+                    'original_summary': article.get('original_summary'),  # the row was not English
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
                     'social_meta': article.get('social_meta'),  # Preserve social media/engagement (xpoz)

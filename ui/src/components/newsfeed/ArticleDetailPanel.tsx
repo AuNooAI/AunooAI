@@ -1,4 +1,4 @@
-import { OriginalTitle } from './OriginalTitle';
+import { OriginalTitle, OriginalSummary } from './OriginalTitle';
 /**
  * Article Detail Panel - Slide-in panel for full article details
  * Shows rich metadata, summary, and action buttons
@@ -585,6 +585,7 @@ Please provide:
             <p className="text-gray-700 leading-relaxed">
               {article.summary || 'No summary available.'}
             </p>
+            <OriginalSummary article={article} className="mt-2" />
           </div>
 
           {/* Metadata Grid */}

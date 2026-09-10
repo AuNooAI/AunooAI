@@ -542,6 +542,44 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
     await finishDetection();
   };
 
+  // Older backends stream the run over the request; reloading the page
+  // cancels it there. Kept only for sites not yet on the jobs endpoints.
+  const runDetectionInline = async (body: Record<string, unknown>) => {
+    const endpoint = topic ? '/api/emerging-topics/detect' : '/api/emerging-topics/detect/batch';
+    const payload = topic ? { ...body, stream: true } : body;
+    const t0 = Date.now();
+    stopElapsedTimer();
+    elapsedTimerRef.current = window.setInterval(() => {
+      setDetectionProgress(prev => prev ? { ...prev, elapsed_seconds: (Date.now() - t0) / 1000 } : prev);
+    }, 1000);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (response.status === 409) {
+        const conflict = await response.json().catch(() => null);
+        throw new Error(conflict?.detail?.message || 'A detection run is already in progress for this topic.');
+      }
+      if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
+      if (!response.body) throw new Error('No response body');
+      let streamError: string | null = null;
+      await readSSEStream(response.body, (event) => {
+        const data = event.data as (DetectionProgress & { emerging_topics?: EmergingTopic[]; message?: string }) | null;
+        if (!data) return;
+        if (event.event === 'error') { streamError = data.message || 'Detection failed'; return; }
+        setDetectionProgress(prev => ({ ...data, elapsed_seconds: prev?.elapsed_seconds ?? 0 }));
+        if (data.emerging_topics) setEmergingTopics(data.emerging_topics);
+      });
+      if (streamError) throw new Error(streamError);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Detection failed');
+    }
+    await finishDetection();
+  };
+
   const runDetection = async () => {
     setDetecting(true);
     setDetectionProgress({ message: 'Starting detection…', progress: 0, elapsed_seconds: 0 });
@@ -567,6 +605,12 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
       if (response.status === 409) {
         const conflict = await response.json().catch(() => null);
         throw new Error(conflict?.detail?.message || 'A detection run is already in progress for this topic.');
+      }
+      if (response.status === 404) {
+        // A site whose backend predates server-side jobs: run the detection
+        // on the request itself, the way it worked before.
+        await runDetectionInline(body);
+        return;
       }
       if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
       const job = await response.json();
