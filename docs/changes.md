@@ -100,20 +100,45 @@ including the Bluesky `@handle:` prefix. `--days/--limit/--dry-run`.
 - sunstar feed API returns `original_summary`; Brand Watcher `/social`
   for Sunstar showed 4 of 100 posts still with Japanese text 8 minutes
   into the backfill.
-- sunstar backfill (30 days), still running at commit time: 1,576 of 3,847
-  rows done at 14:58, 1,473 changed (22 of them also got a title), 68
-  returned unchanged by the model, 35 failed (reply cut or model error;
-  a re-run picks them up). Final counts in the next entry.
-- Ingest-time path: not yet exercised by a live cycle at commit time; the
-  Japanese social group runs at 15:52 and is checked after.
+- sunstar backfill, last 30 days by submission date (15,033 rows): three
+  passes, because the first two each found a flaw (below). End state:
+  3,761 rows carry `original_summary` and 5,056 carry `original_title`;
+  135 summaries and 31 titles still contain Japanese with no original,
+  which on inspection are mixed-language posts (an English post with a
+  Japanese hashtag or handle, a bilingual product line) the model rightly
+  returned unchanged, plus 35 model failures a later re-run picks up.
+- Ingest-time path, sunstar 15:52 social cycle: 160 rows inserted, none
+  Japanese (English keyword group), no translation errors logged. Three
+  English Reddit titles came back "tidied" by the model and stored as
+  translations; see the follow-up below. They were restored by hand.
+
+### Follow-up fixes found by the backfill and the live cycle (91570e0c → this)
+- **Lone surrogates.** The first pass died at row 2,056 on
+  `UnicodeEncodeError: surrogates not allowed`: a JSON reply cut inside an
+  emoji escape decodes to half a code point and PostgreSQL rejects it.
+  `_strip_wrapping_quotes` now drops surrogate code points; the ingest
+  hook was already wrapped in try/except, so there it would only have
+  meant an untranslated row.
+- **Nonsense replies.** 33 of the 3,682 rows from the second pass came
+  back as Japanese-looking gibberish rather than English (nova-lite
+  answering a Japanese post in kind). `translate_text` and
+  `translate_title` now reject a reply whose letters are more than half
+  non-Latin, and both backfill scripts do the same; the 33 rows were
+  reverted and re-run.
+- **Tidied English titles.** The title rule sends any title without an
+  English function word to the model ("BV Questions"), and a Reddit title
+  came back with its typo fixed and was stored as a translation.
+  `english_fields` now leaves a Latin-script title alone when the body is
+  judged English; a title in another script over an English body is still
+  translated.
 
 ### Propagation
 Patch applied to sunstar, oviva, abm, wbm, wiley, wileytest, bwtemplate
 (wileytest's facade allow-list edited by hand, it has a local `social_meta`
 entry); migration, script, `title_translation.py` and the UI sources
 copied; static + templates rsynced; all seven services restarted except
-bwtemplate (inactive). Restarts were done between ingest batches; on
-canonical after detection run 3553 completed. Backfill run on sunstar
+bwtemplate (inactive), and again after each follow-up fix, each time
+between ingest batches; on canonical after detection run 3553 completed. Backfill run on sunstar
 only; other sites translate from now on and can run the script when
 wanted.
 

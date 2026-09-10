@@ -24,7 +24,7 @@ logging.getLogger("app.utils.title_translation").setLevel(logging.INFO)
 
 from sqlalchemy import text  # noqa: E402
 from app.database import get_database_instance  # noqa: E402
-from app.utils.title_translation import looks_english, same_headline, _default_model, _clean_model_title  # noqa: E402
+from app.utils.title_translation import looks_english, same_headline, _default_model, _clean_model_title, _non_latin_share  # noqa: E402
 
 BATCH = 15  # 40 Japanese tweets overran nova-lite's 2000-token reply and lost the whole batch
 
@@ -108,7 +108,7 @@ def main():
             continue
         for j, (uri, original) in enumerate(chunk):
             english = result.get(j)
-            if not english or len(english) > max(300, 4 * len(original)):
+            if not english or len(english) > max(300, 4 * len(original)) or _non_latin_share(english) > 0.5:
                 failed += 1
                 continue
             if same_headline(english, original):

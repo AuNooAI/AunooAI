@@ -211,6 +211,8 @@ def translate_title(title: str, ai_model=None) -> Optional[str]:
         return None
     if not english or len(english) > max(300, 4 * len(title)):
         return None
+    if _non_latin_share(english) > 0.5:
+        return None
     return english
 
 
@@ -247,6 +249,10 @@ def translate_text(text: str, ai_model=None) -> Optional[str]:
         logger.warning(f"Text translation failed for {text[:60]!r}: {e}")
         return None
     if not english or len(english) > max(1500, 4 * len(src)):
+        return None
+    if _non_latin_share(english) > 0.5:
+        # Not a translation: the small model sometimes answers a Japanese
+        # post with Japanese-looking nonsense (33 of 3,682 on sunstar).
         return None
     return english + (" …" if cut else "")
 
@@ -314,15 +320,19 @@ def english_fields(article: dict, ai_model=None) -> bool:
     m = re.match(r"^(@\S+:\s*)(.*)$", title, flags=re.S)
     if m and summary.startswith(m.group(2).rstrip(" ….")):
         prefix, head = m.group(1), m.group(2)
-    if summary.startswith(head.rstrip(" ….")):
-        if english_summary:
-            shown = english_summary if same_headline(head, summary) else \
-                _headline_from_text(english_summary, max(SOCIAL_TITLE_LIMIT, len(head)))
-            article["title"] = prefix + shown
-            article["original_title"] = title
-            return True
-        if summary:
-            return changed   # body judged English; its head is too
+    if english_summary and summary.startswith(head.rstrip(" ….")):
+        shown = english_summary if same_headline(head, summary) else \
+            _headline_from_text(english_summary, max(SOCIAL_TITLE_LIMIT, len(head)))
+        article["title"] = prefix + shown
+        article["original_title"] = title
+        return True
+    if summary and not english_summary and looks_english_text(summary) \
+            and not _has_non_latin_script(title):
+        # An English body has an English title. Without this, a Reddit title
+        # with no function word ("BV Questions") goes to the model, which
+        # "tidies" it and the tidy-up is stored as a translation. A title in
+        # another script over an English body is still translated.
+        return changed
     shown, original = english_title(title, ai_model)
     if original:
         article["title"] = shown

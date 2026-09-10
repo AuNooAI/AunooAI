@@ -29,7 +29,7 @@ from sqlalchemy import text  # noqa: E402
 from app.database import get_database_instance  # noqa: E402
 from app.utils.title_translation import (  # noqa: E402
     looks_english_text, looks_english, same_headline, _default_model, _strip_wrapping_quotes,
-    _headline_from_text, TEXT_TRANSLATE_LIMIT, SOCIAL_TITLE_LIMIT,
+    _headline_from_text, _non_latin_share, TEXT_TRANSLATE_LIMIT, SOCIAL_TITLE_LIMIT,
 )
 
 BATCH = 8  # posts are longer than headlines; keep well under the model's reply cap
@@ -115,7 +115,7 @@ def main():
         for j, r in enumerate(chunk):
             original = r["summary"].strip()
             english = result.get(j)
-            if not english or len(english) > max(1500, 4 * len(sources[j])):
+            if not english or len(english) > max(1500, 4 * len(sources[j])) or _non_latin_share(english) > 0.5:
                 failed += 1
                 continue
             if same_headline(english, original):

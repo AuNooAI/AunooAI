@@ -51,6 +51,8 @@ here the English is the default and the original is the option.
   translated.
 - Text longer than 3,000 characters is translated up to that point and
   marked with an ellipsis; the original is kept in full.
+- A post that mixes languages, an English post with a Japanese hashtag
+  say, is left as written.
 - Sites other than Sunstar translate from now on; their older items keep
   the collected text until the backfill script is run for them.
 - The "Show original" toggle is in the news feed article panel. Brand
