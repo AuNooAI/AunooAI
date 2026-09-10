@@ -2,6 +2,70 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-10 — The DeBERTa encoder gets its own service, outside the NewsFirehose stack
+
+### Goal
+Every site embeds articles through one DeBERTa encoder on `localhost:8001`.
+Until today that encoder was `newsfirehose-encoder.service`, part of
+`newsfirehose.target`. A colleague stopped and then disabled the whole
+firehose stack for a migration at 16:31 on 9 September, and from then until
+08:29 today every site logged `DeBERTa encoder unreachable ... no fallback is
+safe` and saved articles with `embedding IS NULL`; semantic search returned
+nothing. Two restarts of the old unit this morning were stopped again within
+minutes by the migration's guard. The operator's call: keep the encoder up
+and take it out of the firehose stack for good.
+
+### Ops — `deberta-encoder.service`
+New unit, checked in as **`deploy/systemd/deberta-encoder.service`** with an
+install recipe in **`deploy/systemd/README.md`**. System user `deberta`, tree
+`/opt/deberta-encoder` holding copies of the three encoder modules from the
+firehose repo (`ml/__init__.py`, `ml/encoder.py`, `ml/encoder_service.py`),
+its own venv (torch 2.10.0+cu128, transformers 5.2.0, fastapi 0.104.1,
+uvicorn 0.24.0) and its own Hugging Face cache with `microsoft/deberta-base`,
+run offline. `WantedBy=multi-user.target`, enabled, `Restart=always`. The old
+`newsfirehose-encoder` unit stays stopped and disabled as the colleague left
+it; it binds the same port and must not be started.
+
+### Ops — embedding backfill for the outage window
+`app/tasks/embedding_backfill.backfill_embeddings` run per site as the
+service user, three times as the encoder came and went: 08:01 (wileytest 31
+before the unit was stopped under it), 08:03–08:05 (wileytest 700, wiley 240,
+wbm 200, sunstar 70, oviva 2, bugfixing 100) and 08:43 on the new unit
+(wileytest 100, wbm 100, bugfixing 100). Every article collected since the
+stop has an embedding. Gotcha found on the way: a batch in which every
+encode fails returns 0 and the loop reads that as "drained", so `embedded 0`
+means nothing until the encoder is confirmed up.
+
+### What is not an outage
+The health check's long-standing "unembedded articles" figure is mostly
+articles the relevance gate rejected before analysis, which the pipeline
+never embeds. Counted today: wileytest 206,101 of 781,796 rows lack an
+embedding, and of the 99,078 from the last 30 days 95,254 are
+`filtered_relevance` and 3,463 `social_evaluated`; only 4 approved articles
+lack one. sunstar, oviva and abm have none missing. A figure of "sunstar
+12,500 missing" quoted from a note written on 9 September was wrong.
+
+### Verification
+- `curl -X POST localhost:8001/encode` → 768-dimension vector from the new unit.
+- Three rows the old unit had embedded this morning re-encoded through the
+  new one: cosine 1.000000 each (same model, same code, same weights).
+- Semantic search on wbm (`GET /api/vector-search?q=Chinese AI chipmakers…`)
+  → 3 hits at 08:44; the same query at 08:10 returned 0 with an encoder error
+  in the log.
+- No `encoder unreachable` line on any site since 08:29.
+- GPU after start: 19.7 GB of 20.5 GB used (colleague's vLLM ~17.4 GB, saas
+  E5 encoder ~1.5 GB, this unit the rest).
+
+### Propagation
+Host-level change on this server only; nothing in a tenant tree changed. The
+unit file and recipe in `deploy/systemd/` are the durable record.
+
+### Lessons
+- A dependency every customer site shares must not live inside another
+  team's target. Own unit, own user, own tree.
+- Verify the encoder answers before reading a backfill's `embedded 0` as done.
+- Do not repeat a backlog figure from a note without re-counting.
+
 ## 2026-09-09 — English headlines for non-English articles; the collected title kept alongside
 
 ### Goal
