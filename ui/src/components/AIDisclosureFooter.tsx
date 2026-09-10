@@ -8,21 +8,23 @@ interface AIDisclosureFooterProps {
   purpose: string;
 }
 
-// This is a compliance disclosure (EU AI Act Art. 50): the model it names must
-// be one that actually runs on this deployment. When the caller can't pass the
-// model it used, we resolve the deployment's real model list once rather than
-// fall back to a hardcoded vendor name — the old 'GPT-4' default named a model
-// these sites do not serve.
+// This is a compliance disclosure (EU AI Act Art. 50): the models it names
+// must be the ones that actually ran on this deployment. When the caller
+// can't pass the model it used, we ask the server for the models with real
+// calls in the usage ledger (most-used first). We used to copy the first
+// entries of the model picker, which is ordered flagship-first, so sites
+// whose enrichment runs on Kimi and Nova were labelled as Claude Sonnet/Opus.
 let cachedModelNames: string | null = null;
 function useDeployedModelNames(enabled: boolean): string | null {
   const [names, setNames] = useState<string | null>(cachedModelNames);
   useEffect(() => {
     if (!enabled || cachedModelNames) return;
-    fetch('/api/trend-convergence/models', { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : []))
-      .then((models: Array<{ name?: string }>) => {
+    fetch('/api/ai-disclosure/models', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { models?: Array<{ name?: string }> } | null) => {
+        const models = data?.models;
         if (Array.isArray(models) && models.length > 0) {
-          cachedModelNames = models.slice(0, 4).map(m => m.name).filter(Boolean).join(', ');
+          cachedModelNames = models.map(m => m.name).filter(Boolean).join(', ');
           setNames(cachedModelNames);
         }
       })

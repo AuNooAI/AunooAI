@@ -2,6 +2,66 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-10 — AI disclosure footer names the models that actually ran
+
+### Goal
+The EU AI Act Art. 50 footer on sunstar's Brand Watcher read "AI Model:
+Claude Sonnet 4.5, Claude Sonnet 5, Claude Opus 5, Claude Haiku 4.5". That
+site's article analysis runs on Kimi K2.5 and its relevance scoring on Nova
+Lite; Opus 5 has never run there. A compliance notice that names the wrong
+vendor is worse than a vague one, so the footer now reads the usage ledger.
+
+### Fix — footer reads the usage ledger, not the picker
+**`ui/src/components/AIDisclosureFooter.tsx`** took the first four entries of
+`/api/trend-convergence/models` when the caller passed no model. That route
+is the model picker: it lists what a user may choose, ordered flagship-first
+so the picker defaults to Sonnet. Slicing its head therefore always produced
+the same four Claude names on every site, whatever ran. The footer now
+fetches `/api/ai-disclosure/models` and lists every model it returns, in
+order.
+
+**`app/routes/trend_convergence_routes.py`** — new
+`GET /api/ai-disclosure/models?days=30` (session required). It groups
+`llm_usage_log` rows from the last `days` by `COALESCE(resolved_model, model)`,
+keeps rows with `status = 'success'`, and returns distinct models most-used
+first under human labels (`_disclosure_label`: the raw Bedrock id
+`us.anthropic.claude-haiku-4-5-20251001-v1:0` becomes "Claude Haiku 4.5",
+`moonshotai.kimi-k2.5` becomes "Kimi K2.5"; unknown ids lose the region
+prefix and version suffix). If the ledger table is missing or empty it falls
+back to the full picker list, unsliced, with `source: "configured"`. Commit
+`8f4d2ff3`.
+
+### Verification
+Called the live route on two sites after restart with a minted session cookie:
+
+| site | models returned (30 days, calls) |
+|---|---|
+| sunstar | Nova Lite 140,610 · Kimi K2.5 16,266 · Claude Haiku 4.5 480 · Claude Sonnet 4.5 268 |
+| wileytest | Nova Lite 686,429 · Kimi K2.5 121,024 · Claude Haiku 4.5 19,349 · Claude Sonnet 4.5 6,036 |
+
+Both match `SELECT model, count(*) FROM llm_usage_log WHERE created_at > now()
+- interval '30 days' GROUP BY 1` run directly. Sunstar's three Sonnet 5 calls
+on 2026-09-02 are absent because none succeeded. `npm run typecheck` clean
+(no new errors); `py_compile` passed on the patched wbm/abm/pbm copies.
+
+### Propagation
+Route file copied whole to sunstar, oviva, wiley, wileytest, bwtemplate
+(zero drift from canonical). wbm, abm and pbm carry an older route file, so
+the new block was inserted by anchor before the `{topic}` route
+(`scratchpad/patch_route.py`, idempotent). Footer source copied to all
+eight. Bundle `index-DbVf_ZkZ.js` plus `templates/*_react.html` rsynced to
+sunstar, oviva, wbm, abm, wiley, wileytest. Restarted bugfixing, sunstar,
+oviva, wbm, abm, wiley, wileytest; all active. pbm and bwtemplate are
+stopped and were not restarted. Pearson, sage, abbott, ibaset not touched.
+Before restarting I checked each site for overdue observer agents (0
+everywhere) and for LLM calls outside enrichment in the last 10 minutes
+(none).
+
+### Lessons
+A picker endpoint answers "what may I choose", never "what ran". Any
+compliance text that names a model must come from the ledger or from the
+call that produced the artifact, and must not truncate the list.
+
 ## 2026-09-10 — Emerging topics: detection runs as a server-side job; progress you can read
 
 ### Goal

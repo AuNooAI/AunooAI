@@ -587,6 +587,87 @@ async def get_trend_convergence_models():
         logger.error(f"Error fetching models: {str(e)}")
         return _all
 
+# Human label for a raw model id as the usage ledger records it, e.g.
+# "us.anthropic.claude-haiku-4-5-20251001-v1:0" -> "Claude Haiku 4.5". The
+# ledger stores Bedrock ids, which are not fit for a compliance notice.
+_DISCLOSURE_LABELS = [
+    (re.compile(r'claude-sonnet-4-5'), 'Claude Sonnet 4.5'),
+    (re.compile(r'claude-sonnet-5'),   'Claude Sonnet 5'),
+    (re.compile(r'claude-opus-5'),     'Claude Opus 5'),
+    (re.compile(r'claude-haiku-4-5'),  'Claude Haiku 4.5'),
+    (re.compile(r'nova-pro'),          'Nova Pro'),
+    (re.compile(r'nova-lite'),         'Nova Lite'),
+    (re.compile(r'nova-micro'),        'Nova Micro'),
+    (re.compile(r'kimi-k2[.-]5'),      'Kimi K2.5'),
+    (re.compile(r'kimi-k2'),           'Kimi K2'),
+    (re.compile(r'gpt-5\.4-mini'),    'GPT-5.4 mini'),
+    (re.compile(r'gpt-5\.4'),         'GPT-5.4'),
+    (re.compile(r'gpt-5\.5-mini'),    'GPT-5.5 mini'),
+    (re.compile(r'gpt-5\.5'),         'GPT-5.5'),
+]
+
+def _disclosure_label(raw_id: str) -> str:
+    low = (raw_id or '').lower()
+    for pat, label in _DISCLOSURE_LABELS:
+        if pat.search(low):
+            return label
+    # Unknown id: drop the region prefix and version suffix so it at least
+    # reads as a model name rather than an ARN fragment.
+    core = (raw_id or '').split('/')[-1]
+    core = re.sub(r'^(us|eu|global|apac)\.', '', core)
+    core = re.sub(r'-v\d+:\d+$', '', core)
+    return core
+
+@router.get("/api/ai-disclosure/models", dependencies=[Depends(verify_session_api)])
+async def get_ai_disclosure_models(days: int = Query(30, ge=1, le=365)):
+    """Models that actually ran on this deployment, for the EU AI Act
+    Art. 50 disclosure footer.
+
+    The picker route above lists what a user MAY choose, ordered
+    flagship-first, so a footer that copied its first entries named Claude
+    Sonnet and Opus on sites whose enrichment runs on Kimi and Nova. This
+    route reads the usage ledger instead: distinct models with at least one
+    successful call in the window, most-used first. Falls back to the
+    configured picker list only when the ledger is missing or empty.
+    """
+    import asyncio
+
+    def _read_ledger():
+        db = get_database_instance()
+        return db.fetch_all(
+            """
+            SELECT COALESCE(NULLIF(resolved_model, ''), model) AS model_id,
+                   COUNT(*) AS calls
+            FROM llm_usage_log
+            WHERE created_at > NOW() - make_interval(days => ?)
+              AND COALESCE(status, 'success') = 'success'
+            GROUP BY 1
+            ORDER BY 2 DESC
+            """,
+            (int(days),),
+        )
+
+    rows = []
+    try:
+        rows = await asyncio.to_thread(_read_ledger)
+    except Exception as e:
+        logger.warning(f"ai-disclosure: usage ledger unavailable, using picker list: {e}")
+
+    if rows:
+        seen: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            label = _disclosure_label(str(r.get('model_id') or ''))
+            if not label:
+                continue
+            entry = seen.setdefault(label, {'id': r.get('model_id'), 'name': label, 'calls': 0})
+            entry['calls'] += int(r.get('calls') or 0)
+        models = sorted(seen.values(), key=lambda m: -m['calls'])
+        return {'source': 'usage_ledger', 'days': days, 'models': models}
+
+    picker = await get_trend_convergence_models()
+    return {'source': 'configured', 'days': days,
+            'models': [{'id': m['id'], 'name': m['name'], 'calls': None} for m in picker]}
+
 @router.get("/api/trend-convergence/{topic}")
 async def generate_trend_convergence(
     topic: str,
