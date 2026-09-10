@@ -587,36 +587,9 @@ async def get_trend_convergence_models():
         logger.error(f"Error fetching models: {str(e)}")
         return _all
 
-# Human label for a raw model id as the usage ledger records it, e.g.
-# "us.anthropic.claude-haiku-4-5-20251001-v1:0" -> "Claude Haiku 4.5". The
-# ledger stores Bedrock ids, which are not fit for a compliance notice.
-_DISCLOSURE_LABELS = [
-    (re.compile(r'claude-sonnet-4-5'), 'Claude Sonnet 4.5'),
-    (re.compile(r'claude-sonnet-5'),   'Claude Sonnet 5'),
-    (re.compile(r'claude-opus-5'),     'Claude Opus 5'),
-    (re.compile(r'claude-haiku-4-5'),  'Claude Haiku 4.5'),
-    (re.compile(r'nova-pro'),          'Nova Pro'),
-    (re.compile(r'nova-lite'),         'Nova Lite'),
-    (re.compile(r'nova-micro'),        'Nova Micro'),
-    (re.compile(r'kimi-k2[.-]5'),      'Kimi K2.5'),
-    (re.compile(r'kimi-k2'),           'Kimi K2'),
-    (re.compile(r'gpt-5\.4-mini'),    'GPT-5.4 mini'),
-    (re.compile(r'gpt-5\.4'),         'GPT-5.4'),
-    (re.compile(r'gpt-5\.5-mini'),    'GPT-5.5 mini'),
-    (re.compile(r'gpt-5\.5'),         'GPT-5.5'),
-]
-
-def _disclosure_label(raw_id: str) -> str:
-    low = (raw_id or '').lower()
-    for pat, label in _DISCLOSURE_LABELS:
-        if pat.search(low):
-            return label
-    # Unknown id: drop the region prefix and version suffix so it at least
-    # reads as a model name rather than an ARN fragment.
-    core = (raw_id or '').split('/')[-1]
-    core = re.sub(r'^(us|eu|global|apac)\.', '', core)
-    core = re.sub(r'-v\d+:\d+$', '', core)
-    return core
+# Label table lives in app.compliance.ai_disclosure so the EOS and focus-group
+# run metadata, the exports and this route all spell a model the same way.
+from app.compliance.ai_disclosure import model_label as _disclosure_label
 
 @router.get("/api/ai-disclosure/models", dependencies=[Depends(verify_session_api)])
 async def get_ai_disclosure_models(days: int = Query(30, ge=1, le=365)):

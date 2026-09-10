@@ -84,6 +84,10 @@ export interface EOSResult {
     scenarios_generated: number;
     generated_at: string;
     config: EOSConfig;
+    // Recorded by the generator: stage -> raw model id, and the distinct
+    // human labels. Absent on runs saved before 2026-09-10.
+    models_used?: Record<string, string>;
+    models?: string[];
   };
   articles?: EOSArticle[];
 }
@@ -348,10 +352,12 @@ export function useExtremeOutliers(): UseExtremeOutliersReturn {
         scan_id: '',
         scenarios: loadedScenarios,
         metadata: {
+          topic: '',
           signals_detected: 0,
           pathways_explored: 0,
           scenarios_generated: loadedScenarios.length,
-          generated_at: new Date().toISOString()
+          generated_at: new Date().toISOString(),
+          config: {} as EOSConfig
         }
       });
     }

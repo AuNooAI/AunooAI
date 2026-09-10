@@ -4,6 +4,15 @@ import { jsPDF } from 'jspdf';
 import { deployedModelsPhrase, getDeployedModelNames } from './aiDisclosureModels';
 
 export class ExportService {
+  // Models for a run's AI Act disclosure. The EOS and focus-group generators
+  // record the model that answered each stage in metadata.models; a run
+  // from before that, or a saved one, falls back to the site-wide list.
+  private static runModelsPhrase(metadata?: any): string {
+    const models = metadata?.models;
+    if (Array.isArray(models) && models.length) return models.filter(Boolean).join(', ');
+    return deployedModelsPhrase();
+  }
+
   /**
    * Export dashboard data as JSON
    */
@@ -434,7 +443,7 @@ export class ExportService {
     // AI Disclosure
     checkPageBreak(30);
     addText('AI Technology Disclosure', 12, true);
-    addText(`This analysis was generated using AI technologies (${deployedModelsPhrase()}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
+    addText(`This analysis was generated using AI technologies (${this.runModelsPhrase(metadata)}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
     y += 8;
 
     // Category colors
@@ -562,7 +571,7 @@ export class ExportService {
     }
 
     md += `## AI Technology Disclosure\n\n`;
-    md += `This analysis was generated using AI technologies (${deployedModelsPhrase()}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `This analysis was generated using AI technologies (${this.runModelsPhrase(metadata)}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.\n\n`;
     md += `---\n\n`;
 
     const categoryLabels: Record<string, string> = {
@@ -714,7 +723,7 @@ export class ExportService {
     // AI Disclosure
     checkPageBreak(30);
     addText('AI Technology Disclosure', 12, true);
-    addText(`This analysis was generated using AI technologies (${deployedModelsPhrase()}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
+    addText(`This analysis was generated using AI technologies (${this.runModelsPhrase(result.metadata)}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
     y += 8;
 
     // Focus Group Summary
@@ -870,7 +879,7 @@ export class ExportService {
     }
 
     md += `## AI Technology Disclosure\n\n`;
-    md += `This analysis was generated using AI technologies (${deployedModelsPhrase()}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `This analysis was generated using AI technologies (${this.runModelsPhrase(result.metadata)}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.\n\n`;
     md += `---\n\n`;
 
     // Focus Group Summary

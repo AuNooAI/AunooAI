@@ -557,6 +557,18 @@ async def update_fg_prompt(
 # Saved Focus Groups CRUD Endpoints
 # ============================================================================
 
+def _models_from_run(request) -> Optional[str]:
+    """The saved run's model, preferring what the run recorded over what
+    the client claims. The generator writes ``metadata.models`` (labels of
+    the models that actually answered each stage); older clients sent a
+    hardcoded name, which is wrong on sites that route to Bedrock."""
+    labels = ((request.metadata or {}).get('models') or []) if isinstance(request.metadata, dict) else []
+    labels = [str(x) for x in labels if x]
+    if labels:
+        return ', '.join(labels)
+    return request.model_used
+
+
 class SaveFGRequest(BaseModel):
     """Request model for saving a focus group."""
     topic: str = Field(..., description="Topic name")
@@ -612,7 +624,7 @@ async def save_focus_group(
             metadata=request.metadata,
             articles_used=request.articles_used,
             article_uris=request.article_uris,
-            model_used=request.model_used,
+            model_used=_models_from_run(request),
             persona_count=request.persona_count,
             description=request.description
         )

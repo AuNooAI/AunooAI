@@ -4,6 +4,7 @@ _2026-09-10 · Every dashboard footer that carries the "AI Technology Disclosure
 ## What shipped
 - The disclosure line at the bottom of each dashboard now lists the AI models that ran on that customer site in the last 30 days, most-used first, instead of the first four names from the model picker.
 - PDF, Markdown and HTML exports that used to say "site-configured large language models" now name the same list. Exports that already know the exact model they came from still name that model.
+- Extreme-scenario and focus-group runs now record which model answered each stage. Their exports and saved copies name those models instead of the site-wide list, and the saved copy no longer claims "gpt-5.4" on sites that run on Bedrock.
 
 ## Why it matters
 Before, every site showed the same four Claude names in its disclosure, because the footer copied the head of the model picker and the picker puts Claude first. On the Sunstar site the article analysis runs on Kimi K2.5 and the relevance scoring on Nova Lite, and Claude Opus 5 has never run there at all. The notice was naming a vendor that did no work and hiding two that did.
@@ -16,6 +17,7 @@ The change touches no analysis, no scoring and no report content. Only the discl
 - The AI Technology Disclosure footer on dashboards now names the models that ran on your site in the last 30 days, most-used first.
 - Sites whose analysis runs on Kimi or Nova now say so; the footer no longer defaults to a Claude-only list.
 - Extreme-scenario, focus-group, Future Horizons and dashboard exports name the site's real models in their disclosure block instead of a placeholder phrase.
+- Extreme-scenario and focus-group runs record the model behind each stage; exports and saved runs name exactly those.
 
 ## Demo / walkthrough
 Open any dashboard tab, for example Explore → Brand Watcher, and scroll to the bottom. The "AI Model:" field in the grey disclosure box shows the live list. Then export a Markdown or PDF from the same tab and read its AI Technology Disclosure block.
@@ -26,5 +28,7 @@ None. This is a correctness fix to an existing compliance feature, not new capab
 ## Limits and what's next
 - The list is site-wide, not per dashboard. Brand Watcher's footer lists models used anywhere on the site, including article analysis and translation. A per-feature breakdown would need the call log's use-case column surfaced, which is a follow-on.
 - The window is 30 days. A model retired 31 days ago drops off; a model tried once with a single successful call stays on.
-- Extreme-scenario and focus-group exports name the site-wide list, not the exact model each agent ran, because those runs do not report it back. Recording that per run is the follow-on.
+- Runs saved before 2026-09-10 have no per-stage record, so their exports fall back to the site-wide list.
+- Other generators (Future Horizons, briefings, narratives) still rely on the model the caller passes or the site-wide list; per-stage recording for them is the follow-on.
+- A focus-group test run on the internal site returned zero personas because the discovery stage produced no stakeholder mentions on Kimi K2.5. This predates the change and is unrelated to it, but it is worth a look.
 - Sites without a call-log table fall back to the configured model list, which may again overstate which models ran.

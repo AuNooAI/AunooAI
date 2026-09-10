@@ -23,6 +23,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.services.tool_loader import get_tool_loader
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,24 @@ class EOSState:
         "implications": 0.0
     })
     errors: List[str] = field(default_factory=list)
+
+    # Stage -> raw id of the model that answered, e.g.
+    # "us.anthropic.claude-haiku-4-5-20251001-v1:0". Read from the litellm
+    # response, so it is the model that ran, not the alias that was asked
+    # for. Feeds the run metadata and the AI Act disclosure on exports.
+    models_used: Dict[str, str] = field(default_factory=dict)
+
+    def record_model(self, stage: str, requested: str, response: Any) -> None:
+        try:
+            self.models_used[stage] = response_model_id(response, requested)
+        except Exception:
+            self.models_used[stage] = str(requested or '')
+
+    def disclosure_models(self) -> Dict[str, Any]:
+        return {
+            "models_used": dict(self.models_used),
+            "models": model_labels(self.models_used.values()),
+        }
 
     def update_progress(self, stage: str, progress: float):
         self.stage_progress[stage] = min(1.0, max(0.0, progress))
@@ -324,6 +343,7 @@ class ExtremeOutlierService:
                     "pathways_explored": len(state.amplified_pathways),
                     "scenarios_generated": len(state.scenarios),
                     "generated_at": datetime.now().isoformat(),
+                    **state.disclosure_models(),
                     "config": {
                         "scenario_count": config.scenario_count,
                         "time_horizon": config.time_horizon,
@@ -499,6 +519,7 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("weak_signals", model, response)
             state.weak_signals = result.get("weak_signals", [])
 
         except Exception as e:
@@ -591,6 +612,7 @@ Generate 6-10 amplified pathways across the three categories:
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("amplification", model, response)
             state.amplified_pathways = result.get("amplified_pathways", [])
 
         except Exception as e:
@@ -695,6 +717,7 @@ Return JSON:
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("scenario_building", model, response)
             state.raw_scenarios = result.get("scenarios", [])
 
             yield {"status": "scenarios_built", "progress": 0.9, "count": len(state.raw_scenarios)}
@@ -768,6 +791,7 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("implications", model, response)
             enhancements = {e["scenario_id"]: e for e in result.get("enhanced_scenarios", [])}
 
             yield {"status": "merging", "progress": 0.7}

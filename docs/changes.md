@@ -2,7 +2,7 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-10 — AI disclosure footer and exports name the models that actually ran
+## 2026-09-10 — AI disclosure names the models that actually ran: footer, exports, and per-run for scenarios and focus groups
 
 ### Goal
 The EU AI Act Art. 50 footer on sunstar's Brand Watcher read "AI Model:
@@ -48,6 +48,46 @@ wording is "the large language models configured for this site". The
 scenario and focus-group runs pick models per agent on the server and do
 not return them, so the site list is the best these exports can say.
 
+### Feature — extreme-scenario and focus-group runs record their models
+Both generators pick a model per agent on the server (`agent_config['model']`,
+default `gpt-5.4`, which the litellm yaml maps onto Bedrock), so the export
+could not name it and the EOS save dialog in
+**`ui/src/components/ExtremeOutliers.tsx`** sent a hardcoded
+`model_used: 'gpt-5.4'` on every site. The focus-group save sent nothing.
+
+**`app/compliance/ai_disclosure.py`** now owns the label table
+(`model_label`, `model_labels`, `response_model_id`); the disclosure route
+imports it instead of carrying its own copy.
+**`app/services/extreme_outlier_service.py`** and
+**`app/services/focus_group_service.py`** — the state objects gained
+`models_used` plus `record_model(stage, requested, response)`, called after
+each stage's JSON parse with the litellm response, so the id recorded is the
+one that answered (`response.model`), not the alias asked for. The final
+result's `metadata` gains `models_used` (stage → raw id) and `models`
+(distinct labels, first-seen order). **`app/routes/eos_routes.py`** and
+**`app/routes/focus_group_routes.py`** — `_models_from_run(request)` makes
+the save routes prefer `metadata.models` over the client's `model_used`.
+The EOS save now sends the recorded labels; the focus-group save sends them
+too. `exportService.runModelsPhrase(metadata)` names the run's models in
+the four EOS/focus-group exports and falls back to the site list for runs
+saved before today.
+
+### Verification (run recording)
+Real runs on bugfixing (topic "AI and Machine Learning", 2 scenarios / 2
+personas) after restart, read back from the non-streaming `/scan` response:
+
+| run | models_used | models |
+|---|---|---|
+| EOS, 91 s | weak_signals, amplification, implications = `moonshotai.kimi-k2.5`; scenario_building = `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Kimi K2.5, Claude Sonnet 4.5 |
+| focus group, 124 s | discovery, clustering, synthesis = `moonshotai.kimi-k2.5`; profiling = `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Kimi K2.5, Claude Sonnet 4.5 |
+
+Both runs would previously have been saved as "gpt-5.4". Unit check of
+`record_model` with a fake response and a `None` response passed. The
+focus-group run returned 0 stakeholder mentions from the discovery stage,
+so 0 personas; that is the discovery prompt/model output shape on Kimi and
+predates this change (the recording code runs after the parse and only
+writes a dict). Not fixed here.
+
 ### Verification
 Bundle `index-Doy1Ip_4.js` contains the new route string and the fallback
 wording (grep on the built asset). Sunstar serves the new hash on /gather,
@@ -68,6 +108,13 @@ on 2026-09-02 are absent because none succeeded. `npm run typecheck` clean
 (no new errors); `py_compile` passed on the patched wbm/abm/pbm copies.
 
 ### Propagation
+Third change (run recording): the five clean backend files copied whole to
+all eight sites; the route file copied to sunstar, oviva, wiley, wileytest,
+bwtemplate and patched by anchor on wbm, abm, pbm (inline label block
+replaced by the import; `patch_route2.py`). UI sources copied to all eight,
+bundle rsynced to the six active sites, which were restarted after the
+usual checks (0 overdue agents, 0 non-enrichment LLM calls in 10 min) and
+all came back active; disclosure route answered on sunstar and wbm.
 Second change (exports): `aiDisclosureModels.ts` and the footer source
 copied to all eight sites; rebuilt bundle and templates rsynced to the six
 active ones, no restart. Route file copied whole to sunstar, oviva, wiley, wileytest, bwtemplate

@@ -17,8 +17,8 @@
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/NotificationBell-8Ks6Rxty.css">
     <!-- Plotly for Auspex charts -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/operations-cJdul2sK.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-DbVf_ZkZ.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/operations-myMcG_qT.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-Doy1Ip_4.js">
   </head>
 
   <body>

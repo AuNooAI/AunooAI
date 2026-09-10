@@ -23,6 +23,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -155,6 +156,24 @@ class FGState:
         "synthesis": 0.0
     })
     errors: List[str] = field(default_factory=list)
+
+    # Stage -> raw id of the model that answered, e.g.
+    # "us.anthropic.claude-haiku-4-5-20251001-v1:0". Read from the litellm
+    # response, so it is the model that ran, not the alias that was asked
+    # for. Feeds the run metadata and the AI Act disclosure on exports.
+    models_used: Dict[str, str] = field(default_factory=dict)
+
+    def record_model(self, stage: str, requested: str, response: Any) -> None:
+        try:
+            self.models_used[stage] = response_model_id(response, requested)
+        except Exception:
+            self.models_used[stage] = str(requested or '')
+
+    def disclosure_models(self) -> Dict[str, Any]:
+        return {
+            "models_used": dict(self.models_used),
+            "models": model_labels(self.models_used.values()),
+        }
 
     def update_progress(self, stage: str, progress: float):
         self.stage_progress[stage] = min(1.0, max(0.0, progress))
@@ -372,6 +391,7 @@ class FocusGroupService:
                     "mentions_found": len(state.stakeholder_mentions),
                     "personas_generated": len(state.personas),
                     "generated_at": datetime.now().isoformat(),
+                    **state.disclosure_models(),
                     "config": {
                         "max_personas": config.max_personas,
                         "min_evidence_threshold": config.min_evidence_threshold
@@ -493,6 +513,7 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("discovery", model, response)
             state.stakeholder_mentions = result.get("stakeholder_mentions", [])
 
         except Exception as e:
@@ -597,6 +618,7 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("clustering", model, response)
             # Filter to only clusters meeting threshold
             clusters = result.get("persona_clusters", [])
             state.persona_clusters = [
@@ -734,6 +756,7 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("profiling", model, response)
             raw_personas = result.get("personas", [])
 
             yield {"status": "processing", "progress": 0.7}
@@ -870,6 +893,7 @@ Be specific about how the personas' characteristics would lead to these dynamics
             )
 
             result = extract_json_response(response.choices[0].message.content)
+            state.record_model("synthesis", model, response)
             state.focus_group_summary = result.get("focus_group_summary", "")
             state.interaction_dynamics = result.get("interaction_dynamics", {})
 
