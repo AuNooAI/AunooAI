@@ -2,6 +2,117 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-10 — Emerging topics: detection runs as a server-side job; progress you can read
+
+### Goal
+On sunstar the operator ran "scan all topics" at 10:20, watched a bar that
+did not seem to move, and reloaded the page at 11:07. The reload cancelled
+the topic in flight (run 72, Haleon) because the whole batch ran inside the
+browser's request: 11 topics, 5–9 minutes each, 47 minutes on one
+connection. The server had sent about a hundred progress frames (40 KB
+through nginx), but with 11 topics each one owns under 10% of the bar and
+the deep-analysis phase inside a topic barely moves it, so the panel looked
+dead. Two changes: the run no longer belongs to the connection, and the panel
+says where it is.
+
+### Feature — server-side detection jobs
+**`app/services/emerging_topics/detection_jobs.py`** (new). A `DetectionJob`
+runs the existing update generator as an `asyncio.Task` owned by the
+process, keeps every update it has produced, and lets any number of
+subscribers read from an index and then wait for more. A subscriber that
+goes away detaches only itself. `subscribe()` emits a heartbeat with elapsed
+seconds every 15 s while nothing new has happened, so proxies never see an
+idle stream and the page can keep its clock honest. The registry keeps the
+last 20 jobs in memory; a service restart ends running jobs the way it
+always did (the generator's cancellation path marks the run failed) and the
+`detection_runs` rows stay the durable record.
+
+**`app/routes/emerging_topics_routes.py`** — the two generators now yield
+plain update dicts (`iter_detection`, `iter_batch_detection`); the old
+`stream_detection`/`stream_batch_detection` wrap them in SSE frames and keep
+working for any caller that still wants the run to die with the connection.
+Batch frames now carry `topic_index`, `topic_total`, `topic_progress` and
+`topic_step`; single-topic frames carry `topic_total = 1`. New endpoints,
+all under `/api/emerging-topics/detect/jobs`:
+
+- `POST /` (admin) starts a job from a `JobRequest` (`topic` set → single,
+  else batch over `topics` or all) and returns `{job_id, status, …}` at
+  once. A single-topic job takes the scope lock here, so an in-flight run is
+  refused with 409 before anything starts.
+- `GET /active` lists running jobs so a freshly loaded page can re-attach.
+- `GET /{job_id}` is the job's status and latest update (minus the theme
+  list).
+- `GET /{job_id}/events?after=N` is the SSE stream from update N onward,
+  with heartbeats, until the job is terminal.
+
+### Feature — the panel says what it is doing
+**`ui/src/components/newsfeed/EmergingTopicsTab.tsx`** — `runDetection`
+posts to `/detect/jobs` and hands the id to `attachToJob`, which reads the
+events stream, reconnects from the last `seq` if the stream drops (up to 30
+attempts, backing off to 15 s), and checks the job's status when the stream
+ends without a terminal frame. The job id is kept in `localStorage`
+(`emergingTopics.activeJob`); on mount the tab re-attaches to it, or to any
+running job from `/detect/jobs/active`, so a reload lands back on the live
+progress with the scan button disabled. The panel shows the overall bar,
+and for a batch a second bar with "Topic i of N: name" and that topic's
+percent; below them the step name (Sampling / Proposing / Validating /
+Merging / Deep analysis / Saving), elapsed time ticking locally between
+server updates, and "Runs on the server; you can leave this page."
+`NewsFeedPage.tsx` was untouched. Bundle `newsfeed-BdAikmUv.js`.
+
+### Verification
+- Job endpoints by hand on bugfixing: start → `running`; attach 12 s and
+  drop → status still `running` with 6 updates 32 s in; re-attach with
+  `after=3` replays from update 3; `/active` lists it.
+- Headless browser on bugfixing (`et_job_test.py`, scratchpad): a page
+  loaded while a job ran re-attached on its own with the scan button
+  disabled ("Analyzing: China Humanoid Robot Combat Development, 79%, Step:
+  Deep analysis, Elapsed 5m 56s"); reloaded at 6m 08s; run 3546 finished
+  `completed` at 11:28:06. Then a 4-topic batch: reloaded during topic 2;
+  panel came back as "[Geopolitical Hotspots] Validating… 37%, Topic 2 of
+  4: 47%, Step: Validating articles, Elapsed 1m 08s"; run 3547 `completed`,
+  3548 kept `running`. Screenshots `et_job_before.png`, `et_job_after.png`.
+- Earlier the same day, the same bundle driven the old way showed the panel
+  updating ("3%" → "12%" in 30 s), which is how the "no progress" report was
+  narrowed to the percentage, not a dead stream.
+- `npm run typecheck` clean (229 known). Both backend files compile on every
+  target tree.
+- Restart check: `/login` 200 and `GET /detect/jobs/active` → `{"jobs":[]}`
+  on sunstar, oviva, wbm, wiley, wileytest; no tracebacks on startup.
+
+### Propagation
+Backend (routes file + `detection_jobs.py`) copied to sunstar, oviva, wbm,
+wiley, wileytest and bwtemplate; those trees' routes file was identical to
+canonical HEAD, so a straight copy. UI static + templates rsynced to the
+five active sites (backups `<site>_ui_backup_20260910_etjobs.tgz`,
+scratchpad). All five restarted at 11:31 after confirming the only
+`running` detection rows were stale leftovers.
+
+**abm not done.** Its emerging-topics stack is the July version: no run
+lock, no run outcome columns, none of the four August commits
+(`eb8ddfe3`, `def6cffc`, `8f60a0a5`, `8467d34a`) with their two migrations
+and the 768-d embedding work. The new endpoints need that base, and the new
+bundle would call an endpoint abm does not have, so abm keeps yesterday's
+bundle and its in-request streaming. It needs the August catch-up first.
+
+### Ops — abm: "Aunoo" is also a K-pop idol's fan nickname
+ENHYPEN fans write "Aunoo" for the idol Sunoo, and the social evaluator on
+abm scored four such posts 0.85–0.90 ("AUNOO ORANGE HAIR", "exposed
+forehead", "Jake's body language", a 아누누 cake post) while zeroing the
+rest. Fixed with data only, on abm: `bw_brands.config.news_keyword_excludes`
+for brand 1 now lists enhypen, sunoo, engene, heeseung, jungwon, sunghoon,
+ni-ki, kpop, k-pop, forehead, orange hair, body language, 아누누 (the social
+evaluator zeroes a post containing any of them before the model call); the
+brand description says it is not the idol or the fandom nickname; the four
+scored rows were set to 0. 22 on-brand posts remain, all Aunoo's own
+accounts, Cyberfuturists and one product showcase.
+
+### Lessons
+- Never run minutes of work inside the browser's request. Own it in the
+  process and let the page subscribe.
+- A batch progress bar needs per-item position and a clock, or nobody can
+  tell "slow" from "dead".
+
 ## 2026-09-10 — The DeBERTa encoder gets its own service, outside the NewsFirehose stack
 
 ### Goal

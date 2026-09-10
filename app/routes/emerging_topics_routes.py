@@ -53,11 +53,16 @@ def sse_frame(payload: Dict[str, Any], event: Optional[str] = None) -> str:
     return f"event: {name}\ndata: {body}\n\n"
 
 
-def sse_error(message: str, code: str = "detection_failed", **extra) -> str:
-    """An error frame for a failure the generator itself has to report."""
+def error_update(message: str, code: str = "detection_failed", **extra) -> Dict[str, Any]:
+    """The payload of an error frame, for generators that yield updates."""
     payload = {"event": "error", "status": "failed", "code": code, "message": message}
     payload.update(extra)
-    return sse_frame(payload, "error")
+    return payload
+
+
+def sse_error(message: str, code: str = "detection_failed", **extra) -> str:
+    """An error frame for a failure the generator itself has to report."""
+    return sse_frame(error_update(message, code, **extra), "error")
 
 
 def _lock_conflict(exc: DetectionAlreadyRunning) -> HTTPException:
@@ -181,13 +186,13 @@ def _build_service(request: "DetectionRequest"):
     return EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
 
 
-async def stream_detection(request: "DetectionRequest", lock: DetectionRunLock):
-    """Stream one detection run as SSE frames.
+async def iter_detection(request: "DetectionRequest", lock: DetectionRunLock):
+    """Yield one detection run's progress updates as plain dicts.
 
-    The lock is taken by the endpoint before the stream starts, so a second run
-    in the same scope is refused with a status code rather than a mid-stream
+    The lock is taken by the caller before the run starts, so a second run in
+    the same scope is refused with a status code rather than a mid-stream
     error. It is released here in ``finally``, which covers success, failure,
-    and the client hanging up.
+    and the consumer going away.
     """
     service = _build_service(request)
     try:
@@ -196,12 +201,22 @@ async def stream_detection(request: "DetectionRequest", lock: DetectionRunLock):
             days_back=request.days_back,
             run_lock=lock,
         ):
-            yield sse_frame(update)
+            update.setdefault("topic_index", 1)
+            update.setdefault("topic_total", 1)
+            update.setdefault("topic_progress", update.get("progress", 0))
+            update.setdefault("current_topic", request.topic)
+            yield update
     except Exception as exc:
         logger.exception("Emerging topics stream failed")
-        yield sse_error(f"{exc.__class__.__name__}: {exc}")
+        yield error_update(f"{exc.__class__.__name__}: {exc}")
     finally:
         lock.release()
+
+
+async def stream_detection(request: "DetectionRequest", lock: DetectionRunLock):
+    """Stream one detection run as SSE frames (the run dies with the client)."""
+    async for update in iter_detection(request, lock):
+        yield sse_frame(update)
 
 
 # ============================================================================
@@ -337,8 +352,8 @@ class BatchDetectionRequest(BaseModel):
     model: str = Field("gpt-5.4", description="AI model to use for theme proposal and analysis")
 
 
-async def stream_batch_detection(request: BatchDetectionRequest):
-    """Stream batch detection across selected or all topics.
+async def iter_batch_detection(request: BatchDetectionRequest):
+    """Yield batch detection updates across selected or all topics as dicts.
 
     Each topic is its own scope, so each takes its own lock: a topic already
     being scanned elsewhere is reported and skipped, and the rest of the batch
@@ -361,7 +376,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
     failed_topics = []
 
     if not total_topics:
-        yield sse_frame({
+        yield ({
             "event": "complete",
             "status": "completed",
             "step": 0,
@@ -373,7 +388,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
         })
         return
 
-    yield sse_frame({
+    yield ({
         "event": "progress",
         "step": 0,
         "progress": 0,
@@ -383,12 +398,15 @@ async def stream_batch_detection(request: BatchDetectionRequest):
     for i, topic_name in enumerate(topics):
         base_progress = (i / total_topics) * 100
 
-        yield sse_frame({
+        yield ({
             "event": "progress",
             "step": i + 1,
             "progress": base_progress,
             "message": f"Scanning topic {i + 1}/{total_topics}: {topic_name}",
             "current_topic": topic_name,
+            "topic_index": i + 1,
+            "topic_total": total_topics,
+            "topic_progress": 0,
         })
 
         et_config = EmergingTopicsConfig(
@@ -406,7 +424,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
             lock = DetectionRunLock(topic_name).acquire()
         except DetectionAlreadyRunning as exc:
             failed_topics.append(topic_name)
-            yield sse_error(
+            yield error_update(
                 str(exc), code=exc.code, current_topic=topic_name, step=i + 1,
                 progress=base_progress,
             )
@@ -426,7 +444,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
 
                 if update.get("event") == "error":
                     topic_failed = True
-                    yield sse_error(
+                    yield error_update(
                         f"[{topic_name}] {msg}",
                         code=update.get("code", "detection_failed"),
                         current_topic=topic_name,
@@ -436,12 +454,16 @@ async def stream_batch_detection(request: BatchDetectionRequest):
                     )
                     continue
 
-                yield sse_frame({
+                yield ({
                     "event": "progress",
                     "step": i + 1,
                     "progress": adjusted_progress,
                     "message": f"[{topic_name}] {msg}",
                     "current_topic": topic_name,
+                    "topic_index": i + 1,
+                    "topic_total": total_topics,
+                    "topic_progress": sub_progress,
+                    "topic_step": update.get("step"),
                 })
 
                 if update.get("event") == "complete":
@@ -451,7 +473,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
         except Exception as exc:
             topic_failed = True
             logger.exception(f"Error detecting topics for {topic_name}")
-            yield sse_error(
+            yield error_update(
                 f"Error scanning {topic_name}: {exc.__class__.__name__}: {exc}",
                 code=getattr(exc, "code", "detection_failed"),
                 current_topic=topic_name,
@@ -465,7 +487,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
             failed_topics.append(topic_name)
             continue
 
-        yield sse_frame({
+        yield ({
             "event": "progress",
             "step": i + 1,
             "progress": base_progress + (100 / total_topics),
@@ -482,7 +504,7 @@ async def stream_batch_detection(request: BatchDetectionRequest):
     if failed_topics:
         summary += f" ({len(failed_topics)} failed: {', '.join(failed_topics[:5])})"
 
-    yield sse_frame({
+    yield ({
         "event": "complete",
         "status": "completed" if not failed_topics else "partial",
         "step": total_topics + 1,
@@ -493,6 +515,14 @@ async def stream_batch_detection(request: BatchDetectionRequest):
         "topics_failed": failed_topics,
         "emerging_topics": all_themes,
     })
+
+
+
+
+async def stream_batch_detection(request: BatchDetectionRequest):
+    """Stream batch detection as SSE frames (the batch dies with the client)."""
+    async for update in iter_batch_detection(request):
+        yield sse_frame(update)
 
 
 @router.post("/detect/batch")
@@ -509,6 +539,87 @@ async def run_batch_detection(
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
+
+
+# ============================================================================
+# Server-side detection jobs
+#
+# The streaming endpoints above run the detection inside the request, so a
+# page reload cancels the run. These run it as a job owned by the process and
+# let the page (re)attach to its progress. See detection_jobs.py.
+# ============================================================================
+
+from app.services.emerging_topics.detection_jobs import registry as _jobs
+
+
+class JobRequest(BaseModel):
+    """Start a detection job: one topic when ``topic`` is set, else a batch."""
+    topic: Optional[str] = None
+    topics: Optional[List[str]] = None
+    days_back: int = Field(7, ge=1, le=30)
+    sample_size: int = Field(250, ge=50, le=500)
+    distance_threshold: float = Field(0.85, ge=0.3, le=1.0)
+    min_articles_per_theme: int = Field(3, ge=2, le=20)
+    max_articles_per_theme: int = Field(30, ge=10, le=100)
+    model: str = Field("gpt-5.4")
+
+
+@router.post("/detect/jobs")
+async def start_detection_job(request: JobRequest, session=Depends(require_admin)):
+    """Start a detection as a server-side job and return its id at once.
+
+    A single-topic job takes the scope lock here, so a run already in flight
+    is refused with 409 before anything starts. A batch takes each topic's
+    lock as it reaches it, exactly as the streaming batch does.
+    """
+    body = request.model_dump()
+    if request.topic:
+        single = DetectionRequest(**{k: v for k, v in body.items() if k != "topics"})
+        try:
+            lock = DetectionRunLock(single.topic).acquire()
+        except DetectionAlreadyRunning as exc:
+            raise _lock_conflict(exc)
+        job = _jobs.start("single", single.topic, body, iter_detection(single, lock))
+    else:
+        batch = BatchDetectionRequest(**{k: v for k, v in body.items() if k != "topic"})
+        job = _jobs.start("batch", "<all>" if not batch.topics else ", ".join(batch.topics),
+                          body, iter_batch_detection(batch))
+    return job.summary()
+
+
+@router.get("/detect/jobs/active")
+async def active_detection_jobs(session=Depends(verify_session)):
+    """Jobs still running, so a freshly loaded page can re-attach."""
+    return {"jobs": [j.summary() for j in _jobs.active()]}
+
+
+@router.get("/detect/jobs/{job_id}")
+async def detection_job_status(job_id: str, session=Depends(verify_session)):
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown detection job")
+    return job.summary()
+
+
+@router.get("/detect/jobs/{job_id}/events")
+async def detection_job_events(
+    job_id: str,
+    after: int = Query(0, ge=0, description="Replay from this update index"),
+    session=Depends(verify_session),
+):
+    """SSE stream of a job's updates from ``after`` onward, with heartbeats.
+
+    Closing this stream detaches only the listener; the job keeps running.
+    """
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown detection job")
+
+    async def gen():
+        async for update in job.subscribe(after):
+            yield sse_frame(update)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.get("/available-topics")
