@@ -13,6 +13,7 @@ Creates rich psychographic profiles (15-20 attributes) that can be annotated, ed
 
 import asyncio
 import json
+import re
 import logging
 import uuid
 from datetime import datetime
@@ -395,6 +396,8 @@ class FocusGroupService:
                     "personas_generated": len(state.personas),
                     "generated_at": datetime.now().isoformat(),
                     **state.disclosure_models(),
+                    # Stage warnings: cut replies, salvaged items, flagged names.
+                    "warnings": list(state.errors),
                     "config": {
                         "max_personas": config.max_personas,
                         "min_evidence_threshold": config.min_evidence_threshold
@@ -699,7 +702,7 @@ ARCHETYPES TO PROFILE:
 Create exactly ONE persona per archetype: {len(state.persona_clusters)} personas in total, no more. Each persona must carry the "cluster_id" of its archetype. For each, include:
 
 IDENTITY (4 attributes):
-- name: A representative fictional name
+- name: An invented name. NEVER the name of a real person: not anyone named or quoted in the articles, not a known researcher, executive or public figure in this field. A persona is a composite, and naming a real person misattributes views to them.
 - archetype: The archetype label
 - role_title: A typical job title
 - sector: Primary industry/sector
@@ -776,7 +779,7 @@ Return JSON with:
     ]
 }}
 
-Make profiles DISTINCT and based on article evidence. Each persona should feel like a real individual."""
+Make profiles DISTINCT and based on article evidence. Each persona should feel like a real individual, but every name must be invented; do not reuse any personal name that appears in the articles."""
 
         yield {"status": "generating", "progress": 0.3}
 
@@ -802,6 +805,7 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
             # persona for each archetype wins, in archetype order, and any
             # persona that names no known archetype fills remaining slots.
             raw_personas = self._cap_personas(raw_personas, state.persona_clusters, config.max_personas)
+            self._flag_real_names(raw_personas, state)
 
             yield {"status": "processing", "progress": 0.7}
 
@@ -860,6 +864,28 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
         except Exception as e:
             logger.error(f"Profiling stage failed: {e}")
             yield {"status": "error", "progress": 0.9, "error": str(e)}
+
+    @staticmethod
+    def _flag_real_names(raw_personas: List[Dict], state: "FGState") -> None:
+        """Warn when a persona carries the surname of someone the articles
+        name. The prompt forbids it, but Kimi named a Regenerative Dentistry
+        persona after the field's best-known researcher twice in a row. The
+        check is a surname match against titles, summaries and the
+        discovery stage's quoted references; it flags, it does not rename,
+        because an automatic rename would need a second model call."""
+        haystack = " ".join(
+            [str(a.get("title", "")) + " " + str(a.get("summary", "")) for a in state.raw_articles]
+            + [str(m.get("specific_reference", "")) + " " + str(m.get("context", "")) for m in state.stakeholder_mentions]
+        )
+        for raw in raw_personas:
+            name = str(raw.get("name") or "").strip()
+            parts = [p for p in re.split(r"[\s\-]+", name) if len(p) > 3 and p[0].isupper() and p.rstrip(".").lower() not in ("dr", "prof", "mrs", "miss")]
+            surname = parts[-1] if parts else ""
+            if surname and re.search(r"\b" + re.escape(surname) + r"\b", haystack):
+                msg = f"profiling: persona '{name}' shares a surname with someone named in the source articles; personas must be fictional"
+                logger.warning(msg)
+                state.errors.append(msg)
+                raw["name_flagged"] = True
 
     @staticmethod
     def _cap_personas(raw_personas: List[Dict], clusters: List[Dict], max_personas: int) -> List[Dict]:

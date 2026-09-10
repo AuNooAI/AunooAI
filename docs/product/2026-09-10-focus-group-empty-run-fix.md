@@ -5,6 +5,7 @@ _2026-09-10 · Explore → Focus Groups and Extreme Outlier Scenarios, all sites
 - A focus-group run that used to finish with zero personas on sites running Kimi K2.5 now produces its full set.
 - Both generators keep whatever complete results they got if a model reply is cut short, and say so in the run's error list, instead of quietly continuing with nothing.
 - The persona limit you set is respected: one persona per archetype, never more than you asked for.
+- Personas get invented names. The model is told not to reuse any real person from the articles or the field, and a run that does so anyway is flagged in its warnings.
 - The stakeholder discovery step now sees each article's sentiment, category, bias and driver type. Before, it was handed "neutral" and "unknown" for every article.
 
 ## Why it matters
@@ -19,6 +20,7 @@ The same guard covers all eight steps of the two generators, so the extreme-scen
 - Extreme-scenario and focus-group runs record when a model reply was cut short and keep the complete items.
 - Stakeholder discovery uses each article's sentiment, category and bias.
 - The persona limit is enforced: one persona per archetype, up to the number requested.
+- Personas carry invented names; a persona named after someone in the source articles is flagged.
 
 ## Demo / walkthrough
 Explore → Focus Groups → pick a topic → Generate. The run should end with named personas. If a step's reply was cut short, the run's error list says which step and how many items were kept.

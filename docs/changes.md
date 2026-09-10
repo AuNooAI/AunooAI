@@ -142,6 +142,54 @@ between ingest batches; on canonical after detection run 3553 completed. Backfil
 only; other sites translate from now on and can run the script when
 wanted.
 
+## 2026-09-10 — Focus groups: personas must not be named after real people
+
+### Goal
+Regenerating the sunstar Regenerative Dentistry focus group produced a
+persona called "Dr. Janet Moradian-Oldak" twice in a row: the field's
+best-known enamel-regeneration researcher, named in the source papers.
+A persona is a composite; naming a real person attributes invented views
+to them.
+
+### Fix
+**`app/services/focus_group_service.py`** — the profiling prompt's
+"name: A representative fictional name" becomes an explicit ban on any
+real person: anyone named or quoted in the articles, or any known
+researcher, executive or public figure in the field, repeated in the
+closing instruction. `_flag_real_names` then compares each persona's
+surname against the article titles, summaries and the discovery stage's
+quoted references; a match is logged, appended to `state.errors` and
+marked `name_flagged` on the persona. It flags rather than renames,
+since a good rename needs a second model call. Both generators now carry
+`state.errors` into the final result as `metadata.warnings`, so cut
+replies, salvaged items and flagged names are saved with the run and
+visible to the client.
+
+### Verification
+Unit: a persona named after a surname in an article title is flagged,
+two invented names are not. Live rerun on sunstar under the new prompt:
+Dr. Maya Patel, Dr. James Kowalski, Robert Thornberg, Patricia Moreno;
+`warnings` empty. Saved as id 7, old id 2 deleted. Retroactive surname
+check of the four other saved sunstar groups against their topics'
+analyzed articles found three coincidental hits (a Venezuelan
+politician named Rodriguez in off-topic posts, an unrelated dentist
+named Patel, the retailer Matsumoto Kiyoshi) and nothing modelled on a
+real person.
+
+### Propagation
+Both service files copied to all eight sites, compile-checked;
+bugfixing, sunstar, oviva, wbm, abm, wiley, wileytest restarted after
+the usual checks, all active.
+
+### Sunstar data, 2026-09-10
+Six research-topic focus groups generated with `days_back=1095`,
+`max_personas=4`, saved as "Focus group 2026-09-10". Kept: Oral-Systemic
+Health Research (100 articles, 60 mentions), Regenerative Dentistry
+(100/60, regenerated as above), United States (83/60), Japan (25/60),
+Consumer Voice (100/60). Deleted on request: Germany (9 articles, 3
+mentions, 1 persona). Skipped: France, 4 analyzed articles against the
+route's minimum of 5.
+
 ## 2026-09-10 — Focus groups: article window is a request parameter
 
 ### Goal

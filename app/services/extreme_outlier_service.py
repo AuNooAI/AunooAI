@@ -346,6 +346,8 @@ class ExtremeOutlierService:
                     "scenarios_generated": len(state.scenarios),
                     "generated_at": datetime.now().isoformat(),
                     **state.disclosure_models(),
+                    # Stage warnings: cut replies, salvaged items, flagged names.
+                    "warnings": list(state.errors),
                     "config": {
                         "scenario_count": config.scenario_count,
                         "time_horizon": config.time_horizon,
