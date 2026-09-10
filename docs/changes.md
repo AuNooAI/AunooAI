@@ -142,6 +142,34 @@ between ingest batches; on canonical after detection run 3553 completed. Backfil
 only; other sites translate from now on and can run the script when
 wanted.
 
+## 2026-09-10 — Focus groups: article window is a request parameter
+
+### Goal
+Generating focus groups for sunstar's research topics failed with
+"Insufficient articles. Found 2, need at least 5" on a topic holding 644
+articles collected in the last 30 days.
+
+### Fix
+**`app/routes/focus_group_routes.py`** — the scan route called
+`fetch_articles_for_topic(topic, days_back=30)` with the window hardcoded,
+and the facade filters on `publication_date`, not collection date. The
+research topics are built from papers whose publication dates run 2023 to
+2025, so almost none fall inside 30 days (Oral-Systemic Health Research:
+2 of 412 analyzed articles at 30 days, 331 at 3 years). The scan request
+gains `days_back` (default 30, range 1 to 3650) and passes it through.
+Nothing changes for existing callers.
+
+### Verification
+Six sunstar research topics generated with `days_back=1095` and
+`max_personas=4` and saved as "Focus group 2026-09-10"; results are in
+this entry's sibling below once the run finishes. France was skipped: 4
+analyzed articles, below the route's minimum of 5.
+
+### Propagation
+Route file copied whole to all eight sites (zero drift); bugfixing,
+sunstar, oviva, wbm, abm, wiley, wileytest restarted after the usual
+checks, all active. pbm and bwtemplate stopped.
+
 ## 2026-09-10 — Focus groups and extreme scenarios: a cut-off reply no longer becomes an empty run
 
 ### Goal

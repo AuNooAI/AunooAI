@@ -68,6 +68,12 @@ class FGScanRequest(BaseModel):
         True,
         description="Whether to stream progress updates"
     )
+    days_back: int = Field(
+        30, ge=1, le=3650,
+        description="Article window by publication date. Research topics built "
+                    "from papers carry publication dates years old, so 30 days "
+                    "finds almost nothing for them; widen for those."
+    )
 
 
 # ============================================================================
@@ -171,7 +177,7 @@ async def start_fg_generation(
     If stream=False, waits for completion and returns the full result.
     """
     # Fetch articles first
-    articles = fetch_articles_for_topic(request.topic, days_back=30, limit=100)
+    articles = fetch_articles_for_topic(request.topic, days_back=request.days_back, limit=100)
     logger.info(f"Focus Group: Fetched {len(articles)} articles for topic '{request.topic}'")
 
     if len(articles) < 5:
