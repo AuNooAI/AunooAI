@@ -170,8 +170,12 @@ def _clean_model_title(text: str) -> str:
 
 
 def _strip_wrapping_quotes(text: str) -> str:
-    """Remove quotes the model wrapped the whole reply in, never a leading one alone."""
-    text = text.strip()
+    """Remove quotes the model wrapped the whole reply in, never a leading one alone.
+
+    Also drops lone surrogate code points: a JSON reply cut inside an emoji
+    escape decodes to one, and PostgreSQL rejects the string.
+    """
+    text = "".join(ch for ch in text if not 0xD800 <= ord(ch) <= 0xDFFF).strip()
     pairs = (('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"), ("「", "」"))
     for open_q, close_q in pairs:
         if len(text) > 1 and text.startswith(open_q) and text.endswith(close_q):

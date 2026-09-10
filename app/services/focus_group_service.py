@@ -22,7 +22,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, parse_stage_reply
 from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
@@ -425,18 +425,35 @@ class FocusGroupService:
         """Extract relevant context from articles for prompts."""
         context_parts = []
         for i, article in enumerate(articles[:30]):  # Limit to avoid token overflow
-            enrichment = article.get('enrichment', {})
+            # The route's fetcher returns the analysis fields as flat columns
+            # (sentiment, category, driver_type, ...) and never sets an
+            # 'enrichment' dict, so read both shapes; before this every
+            # article went in as neutral / unknown / no categories.
+            enrichment = article.get('enrichment') or {}
+            if not isinstance(enrichment, dict):
+                enrichment = {}
+            def _field(*names, default=''):
+                for n in names:
+                    v = enrichment.get(n)
+                    if v in (None, '', []):
+                        v = article.get(n)
+                    if v not in (None, '', []):
+                        return v
+                return default
+            categories = _field('categories', 'category', default=[])
+            if isinstance(categories, str):
+                categories = [categories]
             context_parts.append({
                 "index": i,
                 "title": article.get('title', '')[:200],
                 "summary": article.get('summary', '')[:300],
                 "source": article.get('source', ''),
                 "uri": article.get('uri', ''),
-                "sentiment": enrichment.get('sentiment', 'neutral'),
-                "political_bias": enrichment.get('political_bias', 'unknown'),
-                "categories": enrichment.get('categories', [])[:3],
-                "driver_type": enrichment.get('driver_type', ''),
-                "factuality": enrichment.get('factuality', '')
+                "sentiment": _field('sentiment', default='neutral'),
+                "political_bias": _field('political_bias', 'bias', default='unknown'),
+                "categories": list(categories)[:3],
+                "driver_type": _field('driver_type'),
+                "factuality": _field('factuality', 'factual_reporting')
             })
         return json.dumps(context_parts, indent=2)
 
@@ -452,6 +469,11 @@ class FocusGroupService:
 
         model = agent_config.get('model', config.discovery_model)
         temperature = agent_config.get('temperature', config.discovery_temp)
+        # Output cap. 12000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 4000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 12000)
 
         article_context = self._extract_article_context(state.raw_articles)
 
@@ -498,7 +520,7 @@ Return JSON with:
     }}
 }}
 
-Extract ALL stakeholder mentions you find - we will cluster them in the next stage."""
+Extract the stakeholder mentions you find, most prominent first, up to 60 - we will cluster them in the next stage. Keep "context" to one sentence."""
 
         try:
             response = await litellm.acompletion(
@@ -508,12 +530,13 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("discovery", model, response)
+            result = parse_stage_reply(response, "stakeholder_mentions", stage="discovery",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.stakeholder_mentions = result.get("stakeholder_mentions", [])
 
         except Exception as e:
@@ -556,6 +579,11 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
 
         model = agent_config.get('model', config.clustering_model)
         temperature = agent_config.get('temperature', config.clustering_temp)
+        # Output cap. 8000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 8000)
 
         prompt = f"""Group these stakeholder mentions into DISTINCT PERSONA ARCHETYPES for "{state.topic}".
 
@@ -613,12 +641,13 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=3000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("clustering", model, response)
+            result = parse_stage_reply(response, "persona_clusters", stage="clustering",
+                                       errors=state.errors, max_tokens=max_tokens)
             # Filter to only clusters meeting threshold
             clusters = result.get("persona_clusters", [])
             state.persona_clusters = [
@@ -648,6 +677,11 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
 
         model = agent_config.get('model', config.profiling_model)
         temperature = agent_config.get('temperature', config.profiling_temp)
+        # Output cap. 12000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 6000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 12000)
 
         article_context = self._extract_article_context(state.raw_articles[:15])
 
@@ -751,12 +785,13 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=6000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("profiling", model, response)
+            result = parse_stage_reply(response, "personas", stage="profiling",
+                                       errors=state.errors, max_tokens=max_tokens)
             raw_personas = result.get("personas", [])
 
             yield {"status": "processing", "progress": 0.7}
@@ -829,6 +864,11 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
 
         model = agent_config.get('model', config.synthesis_model)
         temperature = agent_config.get('temperature', config.synthesis_temp)
+        # Output cap. 6000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 6000)
 
         personas_json = [p.to_dict() for p in state.personas]
 
@@ -888,12 +928,13 @@ Be specific about how the personas' characteristics would lead to these dynamics
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=3000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("synthesis", model, response)
+            result = parse_stage_reply(response, "focus_group_summary", stage="synthesis",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.focus_group_summary = result.get("focus_group_summary", "")
             state.interaction_dynamics = result.get("interaction_dynamics", {})
 

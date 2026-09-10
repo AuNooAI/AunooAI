@@ -22,7 +22,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, parse_stage_reply
 from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.services.tool_loader import get_tool_loader
 
@@ -463,6 +463,11 @@ class ExtremeOutlierService:
 
         model = agent_config.get('model', config.weak_signals_model)
         temperature = agent_config.get('temperature', config.weak_signals_temp)
+        # Output cap. 8000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 8000)
 
         article_excerpts = self._format_article_excerpts(state.raw_articles, limit=25)
 
@@ -514,12 +519,13 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=3000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("weak_signals", model, response)
+            result = parse_stage_reply(response, "weak_signals", stage="weak_signals",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.weak_signals = result.get("weak_signals", [])
 
         except Exception as e:
@@ -554,6 +560,11 @@ Identify 8-12 weak signals. Each MUST reference at least one source article."""
 
         model = agent_config.get('model', config.amplification_model)
         temperature = agent_config.get('temperature', config.amplification_temp)
+        # Output cap. 10000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 4000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 10000)
 
         # Select high-potential signals
         high_potential = [s for s in state.weak_signals
@@ -607,12 +618,13 @@ Generate 6-10 amplified pathways across the three categories:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("amplification", model, response)
+            result = parse_stage_reply(response, "amplified_pathways", stage="amplification",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.amplified_pathways = result.get("amplified_pathways", [])
 
         except Exception as e:
@@ -637,6 +649,11 @@ Generate 6-10 amplified pathways across the three categories:
 
         model = agent_config.get('model', config.scenario_model)
         temperature = agent_config.get('temperature', config.scenario_temp)
+        # Output cap. 12000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 6000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 12000)
 
         # Determine scenario distribution
         target_count = config.scenario_count
@@ -712,12 +729,13 @@ Return JSON:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=6000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("scenario_building", model, response)
+            result = parse_stage_reply(response, "scenarios", stage="scenario_building",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.raw_scenarios = result.get("scenarios", [])
 
             yield {"status": "scenarios_built", "progress": 0.9, "count": len(state.raw_scenarios)}
@@ -745,6 +763,11 @@ Return JSON:
 
         model = agent_config.get('model', config.implications_model)
         temperature = agent_config.get('temperature', config.implications_temp)
+        # Output cap. 10000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 4000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 10000)
 
         prompt = f"""For each extreme scenario, provide STRATEGIC IMPLICATIONS and EARLY WARNING INDICATORS.
 
@@ -786,12 +809,13 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
             state.record_model("implications", model, response)
+            result = parse_stage_reply(response, "enhanced_scenarios", stage="implications",
+                                       errors=state.errors, max_tokens=max_tokens)
             enhancements = {e["scenario_id"]: e for e in result.get("enhanced_scenarios", [])}
 
             yield {"status": "merging", "progress": 0.7}

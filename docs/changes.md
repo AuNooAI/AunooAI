@@ -117,6 +117,88 @@ canonical after detection run 3553 completed. Backfill run on sunstar
 only; other sites translate from now on and can run the script when
 wanted.
 
+## 2026-09-10 — Focus groups and extreme scenarios: a cut-off reply no longer becomes an empty run
+
+### Goal
+A focus-group run on bugfixing (Kimi K2.5) returned 0 stakeholder
+mentions, 0 archetypes, 0 personas and reported success. Found while
+verifying the per-run model recording earlier today.
+
+### Incident — discovery reply cut at 4,000 tokens, parsed as one mention, read as none
+Reproducing the exact discovery call (30 articles, "extract ALL
+stakeholder mentions", `max_tokens=4000`) returned 18,263 characters with
+`finish_reason=length`: 42 complete mentions citing articles up to index
+28 of 30, then the cut. **`app/ai_models.py`** `extract_json_response` on
+that text fails the strict parse and falls back to the first brace where
+a decode succeeds, which is the first inner mention, so it returned one
+mention dict. `result.get("stakeholder_mentions", [])` on a mention dict
+is `[]`. Nothing logged, nothing in `state.errors`, and clustering,
+profiling and synthesis ran on nothing. On OpenAI targets
+`response_format=json_object` was honoured and the terser models fit in
+4,000 tokens; the Bedrock config drops `response_format` for Kimi and it
+writes about ten lines per item. The same cap-and-parse pattern sat in
+all eight stages of both generators.
+
+### Fix — one guard for every stage
+**`app/ai_models.py`** — `parse_stage_reply(response, key, stage=,
+errors=, max_tokens=)` parses the reply and returns it only if it carries
+the field the stage reads. If the reply was cut and the field is an
+array, `salvage_json_array` decodes the complete items one at a time up
+to the cut and returns those, recording "kept N complete items" in
+`state.errors` and the log. Otherwise it records why (cut before any
+item, no such field, not JSON) and raises `StageReplyError`, so the
+stage's existing except-block runs its fallback instead of continuing on
+an empty list. **`app/services/focus_group_service.py`** and
+**`app/services/extreme_outlier_service.py`** — all eight stages call it
+(discovery, clustering, profiling, synthesis; weak_signals,
+amplification, scenario_building, implications), with the stage's field
+name and cap. Output caps become `max(agent_config['max_tokens'],
+floor)` so the agent file can raise but not lower them; floors are
+discovery 12000, clustering 8000, profiling 12000, synthesis 6000,
+weak_signals 8000, amplification 10000, scenario_building 12000,
+implications 10000 (was 4000/3000/6000/3000/3000/4000/6000/4000). Kimi
+K2.5 allows 262,144 output tokens, so the floors are cheap. The discovery
+prompt now asks for up to 60 mentions, most prominent first, with a
+one-sentence context, so its output size is bounded.
+
+### Fix — discovery sees the analysis fields
+`_extract_article_context` read `article['enrichment']`, which the
+route's fetcher never sets; the facade returns `sentiment`, `category`,
+`bias`, `driver_type`, `factual_reporting` as flat columns. All 100
+articles went in as neutral / unknown / no categories. It now reads
+either shape.
+
+### Verification
+- Unit: the guard on the real cut reply salvages 41 mentions and records
+  the cut; a complete reply passes through; a reply cut before its first
+  item, one missing the field, and non-JSON each raise with a recorded
+  reason.
+- Real focus-group run on bugfixing after restart, topic "AI and Machine
+  Learning", `max_personas=3`, 267 s: 60 mentions, 3 archetypes, 8
+  personas, `errors` empty, models Kimi K2.5 + Claude Sonnet 4.5. Same
+  call before the fix: 0 / 0 / 0.
+- Real EOS run, 2 scenarios, 168 s: 12 signals, 8 pathways, 2 scenarios,
+  no truncation warnings in the journal.
+- Not fixed, noted: profiling returned 8 personas for `max_personas=3`;
+  the profiling prompt writes several personas per archetype and nothing
+  applies the cap. Predates this change.
+
+### Propagation
+`ai_models.py` copied whole to sunstar, oviva, wbm, abm, wiley,
+bwtemplate; wileytest and pbm carry a drifted copy, so the helper block
+was inserted by anchor (`patch_ai_models.py`). Both service files copied
+to all eight. Compile-checked per venv. Restarted sunstar, oviva, wbm,
+abm, wiley, wileytest after the usual checks (0 overdue agents, 0
+non-enrichment LLM calls in 10 min); all active, wileytest
+focus-groups/health 200. pbm and bwtemplate stopped, not restarted.
+
+### Lessons
+A stage that reads `result.get(key, [])` after a lenient JSON parse will
+report success on a cut-off reply. Check the field is present, salvage
+complete items from a cut array, and treat `finish_reason == "length"`
+with nothing salvageable as an error. This is the batched-JSON
+truncation pattern again: silence is plumbing, not the model.
+
 ## 2026-09-10 — AI disclosure names the models that actually ran: footer, exports, and per-run for scenarios and focus groups
 
 ### Goal
