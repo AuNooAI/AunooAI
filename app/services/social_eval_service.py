@@ -497,8 +497,28 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
 
     conn = db.facade.connection
     evaluated = 0
+    excluded = 0
+    excludes_by_brand: Dict[int, List[str]] = {}
     for (mention_id, mention_brand, uri, display_name, title, summary,
          entities_on_article, brand_context) in rows:
+        # Entity collisions (config.news_keyword_excludes: "Oviva Therapeutics",
+        # a US biotech, next to Oviva the weight-management provider) are
+        # settled before any model call, the same way evaluate_and_store does
+        # on the topic path. This path skipped it, so a look-alike scored 0.9.
+        if mention_brand not in excludes_by_brand:
+            excludes_by_brand[mention_brand] = _brand_context_for_topic(
+                db, f"Brand Monitoring {display_name}")["excludes"]
+        blob = f"{title or ''} {summary or ''}".lower()
+        author = db.facade._execute_with_rollback(text(
+            "SELECT COALESCE(social_meta->>'author', '') FROM articles WHERE uri = :u"),
+            {"u": uri}).scalar() or ""
+        if any(x in blob or x in author.lower() for x in excludes_by_brand[mention_brand]):
+            entity_content.score_mention(
+                conn, mention_id, relevance=0.0, sentiment=None,
+                stance='not_applicable', method='exclude_term', model=None,
+                version=entity_content.MATCHER_VERSION, status='accepted')
+            excluded += 1
+            continue
         # One post, one company, one verdict — the brand name is the subject
         # of the question rather than the topic the post was collected under.
         # The brand description rides along so the model can tell a patient
@@ -541,10 +561,10 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
                    "sent": sentiment.capitalize(), "uri": uri})
 
     conn.commit()
-    logger.info("SocialEval: scored %d/%d pending mentions via %s",
-                evaluated, len(rows), service.model_name)
+    logger.info("SocialEval: scored %d/%d pending mentions via %s (%d zeroed by exclude terms)",
+                evaluated, len(rows), service.model_name, excluded)
     return {"evaluated": evaluated, "candidates": len(rows),
-            "model": service.model_name}
+            "excluded": excluded, "model": service.model_name}
 
 
 # A company being the actor in a story is not the same as the story being

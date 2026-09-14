@@ -425,20 +425,71 @@ _DIGEST_TTL_S = 6 * 3600
 _digest_cache: Dict[str, tuple] = {}
 
 _DIGEST_SYSTEM = (
-    "You are a brand-perception analyst. You are given social media posts about a brand, "
-    "all written by one kind of author (for example patients, or clinicians). Report what "
-    "this audience is saying about the brand. Use only what the posts say; never invent "
-    "a claim the posts do not support, and never soften a complaint. Group the posts into "
-    "at most five themes, most common first. For each theme give a short name, the "
-    "sentiment of the theme toward the brand (positive, negative, mixed or neutral), how "
-    "many posts carry it, and one to three verbatim quotes copied exactly from the posts "
-    "(each at most 200 characters, keep the original language). Then write a summary of at "
-    "most 60 words in plain English that says what this audience thinks of the brand and "
-    "what, if anything, they want changed. "
-    'Respond with ONLY a JSON object: {"summary": "...", "themes": [{"theme": "...", '
+    "You write for the company's own team. They will read this to understand what one audience "
+    "is saying about them and what they could do about it. Report what the posts say; do not "
+    "pass a verdict on the company or on the audience.\n"
+    "Rules:\n"
+    "- Attribute everything to the posts and count it: 'five of the seven posts, all from "
+    "German GPs in one thread on X, say ...'. Never write what the audience thinks, feels, "
+    "believes, distrusts, resents or demands; write what the posts say and how many say it.\n"
+    "- Do not generalise from the sample to the whole audience. Say 'the clinicians in these "
+    "posts', not 'clinicians'.\n"
+    "- No verdict or severity words in your own voice: not aggressive, distrust, resent, "
+    "undermined, demand, rip-off, failure, poor, crisis, alarming. Such words may appear only "
+    "inside a verbatim quote.\n"
+    "- Give the context the reader needs to weigh it: how many posts and accounts, which "
+    "platforms and countries, whether they cluster in one thread or one event, and the date "
+    "range. Use the CONTEXT facts you are given; do not invent any.\n"
+    "- Group the posts into at most five themes, most common first. For each: a short neutral "
+    "name, how many posts carry it, the sentiment those posts take toward the company "
+    "(positive, negative, mixed or neutral), and one to three verbatim quotes copied exactly "
+    "from the posts (each at most 200 characters, original language kept). When a theme is "
+    "best named by the posts' own word, put that word in quotation marks: Advertising the "
+    'posts call "aggressive", not Aggressive advertising.\n'
+    "- Never cite post numbers or indices; name the count and, where useful, the account.\n"
+    "- Then list what these posts ask for or would change, as concrete items the company "
+    "could act on, each tied to the posts that raise it ('two posts ask to be contacted "
+    "before a patient is sent to them for a prescription'). Only what the posts actually "
+    "say; if they ask for nothing, say so.\n"
+    "- Summary: at most 70 words, plain English, following the same rules.\n"
+    'Respond with ONLY a JSON object: {"context": "<one sentence: posts, accounts, platforms, '
+    'countries, clustering, dates>", "summary": "...", "themes": [{"theme": "...", '
     '"sentiment": "positive"|"negative"|"mixed"|"neutral", "post_count": <int>, '
-    '"quotes": ["..."]}]}. No prose outside the JSON.'
+    '"quotes": ["..."]}], "asks": ["..."]}. No prose outside the JSON.'
 )
+
+# Words that pass a verdict in the writer's own voice. A digest that uses one
+# outside a quote is regenerated once with the rule restated; if it still
+# does, the digest is returned with a tone warning rather than hidden.
+_VERDICT_WORDS = re.compile(
+    r"\b(distrust\w*|resent\w*|undermin\w*|demand\w*|rip-?off|failure|failing|poor|"
+    r"predatory|scam|dishonest|misleading|exploit\w*)\b", re.I)
+
+
+def _tone_problems(obj: Dict[str, Any]) -> List[str]:
+    from app.services.report_style import find_severity_language
+    texts = [str(obj.get("context") or ""), str(obj.get("summary") or "")]
+    for t in obj.get("themes") or []:
+        if isinstance(t, dict):
+            texts.append(str(t.get("theme") or ""))
+    texts += [str(a) for a in (obj.get("asks") or [])]
+    blob = "\n".join(texts)
+    unquoted = re.sub(r'"[^"]*"', "", blob)
+    hits = {m.group(0).lower() for m in _VERDICT_WORDS.finditer(unquoted)}
+    hits |= set(find_severity_language(blob))
+    return sorted(hits)
+
+
+def _digest_context(posts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Facts the writer must not invent: size, platforms, accounts, dates."""
+    authors = {(p.get("author") or "").lower() for p in posts if p.get("author")}
+    platforms: Dict[str, int] = {}
+    for p in posts:
+        platforms[p["platform"]] = platforms.get(p["platform"], 0) + 1
+    dates = sorted((p.get("publication_date") or "")[:10] for p in posts if p.get("publication_date"))
+    return {"posts": len(posts), "accounts": len(authors) or None,
+            "platforms": platforms,
+            "from": dates[0] if dates else None, "to": dates[-1] if dates else None}
 
 
 def _digest_model_name(conn) -> str:
@@ -490,26 +541,41 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
         return {**base, "summary": None, "themes": [],
                 "note": f"Digest model {model_name!r} is not available."}
 
+    from app.services.report_style import CLINICAL_STYLE
     lines = []
     for i, p in enumerate(posts, 1):
         when = (p["publication_date"] or "")[:10]
-        lines.append(f"[{i}] ({p['platform']}, {when}, {p['sentiment'] or 'unrated'}) "
+        who = f"@{p['author']}" if p.get("author") else "unknown account"
+        lines.append(f"[{i}] ({p['platform']}, {who}, {when}, {p['sentiment'] or 'unrated'}) "
                      f"{p['text'][:500]}")
+    ctx = _digest_context(posts)
     user = (f"BRAND: {display_name}\nAUDIENCE: {meta['plural']}\n"
+            f"CONTEXT: {json.dumps(ctx)}\n"
             f"POSTS ({len(posts)}):\n" + "\n".join(lines))
-    try:
-        raw = await model.agenerate_response([
-            {"role": "system", "content": _DIGEST_SYSTEM},
-            {"role": "user", "content": user},
-        ])
-    except Exception as e:  # noqa: BLE001
-        logger.warning("voices digest failed for brand %s role %s: %s", brand_id, role, e)
-        return {**base, "summary": None, "themes": [], "note": f"Digest failed: {e}"}
-    m = re.search(r"\{[\s\S]*\}", raw or "")
-    try:
-        obj = json.loads(m.group()) if m else {}
-    except json.JSONDecodeError:
-        obj = {}
+    system = _DIGEST_SYSTEM + CLINICAL_STYLE
+    obj: Dict[str, Any] = {}
+    problems: List[str] = []
+    for attempt in range(2):
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
+        if attempt:
+            messages.append({"role": "user", "content":
+                             "Rewrite. Your draft used these words in your own voice, which the "
+                             f"rules forbid outside a verbatim quote: {', '.join(problems)}. "
+                             "Report what the posts say and how many say it instead."})
+        try:
+            raw = await model.agenerate_response(messages)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("voices digest failed for brand %s role %s: %s", brand_id, role, e)
+            return {**base, "summary": None, "themes": [], "note": f"Digest failed: {e}"}
+        m = re.search(r"\{[\s\S]*\}", raw or "")
+        try:
+            obj = json.loads(m.group()) if m else {}
+        except json.JSONDecodeError:
+            obj = {}
+        problems = _tone_problems(obj) if obj else []
+        if not problems:
+            break
     themes = []
     for t in (obj.get("themes") or [])[:5]:
         if not isinstance(t, dict):
@@ -519,9 +585,15 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
                        "sentiment": str(t.get("sentiment") or "neutral").lower(),
                        "post_count": int(t.get("post_count") or 0) if str(t.get("post_count") or "0").isdigit() else 0,
                        "quotes": quotes})
-    result = {"summary": (str(obj.get("summary") or "").strip() or None),
-              "themes": themes, "model": model_name,
+    asks = [str(a).strip()[:300] for a in (obj.get("asks") or []) if str(a).strip()][:6]
+    result = {"context": (str(obj.get("context") or "").strip() or None),
+              "facts": ctx,
+              "summary": (str(obj.get("summary") or "").strip() or None),
+              "themes": themes, "asks": asks, "model": model_name,
               "generated_at": datetime.now().isoformat(timespec="seconds")}
+    if problems:
+        result["tone_warning"] = ("The writer used verdict language in its own voice after one "
+                                  "rewrite: " + ", ".join(problems) + ". Read the quotes, not the labels.")
     if result["summary"] or themes:
         _digest_cache[cache_key] = (time.monotonic(), result)
         if len(_digest_cache) > 200:

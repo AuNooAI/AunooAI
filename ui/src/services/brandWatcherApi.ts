@@ -700,8 +700,15 @@ export interface BWVoicesDigest {
   label: string;
   days_back: number;
   post_count: number;
+  /** One sentence the reader needs to weigh the rest: posts, accounts, platforms, countries, clustering, dates. */
+  context?: string | null;
+  facts?: { posts: number; accounts: number | null; platforms: Record<string, number>; from: string | null; to: string | null };
   summary: string | null;
   themes: Array<{ theme: string; sentiment: string; post_count: number; quotes: string[] }>;
+  /** What the posts ask for or would change, as items the brand could act on. */
+  asks?: string[];
+  /** Set when the writer used verdict language in its own voice after a rewrite. */
+  tone_warning?: string;
   note?: string;
   model?: string;
   generated_at?: string;

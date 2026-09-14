@@ -2,6 +2,48 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Voices digest rewritten for the client's eyes; Oviva look-alikes excluded
+
+### The digest read as a verdict
+The clinician digest for Oviva said "Clinicians distrust Oviva due to aggressive marketing,
+poor weight loss results ... They resent patient-direct tactics and feel undermined ... most
+demand changes." Oliver: we cannot tell a client this is what people think of them; it has to
+be constructive and in context. The writer was passing a verdict on the company and on the
+audience from seven posts, with no denominator and no source.
+
+### Changes (`app/services/audience_voices.py`)
+The digest prompt now writes for the company's own team and follows the site's clinical
+register (`report_style.CLINICAL_STYLE` appended): attribute everything to the posts and count
+it ("six of seven posts, from German GPs in one thread on X"), never say what the audience
+thinks or feels, never generalise from the sample, no verdict or severity words in the
+writer's own voice (a theme that needs the posts' own word quotes it: Advertising the posts
+call "aggressive"), and give the context the reader needs to weigh it. Two new fields:
+`context` (posts, accounts, platforms, countries, clustering, dates, from facts computed in
+code and handed to the writer) and `asks` (what the posts ask for, as items the company could
+act on, each tied to how many posts raise it). A draft that uses a verdict word outside a
+quote is regenerated once with the rule restated; if it still does, the digest carries a
+`tone_warning` instead of being hidden. The Voices tab shows context, asks and the warning.
+
+Same seven posts, after: "Six of seven posts from German clinicians discuss Oviva's digital
+weight-loss programme. Four posts report negative experiences with patient outcomes or
+practice workflows. Three posts describe marketing tactics they call "aggressive". One post
+reports positive patient weight loss." Asks: two posts ask to be contacted before a patient is
+sent to them for a prescription; one questions the six-month observation period in the
+approval study.
+
+### Oviva Therapeutics and Oviva Belt
+Two look-alikes were in the Oviva topic at relevance 0.9 and 0.5: Oviva Therapeutics (a US
+biotech; a UCLA centre's event post) and Oviva Belt (a period-pain device with its own
+Instagram account). Both are now on the brand's entity-collision list
+(`bw_brands.config.news_keyword_excludes`: "oviva therapeutics", "oviva belt", "ovivabelt"),
+the two mentions and article rows are zeroed, and the per-mention evaluation path
+(`evaluate_mentions_for_group`) now applies the exclude list before any model call, as the
+topic path always did. That gap is why they scored at all on this tenant.
+
+### Propagation
+Backend to oviva and bugfixing; built UI to all four. Restarted oviva and bugfixing with no
+live tasks.
+
 ## 2026-09-14 — Profile pass over every Oviva author; the profile now names the audience
 
 ### What the first pass showed

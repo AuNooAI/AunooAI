@@ -147,8 +147,10 @@ function RoleColumn({ role, brandId, daysBack, minRelevance }: { role: BWVoiceRo
         {err && <p className="text-xs text-red-600">{err}</p>}
         {!loading && digest && (
           <div className="space-y-3">
+            {digest.context && <p className="text-xs text-gray-500 dark:text-gray-400">{digest.context}</p>}
             {digest.summary && <p className="text-sm text-gray-800 dark:text-gray-100">{digest.summary}</p>}
             {digest.note && <p className="text-xs text-gray-500 dark:text-gray-400">{digest.note}</p>}
+            {digest.tone_warning && <p className="text-xs text-amber-700 dark:text-amber-300">{digest.tone_warning}</p>}
             {digest.themes.map((t, i) => (
               <div key={i} className="rounded border border-gray-100 dark:border-gray-700 p-2">
                 <div className="flex items-center gap-2">
@@ -165,6 +167,14 @@ function RoleColumn({ role, brandId, daysBack, minRelevance }: { role: BWVoiceRo
                 )}
               </div>
             ))}
+            {(digest.asks?.length ?? 0) > 0 && (
+              <div>
+                <h5 className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">What these posts ask for</h5>
+                <ul className="space-y-0.5">
+                  {digest.asks!.map((a, i) => <li key={i} className="text-xs text-gray-700 dark:text-gray-300 pl-3 relative before:content-['•'] before:absolute before:left-0">{a}</li>)}
+                </ul>
+              </div>
+            )}
             {digest.model && <p className="text-[10px] text-gray-400">Digest by {digest.model}{digest.cached ? ' (cached)' : ''}. Quotes are copied from the posts; check the post before citing one.</p>}
           </div>
         )}
