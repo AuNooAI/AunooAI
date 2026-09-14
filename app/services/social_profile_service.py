@@ -280,14 +280,16 @@ class SocialProfileService:
         if context and not brand:
             brand_line = (f'The account is being profiled for the market "{context}". ')
             relation = ("<1-2 sentences on this account's part in that market: vendor "
-                        "staff, customer or practitioner, analyst or press, reseller, "
+                        "staff, customer or practitioner in the market's own field, analyst or press, reseller, "
                         "promoter or bot, or 'No clear connection.'>")
             # A fixed label beside the prose, so the reading can be tagged
             # and grouped without parsing a sentence.
             role_fields = (
                 ', "role": "<exactly one of: vendor (the company\'s own account), '
                 'vendor_staff (a person employed by or founding a vendor), practitioner '
-                '(works in a security team or is a customer), analyst_or_press, reseller, '
+                "(works in the market's field or uses its products: a clinician or patient "
+                "for a health market, a security team member for a security market, a "
+                "librarian or researcher for a publishing market), analyst_or_press, reseller, "
                 'promoter_or_bot, unrelated>", '
                 '"organisation": "<the company the account is or works for, or null>"')
         else:

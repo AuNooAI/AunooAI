@@ -2,6 +2,38 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Brand and market data over MCP; GP accounts profiled
+
+### MCP tools (`app/mcp_access/brand_tools.py`, registered in `tools.py`)
+The monolith MCP server had the topic tools and `get_social_posts` and nothing else, so a
+connected model could read posts but not the views the site shows. Twelve tools now call the
+same route functions and services the UI calls, so a number over MCP is the number on screen:
+`list_brands`, `get_brand_stats`, `get_brand_articles`, `get_brand_perception`,
+`get_brand_voices` (roles, sentiment per audience, posts, and the digests for the focus pair or
+any `roles` list), `get_brand_alerts`; `list_markets`, `get_market_vendors`,
+`get_market_analysis` (formation, signal_noise, funding, hiring, share_of_voice, or all),
+`get_market_top_voices`, `get_market_horizon`, `get_market_briefings`. Each says so when its
+module is off on the site; `get_brand_voices` also honours `BW_VOICES_ENABLED`.
+`list_capabilities` now lists the brand and market names. New prompt recipe `brand_briefing`.
+Route functions are called with every parameter passed explicitly, because a FastAPI
+`Query(...)` default is a descriptor object when the function is called directly.
+
+Verified through `POST /mcp` on oviva with a one-day key (revoked after): 24 tools listed,
+`get_brand_voices` for Oviva returns 42 posts with the clinician/patient focus pair.
+
+### The two GP accounts
+The Market Monitor profile reread on @unadottoressa and @meddidocc first returned
+"unrelated" for one of them, because the profile prompt defined practitioner as "works in a
+security team or is a customer". The definition is now industry-neutral (a clinician or patient
+for a health market, a security team member for a security market, a librarian or researcher
+for a publishing market). Both now read as practitioner, which Voices maps to clinician from
+the account profile rather than from the post history.
+
+### Propagation
+MCP files to oviva, wiley, wileytest, bugfixing (their copies matched canonical). The profile
+prompt fix to oviva and bugfixing only: the wiley copies of `social_profile_service.py` differ
+from canonical by 101 lines and have no market monitor. All four restarted with no live tasks.
+
 ## 2026-09-14 — Voices ties into account profiles; hidden on the Wiley sites
 
 ### Two directions between Voices and Market Monitor Top voices

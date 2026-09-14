@@ -180,6 +180,137 @@ TOOLS: dict[str, ToolSpec] = {
         timeout=_LLM_TIMEOUT,
         method="follow_up_query",
     ),
+    # ---- Brand Watcher (handlers in brand_tools.py; each says so when the
+    # module is off on this site) ----
+    "list_brands": ToolSpec(
+        name="list_brands",
+        description="The brands this site monitors (the primary brand and its competitors), with the markets each sits in. Call before the other brand tools.",
+        properties={},
+        timeout=15.0,
+    ),
+    "get_brand_stats": ToolSpec(
+        name="get_brand_stats",
+        description="Brand Watcher headline numbers for one brand: article counts, sentiment split, category distribution over a window. The Dashboard's stat cards.",
+        properties={
+            "brand": {"type": "string", "description": "Brand display name from list_brands (default: the primary brand)"},
+            "brand_id": {"type": "integer"},
+            "days_back": {"type": "integer", "description": "Window in days (default 90)", "default": 90},
+        },
+        timeout=60.0,
+    ),
+    "get_brand_articles": ToolSpec(
+        name="get_brand_articles",
+        description="Classified news articles about one brand: category, sentiment, risk flags. The Articles tab. Paged.",
+        properties={
+            "brand": {"type": "string", "description": "Brand display name from list_brands (default: the primary brand)"},
+            "brand_id": {"type": "integer"},
+            "categories": {"type": "string", "description": "Comma-separated category names to keep (e.g. 'Legal & Regulatory,Product')"},
+            "days_back": {"type": "integer", "default": 30},
+            "sort_by": {"type": "string", "description": "date (default) or relevance", "default": "date"},
+            "page": {"type": "integer", "default": 1},
+            "per_page": {"type": "integer", "description": "1-200 (default 25)", "default": 25},
+        },
+        timeout=60.0,
+        max_bytes=_ARTICLE_LIST_BYTES,
+    ),
+    "get_brand_perception": ToolSpec(
+        name="get_brand_perception",
+        description="Perception across five surfaces for every brand: media, social, community (Reddit), employee (Glassdoor), investor. Net sentiment scores with volumes; the Perception tab.",
+        properties={
+            "days_back": {"type": "integer", "default": 90},
+        },
+        timeout=60.0,
+    ),
+    "get_brand_voices": ToolSpec(
+        name="get_brand_voices",
+        description=(
+            "Who is talking about a brand and what each audience thinks: on-brand social and "
+            "community posts grouped by the author's role (patient, clinician, caregiver, "
+            "customer, academic, professional, employee, journalist, investor, brand, unknown) "
+            "with a sentiment split per audience, the posts, and a model digest per audience "
+            "with verbatim quotes. The Voices tab. Ask this for 'what do doctors think of us "
+            "versus patients'."
+        ),
+        properties={
+            "brand": {"type": "string", "description": "Brand display name from list_brands (default: the primary brand)"},
+            "brand_id": {"type": "integer"},
+            "days_back": {"type": "integer", "default": 90},
+            "with_digest": {"type": "boolean", "description": "Also return the model digest (themes + quotes) per audience (default true)", "default": True},
+            "roles": {"type": "string", "description": "Comma-separated roles to digest (default: the focus pair, e.g. clinician,patient)"},
+            "posts_per_role": {"type": "integer", "description": "Posts returned per audience (default 20, max 60)", "default": 20},
+        },
+        timeout=_LLM_TIMEOUT * 2,
+        max_bytes=_ARTICLE_LIST_BYTES,
+    ),
+    "get_brand_alerts": ToolSpec(
+        name="get_brand_alerts",
+        description="Recent Brand Watcher alert events (negative-social spikes, high-reach negative posts, news net-negative, category spikes, new critics, Glassdoor deterioration ...).",
+        properties={
+            "limit": {"type": "integer", "default": 50},
+            "unacked_only": {"type": "boolean", "default": False},
+        },
+        timeout=30.0,
+    ),
+    # ---- Market Monitor ----
+    "list_markets": ToolSpec(
+        name="list_markets",
+        description="The markets this site tracks, with vendor counts. Call before the other market tools.",
+        properties={},
+        timeout=15.0,
+    ),
+    "get_market_vendors": ToolSpec(
+        name="get_market_vendors",
+        description="The vendors in one market with their profile fields (headcount, funding, founded, identifiers) and collection state.",
+        properties={
+            "market": {"type": "string", "description": "Market name from list_markets (default: the first enabled market)"},
+            "market_id": {"type": "integer"},
+            "role": {"type": "string", "description": "vendor, watch or excluded (default: all but excluded)"},
+            "collecting_only": {"type": "boolean", "default": False},
+        },
+        timeout=60.0,
+    ),
+    "get_market_analysis": ToolSpec(
+        name="get_market_analysis",
+        description="Cross-sectional market analyses: formation (founding years vs announcement volume), signal_noise (who announces vs who just posts), funding (stage mix, momentum, shared investors), hiring (what the market recruits for), share_of_voice. One by name, or all.",
+        properties={
+            "market": {"type": "string"},
+            "market_id": {"type": "integer"},
+            "name": {"type": "string", "description": "formation, signal_noise, funding, hiring or share_of_voice; omit for all"},
+            "days": {"type": "integer", "description": "Window for the period-based analyses (1-365)"},
+        },
+        timeout=90.0,
+    ),
+    "get_market_top_voices": ToolSpec(
+        name="get_market_top_voices",
+        description="The outside accounts posting about a market, ranked by engagement, with their profiled market role (vendor, vendor staff, practitioner, press ...) and audience (patient, clinician, customer ...) where known.",
+        properties={
+            "market": {"type": "string"},
+            "market_id": {"type": "integer"},
+            "days": {"type": "integer", "description": "Window in days (default: all time)"},
+            "limit": {"type": "integer", "default": 25},
+        },
+        timeout=60.0,
+    ),
+    "get_market_horizon": ToolSpec(
+        name="get_market_horizon",
+        description="The Market Maturity Map: each rated vendor's position (momentum vs maturity band), plus which vendors are unrated and why.",
+        properties={
+            "market": {"type": "string"},
+            "market_id": {"type": "integer"},
+        },
+        timeout=60.0,
+    ),
+    "get_market_briefings": ToolSpec(
+        name="get_market_briefings",
+        description="The most recent market briefings (monthly narrative reports) for a market.",
+        properties={
+            "market": {"type": "string"},
+            "market_id": {"type": "integer"},
+            "limit": {"type": "integer", "default": 5},
+        },
+        timeout=30.0,
+        max_bytes=_ARTICLE_LIST_BYTES,
+    ),
     "google_web_search": ToolSpec(
         name="google_web_search",
         description="Web search through Google Programmable Search (only when configured on this site)",
@@ -220,7 +351,7 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
     from . import recipes
 
     topics = await asyncio.to_thread(lambda: get_database_instance().get_topics())
-    return {
+    out = {
         "server": config.server_name(),
         "base_url": config.base_url(),
         "connected_as": getattr(ctx, "username", None),
@@ -230,9 +361,30 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
         "prompts": [r["name"] for r in recipes.list_recipes()],
         "notes": (
             "Pass a topic name exactly as listed here. Tools that take no topic "
-            "search across every topic."
+            "search across every topic. Brand and market tools take the names "
+            "listed under brands / markets."
         ),
     }
+    # The brand and market names, so a model can go straight to the brand
+    # tools without a list_brands round trip. Absent when the module is off.
+    try:
+        from sqlalchemy import text as _t
+        from app.core.modules import is_module_enabled
+        conn = get_database_instance()._temp_get_connection()
+        try:
+            if is_module_enabled("brand_watcher"):
+                out["brands"] = [
+                    {"name": r[0], "primary": bool(r[1])} for r in conn.execute(_t(
+                        "SELECT display_name, is_primary FROM bw_brands WHERE enabled = true "
+                        "ORDER BY is_primary DESC, display_name")).fetchall()]
+            if is_module_enabled("market_monitor"):
+                out["markets"] = [r[0] for r in conn.execute(_t(
+                    "SELECT name FROM bw_markets WHERE enabled = true ORDER BY name")).fetchall()]
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - the capability list stands without the names
+        pass
+    return out
 
 
 _SENTIMENT_WORDS = {
@@ -365,9 +517,12 @@ async def get_social_posts(ctx=None, brand: str | None = None, topic: str | None
         _social_posts_sync, brand, topic, days_back, min_relevance, platform, sentiment, limit, include_owned)
 
 
+from . import brand_tools as _brand_tools  # noqa: E402
+
 _LOCAL_HANDLERS: dict[str, Callable[..., Awaitable[dict[str, Any]]]] = {
     "list_capabilities": list_capabilities,
     "get_social_posts": get_social_posts,
+    **_brand_tools.HANDLERS,
 }
 
 

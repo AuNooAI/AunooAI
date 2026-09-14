@@ -91,7 +91,34 @@ Report per keyword: how many articles, the date range, the three most substantiv
     return [_user_message(text)]
 
 
+def _render_brand_briefing(args: dict[str, Any]) -> list[dict[str, Any]]:
+    brand = args.get("brand") or "the primary brand"
+    days = args.get("days_back") or 30
+    text = f"""You are running Aunoo's **brand briefing** recipe for {brand} over the last {days} days.
+
+Tool sequence:
+1. `list_brands`, then `get_brand_stats` with brand="{brand}", days_back={days}: volume, sentiment split, category mix.
+2. `get_brand_alerts` with limit=20: anything that fired in the window.
+3. `get_brand_voices` with brand="{brand}", days_back={days}: who is talking and what each audience thinks; read the digests for the focus pair (for a health brand, clinicians and patients).
+4. `get_brand_articles` with brand="{brand}", days_back={days}, per_page=15, sort_by="relevance" for the news behind the numbers.
+5. `get_brand_perception` with days_back={days} to place the brand against its competitors.
+
+Write: the state of the brand in two sentences; what changed in the window; what each audience says, with one quote each; the competitor comparison; what to watch. Give every number its denominator. Observational, not advice.
+
+{_CITATION_RULES}"""
+    return [_user_message(text)]
+
+
 _RECIPES: dict[str, Recipe] = {
+    "brand_briefing": Recipe(
+        name="brand_briefing",
+        description="Brand Watcher briefing for one brand: numbers, alerts, what each audience says, competitors, what to watch.",
+        arguments=(
+            RecipeArg("brand", "Brand display name from list_brands. Omit for the primary brand."),
+            RecipeArg("days_back", "How many days to cover (default 30)."),
+        ),
+        render=_render_brand_briefing,
+    ),
     "topic_briefing": Recipe(
         name="topic_briefing",
         description="Weekly-style briefing for one topic: what happened, tone, story mix, what to watch.",
