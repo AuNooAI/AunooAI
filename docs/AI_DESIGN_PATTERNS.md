@@ -266,6 +266,8 @@ flowchart TB
 - **Rule for specs:** any customer-facing article selection MUST filter on `topic_alignment_score` (prefer `get_relevant_articles_for_topic`). This is standing policy (memory `wiley_topic_collection_noise`).
 - **Gotcha:** floors are inconsistent and hard-coded per consumer (0.3 / 0.4 / 0.7) with no central config. A spec touching several consumers should state which floor applies where.
 
+**Update 2026-09-14.** The filter now lives in the data layer instead of in each consumer: `app/services/article_visibility.py` (`readable_clause` / `readable_sql` / `is_readable`, floor 0.4, unscored rows pass) is applied inside the facade readers (`get_recent_articles_by_topic`, `search_articles` with `readable_only=True`, `get_articles_by_topic`, bias and future-signal readers) and inside both pgvector searches. Readers that need the rejects (training, audit) opt out explicitly. Before this, Auspex chat, deep research, the Auspex tools and the MCP tools read the raw store while the views filtered, and an assistant reading a brand topic through MCP saw 389 rows the dashboard showed none of. The MCP dispatcher keeps a result-level gate as a backstop.
+
 ## 2.4 Sample-Count Bootstrap Routing
 
 **Problem.** A freshly-added topic has no trained local-model coverage, but needs quality enrichment immediately — and needs to accumulate training data so the free local model can eventually take over.

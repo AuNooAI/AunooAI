@@ -28,6 +28,49 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — One readable-articles rule for every reader
+
+### Goal
+Oliver: "why does the MCP server not apply quality control?" Quality control
+records its verdict (`ingest_status = 'filtered_relevance'`, a low
+`topic_alignment_score`) and keeps the row for retraining, so every reader
+has to leave the rejects out again. The Brand Watcher and dashboard routes
+and the briefing composer did; Auspex chat, deep research, the Auspex tools
+service and the MCP tools read the raw store. The MCP dispatcher gate added
+earlier today covered one path. This puts the rule in the data layer.
+
+### What changed
+- `app/services/article_visibility.py`: the rule in three forms,
+  `readable_clause(table)` for SQLAlchemy, `readable_sql(alias)` for SQL
+  text, `is_readable(row)` for rows in hand. Readable = alignment at or
+  above 0.4, or no score (manual submissions and rows older than the scorer).
+- `app/database_query_facade.py`: `get_recent_articles_by_topic`,
+  `search_articles` (new `readable_only=True`, pass False from training or
+  audit code), `get_articles_by_topic`, `get_articles_with_bias_data` and
+  `get_articles_with_future_signals` carry the clause. These are the readers
+  behind Auspex chat, deep research, the Auspex tools, the newsletter, the
+  futures cone, sampling and the search router.
+- `app/vector_store_pgvector.py`: both semantic searches (`search_articles`,
+  `search_articles_async`) add the predicate to their WHERE clause, so a
+  vector hit on a rejected article never reaches a caller.
+  `get_vectors_by_metadata` is untouched; it feeds analytics, not readers.
+- The MCP dispatcher gate stays as a backstop.
+
+### Verification
+In-process on oviva, no dispatcher involved: "Brand Monitoring Second
+Nature" returns 0 rows from the facade readers, the vector search and the
+Auspex tools (389 before); "Brand Monitoring Oviva" returns 53 readable rows
+from each, none below the floor. All five tenants restarted clean.
+
+### Not changed
+The Explore feed and dashboard keep their own relevance handling. The
+emerging-topics detector and other analytics still read the raw store on
+purpose.
+
+### Propagation
+Module copied; facade and vector store patched per tenant (both drift).
+bugfixing, oviva, sunstar, wiley, wileytest restarted.
+
 ## 2026-09-14 — MCP tools apply the relevance gate; Second Nature keywords made exact on oviva
 
 ### Goal

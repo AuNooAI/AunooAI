@@ -369,7 +369,10 @@ def search_articles(
         conn = db._temp_get_connection()
 
         # Build WHERE clause for filters
-        where_clauses = ["embedding IS NOT NULL"]
+        # Semantic search reads the same rows as every other reader: nothing
+        # below the relevance floor (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_sql
+        where_clauses = ["embedding IS NOT NULL", readable_sql()]
         params = {"limit": top_k}
 
         if metadata_filter:
@@ -548,7 +551,10 @@ async def search_articles_async(
         query_embedding = await asyncio.to_thread(embed_query, query)
 
         # Build WHERE clause for filters (asyncpg uses positional params $1, $2, etc.)
-        where_clauses = ["embedding IS NOT NULL"]
+        # Semantic search reads the same rows as every other reader: nothing
+        # below the relevance floor (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_sql
+        where_clauses = ["embedding IS NOT NULL", readable_sql()]
         param_values = []  # Will be built as we process filters
         param_idx = 2  # Start at 2 since $1 is the embedding
 

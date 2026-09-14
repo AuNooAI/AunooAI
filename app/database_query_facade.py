@@ -1201,6 +1201,7 @@ class DatabaseQueryFacade:
             List of article dictionaries with raw_markdown field
         """
         from app.database_models import t_raw_articles
+        from app.services.article_visibility import readable_clause
 
         statement = select(
             articles.c.uri,
@@ -1222,7 +1223,8 @@ class DatabaseQueryFacade:
         ).where(
             and_(
                 articles.c.topic == topic,
-                articles.c.analyzed == True  # Only analyzed articles
+                articles.c.analyzed == True,  # Only analyzed articles
+                readable_clause(articles)
             )
         ).order_by(
             desc(articles.c.publication_date)
@@ -5487,9 +5489,14 @@ class DatabaseQueryFacade:
         date_type='publication',
         date_field=None,
         require_category=False,
-        exclude_ingest_status=None
+        exclude_ingest_status=None,
+        readable_only=True
     ):
         """Search articles with filters including topic - SQLAlchemy version.
+
+        readable_only (default True) leaves out rows below the relevance floor,
+        the rule every view applies (app/services/article_visibility.py). Pass
+        False only from training or audit code that needs the rejects.
 
         exclude_ingest_status: list of ingest_status values to leave out, e.g.
         ["filtered_relevance"] for articles the collector rejected before the AI
@@ -5506,7 +5513,8 @@ class DatabaseQueryFacade:
             date_field_to_use = getattr(articles.c, date_field)
 
         # Build WHERE conditions
-        conditions = []
+        from app.services.article_visibility import readable_clause
+        conditions = [readable_clause(articles)] if readable_only else []
 
         # Add topic filter
         if topic:
@@ -5597,8 +5605,10 @@ class DatabaseQueryFacade:
         else:
             logger.info(f"Database: Fetching {limit} recent articles across ALL topics (date range: {start_date} to {end_date})")
 
-        # Build WHERE conditions (topic filter optional for cross-topic mode)
-        conditions = []
+        # Build WHERE conditions (topic filter optional for cross-topic mode).
+        # Readers never see what quality control rejected (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_clause
+        conditions = [readable_clause(articles)]
         if topic_name:
             conditions.append(articles.c.topic == topic_name)
 
@@ -5667,7 +5677,9 @@ class DatabaseQueryFacade:
             logger.info(f"Database: Fetching {limit} articles with bias data across ALL topics")
 
         # Build WHERE conditions - must have bias data
+        from app.services.article_visibility import readable_clause
         conditions = [
+            readable_clause(articles),
             articles.c.bias.isnot(None),
             articles.c.bias != ''
         ]
@@ -5721,7 +5733,9 @@ class DatabaseQueryFacade:
             logger.info(f"Database: Fetching {limit} articles with future signals across ALL topics")
 
         # Build WHERE conditions - must have future_signal data
+        from app.services.article_visibility import readable_clause
         conditions = [
+            readable_clause(articles),
             articles.c.future_signal.isnot(None),
             articles.c.future_signal != '',
             articles.c.future_signal != 'None'
