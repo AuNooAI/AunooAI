@@ -144,6 +144,15 @@ def formation(conn, market_id: int) -> Dict[str, Any]:
 # the market".
 MIN_POSTS_FOR_RATIO = 8
 
+# The floor a social post must clear to count as an outside voice on this
+# market. Term matching attaches anything carrying a market phrase, and phrases
+# collide across fields: "AI SoC" (a chip) trips the "AI SOC" (SOC platform)
+# term, so semiconductor and stock-market posts term-matched in with alignment
+# 0 and rendered on the public page because the voices queries filtered only on
+# review_verdict, never on alignment. 0.4 is the same cut the rest of the
+# customer-facing selections use. Applied to every social query below.
+MIN_SOCIAL_ALIGNMENT = 0.4
+
 
 def signal_noise(conn, market_id: int, *, days: Optional[int] = None
                  ) -> Dict[str, Any]:
@@ -1161,6 +1170,7 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         ORDER BY engagement DESC,
                  COALESCE(a.publication_date, a.submission_date) DESC
@@ -1238,6 +1248,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         GROUP BY 1, 2
         ORDER BY engagement DESC, posts DESC
@@ -1263,6 +1274,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
               AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' IS NOT NULL
               AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+              AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
               {window}
             GROUP BY 1) t
     """), {k: v for k, v in params.items() if k != "lim"}).fetchone()
@@ -1301,6 +1313,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         GROUP BY 1, 2
         HAVING COUNT(*) >= :threshold
@@ -1468,6 +1481,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         WHERE ma.market_id = :m
           AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           AND (a.news_source = 'bluesky' OR a.news_source LIKE 'xpoz%')
           {window}
     """), params).fetchone()

@@ -180,6 +180,20 @@ DEFAULT_EXCLUDE_TERMS: List[str] = [
     "iPad",
     "Liquid Retina",
     "XDR display",
+    # The "AI SoC" reading is a semiconductor, not a security operations
+    # centre. The consumer-benchmark terms above miss the industrial and
+    # stock-market coverage of chip makers — a Doosan Tesna stock post about
+    # "AI SoC and automotive semiconductors" matched the "AI SOC" context term
+    # with zero topical alignment. None of these words belong in AI-SOC
+    # security coverage, so the phrase scan skips an article carrying them.
+    # Both singular and plural: the phrase scan matches whole words (\bword\b),
+    # so "semiconductor" alone would miss "automotive semiconductors".
+    "semiconductor",
+    "semiconductors",
+    "foundry",
+    "foundries",
+    "wafer",
+    "wafers",
 ]
 
 
