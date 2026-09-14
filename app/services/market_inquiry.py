@@ -37,12 +37,12 @@ INQUIRIES_PER_IP_PER_DAY = 10   # checkout attempts, its own counter, not the ti
 SESSION_TTL_SECONDS = 30 * 60   # Stripe's minimum for a Checkout session
 
 OPTIONS: Dict[int, Dict[str, Any]] = {
-    30: {"label": "Analyst inquiry, 30 minutes", "cents": 25000,
+    30: {"label": "Analyst inquiry, 30 minutes", "cents": 40000,
          "env_price": "STRIPE_PRICE_INQUIRY_30",
          "env_booking": "MARKET_INQUIRY_BOOKING_URL_30",
          "blurb": "One vendor, one question. Enough to sanity-check a shortlist entry, "
                   "a claim in a press release, or a pricing conversation."},
-    60: {"label": "Analyst inquiry, 60 minutes", "cents": 45000,
+    60: {"label": "Analyst inquiry, 60 minutes", "cents": 70000,
          "env_price": "STRIPE_PRICE_INQUIRY_60",
          "env_booking": "MARKET_INQUIRY_BOOKING_URL_60",
          "blurb": "The market, a shortlist, or a strategy question. Time to compare "

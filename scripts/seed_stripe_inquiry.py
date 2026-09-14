@@ -1,6 +1,8 @@
 """Create the Stripe product and the two one-off prices for the paid
 analyst call on the market front page. Idempotent: a product is matched by
-name and a price by lookup_key, so re-running creates nothing twice.
+name and a price by lookup_key, so re-running creates nothing twice. A
+price whose amount changed is archived and replaced, because Stripe prices
+are immutable; the lookup_key moves to the new price.
 
 Usage:
     STRIPE_SECRET_KEY=sk_test_...  .venv/bin/python scripts/seed_stripe_inquiry.py --dry-run
@@ -25,8 +27,8 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 PRODUCT_NAME = "AI SOC News analyst inquiry"
 # (env var, lookup_key, amount in cents, nickname)
 PRICES = [
-    ("STRIPE_PRICE_INQUIRY_30", "aisocnews-inquiry-30", 25000, "Analyst inquiry, 30 minutes"),
-    ("STRIPE_PRICE_INQUIRY_60", "aisocnews-inquiry-60", 45000, "Analyst inquiry, 60 minutes"),
+    ("STRIPE_PRICE_INQUIRY_30", "aisocnews-inquiry-30", 40000, "Analyst inquiry, 30 minutes"),
+    ("STRIPE_PRICE_INQUIRY_60", "aisocnews-inquiry-60", 70000, "Analyst inquiry, 60 minutes"),
 ]
 
 
@@ -58,15 +60,22 @@ def _ensure_product(name: str, dry_run: bool):
 def _ensure_price(*, product_id: str, lookup_key: str, unit_amount: int,
                   nickname: str, dry_run: bool):
     existing = _find_price(lookup_key)
-    if existing:
+    if existing and existing.unit_amount == unit_amount:
         logger.info("    price OK   %-28s %s", lookup_key, existing.id)
         return existing
+    if existing:
+        logger.info("    price OLD  %-28s %s  %d -> %d cents, archiving%s", lookup_key,
+                    existing.id, existing.unit_amount, unit_amount,
+                    " (dry-run)" if dry_run else "")
     if dry_run:
         logger.info("    price NEW  %-28s (dry-run)", lookup_key)
         return stripe.Price.construct_from(
             {"id": f"<dry-run:{lookup_key}>", "lookup_key": lookup_key}, key=stripe.api_key)
     price = stripe.Price.create(product=product_id, unit_amount=unit_amount,
-                                currency="usd", lookup_key=lookup_key, nickname=nickname)
+                                currency="usd", lookup_key=lookup_key, nickname=nickname,
+                                transfer_lookup_key=bool(existing))
+    if existing:
+        stripe.Price.modify(existing.id, active=False)
     logger.info("    price NEW  %-28s %s", lookup_key, price.id)
     return price
 

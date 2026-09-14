@@ -2,6 +2,127 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-11 — Auspex follow-ups keep their subject; "recent" no longer switches off search
+
+### Goal
+On the Wiley brand-monitoring site (wbm), a user asked Auspex "did wileys
+glassdoorr rating drop?" and then "overview recent reviews". The first
+answer was built from 31 Glassdoor reviews, but only 11 of them were
+Wiley's; the rest were Elsevier, Pearson and SAGE reviews merged in as if
+they were Wiley's. The second answer came back from 218 unrelated
+articles and said the database held no Glassdoor coverage at all. The
+user's note was "this had been fixed in the past"; git history has no
+trace of a fix, so the follow-up path had never carried conversation
+context. Commit `c22e1e8e`, all in **`app/services/auspex_service.py`**.
+
+### The retriever only saw the current message
+`chat_with_tools` sends the whole conversation to the model, but the
+search that gathers articles ran on the raw current message alone. A
+follow-up like "overview recent reviews" reached the vector store with no
+"Wiley" and no "Glassdoor" in it.
+
+New `AuspexService._resolve_followup_query`: a message of 300 characters
+or fewer, in a chat that already has a user turn, is rewritten into a
+standalone search query from the last six turns (stats and chart comment
+blocks stripped). The call goes through `get_ai_model('gpt-5.4-mini')`,
+which the routing yaml maps to kimi-k2.5 on Bedrock, in a worker thread
+so it does not block the event loop. The rewrite is used for retrieval
+only; the model still receives the user's own words, and any error or an
+empty reply falls back to the raw message. Wired in `chat_with_tools`
+right before `_use_mcp_tools`; plugin-tool matching keeps the original
+message so keyword-triggered plugins behave as before.
+
+### A time word replaced search with a date sample
+`QueryRouter.classify_query` treats any of "recent", "latest", "trend",
+"pattern", "developments" and a few more as a temporal query, and
+`_temporal_fetch` then returned a newsletter-style SQL sample of the last
+7 days across every topic, with no similarity matching at all. On wbm
+that fetch found 964 articles and sampled 218. The newest Wiley Glassdoor
+review is dated 2026-09-03, one day outside the window, so nothing
+relevant could have come back even by luck.
+
+`_temporal_fetch` now looks for a subject first. `_subject_terms` strips
+the time phrases, the temporal keywords and a stop-word list ("what",
+"overview", "news", "this week"...), and whatever is left is a subject.
+With a subject, the router runs the existing semantic search (cross-topic
+or single-topic) and orders the hits newest first; an explicit window
+such as "last 30 days" (the `TIME_PATTERNS` table) is applied as a
+cut-off on `publication_date`. The date sample stays for subject-less
+questions ("what are the latest trends?") and as the fallback when the
+subject search finds nothing. `has_explicit_time_period` is the new
+helper that tells "recent" from "last 30 days".
+
+### Cross-topic answers about one brand were padded with its competitors
+In cross-topic mode the router takes the best hits from every topic, so a
+question about one tracked brand returned its competitors' brand-watch
+articles as well, and the model counted them together. New
+`_scope_to_named_brands`, run after every routing branch when the chat is
+cross-topic: if the query names a brand in `bw_brands` (shared
+`_named_brand_tokens` helper, now also matching "wiley's" and "wileys"),
+keep only articles that name the brand or sit in a topic that does, then
+top up from the brand's own topics with a direct per-topic vector search.
+The top-up matters because the per-topic allocation of a cross-topic
+search gave "Wiley - Brand Watch" 2 slots out of a 50-article budget
+spread over 21 topics. Temporal results are re-sorted newest first after
+the top-up. `_named_brand_fallback` (the 8 Sep single-topic fallback) now
+uses the same helper. Sites without a `bw_brands` table are unaffected;
+the helper returns nothing.
+
+### Verification
+Run from the wbm checkout with its venv against the wbm database, read
+only, calling `QueryRouter.route(query, topic=None, ...)` directly:
+
+| Query | Limit | Method | Articles | Glassdoor | Topics |
+|---|---|---|---|---|---|
+| recent Wiley Glassdoor employee reviews overview | 50 | cross_topic+recency+brand_scoped | 26 | 11 | Wiley - Brand Watch 23, Brand Monitoring Wiley 3 |
+| same | 241 | same | 211 | 11 | Wiley's two topics only |
+| did wileys glassdoorr rating drop? | 241 | cross_topic+brand_scoped | 207 | 11 | Wiley's two topics only |
+| Elsevier Glassdoor rating drop | 50 | direct_vector+brand_scoped | 21 | 21 | Elsevier - Brand Watch |
+| what are the latest trends? | 50 | temporal_sql_fetch | 42 | 0 | 10 topics, last 7 days |
+
+wbm holds exactly 11 Glassdoor rows under Wiley and 21 under Elsevier
+(`SELECT topic, news_source, count(*) FROM articles WHERE news_source
+ILIKE '%glassdoor%' GROUP BY 1,2`), so both brand queries now return the
+full set and nothing from the other publishers.
+
+Full chat path, `chat_with_tools` in a throwaway chat on wbm seeded with
+the original first turn, then "overview recent reviews", then the chat
+deleted:
+
+```
+Follow-up query resolved: 'overview recent reviews' -> 'recent Wiley Glassdoor employee reviews overview'
+Temporal query has a subject ['wiley', 'glassdoor', 'employee', 'reviews']; searching it, newest first
+named-brand scoping for ['Wiley']: 28 -> 92 articles (21 dropped, 85 added from brand topics)
+QueryRouter returned 92 articles via cross_topic_parallel_vector+recency+brand_scoped
+```
+
+The reply discussed the Glassdoor reviews and did not mention Elsevier.
+Offline unit checks of `classify_query`, `_subject_terms` and
+`_scope_to_named_brands` with a stub database also passed (a two-brand
+query "compare wiley and elsevier" keeps both brands' articles).
+
+### Propagation
+Committed in bugfixing (canonical). Copied to abm, oviva, sunstar, wbm,
+wiley and wileytest; all seven running sites' copies of
+`auspex_service.py` are byte-identical (md5 `1ca1aa99`). wiley had only
+been missing the 8 Sep `d627f759` change to this file, with no local
+edits, so a straight copy was a catch-up plus the fix. Every running site
+was checked for live `background_tasks` rows newer than its process boot
+and for overdue observer agents before the restart; all were idle. All
+seven services restarted clean. The 14 stopped sites (abbott, bwtemplate,
+community, helpnet, ibaset, interroll, opendemo, pbm, pearson, sage,
+skunkworkx, spiros, testbed, vc) do not have it: their `route()` predates
+`d627f759`, so a surgical patch does not apply; they need the normal
+catch-up when they next come up.
+
+### Lessons
+- A keyword router that *replaces* one retrieval strategy with another is
+  a trap. "Recent" should narrow or order results, never decide that the
+  rest of the sentence does not matter.
+- Follow-up turns need the rewrite at the retrieval boundary, not only in
+  the model's context. The model knew what "reviews" meant; the vector
+  store did not.
+
 ## 2026-09-10 — English text for non-English posts and rejected articles; the original kept alongside
 
 ### Goal
