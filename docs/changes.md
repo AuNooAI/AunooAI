@@ -56,10 +56,22 @@ September, all from manual runs; 76 of today's 1,202 new posts on sunstar.
   from the group's providers as well, so a caller that bypasses
   `check_single_group` still cannot push social posts into the news pipeline.
 
-### Not repaired
-The 18 oviva posts keep their précis; the original post text was overwritten
-and only the title survives. They will not be re-collected, because they are
-already in the store.
+### Second cause, and the repair (later the same day)
+Sunstar's brand groups mix news and social providers, so the group-level
+flag never applied there and every social post they collected went through
+the news pipeline: 1,634 rewritten posts on sunstar against 48 on oviva.
+`check_keywords` now drops social rows from the batch it hands to the news
+pipeline whatever the group, and they get the social evaluator as before.
+
+The overwritten text is recoverable, because the posts still exist on the
+platforms. `scripts/restore_social_text.py` re-fetches each rewritten post
+by id (Bluesky public API; xpoz `get_posts_by_ids` for X, Instagram and
+TikTok; xpoz `get_post_with_comments` for Reddit), cleans it the way the
+collector does, and writes it back through `english_fields`, so the English
+text and the original land in the same columns a fresh collection fills.
+Sentiment, relevance and category are untouched. oviva: 45 of 48 restored
+(3 rows carry no platform id), 18 of them translated. sunstar: run in the
+background, see the next entry or the run log.
 
 ### Propagation
 bugfixing, oviva, sunstar, wiley, wileytest, by patch (the tasks file drifts

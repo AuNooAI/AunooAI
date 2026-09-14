@@ -630,6 +630,20 @@ class KeywordMonitor:
                     logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
 
                     if should_auto_ingest:
+                        # Social posts never take the news pipeline, whatever group
+                        # collected them: its analyzer rewrites a post's text as a
+                        # précis and drops the original. They get the social
+                        # evaluator in check_single_group instead. Sunstar's
+                        # brand groups mix news and social providers, so the
+                        # group-level flag alone did not cover them (14 Sep 2026).
+                        from app.services.social_sources import is_social_source
+                        social_rows = [a for a in articles if is_social_source(a.get("source") or a.get("news_source"))]
+                        if social_rows:
+                            articles = [a for a in articles if a not in social_rows]
+                            logger.info(f"Auto-ingest: {len(social_rows)} social post(s) left to the social evaluator")
+                        if not articles:
+                            should_auto_ingest = False
+                    if should_auto_ingest:
                         try:
                             topic_keywords = await loop.run_in_executor(
                                 None, self.db.facade.get_monitored_keywords_for_topic, (topic,)
