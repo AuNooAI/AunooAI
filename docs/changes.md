@@ -2,6 +2,42 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Profile pass over every Oviva author; the profile now names the audience
+
+### What the first pass showed
+Building Market Monitor profiles for the 37 unprofiled accounts behind Oviva's on-brand posts
+(xpoz + one model call each, 37 built, 0 failed) read 24 of them as "no clear connection".
+The platform fetch returns an account's latest timeline, and a patient logging their weight
+or a GP in a prescribing thread rarely mentions the vendor there. The posts that brought the
+account into the site were never shown to the model.
+
+### Changes (`app/services/social_profile_service.py`, `audience_voices.py`)
+- **On-brand posts go in first.** `_market_posts` pulls the account's collected posts that
+  carry an author role or sit in a brand or market topic, and the market prompt shows them
+  above the timeline sample with the instruction to judge the account's part in the market
+  from those. Reread over the 40 accounts: 34 practitioner, 3 vendor, 1 analyst, 1 vendor
+  staff (Partech, the investor), 1 unrelated.
+- **The profile names the audience directly.** "Practitioner" covers both the prescribing GP
+  and the patient on the programme, and mapping it to clinician by default put three patients
+  and a partner organisation on the doctors' side. The market read now also returns
+  `audience` in the Voices taxonomy (patient, caregiver, clinician, customer, academic,
+  professional, employee, journalist, investor, brand, unknown), stored as
+  `social_accounts.metadata.audience_role`; `account_audiences` uses it before any mapping. A
+  vendor's own account is always brand voice, whatever its posts read as (Oviva UK came back
+  "patient" because it posts patient stories); vendor staff is employee unless read as investor.
+- Practitioner without an audience (profiles from before this) resolves by the account's
+  post history, then the post itself, then the site's industry.
+
+### Result on oviva (Brand Monitoring Oviva, 180 days, 42 posts)
+41 of 42 posts take their role from the account profile. Patients 26 (net +8), clinicians 7
+(net −57), brand voice 5, customers 2, caregiver 1, academic 1 (a UCLA centre whose post is
+about Oviva Therapeutics, a different company). The seven clinician accounts are all German or
+UK prescribing doctors; the negative reading is prescribing pressure, weak evidence and cost.
+
+### Propagation
+oviva and bugfixing (the wiley copies of `social_profile_service.py` are drifted and have no
+market monitor). Both restarted with no live tasks.
+
 ## 2026-09-14 — Brand and market data over MCP; GP accounts profiled
 
 ### MCP tools (`app/mcp_access/brand_tools.py`, registered in `tools.py`)

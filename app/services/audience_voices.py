@@ -120,13 +120,19 @@ def _meta(raw) -> Dict[str, Any]:
 MARKET_ROLE_MAP = {
     "vendor": "brand",
     "vendor_staff": "employee",
-    "practitioner": None,          # resolved by the health flag below
+    "practitioner": None,          # in the field, but which side? see FIELD_ROLES below
     "analyst_or_press": "journalist",
     "reseller": "brand",
     "promoter_or_bot": "brand",
     "unrelated": None,             # says nothing about who they are; keep the post's reading
 }
 HEALTH_ROLES = {"patient", "clinician", "caregiver"}
+# "practitioner" on a market profile means "in the market's field", which
+# covers both a prescribing GP and the patient on the programme. The profile
+# confirms the account belongs to the conversation; which side it is on comes
+# from what the account's posts say. Only when the posts say nothing does the
+# tenant's industry decide (clinician on a health site, professional elsewhere).
+FIELD_ROLES = {"patient", "clinician", "caregiver", "customer", "professional", "academic"}
 _VOTE_MIN_POSTS = 2
 _VOTE_MIN_SHARE = 0.6
 
@@ -177,7 +183,7 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
     try:
         profiled = conn.execute(text("""
             SELECT LOWER(platform), handle_canonical, metadata->>'market_role',
-                   metadata->>'market_org'
+                   metadata->>'market_org', metadata->>'audience_role'
               FROM social_accounts
              WHERE metadata->>'market_role' IS NOT NULL
                AND (LOWER(platform), handle_canonical)
@@ -186,10 +192,34 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
     except Exception as e:  # noqa: BLE001 - social_accounts may predate metadata
         logger.debug("account_audiences: profile lookup failed: %s", e)
         profiled = []
-    for plat, handle, market_role, org in profiled:
+    for plat, handle, market_role, org, audience in profiled:
+        # A vendor's own account is the brand's voice whatever its posts read
+        # as: Oviva's UK account came back "patient" because it posts patient
+        # stories. The market role is the stronger fact here.
+        if market_role in ("vendor", "reseller", "promoter_or_bot"):
+            audience = "brand"
+        elif market_role == "vendor_staff" and audience not in ("investor", "employee"):
+            audience = "employee"
+        # A profile read with the account's on-brand posts in view names the
+        # audience directly; that answers the question and needs no mapping.
+        if audience and audience in AUTHOR_ROLES and audience != "unknown":
+            out[(plat, handle)] = {"role": audience, "source": "account_profile",
+                                   "market_role": market_role, "org": org, "n": None}
+            continue
         mapped = MARKET_ROLE_MAP.get(market_role)
         if market_role == "practitioner":
-            mapped = "clinician" if health else "professional"
+            dist = votes.get((plat, handle), {})
+            field = {r: n for r, n in dist.items() if r in FIELD_ROLES}
+            if field:
+                mapped = max(field.items(), key=lambda kv: kv[1])[0]
+            else:
+                # No classified post to say which side: leave it to the post
+                # itself (apply_account_roles keeps a field role) and fall back
+                # to the industry default only when that is unknown too.
+                out[(plat, handle)] = {"role": None, "source": "account_profile",
+                                       "market_role": market_role, "org": org, "n": None,
+                                       "fallback": "clinician" if health else "professional"}
+                continue
         if mapped:
             out[(plat, handle)] = {"role": mapped, "source": "account_profile",
                                    "market_role": market_role, "org": org, "n": None}
@@ -231,9 +261,17 @@ def apply_account_roles(conn, posts: List[Dict[str, Any]], *,
         hit = resolved.get(pairs.get(id(p)))
         if not hit:
             continue
-        if hit["role"] != p.get(role_key):
+        role = hit["role"]
+        if role is None:
+            # A profiled practitioner with no post history to pick a side:
+            # this post's own reading stands when it names a side.
+            own = p.get(role_key)
+            role = own if own in FIELD_ROLES else hit.get("fallback")
+            if not role:
+                continue
+        if role != p.get(role_key):
             changed += 1
-        p[role_key] = hit["role"]
+        p[role_key] = role
         p["author_role_source"] = hit["source"]
         if hit.get("market_role"):
             p["account_market_role"] = hit["market_role"]

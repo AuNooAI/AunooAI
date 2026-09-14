@@ -263,8 +263,41 @@ class SocialProfileService:
 
     # ---- enrichment (LLM summary + topics + brand context) ----------------
 
+    @staticmethod
+    def _market_posts(db, platform: str, handle: str, limit: int = 8) -> List[str]:
+        """This account's posts that the site collected about the market's vendors.
+
+        The platform fetch returns the account's latest posts, which for a
+        patient logging their weight or a GP in a prescribing thread rarely
+        mention the vendor at all, so the model read 24 of 40 Oviva authors as
+        "no clear connection". The posts that brought the account here are
+        the evidence of its part in the market; they go in first.
+        """
+        try:
+            conn = db._temp_get_connection()
+            try:
+                rows = conn.execute(sql_text("""
+                    SELECT COALESCE(a.summary, a.title) AS body,
+                           COALESCE(a.author_role, '') AS role
+                      FROM articles a
+                     WHERE LOWER(a.social_meta->>'author') = LOWER(:h)
+                       AND LOWER(COALESCE(a.social_meta->>'platform',
+                                          SPLIT_PART(a.news_source, ':', 2))) = LOWER(:p)
+                       AND (a.author_role IS NOT NULL OR a.topic LIKE 'Brand Monitoring %'
+                            OR a.topic LIKE 'Market Monitoring %')
+                     ORDER BY a.publication_date DESC NULLS LAST
+                     LIMIT :lim
+                """), {"h": handle, "p": platform, "lim": limit}).fetchall()
+            finally:
+                conn.close()
+            return [str(r[0]).strip()[:300] for r in rows if r[0] and str(r[0]).strip()]
+        except Exception as e:  # noqa: BLE001 - evidence is an enhancement, never a blocker
+            logger.debug("profile market posts lookup failed for %s/%s: %s", platform, handle, e)
+            return []
+
     async def _summarize(self, ident: Dict, posts: List[Dict], brand: Optional[str],
-                         context: Optional[str] = None) -> Dict:
+                         context: Optional[str] = None,
+                         market_posts: Optional[List[str]] = None) -> Dict:
         try:
             from app.ai_models import LiteLLMModel
             model = LiteLLMModel.get_instance(os.getenv("SOCIAL_EVAL_MODEL", "bedrock-claude-haiku"))
@@ -273,6 +306,12 @@ class SocialProfileService:
         if not model:
             return {}
         sample = "\n".join(f"- {p['text'][:200]}" for p in posts[:12] if p.get("text")) or "(no post text available)"
+        market_block = ""
+        if context and not brand and market_posts:
+            market_block = ("\n\nPOSTS BY THIS ACCOUNT ABOUT THE MARKET'S VENDORS (judge their part "
+                            "in the market from these first; the recent posts only show who "
+                            "they are in general):\n"
+                            + "\n".join(f"- {t}" for t in market_posts[:8]))
         # A market frames the account differently from a brand: the question
         # is what part it plays in the market (vendor staff, customer, analyst,
         # reseller, promoter, bot), not whether it likes one company.
@@ -281,7 +320,9 @@ class SocialProfileService:
             brand_line = (f'The account is being profiled for the market "{context}". ')
             relation = ("<1-2 sentences on this account's part in that market: vendor "
                         "staff, customer or practitioner in the market's own field, analyst or press, reseller, "
-                        "promoter or bot, or 'No clear connection.'>")
+                        "promoter or bot, or 'No clear connection.' A person using, prescribed, "
+                        "referred to or treated with a vendor's product or service has a part in the "
+                        "market; 'unrelated' is only for accounts whose posts never engage with it.>")
             # A fixed label beside the prose, so the reading can be tagged
             # and grouped without parsing a sentence.
             role_fields = (
@@ -291,7 +332,17 @@ class SocialProfileService:
                 "for a health market, a security team member for a security market, a "
                 "librarian or researcher for a publishing market), analyst_or_press, reseller, "
                 'promoter_or_bot, unrelated>", '
-                '"organisation": "<the company the account is or works for, or null>"')
+                '"organisation": "<the company the account is or works for, or null>", '
+                # Which side of the market the account speaks from. "practitioner"
+                # covers both the GP who prescribes and the patient on the
+                # programme; the Voices view needs them apart.
+                '"audience": "<exactly one of: patient (uses, is prescribed or referred to a '
+                "vendor's health service), caregiver (speaks for a patient), clinician (doctor, "
+                "GP, nurse, dietitian, pharmacist, therapist speaking as such), customer (end "
+                "user or buyer of a non-health product), academic, professional (works in the "
+                "field but not for a vendor: analyst, commissioner, partner organisation), "
+                "employee (of a vendor), journalist, investor, brand (a vendor's own or affiliate "
+                'account), unknown>"')
         else:
             brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""
             relation = "<1-2 sentences on this account's relationship to the brand, or 'No clear connection.' >"
@@ -304,7 +355,8 @@ class SocialProfileService:
             " No prose outside the JSON."
         )
         usr = (f"{brand_line}ACCOUNT: @{ident.get('handle')} ({ident.get('platform')})\n"
-               f"NAME: {ident.get('display_name') or ''}\nBIO: {ident.get('bio') or ''}\n\nRECENT POSTS:\n{sample}")
+               f"NAME: {ident.get('display_name') or ''}\nBIO: {ident.get('bio') or ''}"
+               f"{market_block}\n\nRECENT POSTS:\n{sample}")
         try:
             from fastapi.concurrency import run_in_threadpool
             content = await run_in_threadpool(model.generate_response,
@@ -322,6 +374,14 @@ class SocialProfileService:
                 org = obj.get("organisation")
                 out["organisation"] = (str(org).strip()[:120]
                                        if org and str(org).strip().lower() not in ("null", "none", "") else None)
+                try:
+                    from app.services.social_eval_service import AUTHOR_ROLES
+                except ImportError:
+                    AUTHOR_ROLES = ()
+                aud = str(obj.get("audience") or "").strip().lower().replace(" ", "_")
+                if out["role"] in ("vendor", "reseller", "promoter_or_bot"):
+                    aud = "brand"   # the company's own voice, whatever it posts about
+                out["audience"] = aud if aud in AUTHOR_ROLES else None
             return out
         except Exception as e:  # noqa: BLE001
             logger.debug("profile summarize failed: %s", e)
@@ -379,8 +439,10 @@ class SocialProfileService:
             return None
         ident.pop("connections", None)
         posts = ident.pop("posts", [])
+        market_posts = self._market_posts(db, platform, canon) if (context and not brand) else None
         summary, sentiment = await asyncio.gather(
-            self._summarize(ident, posts, brand, context), self._sentiment(posts, brand))
+            self._summarize(ident, posts, brand, context, market_posts=market_posts),
+            self._sentiment(posts, brand))
         by_id = sentiment.get("by_id", {})
         for p in posts:
             p["sentiment"] = by_id.get(p["id"])
@@ -404,6 +466,7 @@ class SocialProfileService:
             return {}
         return {"market_role": summary.get("role"),
                 "market_org": summary.get("organisation"),
+                "audience_role": summary.get("audience"),
                 "market": context, "market_read_at": _now()}
 
     async def reread(self, db, platform: str, handle: str, context: str) -> Optional[Dict]:
@@ -417,7 +480,8 @@ class SocialProfileService:
         ident = {"handle": stored.get("handle"), "platform": platform,
                  "display_name": stored.get("display_name"), "bio": stored.get("bio")}
         posts = [p for p in (stored.get("sample_posts") or []) if isinstance(p, dict)]
-        summary = await self._summarize(ident, posts, None, context)
+        market_posts = self._market_posts(db, platform, stored.get("handle_canonical") or handle)
+        summary = await self._summarize(ident, posts, None, context, market_posts=market_posts)
         if not summary:
             return None
         conn = db._temp_get_connection()
