@@ -73,6 +73,14 @@ no ministry attribution and every figure sourced. The judge still emits
 "info" lines saying a claim is correct, despite being told problems only;
 they do not affect the verdict.
 
+### Later: attribution rule (commit 2acb9d4f)
+The writer turned "JNTL Consumer Health announced results of a study with
+Hiroshima University" into "Hiroshima University results announced". The
+ground rules now say a study or announcement belongs to whoever the source
+names as its issuer, and the reviewer's `actor` check flags a wrong issuer.
+Today's Sunstar briefing was corrected by hand (summary sentence, decision
+point 2) and the unsourced "Ora2 x Gemini" emerging topic was removed.
+
 ### Propagation
 sunstar, wiley, wileytest: service and prompt copied, restarted. bugfixing
 restarted. No live background jobs.

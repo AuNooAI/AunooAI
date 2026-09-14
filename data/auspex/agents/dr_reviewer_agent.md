@@ -55,7 +55,11 @@ items counts as evidence, including your own knowledge of the world.
 
 3. **Names of institutions and people.** A wrong institution (the draft says
    one university, the source names another), a wrong title, or a wrong
-   company for a product is an `error`.
+   company for a product is an `error`. So is a study, figure or announcement
+   attributed to a different organisation than the one the source names as
+   its issuer: results a company announced from a study done with a
+   university are the company's announcement, not the university's
+   (`check: actor`).
 
 4. **Sourcing.** "Multiple sources", "independently confirmed", "widely
    reported" are `error` when the cited items all relay one origin (the same
