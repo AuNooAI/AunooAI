@@ -28,6 +28,69 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Social coverage: a per-run page size for social providers; MCP gets the social feed; oviva market watch retuned
+
+### Goal
+Oliver: "7 day social data seems low for them" (oviva). A follow-up MCP
+read-out added that social posts are not reachable through MCP, that the
+"Market Monitoring Oviva" topic held one mis-ingested geopolitics article,
+and that `search_news` and `google_web_search` looked misconfigured.
+
+### Why social was low
+- Every social provider returns the N most recent posts per platform per
+  keyword, and N was the tenant page size: 10, sized for the news APIs. With
+  groups running once a day that is a hard cap of 10 per platform per
+  keyword per day, and a provider outage is never backfilled.
+- Xpoz returned nothing from 10 to 13 September (key out of credit, recharged
+  today). Posts per day on oviva fell from about 50 to about 15.
+- Two Oviva keywords ("Oviva app", "Oviva NHS") and "Noom Med" were rejected
+  by the strict-terms filter on every post they pulled (25 of 25), and
+  "Weight Watchers" / "WW Clinic" produced 318 posts of which 4 were on-brand.
+  Each cost a full pull per platform per run.
+
+### What changed
+- `app/tasks/keyword_monitor.py`: social providers (reddit, bluesky, xpoz)
+  ask for `SOCIAL_PAGE_SIZE` posts per platform (default 25) instead of the
+  news page size; `XPOZ_MAX_RESULTS` still caps per platform. Re-running the
+  three oviva groups added 88 posts and lifted the outage days from 14-19 to
+  16-29 posts.
+- oviva keywords: group 9 keeps `Oviva`; group 10 keeps `Noom`; group 11
+  keeps `WeightWatchers`. The dropped terms had produced 5 on-brand posts in
+  14 days between them.
+- `app/mcp_access/tools.py`: new tool `get_social_posts` (brand or topic,
+  days_back, min_relevance, platform, sentiment, limit, include_owned).
+  Same two read paths as the Social tab (entity mentions when that flag is
+  on, the articles table otherwise), returns the translation and the
+  original, engagement and a sentiment split. The topic tools return news
+  only, which is why social was invisible to an assistant.
+- oviva market watch (group 12): the Market Monitor's default keyword
+  qualifier is "security", built for cybersecurity vendors, so the group
+  searched "Numan security" and matched a Breitbart piece on drone attacks on
+  Saudi oil facilities, scored 0.75 against a topic description that said
+  only "tracks vendor coverage". Re-planned with qualifier "weight loss"
+  (`Oviva weight loss`, `Noom weight loss`, `Numan weight loss`, `Voy weight
+  loss`, `"Second Nature"`, `Juniper`), the qualifier recorded on the market,
+  the topic description in config.json rewritten to name the market and what
+  is off-topic, and the one article marked filtered. `Juniper` stays bare by
+  the planner's length rule; the relevance gate handles its collisions.
+- Oviva vendor record: founded year corrected 2013 → 2014 (oviva.com about
+  page). Staff stays the LinkedIn count (944) because that is the measure
+  used for every vendor; Oviva's careers page claims 1,500+.
+
+### Findings, no change
+- `search_news` works. "Oviva weight loss" returns nothing from TheNewsAPI
+  because the provider has no such article; "weight loss" returns five.
+- `google_web_search` fails with 403 "requests to this API customsearch
+  method are blocked" on oviva and on bugfixing alike: the Google API key's
+  restrictions block the Custom Search API. That is a Google Cloud console
+  setting, not a tenant one.
+- Oviva's own social volume is genuinely small: 3 on-brand posts in the last
+  7 days after the re-collection, from 40 pulled.
+
+### Propagation
+keyword_monitor and tools.py to bugfixing, oviva, sunstar, wiley, wileytest;
+all restarted. Keyword, market and vendor changes are oviva data.
+
 ## 2026-09-14 — One readable-articles rule for every reader
 
 ### Goal

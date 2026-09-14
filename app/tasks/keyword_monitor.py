@@ -5,6 +5,7 @@ collectors and check interval. Groups without custom settings fall back
 to global defaults.
 """
 
+import os
 import logging
 import asyncio
 import inspect
@@ -35,6 +36,14 @@ _ENTITY_PREFIXES = ("tech:", "company:", "person:", "location:")
 # (2026-07-13: a hung NewsFirehose backend stalled every tenant's keyword
 # monitor until the services were restarted).
 SEARCH_TIMEOUT_SECONDS = 120
+
+
+def _social_page_size() -> int:
+    """Posts to ask a social provider for, per platform and keyword, per run."""
+    try:
+        return max(1, int(os.environ.get("SOCIAL_PAGE_SIZE", "25")))
+    except ValueError:
+        return 25
 
 
 def _strip_entity_prefix(keyword: str) -> str:
@@ -318,11 +327,19 @@ class KeywordMonitor:
                         extra['country'] = self.country
                 except (TypeError, ValueError):
                     pass
+            # A social provider returns the N most recent posts per platform, so the
+            # tenant page size (10 on most tenants, sized for the news APIs) is the
+            # daily cap on social coverage: 10 per platform per keyword per run,
+            # and a provider outage is never backfilled. Social gets its own floor,
+            # still bounded per platform by XPOZ_MAX_RESULTS (oviva, 14 Sep 2026).
+            max_results = self.page_size
+            if provider in ('reddit', 'bluesky', 'xpoz'):
+                max_results = max(max_results, _social_page_size())
             articles = await asyncio.wait_for(
                 collector.search_articles(
                     query=search_term,
                     topic=topic,
-                    max_results=self.page_size,
+                    max_results=max_results,
                     start_date=start_date,
                     search_fields=self.search_fields,
                     language=self.language,

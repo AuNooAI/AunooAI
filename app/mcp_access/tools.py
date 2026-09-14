@@ -145,6 +145,28 @@ TOOLS: dict[str, ToolSpec] = {
         max_bytes=_ARTICLE_LIST_BYTES,
         method="enhanced_database_search",
     ),
+    "get_social_posts": ToolSpec(
+        name="get_social_posts",
+        description=(
+            "Social posts about a monitored brand (X, Reddit, Instagram, TikTok, "
+            "Bluesky) with relevance, sentiment, engagement and, for posts not "
+            "written in English, the original text next to the translation. This "
+            "is the Social tab's feed; the topic tools return news articles and "
+            "leave these out."
+        ),
+        properties={
+            "brand": {"type": "string", "description": "Brand display name as listed by list_brands / the Brand Watcher (e.g. 'Oviva')"},
+            "topic": {"type": "string", "description": "Alternative to brand: the 'Brand Monitoring <brand>' topic name"},
+            "days_back": {"type": "integer", "description": "Window in days (default 7)", "default": 7},
+            "min_relevance": {"type": "number", "description": "Drop posts below this relevance (default 0.4, the Social tab's floor)", "default": 0.4},
+            "platform": {"type": "string", "description": "Only one platform: twitter, reddit, instagram, tiktok, bluesky"},
+            "sentiment": {"type": "string", "description": "Only one sentiment: positive, neutral, negative"},
+            "limit": {"type": "integer", "description": "Maximum posts (default 100, max 500)", "default": 100},
+            "include_owned": {"type": "boolean", "description": "Include the brand's own posts (never counted in sentiment)", "default": False},
+        },
+        timeout=30.0,
+        max_bytes=_ARTICLE_LIST_BYTES,
+    ),
     "follow_up_query": ToolSpec(
         name="follow_up_query",
         description="Refine an earlier question with a follow-up and get a fresh analysis",
@@ -213,11 +235,148 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
     }
 
 
+_SENTIMENT_WORDS = {
+    "positive": ("pos", "optimis"),
+    "negative": ("neg", "pessimis", "concern", "critical", "alarm"),
+}
+
+
+def _sentiment_bucket(label: Any) -> str:
+    lo = str(label or "").lower()
+    if not lo:
+        return "unrated"
+    if any(w in lo for w in _SENTIMENT_WORDS["positive"]):
+        return "positive"
+    if any(w in lo for w in _SENTIMENT_WORDS["negative"]):
+        return "negative"
+    return "neutral"
+
+
+def _social_posts_sync(brand: str | None, topic: str | None, days_back: int, min_relevance: float,
+                       platform: str | None, sentiment: str | None, limit: int,
+                       include_owned: bool) -> dict[str, Any]:
+    """The Social tab's feed, by brand or topic. Same two read paths as the
+    /api/brand-watcher/social route: the entity-mention store when that flag is
+    on for the site, the articles table otherwise."""
+    import json as _json
+    from datetime import datetime, timedelta
+    from sqlalchemy import text
+    from app.database import get_database_instance
+    from app.services import entity_flags
+    from app.services.social_sources import SOCIAL_SOURCES
+
+    limit = max(1, min(int(limit or 100), 500))
+    days_back = max(1, int(days_back or 7))
+    topics_csv = topic or (f"Brand Monitoring {brand}" if brand else None)
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        result: dict[str, Any] | None = None
+        if entity_flags.mention_read():
+            from app.services import entity_social_read as esr
+            brand_ids: list[int] = []
+            if brand:
+                row = conn.execute(text(
+                    "SELECT id FROM bw_brands WHERE LOWER(display_name) = LOWER(:n) OR LOWER(name) = LOWER(:n) LIMIT 1"
+                ), {"n": brand}).fetchone()
+                if row:
+                    brand_ids = [int(row[0])]
+            if not brand_ids and topics_csv:
+                brand_ids = esr.brands_for_topics(conn, topics_csv)
+            if brand_ids:
+                result = esr.social_feed(
+                    conn, brand_ids=brand_ids, days_back=days_back, min_relevance=min_relevance,
+                    source=platform, include_unevaluated=False, include_owned=include_owned,
+                    include_flagged=False, limit=limit)
+        if result is None:
+            end = datetime.now()
+            start = end - timedelta(days=days_back)
+            keys = [platform.lower()] if platform and platform.lower() in ("reddit", "bluesky") else list(SOCIAL_SOURCES)
+            if platform and platform.lower() not in ("reddit", "bluesky"):
+                keys = [f"xpoz:{platform.lower()}"]
+            src = "(" + " OR ".join(f"LOWER(a.news_source) LIKE :s{i}" for i in range(len(keys))) + ")"
+            params: dict[str, Any] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%dT23:59:59"),
+                                      "rel": float(min_relevance or 0), "lim": limit}
+            for i, k in enumerate(keys):
+                params[f"s{i}"] = f"%{k}%"
+            topic_clause = ""
+            if topics_csv:
+                names = [t.strip() for t in topics_csv.split(",") if t.strip()]
+                topic_clause = "AND a.topic IN (" + ", ".join(f":t{i}" for i in range(len(names))) + ")"
+                for i, n in enumerate(names):
+                    params[f"t{i}"] = n
+            rows = conn.execute(text(f"""
+                SELECT a.uri, a.title, a.summary, a.original_summary, a.news_source, a.publication_date,
+                       a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
+                FROM articles a
+                WHERE a.publication_date >= :start AND a.publication_date <= :end
+                  AND {src}
+                  AND a.topic_alignment_score >= :rel
+                  {topic_clause}
+                  AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews r WHERE r.article_uri = a.uri AND r.status = 'false_positive')
+                ORDER BY a.publication_date DESC
+                LIMIT :lim
+            """), params).fetchall()
+            posts = []
+            for r in rows:
+                meta = r[9] if isinstance(r[9], dict) else (_json.loads(r[9]) if r[9] else {}) or {}
+                ns = (r[4] or "").lower()
+                plat = ns.split(":", 1)[1] if ns.startswith("xpoz:") else ("bluesky" if "bsky" in ns or "bluesky" in ns else "reddit" if "reddit" in ns else "social")
+                posts.append({
+                    "uri": r[0], "title": r[1], "summary": r[2], "original_summary": r[3],
+                    "platform": plat, "publication_date": str(r[5]) if r[5] else None,
+                    "relevance": round(float(r[6]), 3) if r[6] is not None else None,
+                    "sentiment": r[7], "topic": r[8],
+                    "author": meta.get("author"),
+                    "engagement": {k: meta.get(k) for k in ("likes", "reposts", "comments", "plays") if meta.get(k) is not None},
+                })
+            result = {"window_days": days_back, "min_relevance": min_relevance, "posts": posts}
+        posts = list(result.get("posts") or [])
+        if sentiment:
+            want = sentiment.lower()
+            posts = [p for p in posts if _sentiment_bucket(p.get("sentiment")) == want]
+        by_platform: dict[str, int] = {}
+        by_sentiment: dict[str, int] = {}
+        for p in posts:
+            by_platform[p.get("platform") or "social"] = by_platform.get(p.get("platform") or "social", 0) + 1
+            b = _sentiment_bucket(p.get("sentiment"))
+            by_sentiment[b] = by_sentiment.get(b, 0) + 1
+        return {
+            "brand": brand, "topic": topics_csv, "window_days": days_back, "min_relevance": min_relevance,
+            "total": len(posts), "by_platform": by_platform, "by_sentiment": by_sentiment,
+            "notes": (
+                "summary is the post in English; original_summary is the post as written when it "
+                "was not English. Sentiment is the social evaluator's label per post; 'unrated' "
+                "posts have not been scored yet."
+            ),
+            "posts": posts,
+        }
+    finally:
+        conn.close()
+
+
+async def get_social_posts(ctx=None, brand: str | None = None, topic: str | None = None,
+                           days_back: int = 7, min_relevance: float = 0.4,
+                           platform: str | None = None, sentiment: str | None = None,
+                           limit: int = 100, include_owned: bool = False) -> dict[str, Any]:
+    if not brand and not topic:
+        raise ToolError("get_social_posts needs a brand or a topic")
+    return await asyncio.to_thread(
+        _social_posts_sync, brand, topic, days_back, min_relevance, platform, sentiment, limit, include_owned)
+
+
+_LOCAL_HANDLERS: dict[str, Callable[..., Awaitable[dict[str, Any]]]] = {
+    "list_capabilities": list_capabilities,
+    "get_social_posts": get_social_posts,
+}
+
+
 def resolve(name: str) -> tuple[ToolSpec, Callable[..., Awaitable[dict[str, Any]]]]:
     spec = get_spec(name)
     if spec.method is None:
-        if name == "list_capabilities":
-            return spec, list_capabilities
+        fn = _LOCAL_HANDLERS.get(name)
+        if fn is not None:
+            return spec, fn
         raise ToolError(f"tool {name!r} has no handler")
     from app.services.auspex_tools import get_auspex_tools_service
     fn = getattr(get_auspex_tools_service(), spec.method, None)
