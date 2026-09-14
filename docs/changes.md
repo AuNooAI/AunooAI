@@ -28,6 +28,50 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — MCP tools apply the relevance gate; Second Nature keywords made exact on oviva
+
+### Goal
+A competitor read-out for Oviva produced through the MCP tools reported that
+the "Brand Monitoring" topics were "badly polluted": Second Nature returned
+college football, iOS 27 and WWE; Juniper returned Juniper Networks; Noom
+returned Thai fan fiction. The Brand Watcher UI shows none of that, because
+every view hides articles whose topic alignment is below 0.4.
+
+### Causes
+- The MCP tools (`get_topic_articles`, `search_articles_by_keywords`,
+  `semantic_search_and_analyze`, …) returned rows the views never show. On
+  oviva, "Brand Monitoring Second Nature" is 389 articles with 0 at or above
+  the gate; the tool handed all 389 to the assistant.
+- Second Nature's keywords ("Second Nature app", "Second Nature weight loss",
+  "Second Nature NHS") are matched as word sets by both news providers, so
+  any article containing "second nature" and "app" qualified. Those three
+  keywords produced 383 of the 389 off-brand rows and no on-brand ones. The
+  firehose only preserves a lone quoted phrase; a phrase plus a word is
+  flattened.
+
+### What changed
+- `app/mcp_access/dispatcher.py`: `gate_low_relevance` drops article rows
+  scored below 0.4 from any list in a tool result (`articles`, `results`,
+  `sample_articles`, `related_articles`), fixes the counts, and reports
+  `filtered_low_relevance`. Unscored rows pass. Verified in-process on
+  oviva: Second Nature 200 → 0, Noom 145 → 49, Oviva 153 → 53.
+- oviva `monitored_keywords`, group 2: the three word-set keywords replaced
+  by the single quoted phrase `"Second Nature"`; `Second Nature Mounjaro`
+  and `Second Nature Wegovy` kept. Group 12's existing `"Second Nature"`
+  produced 3 off-brand rows in six days against 383, which is the evidence
+  for the change.
+
+### Not changed
+LinkedIn company posts are filed under the "<brand> - Brand Watch" topics, so
+the read-out's "usable signal is the competitors' own LinkedIn output" is a
+correct description of where the volume is; independent press about these
+brands is thin in the window. Social noise under bare "Noom" and "Weight
+Watchers" stays, hidden by the gate.
+
+### Propagation
+Dispatcher to bugfixing, oviva, sunstar, wiley, wileytest; restarted. The
+keyword change is oviva data only.
+
 ## 2026-09-14 — Social tab shows the original post under its English translation
 
 ### Goal
