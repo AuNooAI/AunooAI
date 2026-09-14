@@ -13,6 +13,8 @@ _2026-09-14 · Brand Watcher (new Voices tab, Social tab chips), Market Monitor 
 - Every post on the Social tab now shows who wrote it.
 - The Top voices table in Market Monitor now says which audience each account belongs to,
   even before anyone has profiled it.
+- A "voices report" prompt on the MCP connector, so a connected assistant can produce the same
+  HTML report from the data on its own.
 - Brand and market data over the MCP connector: a connected assistant can read the brand's
   numbers, articles, perception, voices and alerts, and the market's vendors, analyses, top
   voices, maturity map and briefings.

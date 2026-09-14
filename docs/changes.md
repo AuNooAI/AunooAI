@@ -36,6 +36,15 @@ unknown and unclassified are never in the pair. Social tab cards show the role a
 uses the site's default enrichment model (`keyword_monitor_settings.default_llm_model`,
 override `VOICES_DIGEST_MODEL`) and is cached per post set for six hours.
 
+### Feature: rendering instructions over MCP (`voices_report` prompt)
+The HTML export is built in the browser and nothing on the server renders it, so an assistant
+on the MCP connector could get the data but not the file. **`app/mcp_access/recipes.py`** now
+carries a `voices_report` prompt: call `get_brand_voices` once, then render the same report
+from that response alone, with the section order, the CSS tokens and class names, the rules
+(every number and quote from the response, nothing in the writer's own voice that judges the
+brand or the audience) and the file name. `get_brand_voices` points at it in its `note`.
+Fetched over `POST /mcp prompts/get` on oviva: 6,994 characters. Deployed to all four sites.
+
 ### Feature: HTML export of the Voices view
 **`ui/src/services/voicesReportHtml.ts`** — one self-contained `.html` (inline CSS, no
 dependencies, same house style as the social report) with the audience table, the two

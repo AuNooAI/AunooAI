@@ -192,7 +192,9 @@ async def get_brand_voices(ctx=None, brand: str | None = None, brand_id: int | N
         res["note"] = ("Roles come from the social evaluation of each post (patient, clinician, "
                        "customer, employee, journalist, brand ...), overridden by the author's "
                        "account profile or post history where one exists. `focus` is the pair "
-                       "the Voices tab opens on. Quotes in a digest are copied from the posts.")
+                       "the Voices tab opens on. Quotes in a digest are copied from the posts. "
+                       "To render this as the site's HTML report, run the `voices_report` prompt "
+                       "(prompts/get); it carries the layout, the CSS and the rules.")
         return _plain(res)
     finally:
         conn.close()
