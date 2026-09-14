@@ -122,8 +122,30 @@ export interface BriefingSummary {
   finalized_at?: string;
 }
 
+// LLM-as-judge review of the generated synthesis against its source items.
+// 'revision_requested' (any error finding) holds the briefing as a draft
+// until the analyst regenerates or finalizes over the findings.
+export interface BriefingReviewFinding {
+  target: string;                       // summary | theme:<name> | action:<n>
+  severity: 'info' | 'warning' | 'error';
+  finding: string;
+  evidence?: string | null;
+  suggested_fix?: string | null;
+}
+
+export interface BriefingReview {
+  status: 'approved' | 'approved_with_warnings' | 'revision_requested' | 'review_failed';
+  findings: BriefingReviewFinding[];
+  summary?: { errors: number; warnings: number; info: number; total: number };
+  model?: string;
+  reviewed_at?: string;
+  error?: string;
+  override?: { by: string; at: string; note?: string | null };
+}
+
 export interface FinalizeProgressEvent {
-  stage: 'analysis' | 'synthesis' | 'complete' | 'error';
+  stage: 'analysis' | 'synthesis' | 'review' | 'review_required' | 'complete' | 'error';
+  review?: BriefingReview;
   status: string;
   progress: number;
   current_item?: number;
@@ -552,6 +574,8 @@ export async function finalizeBriefing(
   options?: {
     organizational_profile?: string;
     persona?: string;
+    override_review?: boolean;   // finalize the reviewer-blocked draft as stored
+    override_note?: string;
   }
 ): Promise<void> {
   const response = await fetch(`/api/desk-briefings/${briefingId}/finalize`, {
@@ -562,6 +586,8 @@ export async function finalizeBriefing(
       model,
       organizational_profile: options?.organizational_profile,
       persona: options?.persona,
+      override_review: options?.override_review || false,
+      override_note: options?.override_note,
     }),
   });
 

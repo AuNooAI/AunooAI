@@ -14344,6 +14344,43 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error finalizing desk briefing {briefing_id}: {e}")
             return False
 
+    def save_desk_briefing_review_draft(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str,
+        themes: list,
+        priority_actions: list,
+        metadata: dict,
+        model_used: str
+    ) -> bool:
+        """Store a generated synthesis that the reviewer blocked, leaving the
+        briefing a draft. The analyst can read the findings, regenerate, or
+        finalize over them; nothing is emailed until then."""
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+            import json
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'draft')
+            ).values(
+                synthesis=synthesis,
+                themes=json.loads(json.dumps(themes, default=str)) if themes else None,
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else None,
+                metadata=json.loads(json.dumps(metadata, default=str)) if metadata else None,
+                model_used=model_used,
+                updated_at=datetime.utcnow()
+            )
+            result = self._execute_with_rollback(update_stmt)
+            return result.rowcount > 0
+        except Exception as e:
+            self.logger.error(f"Error saving desk briefing review draft: {e}")
+            return False
+
     def update_desk_briefing_synthesis(
         self,
         briefing_id: int,

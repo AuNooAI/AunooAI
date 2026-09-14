@@ -183,6 +183,8 @@ class FinalizeBriefingRequest(BaseModel):
     model: str = Field("gpt-5.4", description="AI model to use for synthesis")
     organizational_profile: Optional[str] = Field(None, description="Organizational profile name for context")
     persona: Optional[str] = Field(None, description="Persona/role for tailored recommendations")
+    override_review: bool = Field(False, description="Finalize the stored draft that the reviewer blocked, recording who overrode it")
+    override_note: Optional[str] = Field(None, description="Why the reviewer findings were overridden")
 
 
 class UpdateSynthesisRequest(BaseModel):
@@ -881,6 +883,48 @@ async def finalize_briefing(
     if len(articles) == 0 and len(incidents) == 0:
         raise HTTPException(400, "Cannot finalize an empty briefing")
 
+    sse_headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+    }
+
+    # Override: finalize the draft the reviewer blocked, as stored, without
+    # regenerating (a regeneration could produce new errors). The override is
+    # recorded on the briefing so the audit trail shows who shipped it.
+    if request.override_review:
+        stored_meta = dict(briefing.get("metadata") or {})
+        stored_review = dict(stored_meta.get("review") or {})
+        if stored_review.get("status") != "revision_requested" or not briefing.get("synthesis"):
+            raise HTTPException(400, "Nothing to override: no reviewer-blocked draft is stored for this briefing")
+        stored_review["override"] = {
+            "by": username,
+            "at": datetime.utcnow().isoformat(),
+            "note": (request.override_note or "").strip() or None,
+        }
+        stored_meta["review"] = stored_review
+        ok = db.facade.finalize_desk_briefing(
+            briefing_id=briefing_id,
+            username=username,
+            synthesis=briefing.get("synthesis") or "",
+            themes=briefing.get("themes") or [],
+            priority_actions=briefing.get("priority_actions") or [],
+            metadata=stored_meta,
+            model_used=briefing.get("model_used") or effective_model,
+        )
+        if not ok:
+            raise HTTPException(500, "Failed to finalize briefing")
+        logger.info("Briefing %s finalized over %d reviewer errors by '%s'",
+                    briefing_id, (stored_review.get("summary") or {}).get("errors", 0), username)
+
+        async def stream_override():
+            yield "data: " + json.dumps({
+                "stage": "complete", "status": "success", "progress": 1.0,
+                "synthesis": briefing.get("synthesis"), "themes": briefing.get("themes"),
+                "priority_actions": briefing.get("priority_actions"), "review": stored_review,
+            }, default=str) + "\n\n"
+        return StreamingResponse(stream_override(), media_type="text/event-stream", headers=sse_headers)
+
     # Import the synthesis service
     from app.services.daily_report_service import get_daily_report_service
 
@@ -895,20 +939,47 @@ async def finalize_briefing(
                 organizational_profile=request.organizational_profile,
                 persona=request.persona
             ):
-                event_data = json.dumps(update, default=str)
-                yield f"data: {event_data}\n\n"
-
-                # Save on completion
                 if update.get("stage") == "complete":
+                    # The reviewer's verdict decides whether this is a finalize
+                    # or a held draft. Error findings hold it (as the Wiley
+                    # bundle does); warnings and a failed review ship with the
+                    # findings attached so the reader can see them.
+                    review = update.get("review") or {}
+                    metadata = dict(update.get("metadata") or {})
+                    metadata["review"] = review
+                    blocked = review.get("status") == "revision_requested"
+                    if blocked:
+                        db.facade.save_desk_briefing_review_draft(
+                            briefing_id=briefing_id,
+                            username=username,
+                            synthesis=update.get("synthesis", ""),
+                            themes=update.get("themes", []),
+                            priority_actions=update.get("priority_actions", []),
+                            metadata=metadata,
+                            model_used=effective_model
+                        )
+                        logger.info("Briefing %s held as draft: reviewer found %d errors",
+                                    briefing_id, (review.get("summary") or {}).get("errors", 0))
+                        held = {
+                            "stage": "review_required", "status": "blocked", "progress": 1.0,
+                            "review": review, "synthesis": update.get("synthesis", ""),
+                            "themes": update.get("themes", []),
+                            "priority_actions": update.get("priority_actions", []),
+                        }
+                        yield f"data: {json.dumps(held, default=str)}\n\n"
+                        break
                     db.facade.finalize_desk_briefing(
                         briefing_id=briefing_id,
                         username=username,
                         synthesis=update.get("synthesis", ""),
                         themes=update.get("themes", []),
                         priority_actions=update.get("priority_actions", []),
-                        metadata=update.get("metadata", {}),
+                        metadata=metadata,
                         model_used=effective_model
                     )
+
+                event_data = json.dumps(update, default=str)
+                yield f"data: {event_data}\n\n"
 
                 if update.get("stage") in ["complete", "error"]:
                     break
@@ -922,15 +993,7 @@ async def finalize_briefing(
             })
             yield f"data: {error_event}\n\n"
 
-    return StreamingResponse(
-        stream_finalize(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+    return StreamingResponse(stream_finalize(), media_type="text/event-stream", headers=sse_headers)
 
 
 @router.put("/{briefing_id}/synthesis")

@@ -28,6 +28,73 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Daily briefing: a reviewer now checks the synthesis against its sources and holds it on errors
+
+### Goal
+The Sunstar briefing audit showed the Briefing Desk had no check between the
+synthesis model and the finalized, emailable briefing. Oliver asked for the
+Wiley bundle's pattern: an LLM-as-judge reviewer whose error findings block
+finalize until an analyst regenerates or overrides.
+
+### What changed
+- `data/auspex/agents/dr_reviewer_agent.md`: the reviewer prompt. It receives
+  the draft (summary, themes, decision points) and the source items (article
+  summaries with published dates, incidents with timelines and descriptions)
+  and returns findings with a severity. `error` is reserved for a claim the
+  sources do not support: a figure, actor or event in no source; an
+  organisation named that no source names (including the briefing's own
+  company and its competitors); a published date presented as an event or
+  release date; a wrong institution; "multiple sources" for one relayed
+  origin; a sponsored item presented as coverage; a contradiction of the
+  cited source. Decision points and strategic implications are analysis by
+  design, so inference there is never a finding. A restatement that keeps
+  the meaning is not a finding. `DEFAULT_REVIEWER_PROMPT` in the service
+  carries the same rules for a tenant missing the file.
+- `app/services/daily_report_service.py`: stage 3 `review` after synthesis.
+  `_run_review` calls the pinned briefing model (the same one that wrote the
+  synthesis, so a Bedrock-only tenant needs no new model), sanitises the
+  findings (severity normalised, duplicates dropped, capped at 40) and
+  computes the verdict from the counts, never from the model. A failed or
+  timed-out review is recorded as `review_failed` and does not block, so a
+  model outage cannot stop every briefing, but the UI shows "Reviewer did
+  not run" rather than nothing.
+- `app/routes/daily_reports_routes.py`: on `revision_requested` the route
+  stores the generated text and the review on the row and leaves it a
+  draft (`save_desk_briefing_review_draft`), then streams a
+  `review_required` event instead of `complete`. Otherwise it finalizes with
+  the review attached under `metadata.review`. `override_review: true`
+  finalizes the stored draft as it is, without regenerating, and records
+  `{by, at, note}` on the review. A second override on a finalized row is
+  refused.
+- `app/database_query_facade.py`: `save_desk_briefing_review_draft`.
+- UI (`BriefingDeskSection.tsx`, `briefingDeskApi.ts`): a held draft shows a
+  red panel with the findings, the held summary, a Regenerate button and a
+  "Finalize anyway" button that requires a reason. A finalized briefing shows
+  a reviewer line under the model byline: no findings, N warnings, finalized
+  over N errors by whom and why, or reviewer did not run; findings expand on
+  click. The progress indicator has a "Checking the draft against its
+  sources" stage.
+
+### Verification
+In-process on the stored Sunstar briefing, then end to end through the route
+on a cloned draft (id 5, deleted afterwards): the reviewer returned 11
+errors, the route held the draft with synthesis and review stored, the
+override finalized it with `metadata.review.override` recorded, and a repeat
+override answered 400. Findings included the health-ministry attribution no
+source makes, three "released on September 10" dates that are article dates,
+the Reuters relay described as confirmation by several outlets, and the
+oscillating-versus-magnetic drive conflict between the two Oral-B articles.
+The judge (kimi-k2.5) still over-reaches on a few paraphrases; the override
+exists for that, and the rubric gained a restatement rule.
+
+### Propagation
+sunstar, wiley and wileytest: service and prompt copied; the facade and route
+changes were applied by patch because their copies of those files drift from
+canonical (per-group language columns on sunstar, `verify_session_api` import
+on wiley and wileytest). Built UI synced. All four restarted twice, the
+second time so the final prompt wording loaded. No live background jobs
+either time.
+
 ## 2026-09-14 — Daily briefing: events are dated by what the text says, not by when we collected it
 
 ### Goal
