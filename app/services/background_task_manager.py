@@ -568,8 +568,19 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
             else:
                 progress_callback(0, "Starting keyword check...")
 
-        # Run the keyword check with optional group_id filter and pass progress_callback through
-        result = await monitor.check_keywords(group_id=group_id, progress_callback=progress_callback)
+        # A single group runs through check_single_group, as the scheduler does:
+        # that is where the group's providers, language, the social-only skip
+        # of the heavy pipeline and the social evaluator are applied.
+        group_row = None
+        if group_id:
+            try:
+                group_row = db.facade.get_keyword_group_with_settings(group_id)
+            except Exception as e:
+                logger.warning(f"Could not read group {group_id} settings: {e}")
+        if group_row:
+            result = await monitor.check_single_group(group_row, progress_callback=progress_callback)
+        else:
+            result = await monitor.check_keywords(group_id=group_id, progress_callback=progress_callback)
 
         # Update the global status so UI shows correct "Last check" time
         _background_task_status["last_check_time"] = datetime.now()

@@ -472,6 +472,14 @@ class KeywordMonitor:
                         if group_collectors:
                             self.collectors = group_collectors
                             self.collector = list(group_collectors.values())[0]
+                            # A social-only group must skip the heavy news
+                            # pipeline here too, not only via check_single_group:
+                            # the analyzer rewrites a post's text as a précis
+                            # (oviva, 14 Sep 2026).
+                            if not getattr(self, '_social_only_group', False):
+                                self._social_only_group = all(
+                                    p in ('reddit', 'bluesky', 'xpoz') for p in group_collectors
+                                )
                             logger.info(
                                 f"Using group {group_id} providers: "
                                 f"{sorted(group_collectors)}")

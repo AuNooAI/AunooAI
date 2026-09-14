@@ -28,6 +28,43 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Keyword monitor: a manual "check now" on a social group no longer sends posts through the news pipeline
+
+### Goal
+On oviva's Social tab some posts showed their text (translated to English
+when needed) and others showed a written description ("A Twitter user
+criticizes Oviva…"). Oliver asked why.
+
+### Cause
+Two entry points, two behaviours. The scheduler runs a group through
+`check_single_group`, which sets the social-only flag so reddit, bluesky and
+xpoz posts skip the heavy news pipeline and get the cheap social evaluator.
+The `/check-now` button and the background task runner called
+`check_keywords(group_id=…)` directly; that path picks the group's providers
+(the ASML fix) but never set the flag, so the posts it collected went through
+the full news pipeline, whose analyzer overwrites `summary` with an English
+précis and drops the stored original text. 18 posts on oviva since 4
+September, all from manual runs; 76 of today's 1,202 new posts on sunstar.
+
+### What changed
+- `app/routes/keyword_monitor.py` and `app/services/background_task_manager.py`:
+  a manual run with a group id now calls `check_single_group` with the
+  group's settings row, exactly as the scheduler does. Providers, language,
+  the social-only skip, the social evaluator and the group's check status all
+  come from the one place.
+- `app/tasks/keyword_monitor.py`: the direct path sets the social-only flag
+  from the group's providers as well, so a caller that bypasses
+  `check_single_group` still cannot push social posts into the news pipeline.
+
+### Not repaired
+The 18 oviva posts keep their précis; the original post text was overwritten
+and only the title survives. They will not be re-collected, because they are
+already in the store.
+
+### Propagation
+bugfixing, oviva, sunstar, wiley, wileytest, by patch (the tasks file drifts
+per tenant). All restarted after the social collection runs had completed.
+
 ## 2026-09-14 — Daily briefing: deterministic checks, verbatim-quote gate and a repair loop make a clean report reachable
 
 ### Goal

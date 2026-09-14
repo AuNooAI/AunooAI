@@ -980,11 +980,20 @@ async def check_now(
 
             monitor = KeywordMonitor(db)
 
+            group_row = None
             if group_id:
-                logger.info(f"Calling monitor.check_keywords() for group {group_id}...")
+                # Same path as the scheduler: group providers, language, the
+                # social-only skip and the social evaluator all live there.
+                try:
+                    group_row = db.facade.get_keyword_group_with_settings(group_id)
+                except Exception as e:
+                    logger.warning(f"Could not read group {group_id} settings: {e}")
+            if group_row:
+                logger.info(f"Calling monitor.check_single_group() for group {group_id}...")
+                result = await monitor.check_single_group(group_row)
             else:
                 logger.info("Calling monitor.check_keywords()...")
-            result = await monitor.check_keywords(group_id=group_id)
+                result = await monitor.check_keywords(group_id=group_id)
             logger.info(f"Result from check_keywords(): {result}")
 
             # Update the global status so UI shows correct "Last check" time
