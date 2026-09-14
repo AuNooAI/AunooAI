@@ -2,6 +2,45 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Market Monitor: the practitioner-voices section only shows on-topic posts
+
+### Goal
+The public "What practitioners are saying" section on aisocnews.com was showing off-topic
+social posts, including Korean stock-market spam about a chip-test company. Reported by the
+operator looking at the live page.
+
+### Fix: a relevance floor on the voices queries (`c3cb94c9`)
+**`app/services/market_analysis.py`** — `top_voices` and `social_highlights` selected every
+attached social post that was not explicitly excluded, with no relevance check, unlike the news
+sections which already gate on alignment. Added a 0.4 `topic_alignment_score` floor
+(`MIN_SOCIAL_ALIGNMENT`, the same cut the rest of the customer-facing selections use) to all
+five social queries: the two main selects, the account-population count, the repeat-poster
+query, and the coverage stat. Unreviewed or zero-alignment social can no longer render whatever
+term it matched on.
+
+### Fix: the "AI SoC" term collision (`c3cb94c9`)
+**`app/services/market_corpus.py`** — "AI SoC" (System-on-Chip) matches the market's "AI SOC"
+(Security Operations Center) context term case-insensitively, so semiconductor and chip-stock
+coverage term-matched into the market with zero topical alignment. Added `semiconductor(s)`,
+`foundry`/`foundries`, and `wafer(s)` to the corpus exclude terms, alongside the consumer-
+benchmark terms added on 9 Sep for the same collision. The phrase scan skips an article carrying
+them. Plurals are listed explicitly because the matcher is whole-word (`\bsemiconductor\b` would
+miss "semiconductors").
+
+### Data
+The 42 zero-alignment social posts already attached to market 2 were marked
+`review_verdict='excluded'`, with a reason recording the term collision.
+
+### Verification
+Against the live database: the exclude scan now trips on the Doosan Tesna post text ("AI SoC and
+automotive semiconductors"); `top_voices` and `social_highlights` no longer return the spam
+accounts (stockhandbook.bsky.social, arc-codex.com) and still return 25 voices and 33 highlights.
+After the service restart the public social section shows 0 stockhandbook/Doosan mentions and 590
+social entries intact.
+
+### Propagation
+bugfixing only — Market Monitor runs nowhere else (market 2 / aisocnews.com).
+
 ## 2026-09-14 — Brand Watcher Voices: who is talking about a brand, and what each audience says
 
 ### Goal
