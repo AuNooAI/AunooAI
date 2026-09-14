@@ -2917,20 +2917,24 @@ async def get_stats(
             if row[0] in cat_counts:
                 cat_counts[row[0]] = row[1]
 
-        # Aggregate stats — inner sub-query needs its own brand filter without table alias
-        brand_sub_filter = brand_filter.replace("bac.", "")  # strip alias for unqualified column
-        brand_sub_where = f"WHERE 1=1 {brand_sub_filter}" if brand_sub_filter else ""
+        # Aggregate stats. The relevance gate sits in the per-brand sub-query so it
+        # uses the same score as the article list (the row's relevance_score, falling
+        # back to the article's topic alignment). Gating on topic alignment alone made
+        # the headline count one article higher than the list (oviva, 14 Sep 2026).
         stats_result = conn.execute(text(f"""
             SELECT COUNT(DISTINCT a.uri),
                    MIN(a.publication_date), MAX(a.publication_date),
                    SUM(CASE WHEN cc.cnt >= 3 THEN 1 ELSE 0 END)
             FROM articles a
             JOIN (
-                SELECT article_uri, COUNT(*) as cnt FROM bw_article_categories
-                {brand_sub_where}
-                GROUP BY article_uri
+                SELECT bac.article_uri, COUNT(*) as cnt
+                FROM bw_article_categories bac
+                JOIN articles a2 ON bac.article_uri = a2.uri
+                WHERE COALESCE(bac.relevance_score, a2.topic_alignment_score) >= 0.4
+                {brand_filter}
+                GROUP BY bac.article_uri
             ) cc ON a.uri = cc.article_uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
+            WHERE a.publication_date >= :start AND a.publication_date <= :end
               -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
               AND a.analyzed = true
             {topic_filter}
@@ -2982,6 +2986,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2997,6 +3002,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -3052,6 +3058,7 @@ async def get_temporal_data(
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -3065,6 +3072,7 @@ async def get_temporal_data(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -3131,13 +3139,13 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND a.analyzed = true
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY bac.category
             """), params)
 
             breakdown = {row[0]: row[1] for row in cat_result.fetchall()}
-            total = sum(breakdown.values())
 
             # Sentiment breakdown for this brand
             sent_result = conn.execute(text(f"""
@@ -3145,11 +3153,17 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND a.analyzed = true
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY COALESCE(a.sentiment, 'Unknown')
             """), params)
             sentiment_breakdown = {row[0]: row[1] for row in sent_result.fetchall()}
+            # An article carries several categories but exactly one sentiment, so the
+            # sentiment groups partition the articles. Summing the category counts
+            # instead counted multi-category articles more than once and made this
+            # total disagree with Share of Voice (oviva 104 vs 95, 14 Sep 2026).
+            total = sum(sentiment_breakdown.values())
 
             response.append(ComparisonDataResponse(
                 brand_id=bid,
@@ -3190,6 +3204,7 @@ async def get_share_of_voice(
             JOIN bw_brands b ON bac.brand_id = b.id
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND b.enabled = true
+            AND a.analyzed = true
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
             ORDER BY COUNT(DISTINCT bac.article_uri) DESC
@@ -3242,16 +3257,47 @@ async def get_sentiment_trends(
             SELECT DATE_TRUNC('{bucket}', a.publication_date::timestamp)::date as week,
                    bac.category,
                    a.sentiment,
-                   COUNT(*) as cnt
+                   COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
             GROUP BY week, bac.category, a.sentiment
             ORDER BY week
         """), params)
+
+        # The rows above count an article once per category it carries, which is
+        # right for the per-category chart and wrong for anything that sums across
+        # categories (the dashboard bar showed 20 for 13 articles on oviva, 14 Sep
+        # 2026). These buckets count each article once.
+        bucket_result = conn.execute(text(f"""
+            SELECT DATE_TRUNC('{bucket}', a.publication_date::timestamp)::date as week,
+                   a.sentiment,
+                   COUNT(DISTINCT bac.article_uri) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND a.analyzed = true
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            {topic_filter}
+            GROUP BY GROUPING SETS ((week, a.sentiment), (a.sentiment))
+            ORDER BY week NULLS LAST
+        """), params)
+        weekly_buckets: Dict[str, Dict[str, int]] = {}
+        totals: Dict[str, int] = {}
+        for week_val, sentiment, cnt in bucket_result.fetchall():
+            if week_val is None:
+                totals[sentiment] = cnt
+            else:
+                weekly_buckets.setdefault(str(week_val), {})[sentiment] = cnt
+        weekly = [
+            {"week": week, "sentiments": sentiments, "total": sum(sentiments.values())}
+            for week, sentiments in sorted(weekly_buckets.items())
+        ]
 
         # Build structured response
         weekly_data: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -3278,7 +3324,7 @@ async def get_sentiment_trends(
                     "total": total,
                 })
 
-        return {"trends": trends}
+        return {"trends": trends, "weekly": weekly, "totals": totals}
     except Exception as e:
         logger.error(f"Error fetching sentiment trends: {e}")
         raise HTTPException(status_code=500, detail=str(e))

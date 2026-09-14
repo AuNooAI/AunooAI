@@ -2,6 +2,69 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Brand Watcher: every News-side card now counts the same articles as the list
+
+### Goal
+On oviva, Alvaro reported three cards that disagreed with each other. The
+sentiment bar on the dashboard showed 20 items for a brand whose headline
+count said 14 news articles. Category Distribution added up to 104 and the
+Articles tab chips repeated those numbers, but the list held 13 articles and
+clicking "Product (61)" opened one. On the Comparison tab, Category
+Comparison said Oviva 104 and WeightWatchers 125 while Share of Voice said
+95 and 94 for the same brands.
+
+### Two causes behind all three
+The article list hides items with `analyzed = false`. On a Brand Watcher
+tenant that is the brand's own LinkedIn posts and its Glassdoor reviews,
+which live on the Social tab. Oviva has 77 LinkedIn posts and 5 Glassdoor
+reviews carrying categories, and only 13 real news articles. The 3 September
+fix (52d9bc03) put that gate on `/stats` alone, so Category Distribution
+(`/categories`), the Comparison tab (`/comparison`, `/share-of-voice`), the
+monthly series (`/temporal`) and the sentiment series (`/sentiment-trends`)
+kept counting the 82 hidden items. That is where 61 "Product" items came from:
+60 of them are LinkedIn posts.
+
+The second cause is that an article can carry several categories. Two
+endpoints summed per-category counts as if they were articles: the
+Comparison total (`sum(category_breakdown)`, so 104 for 95 distinct
+articles) and the sentiment series, whose rows are per category and which
+the dashboard summed across categories (20 rows for 13 articles).
+
+### What changed
+- `app/routes/brand_watcher_routes.py`: `/categories`, `/temporal`,
+  `/comparison`, `/share-of-voice` and `/sentiment-trends` gate on
+  `a.analyzed = true` like the list. `/comparison` reports `total_articles`
+  as distinct articles (the sentiment groups partition them, so their sum is
+  the count). `/sentiment-trends` counts distinct articles per cell and adds
+  two per-article series, `weekly` and `totals`, for anything that does not
+  want the per-category split. `/stats` now applies the relevance gate on the
+  same per-brand score as the list, which closed a 14-versus-13 gap.
+- `ui/src/components/newsfeed/BrandWatcherTab.tsx`: the dashboard bar, the
+  weekly news-versus-social line, the competitor benchmark line, the
+  Sentiment Breakdown card, the weekly sentiment card and the export stat
+  cards read `totals` / `weekly`. The per-category chart still reads the
+  per-category rows. If a backend does not send the new fields, the tab
+  collapses the rows as before.
+- `ui/src/services/brandWatcherApi.ts`: the response type and the fallback
+  collapser.
+
+### Verification
+On oviva after deploy, brand Oviva over 365 days: stats 13, list 13,
+Category Distribution 12 Media / 2 Brand Sentiment / 1 Product, Comparison
+total 13 = Share of Voice 13 for every brand, sentiment totals 5 optimistic
++ 8 neutral = 13. Same check on wileytest: 482 everywhere, sentiment totals
+479 (3 articles have no sentiment).
+
+The category chips still sum to more than the list when articles carry
+several categories (oviva: 15 chips for 13 articles). That is by design and
+the card title says so.
+
+### Propagation
+Backend and built UI to oviva, wiley and wileytest; all three restarted.
+The wileytest restart cut an automated-ingest batch at 10:54; the pipeline
+restarted itself twenty seconds later on the same topic. wbm, abm and
+sunstar carry drifted copies of the routes file and were not touched.
+
 ## 2026-09-11 — Auspex follow-ups keep their subject; "recent" no longer switches off search
 
 ### Goal

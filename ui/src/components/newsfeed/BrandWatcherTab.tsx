@@ -51,7 +51,7 @@ import {
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   searchWikidata, type SuggestionVerification,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
-  type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
+  type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWSentimentBucket, type BWSentimentTrendsResponse, collapseSentimentTrends, type BWAlert,
 } from '../../services/brandWatcherApi';
 
 // The brand/entity a social post belongs to, derived from its topic
@@ -548,10 +548,25 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [categoryInsight, setCategoryInsight] = useState<BWCategoryInsightResponse | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [sentimentTrends, setSentimentTrends] = useState<BWSentimentTrend[]>([]);
+  // Per-article buckets for everything that sums across categories (dashboard
+  // bar, weekly lines, breakdown card). The per-category rows in sentimentTrends
+  // count an article once per category, which showed 20 for 13 articles.
+  const [sentimentWeekly, setSentimentWeekly] = useState<BWSentimentBucket[]>([]);
+  const [sentimentTotals, setSentimentTotals] = useState<Record<string, number>>({});
+  const applySentimentTrends = useCallback((d: BWSentimentTrendsResponse) => {
+    const trends = d.trends || [];
+    const fallback = (d.weekly && d.totals) ? null : collapseSentimentTrends(trends);
+    setSentimentTrends(trends);
+    setSentimentWeekly(d.weekly ?? fallback!.weekly);
+    setSentimentTotals(d.totals ?? fallback!.totals);
+  }, []);
+  const clearSentimentTrends = useCallback(() => {
+    setSentimentTrends([]); setSentimentWeekly([]); setSentimentTotals({});
+  }, []);
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
   // Competitor brands' weekly news sentiment trends — feeds the benchmark-avg
   // line on the sentiment timeline (one cheap per-brand fetch, few brands).
-  const [compTrends, setCompTrends] = useState<BWSentimentTrend[][]>([]);
+  const [compTrends, setCompTrends] = useState<BWSentimentBucket[][]>([]);
   // Employee / workforce picture (Glassdoor aggregates + reviews + workforce risks).
   const [employeeRisk, setEmployeeRisk] = useState<BWEmployeeRisk | null>(null);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
@@ -1282,7 +1297,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     };
     const wk: Record<string, { nPos: number; nNeg: number; nTot: number; sPos: number; sNeg: number; sTot: number }> = {};
     const bucket = (w: string) => wk[w] || (wk[w] = { nPos: 0, nNeg: 0, nTot: 0, sPos: 0, sNeg: 0, sTot: 0 });
-    for (const t of sentimentTrends) {
+    for (const t of sentimentWeekly) {
       const w = (t.week || '').slice(0, 10);
       if (!w) continue;
       const b = bucket(w);
@@ -1394,7 +1409,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         </ResponsiveContainer>
       </div>
     );
-  }, [sentimentTrends, socialView, compTrends, benchPosts, selectedBrand]);
+  }, [sentimentWeekly, socialView, compTrends, benchPosts, selectedBrand]);
   const primarySelectedId = config.selectedBrandIds[0] || null;
 
   // --- Accounts: profile a handle, list saved, tags/notes, open-from-author ---
@@ -1655,7 +1670,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchComparison();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
-          .then(d => setSentimentTrends(d.trends)).catch(console.error);
+          .then(applySentimentTrends).catch(console.error);
         getBrandAlerts(primarySelectedId)
           .then(d => setBrandAlerts(d.alerts)).catch(console.error);
       }
@@ -1677,7 +1692,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       loadIncidents();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
-          .then(d => setSentimentTrends(d.trends)).catch(console.error);
+          .then(applySentimentTrends).catch(console.error);
         getBrandAlerts(primarySelectedId)
           .then(d => setBrandAlerts(d.alerts)).catch(console.error);
       }
@@ -1698,7 +1713,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     if (tab === 'analysis' && primarySelectedId) {
       getSentimentTrends(primarySelectedId, config.daysBack)
-        .then(d => setSentimentTrends(d.trends))
+        .then(applySentimentTrends)
         .catch(console.error);
       getBrandAlerts(primarySelectedId)
         .then(d => setBrandAlerts(d.alerts))
@@ -1712,7 +1727,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       // The reputation section's news-vs-social timeline needs social posts loaded.
       fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles, loadIncidents]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles, loadIncidents, applySentimentTrends]);
 
   // Generated-insights sections, keyed by lowercase H2 heading — lets Brand Analysis
   // surface each section next to the data it interprets instead of a blind preview.
@@ -1801,21 +1816,23 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     fetchComparison();
     if (primarySelectedId) {
       getSentimentTrends(primarySelectedId, config.daysBack)
-        .then(d => setSentimentTrends(d.trends)).catch(console.error);
+        .then(applySentimentTrends).catch(console.error);
       getBrandAlerts(primarySelectedId)
         .then(d => setBrandAlerts(d.alerts)).catch(console.error);
     } else {
-      setSentimentTrends([]);
+      clearSentimentTrends();
       setBrandAlerts([]);
     }
-  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
+  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison, applySentimentTrends, clearSentimentTrends]);
 
   // --- Competitor weekly news trends for the benchmark-avg timeline line ---
   useEffect(() => {
     if (!primarySelectedId || (activeTab !== 'dashboard' && activeTab !== 'analysis')) return;
     const comps = brands.filter(b => b.enabled && b.id !== primarySelectedId);
     if (!comps.length) { setCompTrends([]); return; }
-    Promise.all(comps.map(b => getSentimentTrends(b.id, config.daysBack).then(r => r.trends).catch(() => [] as BWSentimentTrend[])))
+    Promise.all(comps.map(b => getSentimentTrends(b.id, config.daysBack)
+      .then(r => r.weekly ?? collapseSentimentTrends(r.trends).weekly)
+      .catch(() => [] as BWSentimentBucket[])))
       .then(setCompTrends);
   }, [activeTab, primarySelectedId, config.daysBack, brands]);
 
@@ -1946,7 +1963,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       if (primarySelectedId) {
         fetches.push(
           getSentimentTrends(primarySelectedId, config.daysBack)
-            .then(d => setSentimentTrends(d.trends)).catch(console.error),
+            .then(applySentimentTrends).catch(console.error),
           getBrandAlerts(primarySelectedId)
             .then(d => setBrandAlerts(d.alerts)).catch(console.error),
           getLatestNarrative(primarySelectedId)
@@ -1975,7 +1992,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } finally {
       setExportingReport(false);
     }
-  }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice]);
+  }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice, applySentimentTrends]);
 
   // --- Interactive HTML report (self-contained, downloadable) ---
   const handleExportHtmlReport = useCallback(async () => {
@@ -2635,15 +2652,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
       {/* ---- OVERVIEW TAB ---- */}
       {activeTab === 'dashboard' && (() => {
-        // ---- News side (from sentimentTrends aggregate + stats + alerts) ----
+        // ---- News side (per-article sentiment totals + stats + alerts) ----
         const newsSent = { pos: 0, neu: 0, neg: 0 };
-        for (const t of sentimentTrends) {
-          for (const [sK, cnt] of Object.entries(t.sentiments || {})) {
-            const lo = sK.toLowerCase();
-            if (lo.includes('pos') || lo.includes('optimis')) newsSent.pos += cnt as number;
-            else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) newsSent.neg += cnt as number;
-            else newsSent.neu += cnt as number;
-          }
+        for (const [sK, cnt] of Object.entries(sentimentTotals)) {
+          const lo = sK.toLowerCase();
+          if (lo.includes('pos') || lo.includes('optimis')) newsSent.pos += cnt as number;
+          else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) newsSent.neg += cnt as number;
+          else newsSent.neu += cnt as number;
         }
         const newsScored = newsSent.pos + newsSent.neu + newsSent.neg;
         const newsNet = newsScored ? Math.round(((newsSent.pos - newsSent.neg) / newsScored) * 100) : null;
@@ -3149,14 +3164,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             // Aggregate sentiment from sentimentTrends — normalize labels
             const sentAgg: Record<string, number> = { Positive: 0, Neutral: 0, Negative: 0 };
             let sentTotal = 0;
-            for (const t of sentimentTrends) {
-              for (const [s, cnt] of Object.entries(t.sentiments)) {
-                const lo = s.toLowerCase();
-                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentAgg.Positive += cnt;
-                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentAgg.Negative += cnt;
-                else sentAgg.Neutral += cnt;
-                sentTotal += cnt;
-              }
+            for (const [s, cnt] of Object.entries(sentimentTotals)) {
+              const lo = s.toLowerCase();
+              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentAgg.Positive += cnt;
+              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentAgg.Negative += cnt;
+              else sentAgg.Neutral += cnt;
+              sentTotal += cnt;
             }
             const positivePct = sentTotal > 0 ? Math.round((sentAgg.Positive / sentTotal) * 100) : null;
             const negativePct = sentTotal > 0 ? Math.round((sentAgg.Negative / sentTotal) * 100) : null;
@@ -3308,14 +3321,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             // Normalize into 3 buckets
             const sentBuckets = { Positive: 0, Neutral: 0, Negative: 0 };
             let sentTotal = 0;
-            for (const t of sentimentTrends) {
-              for (const [s, cnt] of Object.entries(t.sentiments)) {
-                const lo = s.toLowerCase();
-                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentBuckets.Positive += cnt;
-                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentBuckets.Negative += cnt;
-                else sentBuckets.Neutral += cnt;
-                sentTotal += cnt;
-              }
+            for (const [s, cnt] of Object.entries(sentimentTotals)) {
+              const lo = s.toLowerCase();
+              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentBuckets.Positive += cnt;
+              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentBuckets.Negative += cnt;
+              else sentBuckets.Neutral += cnt;
+              sentTotal += cnt;
             }
             const bucketColors: Record<string, string> = {
               Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626',
@@ -3386,7 +3397,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {primarySelectedId && sentimentTrends.length > 0 && (() => {
             // Build weekly time series — normalize sentiment labels
             const weeklyMap: Record<string, { Positive: number; Neutral: number; Negative: number; total: number }> = {};
-            for (const t of sentimentTrends) {
+            for (const t of sentimentWeekly) {
               if (!weeklyMap[t.week]) weeklyMap[t.week] = { Positive: 0, Neutral: 0, Negative: 0, total: 0 };
               for (const [s, cnt] of Object.entries(t.sentiments)) {
                 const lo = s.toLowerCase();

@@ -31,6 +31,40 @@ export interface BWSentimentTrend {
   total: number;
 }
 
+// One bucket per period with each article counted once, whatever number of
+// categories it carries. The trend rows above are per category, so summing
+// them across categories over-counts multi-category articles.
+export interface BWSentimentBucket {
+  week: string;
+  sentiments: Record<string, number>;
+  total: number;
+}
+
+export interface BWSentimentTrendsResponse {
+  trends: BWSentimentTrend[];
+  weekly?: BWSentimentBucket[];   // absent on backends older than 14 Sep 2026
+  totals?: Record<string, number>;
+}
+
+// Fallback for older backends: collapse the per-category rows. Still
+// over-counts multi-category articles, but no worse than before.
+export function collapseSentimentTrends(trends: BWSentimentTrend[]): { weekly: BWSentimentBucket[]; totals: Record<string, number> } {
+  const byWeek: Record<string, Record<string, number>> = {};
+  const totals: Record<string, number> = {};
+  for (const t of trends || []) {
+    const w = (t.week || '').slice(0, 10);
+    const bucket = byWeek[w] || (byWeek[w] = {});
+    for (const [s, n] of Object.entries(t.sentiments || {})) {
+      bucket[s] = (bucket[s] || 0) + (n as number);
+      totals[s] = (totals[s] || 0) + (n as number);
+    }
+  }
+  const weekly = Object.keys(byWeek).sort().map(week => ({
+    week, sentiments: byWeek[week], total: Object.values(byWeek[week]).reduce((a, b) => a + b, 0),
+  }));
+  return { weekly, totals };
+}
+
 export interface BWAlertArticle {
   uri: string;
   title: string;
@@ -809,7 +843,7 @@ export async function runScheduleNow(id: number): Promise<{ run_id: number }> {
 
 // --- Sentiment Trends ---
 
-export async function getSentimentTrends(brandId: number, daysBack: number = 365, topics?: string[]): Promise<{ trends: BWSentimentTrend[] }> {
+export async function getSentimentTrends(brandId: number, daysBack: number = 365, topics?: string[]): Promise<BWSentimentTrendsResponse> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/brands/${brandId}/sentiment-trends?${params}`, { credentials: 'include' });
