@@ -10,7 +10,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Info, RefreshCw, Eye, Quote } from 'lucide-react';
+import { Loader2, Info, RefreshCw, Eye, Quote, FileDown } from 'lucide-react';
+import { downloadVoicesReport } from '../../services/voicesReportHtml';
 import {
   Brand, BWVoicesResponse, BWVoiceRole, BWVoicesDigest, BWVoicePost,
   getVoices, getVoicesDigest,
@@ -198,6 +199,7 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
   const [error, setError] = useState<string | null>(null);
   // The two audiences shown side by side. Null = the backend's suggested pair.
   const [picked, setPicked] = useState<string[] | null>(null);
+  const [exporting, setExporting] = useState(false);
   const minRelevance = 0.4;
 
   const effectiveBrand = brandId ?? (enabled.find(b => b.is_primary)?.id ?? enabled[0]?.id ?? null);
@@ -227,6 +229,26 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
   };
   const columns = shown.map(r => roles.find(x => x.role === r)).filter((x): x is BWVoiceRole => !!x);
 
+  // One self-contained .html for the brand's team: the audience table, the
+  // two compared columns with their digests, every post with its source.
+  // Digests are cached server-side per post set, so re-fetching them here is
+  // one cheap call each rather than a second model run.
+  const exportHtml = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const digests: Record<string, BWVoicesDigest | null> = {};
+      for (const r of columns) {
+        digests[r.role] = r.n >= 2
+          ? await getVoicesDigest(r.role, data.brand_id, daysBack, minRelevance).catch(() => null)
+          : null;
+      }
+      downloadVoicesReport({ voices: data, compared: columns.map(r => r.role), digests, daysBack, generatedAt: new Date().toISOString() });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
@@ -236,6 +258,11 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
             <p className="text-xs text-gray-500 dark:text-gray-400">Who is talking about the brand, and what each audience thinks. Last {daysBack} days, on-brand posts only (relevance ≥ {minRelevance}).</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <button onClick={exportHtml} disabled={!data || loading || exporting}
+              title="Download this view as a self-contained HTML report: audience table, the two compared audiences with their digests, and every post"
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40">
+              {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />} Export HTML
+            </button>
             <label className="text-xs text-gray-500 dark:text-gray-400">Brand</label>
             <select value={effectiveBrand ?? ''} onChange={e => setBrandId(Number(e.target.value))}
               className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">

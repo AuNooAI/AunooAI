@@ -1,0 +1,1 @@
+import{aG as a,X as r,Y as s,aH as i}from"./newsfeed-CvDVTFjW.js";import{A as x}from"./LineChart-Dz238h_X.js";var o=a({chartName:"AreaChart",GraphicalChild:x,axisComponents:[{axisType:"xAxis",AxisComp:r},{axisType:"yAxis",AxisComp:s}],formatAxisMap:i});export{o as A};

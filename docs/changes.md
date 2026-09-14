@@ -2,205 +2,164 @@
 
 Running log of notable operational/code changes. Newest first.
 
-## 2026-09-14 — Voices digest rewritten for the client's eyes; Oviva look-alikes excluded
-
-### The digest read as a verdict
-The clinician digest for Oviva said "Clinicians distrust Oviva due to aggressive marketing,
-poor weight loss results ... They resent patient-direct tactics and feel undermined ... most
-demand changes." Oliver: we cannot tell a client this is what people think of them; it has to
-be constructive and in context. The writer was passing a verdict on the company and on the
-audience from seven posts, with no denominator and no source.
-
-### Changes (`app/services/audience_voices.py`)
-The digest prompt now writes for the company's own team and follows the site's clinical
-register (`report_style.CLINICAL_STYLE` appended): attribute everything to the posts and count
-it ("six of seven posts, from German GPs in one thread on X"), never say what the audience
-thinks or feels, never generalise from the sample, no verdict or severity words in the
-writer's own voice (a theme that needs the posts' own word quotes it: Advertising the posts
-call "aggressive"), and give the context the reader needs to weigh it. Two new fields:
-`context` (posts, accounts, platforms, countries, clustering, dates, from facts computed in
-code and handed to the writer) and `asks` (what the posts ask for, as items the company could
-act on, each tied to how many posts raise it). A draft that uses a verdict word outside a
-quote is regenerated once with the rule restated; if it still does, the digest carries a
-`tone_warning` instead of being hidden. The Voices tab shows context, asks and the warning.
-
-Same seven posts, after: "Six of seven posts from German clinicians discuss Oviva's digital
-weight-loss programme. Four posts report negative experiences with patient outcomes or
-practice workflows. Three posts describe marketing tactics they call "aggressive". One post
-reports positive patient weight loss." Asks: two posts ask to be contacted before a patient is
-sent to them for a prescription; one questions the six-month observation period in the
-approval study.
-
-### Oviva Therapeutics and Oviva Belt
-Two look-alikes were in the Oviva topic at relevance 0.9 and 0.5: Oviva Therapeutics (a US
-biotech; a UCLA centre's event post) and Oviva Belt (a period-pain device with its own
-Instagram account). Both are now on the brand's entity-collision list
-(`bw_brands.config.news_keyword_excludes`: "oviva therapeutics", "oviva belt", "ovivabelt"),
-the two mentions and article rows are zeroed, and the per-mention evaluation path
-(`evaluate_mentions_for_group`) now applies the exclude list before any model call, as the
-topic path always did. That gap is why they scored at all on this tenant.
-
-### Propagation
-Backend to oviva and bugfixing; built UI to all four. Restarted oviva and bugfixing with no
-live tasks.
-
-## 2026-09-14 — Profile pass over every Oviva author; the profile now names the audience
-
-### What the first pass showed
-Building Market Monitor profiles for the 37 unprofiled accounts behind Oviva's on-brand posts
-(xpoz + one model call each, 37 built, 0 failed) read 24 of them as "no clear connection".
-The platform fetch returns an account's latest timeline, and a patient logging their weight
-or a GP in a prescribing thread rarely mentions the vendor there. The posts that brought the
-account into the site were never shown to the model.
-
-### Changes (`app/services/social_profile_service.py`, `audience_voices.py`)
-- **On-brand posts go in first.** `_market_posts` pulls the account's collected posts that
-  carry an author role or sit in a brand or market topic, and the market prompt shows them
-  above the timeline sample with the instruction to judge the account's part in the market
-  from those. Reread over the 40 accounts: 34 practitioner, 3 vendor, 1 analyst, 1 vendor
-  staff (Partech, the investor), 1 unrelated.
-- **The profile names the audience directly.** "Practitioner" covers both the prescribing GP
-  and the patient on the programme, and mapping it to clinician by default put three patients
-  and a partner organisation on the doctors' side. The market read now also returns
-  `audience` in the Voices taxonomy (patient, caregiver, clinician, customer, academic,
-  professional, employee, journalist, investor, brand, unknown), stored as
-  `social_accounts.metadata.audience_role`; `account_audiences` uses it before any mapping. A
-  vendor's own account is always brand voice, whatever its posts read as (Oviva UK came back
-  "patient" because it posts patient stories); vendor staff is employee unless read as investor.
-- Practitioner without an audience (profiles from before this) resolves by the account's
-  post history, then the post itself, then the site's industry.
-
-### Result on oviva (Brand Monitoring Oviva, 180 days, 42 posts)
-41 of 42 posts take their role from the account profile. Patients 26 (net +8), clinicians 7
-(net −57), brand voice 5, customers 2, caregiver 1, academic 1 (a UCLA centre whose post is
-about Oviva Therapeutics, a different company). The seven clinician accounts are all German or
-UK prescribing doctors; the negative reading is prescribing pressure, weak evidence and cost.
-
-### Propagation
-oviva and bugfixing (the wiley copies of `social_profile_service.py` are drifted and have no
-market monitor). Both restarted with no live tasks.
-
-## 2026-09-14 — Brand and market data over MCP; GP accounts profiled
-
-### MCP tools (`app/mcp_access/brand_tools.py`, registered in `tools.py`)
-The monolith MCP server had the topic tools and `get_social_posts` and nothing else, so a
-connected model could read posts but not the views the site shows. Twelve tools now call the
-same route functions and services the UI calls, so a number over MCP is the number on screen:
-`list_brands`, `get_brand_stats`, `get_brand_articles`, `get_brand_perception`,
-`get_brand_voices` (roles, sentiment per audience, posts, and the digests for the focus pair or
-any `roles` list), `get_brand_alerts`; `list_markets`, `get_market_vendors`,
-`get_market_analysis` (formation, signal_noise, funding, hiring, share_of_voice, or all),
-`get_market_top_voices`, `get_market_horizon`, `get_market_briefings`. Each says so when its
-module is off on the site; `get_brand_voices` also honours `BW_VOICES_ENABLED`.
-`list_capabilities` now lists the brand and market names. New prompt recipe `brand_briefing`.
-Route functions are called with every parameter passed explicitly, because a FastAPI
-`Query(...)` default is a descriptor object when the function is called directly.
-
-Verified through `POST /mcp` on oviva with a one-day key (revoked after): 24 tools listed,
-`get_brand_voices` for Oviva returns 42 posts with the clinician/patient focus pair.
-
-### The two GP accounts
-The Market Monitor profile reread on @unadottoressa and @meddidocc first returned
-"unrelated" for one of them, because the profile prompt defined practitioner as "works in a
-security team or is a customer". The definition is now industry-neutral (a clinician or patient
-for a health market, a security team member for a security market, a librarian or researcher
-for a publishing market). Both now read as practitioner, which Voices maps to clinician from
-the account profile rather than from the post history.
-
-### Propagation
-MCP files to oviva, wiley, wileytest, bugfixing (their copies matched canonical). The profile
-prompt fix to oviva and bugfixing only: the wiley copies of `social_profile_service.py` differ
-from canonical by 101 lines and have no market monitor. All four restarted with no live tasks.
-
-## 2026-09-14 — Voices ties into account profiles; hidden on the Wiley sites
-
-### Two directions between Voices and Market Monitor Top voices
-Top voices ranks accounts and, when someone profiles one, records its part in the market
-(`social_accounts.metadata.market_role`: vendor, vendor staff, practitioner, analyst or press,
-reseller, promoter or bot, unrelated). Voices classifies posts. They never met.
-
-**Account beats post.** `audience_voices.account_audiences` gives each (platform, handle) an
-audience role from the account: the profile's market role mapped onto the audience list
-(vendor and reseller and promoter → brand voice, vendor staff → employee, analyst or press →
-press, practitioner → clinician on a health site and industry professional elsewhere), else a
-majority vote over every classified post by that account (at least two posts, 60 % agreeing,
-unknown never votes). `apply_account_roles` overrides the one-post reading on all three social
-reads (Voices, the per-mention Social feed, the topic Social feed) and keeps the post's own
-reading as `post_role` with `author_role_source` saying which won. On oviva 20 of 42 Oviva posts
-now carry an account-level role; both profiled German GPs read as clinicians on every post.
-
-**Posts give Top voices a free role.** `market_analysis.top_voices` adds `audience` per
-account from the same function, so an unprofiled handle whose posts keep reading as patient or
-clinician shows that in the Role column (italic, with a hover note to profile it for a stronger
-reading). Profiled roles still win.
-
-### Hidden on wiley and wileytest
-Oliver: Wiley did not ask for the view and would need different personas. `BW_VOICES_ENABLED=0`
-in both `.env` files (backups `.env.bak-voices-*`); `/api/modules` now returns `features`
-(`bw_voices`), the Brand Watcher tab list drops Voices when it is false and a remembered
-Voices tab snaps back to the dashboard; the two endpoints answer 404. Columns and code stay so
-the switch is one line when a Wiley persona list exists.
-
-### Propagation
-oviva (market_analysis patched in place: its copy is behind canonical on the review_verdict
-gate), wiley and wileytest (routes patched in place, their file predates the per-mention read),
-bugfixing. All restarted with no live background tasks.
-
-## 2026-09-14 — Brand Watcher "Voices": what clinicians say next to what patients say
+## 2026-09-14 — Brand Watcher Voices: who is talking about a brand, and what each audience says
 
 ### Goal
 Oviva asked for a view that shows what doctors think of them separately from what patients
-think. The Social tab already scored every post for relevance and sentiment, but nothing said
-who was speaking, so a GP complaining about prescribing pressure and a patient logging a lost
-kilo were one number.
+think. The Social tab scored every post for relevance and sentiment, but nothing said who was
+speaking, so a GP complaining about prescribing pressure and a patient logging a lost kilo were
+one number. Five commits, all on `emergencybugfix/brand-watcher-card-counts`: `1b414230`,
+`b33be979`, `e3da59e4`, `70af6d4b`, `11c72660`.
 
-### What changed
-**Every on-brand social post now carries the author's role.** The social evaluation call that
-scores relevance and sentiment (`app/services/social_eval_service.py`) also returns
-`author_role` from a fixed list (patient, caregiver, clinician, customer, academic,
-professional, employee, journalist, investor, brand, unknown) plus a one-line reason. It is the
-same model call, so new posts cost nothing extra. The role is a property of the post, not of the
-(post, brand) pair, so it lives on `articles.author_role` / `articles.author_role_reason`
-(migration `voice_001`, branched off `art_text_001` like the last customer-site migration;
-canonical merges it in `mm_028`). Both social read paths (per-mention and topic) return it and
-roll it up as `by_role`; Glassdoor rows count as employees without a model verdict.
+### Feature: every on-brand social post carries the author's role (`1b414230`)
+**`app/services/social_eval_service.py`** — the social evaluation call that scores relevance
+and sentiment now also returns `author_role` from a fixed list (patient, caregiver, clinician,
+customer, academic, professional, employee, journalist, investor, brand, unknown) and a
+one-line reason. Same model call, so a new post costs nothing extra. The role is a property of
+the post, not of the (post, brand) pair, so it lives on `articles.author_role` /
+`author_role_reason` (migration `voice_001`, branched off `art_text_001` like the last
+customer-site migration; canonical merges it in `mm_028`). Both social read paths
+(`entity_social_read.py` per-mention, the topic path in `brand_watcher_routes.py`) return it
+and roll it up as `by_role`. Glassdoor rows count as employees without a model verdict.
+**`scripts/backfill_author_roles.py`** classifies the backlog with one role-only call per post
+(`--apply`, `--redo` after a prompt or model change, `--brand`, `--model`); candidates come from
+both the article score and the per-mention score.
 
-**New Voices sub-tab** in Brand Watcher (`ui/src/components/newsfeed/BrandWatcherVoices.tsx`):
-role tiles ranked by volume with a sentiment split and net score, then two audiences side by
-side. Each side shows counts, a model digest of the themes with verbatim quotes and a 60-word
-summary, and the posts themselves with the reason the model gave for the role. The backend
-suggests the opening pair: clinician vs patient when both exist, otherwise professional or
-academic vs customer, otherwise the two largest. Brand voice, unknown and unclassified are
-never in the pair. The Social tab cards also show the role as a chip.
+### Feature: the Voices sub-tab and its endpoints (`1b414230`, `11c72660`)
+**`ui/src/components/newsfeed/BrandWatcherVoices.tsx`** — role tiles ranked by volume with a
+sentiment split and net score, then two audiences side by side: counts, a model digest, and the
+posts with the reason for the role. The backend picks the opening pair: clinician vs patient
+when both exist, else professional or academic vs customer, else the two largest; brand voice,
+unknown and unclassified are never in the pair. Social tab cards show the role as a chip.
+**`app/routes/brand_watcher_routes.py`** — `GET /api/brand-watcher/voices` and
+`/voices/digest`. **`app/services/audience_voices.py`** — the rollup and the digest. The digest
+uses the site's default enrichment model (`keyword_monitor_settings.default_llm_model`,
+override `VOICES_DIGEST_MODEL`) and is cached per post set for six hours.
 
-**Endpoints** in `app/routes/brand_watcher_routes.py`: `GET /api/brand-watcher/voices`
-(brand_id, days_back, min_relevance) and `GET /api/brand-watcher/voices/digest` (role, ...).
-The digest uses the tenant's default enrichment model (`keyword_monitor_settings`,
-overridable with `VOICES_DIGEST_MODEL`) and is cached per post set for six hours in
-`app/services/audience_voices.py`, so the model only runs again when the posts change.
+### Feature: HTML export of the Voices view
+**`ui/src/services/voicesReportHtml.ts`** — one self-contained `.html` (inline CSS, no
+dependencies, same house style as the social report) with the audience table, the two
+compared audiences with their digests (context, summary, themes with quotes, what the posts
+ask for), every post with the reason for its role, and a method section. **Export HTML**
+button in the Voices header (`BrandWatcherVoices.tsx`); it re-fetches the two digests, which
+are cached server-side per post set, so the export costs no model call. File name
+`voices-<brand>-<date>.html`. Built and synced to all four sites; no backend change.
 
-**Backfill** `scripts/backfill_author_roles.py`: one role-only call per on-brand post that has no
-role yet (`--apply`; `--redo` reclassifies after a prompt or model change; `--brand` scopes it).
-Candidates come from both the article score and the per-mention score.
+### Fix: the digest wrote a verdict; it now writes for the client's team (`11c72660`)
+The first clinician digest read "Clinicians distrust Oviva due to aggressive marketing ... They
+resent patient-direct tactics and feel undermined ... most demand changes", from seven posts,
+with no denominator and no source. Oliver: we cannot tell a client this is what people think of
+them; it has to be constructive and in context. The prompt now writes for the company's own
+team in the site's clinical register (`report_style.CLINICAL_STYLE` appended): everything
+attributed to the posts and counted ("six of seven posts, from German GPs in one thread on
+X"), no generalising from the sample, no verdict or severity words in the writer's own voice
+(a theme that needs the posts' own word quotes it), and two new fields: `context` (posts,
+accounts, platforms, countries, clustering, dates, from facts computed in code) and `asks`
+(what the posts ask for, as items the company could act on, each tied to how many posts raise
+it). A draft that uses a verdict word outside a quote is regenerated once with the rule
+restated; if it still does, the digest carries `tone_warning` rather than being hidden. The
+tab shows context, asks and the warning.
 
-### Model choice on oviva
-nova-lite, oviva's social evaluation model, read the German GP thread on X as patients: "Oviva
-is regularly prescribed for us", "incite the patients against us", "I'm supposed to keep
-prescribing! What a rip-off" all came back as patient or journalist even after the role rules
-were tightened. bedrock-kimi-k2-5 got all of them as clinician, so oviva's `SOCIAL_EVAL_MODEL`
-is now `bedrock-kimi-k2-5` (backup `.env.bak-socialeval-*`). Volume is a few posts a day, so
-the cost difference is nil. The wiley tenants keep their own models.
+### Fix: the model that reads the roles (`1b414230`)
+nova-lite, oviva's social evaluation model, read the German GP thread on X as patients even
+after the rules were tightened: "Oviva is regularly prescribed for us", "incite the patients
+against us", "I'm supposed to keep prescribing! What a rip-off" came back as patient or
+journalist. bedrock-kimi-k2-5 read every one as clinician. oviva's `SOCIAL_EVAL_MODEL` is now
+`bedrock-kimi-k2-5` (backup `.env.bak-socialeval-*`); this also changes its social relevance
+and sentiment model. Volume there is a few posts a day. The wiley sites keep their models.
 
-Result on oviva after the kimi backfill (Brand Monitoring Oviva, 180 days): 22 patient,
-7 clinician, 7 brand voice, 3 customer, 3 unknown, 1 caregiver. Clinicians are net negative
-(prescribing pressure, weak evidence, cost per quarter); patients are mixed (weight-loss wins
-against medication delays, insensitive advice and eligibility confusion).
+### Feature: Voices and Market Monitor account profiles read each other (`b33be979`, `70af6d4b`)
+Market Monitor Top voices profiles accounts and records a market role
+(`social_accounts.metadata.market_role`); Voices classified posts; the two never met.
+**`audience_voices.account_audiences`** gives each (platform, handle) an audience role from the
+account: the profile's reading first, else a majority vote over the account's classified posts
+(at least two posts, 60 % agreeing, `unknown` never votes). **`apply_account_roles`** overrides
+the one-post reading on all three social reads and keeps the post's own reading as `post_role`
+with `author_role_source` saying which won. **`market_analysis.top_voices`** adds `audience`
+per account from the same function, so an unprofiled handle whose posts keep reading as
+clinician shows that in the Role column (italic, hover note).
+
+Profiling the 37 unprofiled accounts behind Oviva's posts (xpoz + one model call each; 37
+built, 0 failed) then showed two problems in the profile itself. It read 24 of them as "no
+clear connection", because the platform fetch returns the latest timeline and a patient logging
+weight rarely names the vendor there: **`social_profile_service._market_posts`** now puts the
+account's collected on-brand posts in front of the model first. And "practitioner" in the
+market prompt was defined as "works in a security team or is a customer", so a German GP read
+as unrelated; the definition is now industry-neutral, and the market read returns `audience` in
+the Voices taxonomy directly (stored as `metadata.audience_role`, used before any mapping). A
+vendor's own account is always brand voice, whatever its posts read as (Oviva UK came back
+"patient" because it posts patient stories). Rereads cost one short model call per account and
+no platform fetch (`market_voice_profiles.reread_one`).
+
+### Fix: exclude terms never applied on the per-mention path (`11c72660`)
+Oviva Therapeutics (a US biotech) and Oviva Belt (a period-pain device) sat in the Oviva topic
+at relevance 0.9 and 0.5. `evaluate_mentions_for_group` never applied the brand's
+entity-collision list (`bw_brands.config.news_keyword_excludes`); only the older topic path
+did. It does now, before any model call. On oviva the list gained "oviva therapeutics",
+"oviva belt", "ovivabelt" and the two mentions and article rows were zeroed by SQL.
+
+### Feature: brand and market data over MCP (`e3da59e4`)
+**`app/mcp_access/brand_tools.py`**, registered in `tools.py` — twelve tools that call the
+same route functions and services the UI calls: `list_brands`, `get_brand_stats`,
+`get_brand_articles`, `get_brand_perception`, `get_brand_voices`, `get_brand_alerts`,
+`list_markets`, `get_market_vendors`, `get_market_analysis`, `get_market_top_voices`,
+`get_market_horizon`, `get_market_briefings`. Each says so when its module is off;
+`get_brand_voices` honours `BW_VOICES_ENABLED`. `list_capabilities` names the brands and
+markets; new prompt recipe `brand_briefing`. Route functions get every `Query` parameter
+explicitly (the defaults are descriptor objects when a route is called directly) and results
+pass through `_plain` so pydantic models and rows serialise.
+
+### Ops: hidden on the Wiley sites (`b33be979`)
+Wiley did not ask for the view and would need its own persona list. `BW_VOICES_ENABLED=0` in
+both `.env` files (backups `.env.bak-voices-*`); `/api/modules` returns `features`
+(`bw_voices`), the Brand Watcher tab list drops Voices when it is false, a remembered Voices
+tab snaps back to the dashboard, and the two endpoints answer 404. Columns and code stay, so
+enabling it later is one env line.
+
+### Verification
+- Backfill on oviva: 130 posts classified with kimi (`--redo`), 0 failures.
+- Profile pass on oviva: 37 accounts built, 0 failed; reread over 40 accounts twice, 0 failed.
+- Final Voices split for Oviva (180 days, 42 posts, 41 roled from the account profile):
+  patients 26 (net +8), clinicians 7 (net −57), brand voice 5, customers 2, caregiver 1,
+  academic 1. The seven clinician accounts are all prescribing doctors in Germany or the UK.
+- Final clinician digest (kimi): "Six of seven posts from German clinicians discuss Oviva's
+  digital weight-loss programme. Four posts report negative experiences with patient outcomes
+  or practice workflows. Three posts describe marketing tactics they call "aggressive". One
+  post reports positive patient weight loss." Asks: two posts ask to be contacted before a
+  patient is sent to them for a prescription. No tone warning.
+- Live API on oviva with a minted admin session: `/voices` 200 with the clinician/patient
+  focus pair; `/social` posts carry `author_role`. On wiley: `/api/modules` reports
+  `bw_voices: false`, `/voices` 404.
+- MCP on oviva through `POST /mcp` with a one-day key (revoked after): 24 tools listed,
+  `get_brand_voices` returned 42 posts with the focus pair; `prompts/list` shows
+  `brand_briefing`.
+- `npm run typecheck` clean (228 known errors, none new) on every UI change.
 
 ### Propagation
-Backend, migration and built UI on oviva, wiley and wileytest; backfill run on oviva only
-(130 posts, kimi). wileytest has ~4,800 on-brand social posts in 180 days that are not
-classified; run the backfill there when wanted (its model is bedrock-claude-haiku; pass
-`--model` to use something cheaper). No live background jobs on any of the three at restart.
+oviva (the requesting site): every backend file, migration `voice_001`, built UI, backfill,
+profile pass, `SOCIAL_EVAL_MODEL` change. bugfixing (canonical): everything, restarted.
+wiley and wileytest: migration, evaluator, read paths, MCP tools and built UI; Voices hidden by
+env; their `brand_watcher_routes.py` predates the per-mention read and was patched in place;
+their `social_profile_service.py` differs from canonical by 101 lines and has no market
+monitor, so the profile changes did not go there; no backfill run (wileytest has ~4,800
+unclassified on-brand posts on a Haiku evaluator, pass `--model` if it is ever run). oviva's
+`market_analysis.py` is behind canonical on the review_verdict gate and was patched in place.
+Every restart followed a check for live background tasks; none were running.
+
+### Lessons
+- **Features go to the site that asked.** The "copy to bugfixing + wiley + wileytest" rule is
+  for fixes. A new tab on a paying customer's site with no data behind it is a customer-facing
+  change they did not ask for. When a feature must ride the shared React bundle, gate its entry
+  point per site rather than showing an empty tab.
+- **A digest for a client is not a verdict on the client.** Attribute, count, give the
+  denominator and the context, and say what the posts ask for. The clinical register in
+  `report_style.py` is the house rule for any narrative a customer reads; append it and check
+  the output, because the prompt alone does not hold every time.
+- **Timeline profiles cannot see why an account is here.** Feed the posts that brought the
+  account into the site before asking a model what part it plays.
+- **A cheap model can carry sentiment and still miss who is speaking.** nova-lite read
+  prescribing GPs as patients with explicit rules in the prompt. Check role quality on a
+  side-by-side before trusting a new site's split.
 
 ## 2026-09-14 — aisocnews.com analyst call raised to $400 / $700
 
