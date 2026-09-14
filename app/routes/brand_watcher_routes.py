@@ -1484,7 +1484,8 @@ async def get_social_posts(
 
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
-                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
+                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta,
+                   a.original_summary, a.original_title
             FROM articles a
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
@@ -1513,6 +1514,8 @@ async def get_social_posts(
             "sentiment": r[6], "topic": r[7],
             "social_meta": (r[8] if isinstance(r[8], dict)
                             else (json.loads(r[8]) if r[8] else None)),
+            # The post as written when it was not English; summary is then the translation.
+            "original_summary": r[9], "original_title": r[10],
         } for r in rows]
 
         # Attach the brand keyword(s) that triggered each post so the UI can show a

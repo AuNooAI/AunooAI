@@ -241,7 +241,9 @@ export interface BWSocialMeta {
 export interface BWSocialPost {
   uri: string;
   title: string;
-  summary: string | null;
+  summary: string | null;            // English; the translation when the post was not English
+  original_summary?: string | null;  // the post as written, only when it was translated
+  original_title?: string | null;
   news_source: string | null;
   platform: string;
   publication_date: string | null;

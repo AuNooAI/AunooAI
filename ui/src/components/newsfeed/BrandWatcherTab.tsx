@@ -1026,6 +1026,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap break-words"
              title={cleanSocialText(socialBodyOf(p))}
              dangerouslySetInnerHTML={{ __html: socialBodyHtml(p) }} />
+          {p.original_summary && (
+            <details className="mt-1">
+              <summary className="text-[11px] text-gray-400 cursor-pointer select-none">Translated · show original</summary>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-wrap break-words border-l-2 border-gray-200 dark:border-gray-700 pl-2">{cleanSocialText(p.original_summary)}</p>
+            </details>
+          )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {(() => { const bc = brandColorOf(socialBrandOf(p)); return (p.matched_keywords || []).map((k: string) => (
               <span key={k} title={`${socialBrandOf(p)} keyword "${k}"`}

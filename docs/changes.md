@@ -28,6 +28,32 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Social tab shows the original post under its English translation
+
+### Goal
+Oliver: "we need to show the original and a translation." Since the
+translation-at-insert change, a non-English social post is stored as its
+English translation in `summary` with the post as written in
+`original_summary`, but the Social tab and the social report only showed the
+translation, so a German or Japanese post read as if it had been written in
+English.
+
+### What changed
+- Both social feed read paths return `original_summary` and `original_title`:
+  the legacy `/api/brand-watcher/social` query in `brand_watcher_routes.py`
+  and the entity-mention path in `entity_social_read.py` (oviva runs the
+  latter, sunstar the former).
+- Social tab card (`BrandWatcherTab.tsx`): under the translated text, a
+  "Translated · show original" line expands to the post as written. English
+  posts show nothing extra.
+- Social report (`socialReportHtml.ts`): the original is printed under the
+  translation, labelled "Original".
+- `BWSocialPost` type carries the two fields.
+
+### Propagation
+Backend: oviva by copy, sunstar / wiley / wileytest by patch (their routes
+file drifts). Built UI synced to all four; restarted.
+
 ## 2026-09-14 — Keyword monitor: a manual "check now" on a social group no longer sends posts through the news pipeline
 
 ### Goal
