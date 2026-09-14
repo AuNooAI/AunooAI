@@ -28,6 +28,55 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Daily briefing: deterministic checks, verbatim-quote gate and a repair loop make a clean report reachable
+
+### Goal
+With the reviewer gate alone, today's Sunstar briefing could not be finalized.
+The judge (kimi-k2.5) kept flagging sentences that were already right, so a
+regeneration went from 6 errors to 13 to 5 and stayed held. Oliver: "why can
+we not generate a clean report?"
+
+### What changed (all in `app/services/daily_report_service.py` unless noted)
+- **Deterministic preflight** (`_preflight_findings`): every date, figure and
+  monitored-brand name in the draft must appear in the source items. A date
+  that exists only as a published date may not carry an event verb
+  ("released", "launched", "published"…) unless the sentence says "reported".
+  Monitored names come from the briefing's own "Brand Monitoring <name>"
+  topics; a theme may not attach one to items that do not mention it. These
+  findings hold a briefing on their own and never hallucinate.
+- **Verbatim-quote gate** (`_verify_claim_quotes`): a judge finding must quote
+  the draft sentence at fault in `claim_text`. A finding whose quote is not in
+  the draft is dropped; one without a quote is demoted to warning. This
+  removed the "the summary says published September 10" findings about text
+  the summary did not contain.
+- **Severity policy** (`_apply_severity_policy`): a judge `error` blocks only
+  when its `check` is `actor`, `sourcing` or `contradiction`, the things
+  preflight cannot see. Judge errors on dates, figures, counts and inference
+  become warnings, because preflight already passed those sentences.
+- **Repair loop** (`_repair_synthesis`, stage `repair`): after a failed review
+  the writer receives the flagged sentences, the findings and the same
+  sources, may change those sentences and nothing else, and the review runs
+  again. At most two rounds, then the draft is held. `review.repair_rounds`
+  records errors before and after each round.
+- **Judge model**: `data/auspex/agents/dr_reviewer_agent.md` pins `gpt-5.4`
+  (Bedrock Sonnet on a Bedrock-only tenant). A writer-tier judge produced
+  confident findings about sentences that did not exist.
+- `docs/AI_DESIGN_PATTERNS.md` gains §6.9 describing the pattern.
+
+### Verification
+Sunstar briefing 4, reopened and regenerated through the route: review found
+1 blocking error and 7 advisory items; one repair round took it to 0 errors;
+finalized as `approved_with_warnings` (4 warnings, 6 info). The summary now
+reads "Hiroshima University research, announced September 9" and "Japan's
+first integrated elderly care guideline … was reported on September 10", with
+no ministry attribution and every figure sourced. The judge still emits
+"info" lines saying a claim is correct, despite being told problems only;
+they do not affect the verdict.
+
+### Propagation
+sunstar, wiley, wileytest: service and prompt copied, restarted. bugfixing
+restarted. No live background jobs.
+
 ## 2026-09-14 — Daily briefing: a reviewer now checks the synthesis against its sources and holds it on errors
 
 ### Goal

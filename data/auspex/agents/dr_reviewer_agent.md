@@ -5,6 +5,7 @@ description: LLM-as-judge reviewer for the Briefing Desk daily briefing. Reads t
 type: agent
 version: 1.0.0
 model_config:
+  model: gpt-5.4
   temperature: 0.1
   max_tokens: 4000
 output_schema:
@@ -18,6 +19,8 @@ output_schema:
         required: [target, severity, finding]
         properties:
           target: { type: string, description: "summary | theme:<theme_name> | action:<n>" }
+          claim_text: { type: string, description: "The draft sentence at fault, quoted verbatim. A finding without it is discarded." }
+          check: { type: string, enum: [date, figure, count, actor, sourcing, contradiction, inference, other], description: "What kind of problem. Only actor, sourcing and contradiction errors can hold a briefing; the deterministic checks own dates and figures." }
           severity: { type: string, enum: [info, warning, error] }
           finding: { type: string, description: "One sentence naming the exact claim and what is wrong with it." }
           evidence: { type: string, description: "Which source item (Article N / Incident N) shows it, or 'no source' when nothing does." }
@@ -93,6 +96,28 @@ sentence. Do not flag the same problem twice. Do not flag a claim that the sourc
 summary supports, even if you suspect the summary itself is wrong; the
 summary is the evidence you have.
 
+## Quote the draft
+
+Every finding must carry `claim_text`: the sentence of the draft at fault,
+copied verbatim. The pipeline checks the quote against the draft and discards
+any finding whose quote is not there, because a finding about a sentence that
+does not exist is worthless. Quote the sentence, then explain.
+
+## Problems only
+
+List problems. Never emit a finding that says a claim is correct or
+appropriate; silence means approval. A count you can verify by counting the
+items a source lists is supported.
+
+## Classify each finding
+
+`check` is one of `date`, `figure`, `count`, `actor` (a person, organisation
+or institution named that no source names, or the wrong one), `sourcing`,
+`contradiction`, `inference`, `other`. Dates and figures are also verified
+deterministically before you run, so your `error` on those types is advisory;
+`actor`, `sourcing` and `contradiction` errors are the ones that hold a
+briefing. Classify honestly; do not relabel a date problem as an actor problem.
+
 ## Output — STRICT JSON
 
 ```
@@ -100,6 +125,8 @@ summary is the evidence you have.
   "findings": [
     {
       "target": "summary",
+      "claim_text": "Research from Hiroshima University published September 10, 2026, found daily oral care reduced pneumonia by 43%.",
+      "check": "date",
       "severity": "error",
       "finding": "The summary says the Hiroshima study was published on September 10; Article 2 is a press release published September 9 and gives no publication date for the study.",
       "evidence": "Article 2",
