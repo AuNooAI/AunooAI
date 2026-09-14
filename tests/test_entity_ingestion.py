@@ -516,3 +516,84 @@ def test_posts_collected_before_these_fields_existed_still_read_as_owned(
          WHERE article_uri = :u AND brand_id = :b
     """), {'u': uri, 'b': brands[0]}).mappings().first()
     assert row['stance'] == 'owned_claim'
+
+
+def test_a_page_on_the_vendors_own_domain_is_owned_web_not_earned_news(
+        conn, brands):
+    """The channel is decided per entity. A vendor's blog carries no
+    bias_source, so classify_source calls it earned_news; for the vendor whose
+    domain it is, that is the company writing about itself. 148 such links
+    across 14 vendors read as outside coverage before this rule."""
+    from app.services import entity_ingest
+
+    brand_id = brands[0]
+    domain = 'pytest-owned-domain.invalid'
+    conn.execute(text("""
+        INSERT INTO bw_vendor_identifiers
+            (brand_id, kind, normalized_value, display_value, valid_from,
+             provenance)
+        VALUES (:b, 'domain', :d, :d, NOW(), CAST('{}' AS JSONB))
+    """), {'b': brand_id, 'd': domain})
+    uri = f'https://www.{domain}/blog/we-are-great'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              publication_date)
+        VALUES (:u, 'We are great', 'body', 'Vendor Blog', :u,
+                '2026-08-20T00:00:00')
+    """), {'u': uri})
+
+    entity_ingest.link_content(conn, uri, candidates=[{
+        'brand_id': brand_id, 'attribution_method': 'keyword',
+        'mention_type': 'explicit_name'}])
+
+    link = conn.execute(text("""
+        SELECT channel, relationship FROM bw_entity_content_links
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brand_id}).mappings().first()
+    assert link['channel'] == 'owned_web'
+    assert link['relationship'] == 'owned'
+    mention = conn.execute(text("""
+        SELECT channel, stance FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brand_id}).mappings().first()
+    assert mention['channel'] == 'owned_web'
+    assert mention['stance'] == 'owned_claim'
+
+
+def test_the_same_page_is_earned_coverage_for_another_vendor_it_names(
+        conn, brands):
+    """Dropzone's blog writing about Crogl is Dropzone's own voice and genuine
+    third-party coverage for Crogl. One article, two channels."""
+    from app.services import entity_ingest
+
+    if len(brands) < 2:
+        pytest.skip('needs two vendors')
+    owner, other = brands[0], brands[1]
+    domain = 'pytest-owned-domain-two.invalid'
+    conn.execute(text("""
+        INSERT INTO bw_vendor_identifiers
+            (brand_id, kind, normalized_value, display_value, valid_from,
+             provenance)
+        VALUES (:b, 'domain', :d, :d, NOW(), CAST('{}' AS JSONB))
+    """), {'b': owner, 'd': domain})
+    uri = f'https://{domain}/blog/on-a-rival'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              publication_date)
+        VALUES (:u, 'On a rival', 'body', 'Vendor Blog', :u,
+                '2026-08-20T00:00:00')
+    """), {'u': uri})
+
+    entity_ingest.link_content(conn, uri, candidates=[
+        {'brand_id': owner, 'attribution_method': 'keyword',
+         'mention_type': 'explicit_name'},
+        {'brand_id': other, 'attribution_method': 'keyword',
+         'mention_type': 'explicit_name'},
+    ])
+
+    channels = dict(conn.execute(text("""
+        SELECT brand_id, channel FROM bw_entity_content_links
+         WHERE article_uri = :u
+    """), {'u': uri}).fetchall())
+    assert channels[owner] == 'owned_web'
+    assert channels[other] == 'earned_news'

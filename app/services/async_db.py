@@ -224,7 +224,9 @@ class AsyncDatabase:
             UPDATE articles
             SET
                 title = COALESCE(?, title),
+                original_title = COALESCE(?, original_title),
                 summary = COALESCE(?, summary),
+                original_summary = COALESCE(?, original_summary),
                 auto_ingested = TRUE,
                 ingest_status = ?,
                 quality_score = ?,
@@ -257,7 +259,9 @@ class AsyncDatabase:
 
         params = (
             article_data.get("title"),
+            article_data.get("original_title"),
             article_data.get("summary"),
+            article_data.get("original_summary"),
             article_data.get("ingest_status"),
             article_data.get("quality_score"),
             article_data.get("quality_issues"),
@@ -450,7 +454,10 @@ class AsyncDatabase:
             article_data.get("confidence_score"),
             article_data.get("overall_match_explanation"),
             False,  # analyzed = False for below-threshold articles
-            "filtered_relevance"  # ingest_status to indicate why it was filtered
+            # Honour the status the caller set (enrichment_failed,
+            # skipped_unknown_topic, relevance_check_failed); this literal used
+            # to overwrite all of them with filtered_relevance (found 2026-09-08).
+            article_data.get("ingest_status") or "filtered_relevance"
         )
 
         try:

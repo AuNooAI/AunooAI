@@ -16,13 +16,14 @@ import {
   ZAxis,
 } from 'recharts';
 import {
-  getAnalyses, getChannelMix, getJobPostings, getTopVoices,
+  getAnalyses, getChannelMix, getJobPostings,
   type ChannelMix, type Coverage, type JobPosting, type MarketAnalyses,
-  type TopVoices, type VoiceRow,
+  type VoiceRow,
 } from '../../services/marketMonitorApi';
 import { DataTable, type Column } from './DataTable';
 import { MarketThemesPanel } from './MarketThemesPanel';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
+import type { DrilldownSpec } from './MarketDrilldownHost';
 
 // SVG stroke/fill props take a literal color, not a Tailwind class, so every
 // chart color needs a light/dark pair picked at render time (see `cc` below).
@@ -50,7 +51,7 @@ function cc(isDark: boolean, light: string, dark: string): string {
   return isDark ? dark : light;
 }
 
-function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string }) {
+export function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string }) {
   // coverage.label is already a full clause ("81 of 83 vendors have a
   // founding year") — prefixing "Based on " onto it stacked two subjects in
   // one sentence and stopped parsing as English.
@@ -67,7 +68,7 @@ function CoverageLine({ coverage, note }: { coverage: Coverage; note?: string })
   );
 }
 
-function Panel({ title, children, full }: {
+export function Panel({ title, children, full }: {
   title: string; children: React.ReactNode;
   /** Spans both grid columns — for a panel left alone in a 2-column row,
    *  either because its sibling collapsed into the "not enough data" strip
@@ -82,12 +83,16 @@ function Panel({ title, children, full }: {
   );
 }
 
-export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
+export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
+                                     days }: {
   marketId: number;
   onVendor: (brandId: number) => void;
   /** Open a filtered list for a chart segment. Optional so the view still
    *  renders where no drilldown target exists. */
   onDrill?: (kind: string, value: string) => void;
+  /** Open the records behind a figure — the posts, listings or funding rows
+   *  themselves, as opposed to onDrill's list of vendors. */
+  onRecords?: (spec: DrilldownSpec) => void;
   /** The shared period, same as Pulse and Coverage. Only reaches the panels
    *  where a window has a real meaning — signal/noise, hiring, share of
    *  voice, top voices, channel mix. Formation and funding describe the
@@ -100,7 +105,6 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
   const [sortByShare, setSortByShare] = useState(false);
   const [jobs, setJobs] = useState<JobPosting[] | null>(null);
   const [showJobs, setShowJobs] = useState(false);
-  const [voices, setVoices] = useState<TopVoices | null>(null);
   const [mix, setMix] = useState<ChannelMix | null>(null);
   const [hiringCut, setHiringCut] =
     useState<'role' | 'function' | 'region' | 'seniority'>('role');
@@ -131,8 +135,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
 
   useEffect(() => {
     let live = true;
-    Promise.all([getTopVoices(marketId, days, 20), getChannelMix(marketId, days)])
-      .then(([v, m]) => { if (live) { setVoices(v); setMix(m); } })
+    getChannelMix(marketId, days)
+      .then(m => { if (live) setMix(m); })
       .catch(() => {});
     return () => { live = false; };
   }, [marketId, days]);
@@ -459,25 +463,61 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
                   </div>
                   <div>
                     <div className="text-xs font-medium text-slate-600 mb-1 dark:text-gray-400">
-                      Quietest — no own posts in this window
+                      Quietest — collected, and said nothing
                     </div>
-                    {/* Vendors with zero own LinkedIn posts, not the bottom
-                        of "loudest" reversed — those are two different
-                        questions (a vendor near the bottom of loudest may
-                        still post regularly; these post nothing). */}
+                    {/* Two conditions, both required. Zero own posts in the
+                        window, *and* a successful collection for that vendor.
+                        Without the second, this list was accusing 57 companies
+                        of silence when nothing had ever been collected from
+                        them — the vendors below the split are that group, kept
+                        separate because "we did not look" is not a finding
+                        about the company.
+
+                        The date shown is the vendor's last post at any time,
+                        not inside the window. A vendor quiet this month may
+                        have posted in March, and "never" would be a lie the
+                        window told. */}
                     <div className="divide-y">
                       {sov.quietest.slice(0, 10).map(v => (
                         <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
-                                className="w-full py-1.5 text-sm text-left
+                                className="w-full py-1.5 text-sm text-left flex items-baseline
+                                           justify-between gap-2
                                            text-slate-700 hover:bg-slate-50
                                            dark:text-gray-300 dark:hover:bg-gray-700">
-                          {v.vendor}
+                          <span>{v.vendor}</span>
+                          <span className="text-xs text-slate-400 dark:text-gray-500 shrink-0">
+                            {v.last_posted_at
+                              ? `last posted ${String(v.last_posted_at).slice(0, 10)}`
+                              : 'no post on record'}
+                          </span>
                         </button>
                       ))}
                     </div>
                     {sov.quietest_total > 10 && (
                       <div className="text-xs text-slate-400 dark:text-gray-500 pt-1">
                         {sov.quietest_total - 10} more of {sov.quietest_total} total
+                      </div>
+                    )}
+
+                    {sov.unmeasured_total > 0 && (
+                      <div className="mt-3 pt-2 border-t border-dashed">
+                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
+                          Unmeasured — {sov.unmeasured_total} not collected
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-gray-400 mb-1">
+                          Post collection has never succeeded for these, so we
+                          cannot say whether they are quiet.
+                        </p>
+                        <div className="divide-y">
+                          {sov.unmeasured.slice(0, 10).map(v => (
+                            <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
+                                    className="w-full py-1.5 text-sm text-left
+                                               text-slate-700 hover:bg-slate-50
+                                               dark:text-gray-300 dark:hover:bg-gray-700">
+                              {v.vendor}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -511,71 +551,6 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
         </div>
       )}
 
-      {/* ---- Top voices ---- */}
-      {sov && !sov.error && sov.vendors.length > 0 && (
-        <Panel title="Top voices">
-          {voices ? (
-            <>
-              <CoverageLine
-                coverage={voices.coverage}
-                note="Accounts posting about the market. Vendors' own company posts are excluded — they are counted as owned above." />
-              <DataTable
-                rows={voices.voices}
-                rowKey={v => `${v.platform}:${v.author}`}
-                initialSort="engagement" initialDir="desc"
-                columns={[
-                  { key: 'author', label: 'Account', groupable: false,
-                    render: v => `@${v.author}` },
-                  { key: 'platform', label: 'Platform', groupable: true },
-                  // A ranked list of handles with no subject is a list of
-                  // strangers. What they talk about is the useful part.
-                  { key: 'about', label: 'Talking about', sortable: false,
-                    // Capped, or an account naming a dozen terms and
-                    // vendors pushes its row tall enough that the table
-                    // becomes an endless scroll instead of a scan.
-                    render: v => {
-                      const terms = v.terms.slice(0, 4);
-                      const vendors = v.vendors.slice(0, 3);
-                      const extra = (v.terms.length - terms.length)
-                        + (v.vendors.length - vendors.length);
-                      return (
-                        <span className="flex flex-wrap gap-1">
-                          {terms.length === 0 && vendors.length === 0 && (
-                            <span className="text-slate-400 dark:text-gray-500">—</span>)}
-                          {terms.map(t => (
-                            <span key={t.term}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-slate-50 text-slate-600 dark:bg-gray-700 dark:text-gray-400">
-                              {t.term}
-                            </span>
-                          ))}
-                          {vendors.map(x => (
-                            <span key={x.vendor}
-                                  className="text-xs px-1 py-0.5 rounded border
-                                             bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
-                              {x.vendor}
-                            </span>
-                          ))}
-                          {extra > 0 && (
-                            <span className="text-xs text-slate-400 dark:text-gray-500">+{extra} more</span>
-                          )}
-                        </span>
-                      );
-                    } },
-                  { key: 'posts', label: 'Posts', align: 'right' },
-                  { key: 'engagement', label: 'Reactions', align: 'right' },
-                  { key: 'last_seen', label: 'Last seen', align: 'right',
-                    render: v => (v.last_seen ?? '').slice(0, 10) || '—' },
-                ]} />
-            </>
-          ) : (
-            <div className="py-10 text-center text-slate-400 dark:text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-            </div>
-          )}
-        </Panel>
-      )}
-
       {/* ---- Funding ---- */}
       {fu && !fu.error && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -594,10 +569,10 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
             </ResponsiveContainer>
           </Panel>
 
-          <Panel title="Growth outlook vs. attention">
+          <Panel title="Crunchbase Growth vs Heat">
             <CoverageLine
               coverage={fu.coverage}
-              note="Two separate reads on each company, both scored 0-100 by Crunchbase: how fast it looks like it's growing, and how much attention it's getting. A company's investor-database rank is in the tooltip, not the dot size — it would make every dot look the same." />
+              note="Growth and Heat are Crunchbase's own scores, 0-100. We do not compute them, cannot reproduce how they are calculated, and neither is a forecast: Heat is how much attention a company is getting now, not a prediction about it. A company's Crunchbase rank is in the tooltip rather than the dot size, which would make every dot look the same." />
             <ResponsiveContainer width="100%" height={230}>
               <ScatterChart margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
@@ -655,11 +630,11 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
                                    py-1.5 text-sm hover:bg-slate-50 text-left dark:hover:bg-gray-700">
                   <span className="text-slate-700 dark:text-gray-300">{m.vendor}</span>
                   <span className="text-slate-500 tabular-nums dark:text-gray-400">
-                    <span title="Crunchbase's growth-outlook score, 0-100">
+                    <span title="Crunchbase Growth, their own score, 0-100. Not ours and not a forecast.">
                       growth {m.growth_score ?? '—'}
                     </span>
                     {' · '}
-                    <span title="Crunchbase's attention score, 0-100">
+                    <span title="Crunchbase Heat, their own score, 0-100. Attention now, not a prediction.">
                       attention {m.heat_score ?? '—'}
                     </span>
                   </span>
@@ -698,6 +673,19 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, days }: {
               </p>
             ) : (
               <div className="divide-y">
+                {onRecords && (
+                  <div className="pb-1.5">
+                    <button
+                      onClick={() => onRecords({
+                        kind: 'investors',
+                        title: 'Investors backing more than one vendor',
+                        expectedTotal: fu.shared_investors.length,
+                      })}
+                      className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                      Open the full list, with the evidence behind each
+                    </button>
+                  </div>
+                )}
                 {fu.shared_investors.map(inv => (
                   <div key={inv.investor} className="py-1.5">
                     <div className="text-sm text-slate-800 dark:text-gray-100">{inv.investor}</div>

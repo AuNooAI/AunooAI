@@ -730,7 +730,7 @@ async def deliver_bundle(
     )
 
     fname = (
-        f"wiley_forecast_{cadence}_{period_label.replace(' ', '_').lower()}.pptx"
+        f"forecast_bundle_{cadence}_{period_label.replace(' ', '_').lower()}.pptx"
     )
     ok = email.send_email(
         to_addresses=sorted(recipients),

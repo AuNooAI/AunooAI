@@ -122,6 +122,10 @@ export interface FGResult {
     personas_generated: number;
     generated_at: string;
     config: FGConfig;
+    // Recorded by the generator: stage -> raw model id, and the distinct
+    // human labels. Absent on runs saved before 2026-09-10.
+    models_used?: Record<string, string>;
+    models?: string[];
   };
   article_count?: number;
   article_uris?: string[];
@@ -522,6 +526,7 @@ export function useFocusGroup(): UseFocusGroupReturn {
             metadata: result.metadata,
             articles_used: result.article_count || result.metadata?.articles_analyzed,
             persona_count: personas.length,
+            model_used: result.metadata?.models?.join(', ') || undefined,
           }),
         });
 

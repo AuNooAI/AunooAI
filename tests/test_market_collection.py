@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 from app.collectors import vendor_web_collector as vw
 from app.services import brightdata_linkedin as bd
@@ -815,7 +816,8 @@ def test_no_sweep_holds_a_transaction_across_an_http_call():
                       and 'await _discover' not in ln
                       and 'await _review' not in ln
                       and 'await _write' not in ln
-                      and 'await _reconcile' not in ln]
+                      and 'await _reconcile' not in ln
+                      and 'await _refresh' not in ln]
             if not awaits:
                 continue
             if 'conn.commit()' not in body:
@@ -889,3 +891,561 @@ def test_top_voices_links_accounts_without_building_profiles():
         assert forbidden not in src, (
             f'top_voices calls {forbidden}: a read path must not build '
             f'profiles, which are on-demand only for cost')
+
+
+# ---------------------------------------------------------------------------
+# Earned attention comes from the resolved mentions, not from nowhere
+# ---------------------------------------------------------------------------
+
+def test_share_of_voice_reads_the_resolved_mentions():
+    """The entity layer resolves who a third-party post is about; use it.
+
+    ``bw_entity_mentions`` holds 1,933 rows across 53 brands with channel and
+    platform kept separate, and no Market Monitor read path referenced it while
+    ``ENTITY_INTELLIGENCE_MENTION_READ`` was on. So practitioner discussion of
+    a vendor was being resolved and then ignored: the article-categories count
+    saw 22 items where the mentions table has 50 across news, Twitter, Bluesky,
+    Reddit and Glassdoor.
+    """
+    import inspect
+
+    from app.services import market_analysis as man
+
+    src = inspect.getsource(man.share_of_voice)
+    assert 'bw_entity_mentions' in src
+    assert 'mention_read' in src, (
+        'the mention read must be gated on the rollout flag, like every other '
+        'entity read')
+    assert '"earned"' in src or 'earned' in src, (
+        'the article-derived earned count must stay: callers compare against '
+        'it, and a number that silently doubles is worse than two whose '
+        'sources are stated')
+
+
+@pytest.mark.skipif(os.getenv('DB_TYPE', 'postgresql').lower() != 'postgresql',
+                    reason='reads live mention rows')
+def test_earned_attention_never_counts_a_vendors_own_posts():
+    """Owned social is already `own_posts`. Counting it again under attention
+    would double it beneath a heading that says the opposite.
+
+    The first version of this excluded owned_social from the channel breakdown
+    and not from the platform breakdown, so a vendor showed
+    ``platforms={'linkedin': 72}`` beside ``total=13`` — its own LinkedIn posts
+    reported as earned attention. Both breakdowns are filtered now, and the
+    invariant that catches it is that platforms can never outnumber the total.
+    """
+    from app.database import get_database_instance
+    from app.services import market_analysis as man
+
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        market = conn.execute(text(
+            'SELECT id FROM bw_markets WHERE enabled ORDER BY id LIMIT 1'
+        )).scalar()
+        if market is None:
+            pytest.skip('no market to read')
+        sov = man.share_of_voice(conn, int(market))
+    finally:
+        conn.rollback()
+        conn.close()
+
+    for row in sov['vendors']:
+        att = row['attention']
+        assert 'owned_social' not in att['by_channel'], (
+            f"{row['vendor']}: owned social counted as earned attention")
+        assert sum(att['by_platform'].values()) <= att['total'], (
+            f"{row['vendor']}: platform counts ({att['by_platform']}) exceed "
+            f"the attention total ({att['total']}) — something outside the "
+            f"earned channels is being counted")
+
+
+# ---------------------------------------------------------------------------
+# An event headline should say what happened
+# ---------------------------------------------------------------------------
+
+#: The real post behind event 209, trimmed. A genuine Booz Allen Hamilton
+#: partnership whose card said "Security operations are being asked to move at
+#: machine speed" — naming neither the partner nor the partnership.
+ANDESITE_POST = (
+    "Security operations are being asked to move at machine speed. But speed "
+    "alone isn't the answer - defenders need the right context, the right "
+    "intelligence, and the ability to make high-confidence decisions faster.\n\n"
+    "That's why Andesite is excited to announce a new partnership with Booz "
+    "Allen Hamilton focused on machine-speed defense for mission-critical SOC "
+    "modernization."
+)
+
+
+def test_an_event_headline_names_the_announcement_not_the_hook():
+    """Vendor posts open with a hook and state the news a few sentences down.
+
+    Taking the post's first line as the event title produced a partnership card
+    that never mentioned the partner. The counterparty is the single most
+    useful word on that card.
+    """
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence,
+    )
+
+    got = announcing_sentence(ANDESITE_POST, 'partnership')
+    assert got, 'no announcing sentence found in a post that plainly has one'
+    assert 'Booz Allen Hamilton' in got
+    assert not got.startswith('Security operations are being asked')
+
+
+def test_no_marker_sentence_keeps_the_existing_title():
+    """A guess is worse than the status quo here.
+
+    Returning some other sentence when none carries the news would invent a
+    headline; falling back to the post's own title is exactly as good as before
+    the change.
+    """
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence,
+    )
+
+    assert announcing_sentence(
+        "Thoughts on the state of detection engineering in 2026.",
+        'partnership') is None
+    assert announcing_sentence('', 'partnership') is None
+    # A kind with no markers defined is not forced into one.
+    assert announcing_sentence(ANDESITE_POST, 'award') is None
+
+
+def test_a_headline_is_trimmed_on_a_word_boundary():
+    from app.services.entity_event_extractors.owned_post import (
+        announcing_sentence, _TITLE_CHARS,
+    )
+
+    long_one = ('We are pleased to announce a partnership with '
+                + 'Extremely Long Partner Name ' * 20 + 'today.')
+    got = announcing_sentence(long_one, 'partnership')
+    assert got and len(got) <= _TITLE_CHARS + 1     # +1 for the ellipsis
+    assert got.endswith('…')
+    assert not got[:-1].endswith(' '), 'trimmed mid-space rather than on a word'
+
+
+def test_the_vendor_name_is_not_repeated_in_its_own_headline():
+    """"Dropzone AI: Dropzone AI is a founding member" reads as a bug."""
+    from app.services.entity_event_extractors.owned_post import _event_title
+
+    row = {'display_name': 'Dropzone AI', 'title': 'ignored',
+           'summary': 'Dropzone AI is a founding member of the Agentic SOC '
+                      'Alliance.'}
+    assert _event_title(row, 'partnership') == (
+        'Dropzone AI is a founding member of the Agentic SOC Alliance.')
+
+
+def test_leading_decoration_is_not_a_headline():
+    from app.services.entity_event_extractors.owned_post import _event_title
+
+    row = {'display_name': 'Exaforce', 'title': 'ignored',
+           'summary': '\U0001F680 We are proud to join CrowdStrike as a '
+                      'founding member of the alliance.'}
+    got = _event_title(row, 'partnership')
+    assert got.startswith('Exaforce: We are proud'), got
+
+
+# ---------------------------------------------------------------------------
+# One announcement said twice is one event
+# ---------------------------------------------------------------------------
+
+def test_a_reviewer_reason_that_names_something_is_an_identity():
+    from app.services.entity_events import subject_key
+
+    assert subject_key('Partnership with Booz Allen Hamilton announced')
+    assert subject_key('Launch of Org Brain product')
+    # A lowercase dotted brand names something and never gets a capital.
+    assert subject_key('detections.ai Enterprise product live')
+    # Same reason, different punctuation and case, is the same identity.
+    assert (subject_key('Launch of Org Brain product.')
+            == subject_key('launch of org brain PRODUCT'))
+
+
+@pytest.mark.parametrize('boilerplate', [
+    'Specific role being filled',
+    'Specific senior role being filled',
+    'Enterprise product went live',
+    '', None,
+])
+def test_a_boilerplate_reason_is_not_an_identity(boilerplate):
+    """This test is the whole reason the proper-noun check exists.
+
+    Imperum's nine hiring posts reduce to two reasons — "Specific role being
+    filled" and "Specific senior role being filled". Keying on the reviewer's
+    reason without requiring a name would collapse nine genuine job
+    announcements into two events, which is far worse than the duplicate it
+    set out to fix.
+    """
+    from app.services.entity_events import subject_key
+
+    assert subject_key(boilerplate) is None
+
+
+def test_a_duplicate_is_superseded_rather_than_deleted():
+    """Deleting the loser frees its fingerprint.
+
+    The next extractor pass then recreates the duplicate and the merge folds it
+    again: stable in count, but churning ids and repeating the work on every
+    run. A tombstone keeps the fingerprint claimed, so the upsert updates that
+    row instead of making a new one.
+    """
+    import inspect
+
+    from app.services import entity_events
+
+    src = inspect.getsource(entity_events.merge_duplicates)
+    assert "'superseded'" in src
+    assert 'superseded_by' in src, (
+        'the merge must record which event absorbed this one, or the decision '
+        'is unauditable')
+    assert 'DELETE FROM bw_entity_events' not in src, (
+        'deleting the loser frees the fingerprint and the duplicate comes back')
+    # The projection carries no foreign key to entity events, so it has to be
+    # cleared by hand or it points at a tombstone.
+    assert 'bw_market_events' in src
+
+
+def test_a_tombstone_is_hidden_and_never_projected():
+    import inspect
+
+    from app.services import entity_events
+
+    for fn in (entity_events.events_for_brand, entity_events.merge_duplicates):
+        src = inspect.getsource(fn)
+        if 'status' in src:
+            assert 'superseded' in src, (
+                f'{fn.__name__} filters on status without excluding tombstones')
+
+    # Recomputing corroboration must not set a tombstone back to active.
+    src = inspect.getsource(entity_events.recompute_corroboration)
+    assert "'superseded'" in src, (
+        'recompute_corroboration would resurrect a tombstone')
+
+    src = inspect.getsource(entity_events.project_to_markets)
+    assert 'superseded' in src, (
+        'a superseded event would be published to the market wire alongside '
+        'the survivor, which is the duplicate showing up again')
+
+
+# ---------------------------------------------------------------------------
+# Indeed: attribution by reported employer
+# ---------------------------------------------------------------------------
+#
+# Indeed was written off earlier as unable to attribute a listing to a company.
+# That was wrong, and the correction matters: `posted_by` really is a closed
+# enum of poster types and really does reject a company name — but
+# `keyword_search` is documented as "Search jobs by job title **or company**",
+# and every record carries `company_name`. So the shape is search-then-verify,
+# the same as the ATS collector.
+#
+# The verify half is not optional. Because keyword_search also matches titles, a
+# search for one vendor returns other employers' jobs, and this fixture is one:
+# a sawmill supervisor role at Louisiana-Pacific, taken verbatim from the
+# dataset sample on 2026-08-26.
+
+INDEED_OTHER_EMPLOYER_SAMPLE = {
+    "jobid": "b5dedb22576b1a5d",
+    "company_name": "Louisiana-Pacific Corporation",
+    "date_posted_parsed": "2026-08-21T18:47:46.558Z",
+    "job_title": "Shift Supv II",
+    "job_type": None,
+    "location": "Two Harbors, MN 55616",
+    "job_location": "Hybrid work in Two Harbors, MN 55616",
+    "salary_formatted": None,
+    "company_rating": 3.2,
+    "company_reviews_count": 204,
+    "country": "US",
+    "date_posted": "4 days ago",
+    "region": "MN",
+    "company_link": "https://www.indeed.com/cmp/Lp-Building-Solutions-3",
+    "company_website": None,
+    "url": "https://www.indeed.com/viewjob?jk=b5dedb22576b1a5d",
+    "is_expired": False,
+    "discovery_input": None,
+}
+
+
+def test_the_2026_08_26_indeed_sample_maps_completely():
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    got = map_indeed_job(INDEED_OTHER_EMPLOYER_SAMPLE)
+    assert got is not None
+    assert got['posting_id'] == 'b5dedb22576b1a5d'
+    assert got['title'] == 'Shift Supv II'
+    assert got['company'] == 'Louisiana-Pacific Corporation'
+    # date_posted is "4 days ago"; the ISO one is date_posted_parsed.
+    assert got['posted_date'].startswith('2026-08-21')
+    assert got['is_expired'] is False
+    assert got['company_reviews'] == 204
+    assert got['observed_source'] == 'brightdata_indeed'
+
+
+def test_the_employer_check_rejects_another_companys_listing():
+    """The sample is exactly the case that makes the check necessary."""
+    from app.services.brightdata_linkedin import employer_matches
+
+    assert not employer_matches('Method Security',
+                                INDEED_OTHER_EMPLOYER_SAMPLE['company_name'])
+    assert not employer_matches('Dropzone AI', 'Louisiana-Pacific Corporation')
+
+
+def test_the_employer_check_accepts_the_vendor_and_its_suffixed_forms():
+    from app.services.brightdata_linkedin import employer_matches
+
+    for reported in ('Twine Security', 'Twine Security, Inc.',
+                     'Twine Security LLC', 'twine security'):
+        assert employer_matches('Twine Security', reported), reported
+    # A suffix or a generic token on our side is ignored too.
+    assert employer_matches('Exaforce AI', 'Exaforce')
+    assert employer_matches('Dropzone AI', 'Dropzone')
+
+
+def test_the_employer_check_rejects_a_truncation():
+    """The Kenzo case, in the direction that matters here.
+
+    Glassdoor's rule permits a truncation because wbm tracks "Pearsons
+    Education" where Glassdoor says "Pearson". Here we chose the query, so a
+    shorter answer means the provider matched fewer of our words — which is the
+    wrong-company case, not a synonym.
+    """
+    from app.services.brightdata_linkedin import employer_matches
+
+    assert not employer_matches('Kenzo Security', 'Kenzo')
+    assert not employer_matches('Method Security', 'Method')
+    assert not employer_matches('Radiant Security', 'Radiant Waxing')
+    assert not employer_matches('System Two Security', 'System Two Logistics')
+    # And an empty or missing employer never matches.
+    assert not employer_matches('Kenzo Security', None)
+    assert not employer_matches('Kenzo Security', '')
+    assert not employer_matches('', 'Anything')
+
+
+def test_the_trigger_sends_the_company_in_keyword_search_not_posted_by():
+    """posted_by looks like the employer filter and is not.
+
+    It is a closed enum of poster types — "Employer" is a member, a company
+    name is rejected — confirmed against the provider. An earlier version put
+    the employer there and left keyword_search empty, which would have failed a
+    required field.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/brightdata_linkedin.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == 'trigger_indeed_discover')
+    body = ast.get_source_segment(src, fn)
+    assert '"keyword_search": s["employer"]' in body
+    assert 'posted_by' not in body.split('"""')[2], (
+        'posted_by must not appear in the payload')
+    # All four required inputs are present.
+    for field in ('country', 'domain', 'keyword_search', 'location'):
+        assert f'"{field}"' in body, field
+
+
+def test_an_expired_listing_is_not_an_open_role():
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    got = map_indeed_job(dict(INDEED_OTHER_EMPLOYER_SAMPLE, is_expired=True))
+    assert got['is_expired'] is True, (
+        'the flag has to survive mapping so the ingest can drop it')
+
+
+def test_the_indeed_domain_is_the_bare_host():
+    """`www.indeed.com` is rejected; `indeed.com` is accepted.
+
+    The dataset's own example is "fr.indeed.com", which reads like a full host
+    and is why this was changed to the www form on a guess. A live trigger on
+    2026-08-26 came back HTTP 400 with a validation error naming `domain`. The
+    value was already correct before I changed it.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/brightdata_linkedin.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef)
+              and n.name == 'trigger_indeed_discover')
+    body = ast.get_source_segment(src, fn)
+    # The assignment, not the whole function: the comment explaining this
+    # necessarily names the rejected value, and an earlier version of this test
+    # tripped on its own documentation.
+    assert 's.get("domain") or "indeed.com"' in body
+    assert 's.get("domain") or "www.indeed.com"' not in body
+
+
+def test_a_provider_error_record_is_dropped_not_stored():
+    """The canary's own result shape.
+
+    Both canary inputs came back as ``{'error': 'Jobs not been found',
+    'error_code': 'dead_page', 'input': {...}}`` rather than as listings. Those
+    are records in the response and must not become job postings.
+    """
+    from app.services.brightdata_linkedin import map_indeed_job
+
+    assert map_indeed_job({
+        'input': {'keyword_search': '7ai'},
+        'error': 'Jobs not been found', 'error_code': 'dead_page',
+    }) is None
+
+
+def test_a_throttled_indeed_batch_is_not_a_measured_zero():
+    """The live control's actual result, and what it must not be recorded as.
+
+    Searching Louisiana-Pacific in Two Harbors returned five records and every
+    one was ``{"error": "Crawler error: ...too many requests", "error_code":
+    "rate_limit"}``. Counted as ordinary unmatched rows, the run closes as
+    `succeeded` with nothing stored — which the hiring panel reads as "Indeed
+    ran and found no jobs" rather than "the provider throttled us".
+
+    ``ingest_jobs`` has counted provider errors since the LinkedIn dataset
+    returned twenty `proxy` errors and was marked succeeded. This ingest was
+    written without it.
+    """
+    from app.services.market_collect import outcome_status
+
+    assert outcome_status(5, 0, 5) == 'failed'
+    assert outcome_status(5, 3, 2) == 'partial'
+    assert outcome_status(5, 5, 0) == 'succeeded'
+
+
+def test_the_indeed_ingest_reports_provider_errors():
+    """The count has to reach outcome_status, or the status is decided blind."""
+    import ast
+    import pathlib
+
+    src = pathlib.Path('app/services/market_collect.py').read_text()
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == 'ingest_indeed_jobs')
+    body = ast.get_source_segment(src, fn)
+    assert 'provider_errors' in body
+    assert '"provider_errors": provider_errors' in body, (
+        'the count must be returned, not just computed')
+
+
+# ── Vendor-scoped website runs ───────────────────────────────────────────────
+
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+    def scalar(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+    def first(self):
+        return None
+
+
+class _FakeConn:
+    def __init__(self, vendors):
+        self.vendors = vendors
+
+    def execute(self, *_a, **_k):
+        return _FakeResult(self.vendors)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+def test_vendor_scoped_website_run_reaches_the_pages_poller(monkeypatch):
+    import asyncio
+    asyncio.run(_scoped_run_reaches_pages(monkeypatch))
+
+
+async def _scoped_run_reaches_pages(monkeypatch):
+    """A vendor's own "Fetch now" for its website used to be claimed and then
+    failed as undispatched. It must reach _poll_pages scoped to that vendor."""
+    from app.tasks import market_monitor as mm
+
+    vendors = [{"brand_id": 1, "display_name": "A"},
+               {"brand_id": 2, "display_name": "B"}]
+    manual = {(mm.SOURCE_PAGES, 2): 77, (mm.SOURCE_DISCOVERY, 1): 78}
+    seen = []
+
+    async def _noop_async(*_a, **_k):
+        return 0
+
+    def _noop(*_a, **_k):
+        return 0
+
+    async def fake_pages(conn, market, vs, now, forced_run_id=None):
+        seen.append(("pages", [v["brand_id"] for v in vs], forced_run_id))
+        return 1
+
+    async def fake_discover(conn, market, vs, now, forced_run_id=None):
+        seen.append(("discovery", [v["brand_id"] for v in vs], forced_run_id))
+        return 1
+
+    monkeypatch.setattr(mm, "_claim_manual_runs", lambda conn, m: dict(manual))
+    for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
+                 "_write_briefing", "_discover_ats", "_poll_ats_jobs"):
+        monkeypatch.setattr(mm, name, _noop_async)
+    for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
+        monkeypatch.setattr(mm, name, _noop)
+    monkeypatch.setattr(mm, "_poll_pages", fake_pages)
+    monkeypatch.setattr(mm, "_discover_feeds", fake_discover)
+    monkeypatch.setattr(mm, "_fail_undispatched", lambda *a, **k: None)
+    import app.services.brightdata_linkedin as bd_mod
+    monkeypatch.setattr(bd_mod, "linkedin_enabled", lambda: False)
+
+    await mm._poll_market(_FakeConn(vendors), {"id": 9, "name": "M"},
+                          datetime.now(timezone.utc))
+
+    # Market-wide calls carry every vendor and no forced run; the scoped
+    # calls carry exactly the requested vendor and its run id.
+    assert ("pages", [1, 2], None) in seen
+    assert ("discovery", [1, 2], None) in seen
+    assert ("pages", [2], 77) in seen
+    assert ("discovery", [1], 78) in seen
+
+
+def test_vendor_scoped_website_run_for_a_non_collecting_vendor_fails_clearly(monkeypatch):
+    import asyncio
+    asyncio.run(_scoped_run_non_collecting(monkeypatch))
+
+
+async def _scoped_run_non_collecting(monkeypatch):
+    from app.tasks import market_monitor as mm
+    from app.services import market_collect as mc
+
+    closed = []
+    monkeypatch.setattr(mm, "_claim_manual_runs",
+                        lambda conn, m: {(mm.SOURCE_PAGES, 99): 5})
+
+    async def _noop_async(*_a, **_k):
+        return 0
+
+    for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
+                 "_write_briefing", "_discover_ats", "_poll_ats_jobs",
+                 "_discover_feeds", "_poll_pages"):
+        monkeypatch.setattr(mm, name, _noop_async)
+    for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
+        monkeypatch.setattr(mm, name, lambda *a, **k: 0)
+    monkeypatch.setattr(mm, "_fail_undispatched", lambda *a, **k: None)
+    monkeypatch.setattr(mc, "close_run",
+                        lambda conn, run_id, **kw: closed.append((run_id, kw)))
+    import app.services.brightdata_linkedin as bd_mod
+    monkeypatch.setattr(bd_mod, "linkedin_enabled", lambda: False)
+
+    await mm._poll_market(_FakeConn([{"brand_id": 1, "display_name": "A"}]),
+                          {"id": 9, "name": "M"}, datetime.now(timezone.utc))
+
+    assert closed and closed[0][0] == 5
+    assert closed[0][1]["status"] == "failed"

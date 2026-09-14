@@ -151,7 +151,6 @@ class NewsFeedService:
                 logger.warning(f"No organizational profile found for ID: {profile_id}")
                 return None
                 
-            import json
             profile = {
                 'id': profile_row['id'],
                 'name': profile_row['name'],
@@ -452,7 +451,9 @@ class NewsFeedService:
                 'media_type': article_dict.get('media_type'),
                 'popularity': article_dict.get('popularity'),
                 'future_signal': article_dict.get('future_signal'),
-                'future_signal_explanation': article_dict.get('future_signal_explanation')
+                'future_signal_explanation': article_dict.get('future_signal_explanation'),
+                'original_title': article_dict.get('original_title'),
+                'original_summary': article_dict.get('original_summary'),
             })
         
         return {
@@ -746,7 +747,6 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
             )
             if cached_result:
                 logger.info(f"Using database cached six articles for {cache_key}")
-                import json
                 return json.loads(cached_result["content"])
         except Exception as e:
             logger.debug(f"Database cache check failed: {e}")
@@ -765,7 +765,6 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
         # Cache the result in database
         try:
             db = get_database_instance()
-            import json
             cache_content = json.dumps(six_articles, ensure_ascii=False, indent=2)
             cache_metadata = {
                 "date": date.isoformat(),
@@ -1163,7 +1162,10 @@ Extract detailed strategic intelligence from this article."""
             response_text = response.choices[0].message.content.strip()
 
             # Parse JSON response
-            import json
+            # json is the module-level import. A local `import json` here made the
+            # name local to the whole function, so when the model call above
+            # raised before this line ran, `except json.JSONDecodeError` hit
+            # UnboundLocalError and the real error was never logged (oviva 09-08).
             # Handle markdown code blocks
             if response_text.startswith("```"):
                 lines = response_text.split("\n")

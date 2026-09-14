@@ -4,14 +4,25 @@
 Stamps out a full tenant from bwtemplate.aunoo.ai: directory + venv clone,
 database restore from the golden dump, encrypted .env, systemd unit,
 nginx + Let's Encrypt, then seeds the customer brand through the app's own
-API (POST /brands + /brands/{id}/setup-monitoring) and verifies the result.
+API (POST /brands + /brands/{id}/setup-monitoring), creates the customer's
+organisation profile and flags it as the tenant default, and verifies the result.
+
+The profile matters: every analysis, executive summary and Auspex chat falls
+back to the profile flagged default, and the template only ships the stock
+"Generic Enterprise" one. Without this step a new site writes generic reports.
+On a terminal the script asks for each profile field with a sensible default
+(the shape used for the Oviva site); pass --profile-json to supply the whole
+profile, or --no-profile to skip it.
 
 Run as root. Stdlib only. See docs/BRAND_WATCHER_TENANT_TEMPLATE.md.
 
 Examples:
     provision_brand_tenant.py provision --slug acme --brand "Acme Publishing" \
-        --aliases "Acme Corp,ACME" --keywords "Acme Publishing,Acme Press"
-    provision_brand_tenant.py provision --slug acme --brand "Acme" --skip-nginx
+        --aliases "Acme Corp,ACME" --keywords "Acme Publishing,Acme Press" \
+        --industry "Academic publishing" --region "United Kingdom" \
+        --competitors "Elsevier,Springer Nature"
+    provision_brand_tenant.py provision --slug acme --brand "Acme" --skip-nginx \
+        --profile-json acme_profile.json
     provision_brand_tenant.py destroy --slug acme --yes
 """
 
@@ -184,6 +195,128 @@ class TenantClient:
         if status != 200:
             die(f"PUT {path} -> HTTP {status}: {body[:300]}")
         return json.loads(body)
+
+
+# ---------------------------------------------------------------------------
+# Organisation profile
+# ---------------------------------------------------------------------------
+
+PROFILE_FIELDS = (
+    # (key, prompt label, list?)
+    ("description", "One-paragraph description of the organisation", False),
+    ("industry", "Industry", False),
+    ("organization_type", "Organisation type (e.g. Manufacturer, Healthcare provider, Publisher)", False),
+    ("region", "Region / markets", False),
+    ("competitive_landscape", "Competitors (comma-separated)", True),
+    ("key_concerns", "Key concerns (comma-separated)", True),
+    ("strategic_priorities", "Strategic priorities (comma-separated)", True),
+    ("stakeholder_focus", "Stakeholders (comma-separated)", True),
+    ("custom_context", "Extra context or the questions the customer wants answered (optional)", False),
+)
+
+
+def _csv(value):
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+def default_profile(brand, domain, args):
+    """The profile shape used for the Oviva site, filled in from the brand name
+    and whatever flags were given. Every field can be overridden at the prompt."""
+    competitors = _csv(getattr(args, "competitors", None))
+    return {
+        "name": brand,
+        "description": getattr(args, "profile_description", None) or (
+            f"{brand}, monitored on {domain}. Tracks its own brand, employer "
+            f"reputation and competitors in its market."),
+        "industry": getattr(args, "industry", None) or "",
+        "organization_type": getattr(args, "org_type", None) or "Company",
+        "region": getattr(args, "region", None) or "",
+        "key_concerns": [
+            "Adverse media and brand reputation",
+            "Employer reputation (Glassdoor)",
+            "Competitor moves: funding, hiring, product launches",
+            "Public and regulatory narratives around the market",
+        ],
+        "strategic_priorities": [
+            f"Position {brand} as the trusted choice in its market",
+            "Track each market's coverage separately",
+            "Watch competitor funding, hiring and product moves",
+        ],
+        "risk_tolerance": "medium",
+        "innovation_appetite": "moderate",
+        "decision_making_style": "collaborative",
+        "stakeholder_focus": [
+            "Customers", "Employees and candidates", "Regulators", "Investors and partners",
+        ],
+        "competitive_landscape": competitors,
+        "regulatory_environment": [],
+        "custom_context": None,
+    }
+
+
+def prompt_profile(profile):
+    """Ask for each field on a terminal. Enter keeps the shown default; '-' clears it."""
+    log("organisation profile — Enter keeps the default shown in [brackets], '-' clears a field")
+    for key, label, is_list in PROFILE_FIELDS:
+        current = profile.get(key)
+        shown = ", ".join(current) if is_list else (current or "")
+        try:
+            answer = input(f"  {label} [{shown}]: ").strip()
+        except EOFError:
+            answer = ""
+        if answer == "-":
+            profile[key] = [] if is_list else None
+        elif answer:
+            profile[key] = _csv(answer) if is_list else answer
+    return profile
+
+
+def resolve_profile(args, brand, domain):
+    """Return the profile dict to seed, or None when --no-profile was given."""
+    if getattr(args, "no_profile", False):
+        return None
+    if getattr(args, "profile_json", None):
+        with open(args.profile_json) as f:
+            supplied = json.load(f)
+        if not isinstance(supplied, dict) or not supplied.get("name"):
+            die(f"--profile-json {args.profile_json}: expected an object with at least 'name'")
+        profile = default_profile(supplied["name"], domain, args)
+        profile.update(supplied)
+        return profile
+    profile = default_profile(brand, domain, args)
+    if sys.stdin.isatty():
+        profile = prompt_profile(profile)
+    else:
+        log("no terminal: seeding the default profile shape without prompting "
+            "(edit it later under Foresight → Organizational Profile)")
+    return profile
+
+
+def seed_profile(client, n, profile):
+    """POST the profile through the app and flag it as the tenant default."""
+    payload = {k: v for k, v in profile.items() if k != "is_default"}
+    created = client.post_json("/api/organizational-profiles", payload)
+    if not created.get("success", True):
+        die(f"profile create failed: {json.dumps(created)[:300]}")
+    # Look the row up by name rather than trusting the response: older backends
+    # return the insert's rowcount as "profile_id". Names are unique (the API
+    # rejects duplicates), so this is exact.
+    listed = client.get_json("/api/organizational-profiles").get("profiles", [])
+    match = [p for p in listed if p.get("name") == profile["name"]]
+    if len(match) != 1 or not isinstance(match[0].get("id"), int):
+        die(f"profile '{profile['name']}' not found after create: {[p.get('name') for p in listed]}")
+    profile_id = match[0]["id"]
+    # The create API has no is_default field; flip it in the database so the
+    # fallback in trend convergence / exec summary / Auspex picks this one.
+    psql(f"UPDATE organizational_profiles SET is_default = (id = {int(profile_id)})",
+         db=n["db"], capture=False)
+    listed = client.get_json("/api/organizational-profiles").get("profiles", [])
+    flagged = [p for p in listed if p.get("is_default")]
+    if len(flagged) != 1 or flagged[0].get("id") != profile_id:
+        die(f"default profile flag did not land: {[(p.get('id'), p.get('is_default')) for p in listed]}")
+    log(f"profile {profile_id} '{profile['name']}' created and flagged default "
+        f"(competitors: {', '.join(profile.get('competitive_landscape') or []) or 'none given'})")
+    return profile_id
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +554,18 @@ def provision(args):
         assert arts.get("total_count") == 0, "expected empty article set"
         log("verification passed: dedicated mode on, brand seeded, clean empty state")
 
+    # 8. Organisation profile (the default the analyses fall back to)
+    if src_db:
+        log("data clone: organisation profiles came with the data; check which one "
+            "is flagged default under Foresight → Organizational Profile")
+    else:
+        profile = resolve_profile(args, args.brand, n["domain"])
+        if profile is None:
+            log("--no-profile: the tenant keeps the stock 'Generic Enterprise' default; "
+                "analyses will be generic until a profile is added and flagged default")
+        else:
+            seed_profile(client, n, profile)
+
     # 9. Record credentials (root-only)
     with open(n["creds"], "w") as f:
         f.write(f"tenant: {n['domain']} (port {port})\n"
@@ -485,6 +630,15 @@ def main():
     p.add_argument("--email", default="oliver.rochford@gmail.com", help="certbot contact email")
     p.add_argument("--dump", default=TEMPLATE_DUMP, help="golden template dump")
     p.add_argument("--skip-nginx", action="store_true", help="skip nginx + certbot (local testing)")
+    g = p.add_argument_group("organisation profile (seeded and flagged default; prompted on a terminal)")
+    g.add_argument("--profile-json", help="JSON file with the whole profile (keys as in "
+                                          "POST /api/organizational-profiles); skips the prompts")
+    g.add_argument("--no-profile", action="store_true", help="do not create a profile")
+    g.add_argument("--profile-description", help="one-paragraph description of the organisation")
+    g.add_argument("--industry", help="industry, e.g. 'Digital health / weight management'")
+    g.add_argument("--org-type", help="organisation type, e.g. 'Healthcare provider'")
+    g.add_argument("--region", help="region / markets, e.g. 'United Kingdom and Germany'")
+    g.add_argument("--competitors", help="comma-separated competitor names")
     p.set_defaults(func=provision)
 
     d = sub.add_parser("destroy", help="tear a tenant down completely")

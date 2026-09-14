@@ -1769,6 +1769,7 @@ class _IncidentTrackingRequest(BaseModel):
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
     model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+    cache_only: bool = Field(False, description="Serve the newest cached analysis (any window) and NEVER run the LLM — page-load path")
     domain: Optional[str] = Field(
         None,
         description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
@@ -1831,6 +1832,25 @@ async def analyze_incidents(
         # Build cache key from sorted topics for consistent caching
         topics_str = ','.join(sorted(topics_list)) if topics_list else 'all_topics'
         cache_key = f"incident_tracking_{topics_str}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
+
+        # cache_only = the page-load path. Opening the Highlights view must never
+        # block on LLM generation; the anchored cache key moves with every newly
+        # collected article, so a plain load used to regenerate almost every time.
+        # Serve the newest stored analysis for this topic set, or an empty result
+        # the UI reads as "press Generate". No article query, no model call.
+        if req.cache_only:
+            from sqlalchemy import text as _sql_text
+            row = db.facade._fetchone_with_rollback(_sql_text("""
+                SELECT content FROM article_analysis_cache
+                WHERE analysis_type = :at AND model_used = 'incident_analysis'
+                ORDER BY generated_at DESC LIMIT 1
+            """), {"at": f"incident_tracking_{topics_str}"},
+                operation_name="incident tracking cache_only lookup")
+            if row and row[0]:
+                logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
+                import json
+                return json.loads(row[0])
+            return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
 
         # Get articles for analysis
         from datetime import datetime, timedelta
@@ -2091,7 +2111,13 @@ Be inclusive rather than restrictive - if an article discusses something newswor
 Extraordinary Claims Protocol:
 - Flag claims that seem too good to be true or represent major breakthroughs
 - Require independent verification for significant technical achievements
-- Down-rank significance for self-reported successes without third-party validation"""
+- Down-rank significance for self-reported successes without third-party validation
+
+Financial Results Protocol:
+- State whether an earnings figure is GAAP or adjusted (non-GAAP). If the source does not say which, write "reported" and do not call it a beat or a miss.
+- A GAAP net loss must appear in the description even when adjusted figures are positive.
+- When the input articles disagree (one headline says "beat", another says "miss"), say so in the description, set source_quality to mixed, and add "conflicting_reports" to misinfo_flags. Do not resolve the conflict by picking one side.
+- Treat auto-generated earnings wire items ("beats expectations by $0.0X EPS" and similar) as a single low-detail source, not as independent confirmation."""
 
         # Use custom config if provided, otherwise defaults
         analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
@@ -2224,7 +2250,21 @@ Output a pure JSON array only."""
                 import json as json_module
                 json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
                 if json_match:
-                    incidents = json_module.loads(json_match.group())
+                    raw = json_match.group()
+                    try:
+                        incidents = json_module.loads(raw)
+                    except json_module.JSONDecodeError as je:
+                        # A 30k+ character array with one bad delimiter used to
+                        # cost the whole highlights panel (bugfixing 2026-09-08,
+                        # kimi-k2.5, char 37318 of 37k). Repair before giving up.
+                        import json_repair
+                        repaired = json_repair.loads(raw)
+                        if not isinstance(repaired, list):
+                            raise je
+                        logger.warning(
+                            f"Incident tracking JSON repaired after parse error ({je}); "
+                            f"{len(repaired)} incidents recovered")
+                        incidents = repaired
             except json_module.JSONDecodeError as je:
                 logger.error(f"Failed to parse incident tracking response: {je}")
                 return {"incidents": [], "error": "Failed to parse LLM response"}
@@ -3404,10 +3444,12 @@ def _report_email_extras(report_id, report_title, report_content, instr_config) 
     return extras
 
 
-@router.get("/signal-reports/{report_id}/download", dependencies=[Depends(verify_session_api)])
+@router.get("/signal-reports/{report_id}/download")
 async def download_signal_report(report_id: int, exp: int, token: str,
                                  fmt: str = "html"):
-    """Tokenized report download — NO session required (links land in email)."""
+    """Tokenized report download — NO session required (links land in email).
+    The expiring HMAC token below is the access control; adding a session
+    dependency here 401s every recipient who clicks from their inbox."""
     import hmac as _hmac
     import time as _time
     from fastapi.responses import HTMLResponse, Response

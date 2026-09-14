@@ -198,6 +198,37 @@ interface DetectionProgress {
   run_id?: number | null;
   articles_sampled?: number;
   articles_analyzed?: number;
+  /** Batch position: topic_index of topic_total, and progress within it. */
+  current_topic?: string | null;
+  topic_index?: number;
+  topic_total?: number;
+  topic_progress?: number;
+  topic_step?: number;
+  /** Server-side job fields. */
+  job_id?: string;
+  seq?: number;
+  elapsed_seconds?: number;
+}
+
+const JOB_STORAGE_KEY = 'emergingTopics.activeJob';
+
+function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  return m ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${s}s`;
+}
+
+function stepLabel(step?: number): string {
+  switch (step) {
+    case 1: return 'Sampling articles';
+    case 2: return 'Proposing themes';
+    case 3: return 'Validating articles';
+    case 4: return 'Merging themes';
+    case 5: return 'Deep analysis';
+    case 6: return 'Saving';
+    case 7: return 'Done';
+    default: return '';
+  }
 }
 
 interface EmergingTopicsTabProps {
@@ -420,87 +451,209 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   }, []);
 
   // Run detection - uses single topic endpoint if topic selected, batch endpoint if not
+  // Detection runs as a server-side job. The page only listens: closing or
+  // reloading it detaches the listener, and the job keeps going. On load we
+  // re-attach to whatever job is still running.
+  const elapsedTimerRef = useRef<number | null>(null);
+  const attachedJobRef = useRef<string | null>(null);
+
+  const stopElapsedTimer = () => {
+    if (elapsedTimerRef.current !== null) {
+      window.clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  };
+
+  const finishDetection = async () => {
+    stopElapsedTimer();
+    attachedJobRef.current = null;
+    try { localStorage.removeItem(JOB_STORAGE_KEY); } catch { /* ignore */ }
+    setDetecting(false);
+    setDetectionProgress(null);
+    await fetchTopics();
+    await fetchHighNovelty();
+  };
+
+  const attachToJob = async (jobId: string, startedAt?: number) => {
+    if (attachedJobRef.current === jobId) return;
+    attachedJobRef.current = jobId;
+    setDetecting(true);
+    try { localStorage.setItem(JOB_STORAGE_KEY, jobId); } catch { /* ignore */ }
+
+    // Elapsed time ticks locally between server updates so the panel never
+    // looks dead during a long model call.
+    const t0 = startedAt ? startedAt * 1000 : Date.now();
+    stopElapsedTimer();
+    elapsedTimerRef.current = window.setInterval(() => {
+      setDetectionProgress(prev => prev ? { ...prev, elapsed_seconds: (Date.now() - t0) / 1000 } : prev);
+    }, 1000);
+
+    let after = 0;
+    let terminal: 'complete' | 'error' | null = null;
+    let streamError: string | null = null;
+    let attempts = 0;
+
+    while (!terminal && attachedJobRef.current === jobId) {
+      try {
+        const response = await fetch(`/api/emerging-topics/detect/jobs/${jobId}/events?after=${after}`, {
+          credentials: 'include',
+        });
+        if (response.status === 404) { streamError = 'Detection job no longer exists (service restarted?)'; break; }
+        if (!response.ok || !response.body) throw new Error(`Progress stream failed: ${response.status}`);
+        attempts = 0;
+
+        await readSSEStream(response.body, (event) => {
+          const data = event.data as (DetectionProgress & { emerging_topics?: EmergingTopic[] }) | null;
+          if (!data) return;
+          if (event.event === 'heartbeat') {
+            setDetectionProgress(prev => prev ? { ...prev, elapsed_seconds: data.elapsed_seconds } : prev);
+            return;
+          }
+          if (typeof data.seq === 'number') after = data.seq + 1;
+          if (event.event === 'error') {
+            streamError = data.message || 'Detection failed';
+            // A batch reports per-topic errors and carries on; only a final
+            // error frame ends the job, and the stream closes after it.
+          }
+          if (event.event === 'complete') terminal = 'complete';
+          setDetectionProgress(data);
+          if (data.emerging_topics) setEmergingTopics(data.emerging_topics);
+        });
+
+        if (!terminal) {
+          // Stream closed: either the job finished on an error frame or the
+          // connection dropped. Ask, then reconnect or stop.
+          const status = await fetch(`/api/emerging-topics/detect/jobs/${jobId}`, { credentials: 'include' });
+          if (status.ok) {
+            const info = await status.json();
+            if (info.status !== 'running') terminal = info.status === 'failed' ? 'error' : 'complete';
+          }
+          if (!terminal) await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (err) {
+        attempts += 1;
+        if (attempts > 30) { streamError = err instanceof Error ? err.message : 'Lost the progress stream'; break; }
+        await new Promise(r => setTimeout(r, Math.min(15000, 1000 * attempts)));
+      }
+    }
+
+    if (attachedJobRef.current !== jobId) return;  // superseded
+    if (terminal === 'error' || (streamError && terminal !== 'complete')) setError(streamError || 'Detection failed');
+    await finishDetection();
+  };
+
+  // Older backends stream the run over the request; reloading the page
+  // cancels it there. Kept only for sites not yet on the jobs endpoints.
+  const runDetectionInline = async (body: Record<string, unknown>) => {
+    const endpoint = topic ? '/api/emerging-topics/detect' : '/api/emerging-topics/detect/batch';
+    const payload = topic ? { ...body, stream: true } : body;
+    const t0 = Date.now();
+    stopElapsedTimer();
+    elapsedTimerRef.current = window.setInterval(() => {
+      setDetectionProgress(prev => prev ? { ...prev, elapsed_seconds: (Date.now() - t0) / 1000 } : prev);
+    }, 1000);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (response.status === 409) {
+        const conflict = await response.json().catch(() => null);
+        throw new Error(conflict?.detail?.message || 'A detection run is already in progress for this topic.');
+      }
+      if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
+      if (!response.body) throw new Error('No response body');
+      let streamError: string | null = null;
+      await readSSEStream(response.body, (event) => {
+        const data = event.data as (DetectionProgress & { emerging_topics?: EmergingTopic[]; message?: string }) | null;
+        if (!data) return;
+        if (event.event === 'error') { streamError = data.message || 'Detection failed'; return; }
+        setDetectionProgress(prev => ({ ...data, elapsed_seconds: prev?.elapsed_seconds ?? 0 }));
+        if (data.emerging_topics) setEmergingTopics(data.emerging_topics);
+      });
+      if (streamError) throw new Error(streamError);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Detection failed');
+    }
+    await finishDetection();
+  };
+
   const runDetection = async () => {
     setDetecting(true);
-    setDetectionProgress(null);
+    setDetectionProgress({ message: 'Starting detection…', progress: 0, elapsed_seconds: 0 });
     setError(null);
 
     try {
-      // If a topic is selected, use single topic detection
-      // Otherwise, use batch detection to scan all topics
-      const endpoint = topic ? '/api/emerging-topics/detect' : '/api/emerging-topics/detect/batch';
-      const body = topic
-        ? {
-            topic: topic,
-            days_back: config.daysBack,
-            sample_size: config.sampleSize,
-            distance_threshold: config.distanceThreshold,
-            min_articles_per_theme: config.minArticlesPerTheme,
-            max_articles_per_theme: config.maxArticlesPerTheme,
-            model: config.model,
-            stream: true,
-          }
-        : {
-            topics: null, // null = all topics
-            days_back: config.daysBack,
-            sample_size: config.sampleSize,
-            distance_threshold: config.distanceThreshold,
-            min_articles_per_theme: config.minArticlesPerTheme,
-            max_articles_per_theme: config.maxArticlesPerTheme,
-            model: config.model,
-          };
-
-      const response = await fetch(endpoint, {
+      const body = {
+        topic: topic || null,
+        topics: null,  // null = all topics
+        days_back: config.daysBack,
+        sample_size: config.sampleSize,
+        distance_threshold: config.distanceThreshold,
+        min_articles_per_theme: config.minArticlesPerTheme,
+        max_articles_per_theme: config.maxArticlesPerTheme,
+        model: config.model,
+      };
+      const response = await fetch('/api/emerging-topics/detect/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(body),
       });
-
       if (response.status === 409) {
         const conflict = await response.json().catch(() => null);
-        throw new Error(
-          conflict?.detail?.message ||
-          'A detection run is already in progress for this topic.'
-        );
+        throw new Error(conflict?.detail?.message || 'A detection run is already in progress for this topic.');
+      }
+      if (response.status === 404) {
+        // A site whose backend predates server-side jobs: run the detection
+        // on the request itself, the way it worked before.
+        await runDetectionInline(body);
+        return;
       }
       if (!response.ok) throw new Error(`Detection failed: ${response.status}`);
-      if (!response.body) throw new Error('No response body');
-
-      // The server's error frames carry the reason a run failed; surface the
-      // last one instead of finishing silently as if nothing had happened.
-      let streamError: string | null = null;
-
-      await readSSEStream(response.body, (event) => {
-        const data = event.data as (DetectionProgress & {
-          emerging_topics?: EmergingTopic[];
-          message?: string;
-        }) | null;
-        if (!data) return;
-
-        if (event.event === 'error') {
-          streamError = data.message || 'Detection failed';
-          return;
-        }
-
-        setDetectionProgress(data);
-        if (data.emerging_topics) {
-          setEmergingTopics(data.emerging_topics);
-        }
-      });
-
-      if (streamError) throw new Error(streamError);
-
-      // Refresh data after detection
-      await fetchTopics();
-      await fetchHighNovelty();
+      const job = await response.json();
+      await attachToJob(job.job_id, job.started_at);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Detection failed');
-    } finally {
+      stopElapsedTimer();
       setDetecting(false);
       setDetectionProgress(null);
     }
   };
+
+  // Re-attach to a job that is still running when the page (re)loads.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let jobId: string | null = null;
+      try { jobId = localStorage.getItem(JOB_STORAGE_KEY); } catch { /* ignore */ }
+      let startedAt: number | undefined;
+      if (jobId) {
+        const r = await fetch(`/api/emerging-topics/detect/jobs/${jobId}`, { credentials: 'include' }).catch(() => null);
+        const info = r && r.ok ? await r.json() : null;
+        if (!info || info.status !== 'running') {
+          jobId = null;
+          try { localStorage.removeItem(JOB_STORAGE_KEY); } catch { /* ignore */ }
+        } else {
+          startedAt = info.started_at;
+        }
+      }
+      if (!jobId) {
+        const r = await fetch('/api/emerging-topics/detect/jobs/active', { credentials: 'include' }).catch(() => null);
+        const info = r && r.ok ? await r.json() : null;
+        const running = info?.jobs?.find((j: { scope: string }) => !topic || j.scope === topic || j.scope === '<all>');
+        if (running) { jobId = running.job_id; startedAt = running.started_at; }
+      }
+      if (jobId && !cancelled) {
+        setDetectionProgress({ message: 'Re-attaching to running detection…', progress: 0, elapsed_seconds: 0 });
+        attachToJob(jobId, startedAt);
+      }
+    })();
+    return () => { cancelled = true; stopElapsedTimer(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   // Fetch topic details
@@ -1242,22 +1395,41 @@ Please provide:
         <Card>
           <CardContent className="py-4">
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{detectionProgress.message}</span>
-                <span className="text-gray-700 dark:text-gray-300">
-                  {detectionProgress.progress ? `${Math.round(detectionProgress.progress)}%` : ''}
+              <div className="flex items-center justify-between text-sm gap-4">
+                <span className="font-medium truncate">{detectionProgress.message}</span>
+                <span className="text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {detectionProgress.progress !== undefined ? `${Math.round(detectionProgress.progress)}%` : ''}
                 </span>
               </div>
-              {detectionProgress.progress && (
-                <Progress value={detectionProgress.progress} className="h-2" />
+              <Progress value={detectionProgress.progress ?? 0} className="h-2" />
+              {detectionProgress.topic_total !== undefined && detectionProgress.topic_total > 1 && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 gap-4">
+                    <span className="truncate">
+                      Topic {detectionProgress.topic_index ?? '?'} of {detectionProgress.topic_total}
+                      {detectionProgress.current_topic ? `: ${detectionProgress.current_topic}` : ''}
+                    </span>
+                    <span className="whitespace-nowrap">
+                      {detectionProgress.topic_progress !== undefined ? `${Math.round(detectionProgress.topic_progress)}%` : ''}
+                    </span>
+                  </div>
+                  <Progress value={detectionProgress.topic_progress ?? 0} className="h-1" />
+                </div>
               )}
-              <div className="flex gap-4 text-xs text-gray-700 dark:text-gray-300">
+              <div className="flex flex-wrap gap-4 text-xs text-gray-700 dark:text-gray-300">
+                {stepLabel((detectionProgress.topic_total ?? 1) > 1 ? detectionProgress.topic_step : detectionProgress.step) && (
+                  <span>Step: {stepLabel((detectionProgress.topic_total ?? 1) > 1 ? detectionProgress.topic_step : detectionProgress.step)}</span>
+                )}
+                {detectionProgress.elapsed_seconds !== undefined && (
+                  <span>Elapsed: {formatElapsed(detectionProgress.elapsed_seconds)}</span>
+                )}
                 {detectionProgress.proposed_count !== undefined && (
                   <span>Proposed: {detectionProgress.proposed_count}</span>
                 )}
                 {detectionProgress.validated_count !== undefined && (
                   <span>Validated: {detectionProgress.validated_count}</span>
                 )}
+                <span className="text-gray-500 dark:text-gray-400">Runs on the server; you can leave this page.</span>
               </div>
             </div>
           </CardContent>

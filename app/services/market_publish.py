@@ -25,13 +25,30 @@ from xml.sax.saxutils import escape
 
 from sqlalchemy import text
 
-from app.services.market_corpus import own_voice_sql
+from app.services.market_corpus import earned_sql, own_voice_sql
 
 # "The vendor is actually speaking". A reshare is the vendor
 # amplifying somebody else, so it is not an owned post.
 _OWN_VOICE = own_voice_sql("a")
 
 logger = logging.getLogger(__name__)
+
+
+#: Vendors needed before a market-wide headcount average means anything. Below
+#: this the movers are shown and the average is withheld, because a mean of two
+#: numbers is not a market trend. Sized to match the intent of
+#: market_analysis.MIN_POSTS_FOR_RATIO rather than to any statistical claim.
+MIN_VENDORS_FOR_HEADCOUNT_AVERAGE = 5
+
+#: What counts as a headcount reading, as one clause so that everything reading
+#: headcount applies the same rule. A LinkedIn profile may report a size band
+#: ("51-200") instead of a number, and the provider returns 0 for a company
+#: whose staff count it does not have. Neither is a measurement, so neither may
+#: reach any arithmetic. The benchmark in market_benchmark uses this same
+#: clause, because a vendor counted here and skipped there would put the
+#: benchmark and the market total permanently out of step.
+EXACT_HEADCOUNT = ("s.data->>\'employee_count\' ~ \'^[0-9]+$\' "
+                   "AND (s.data->>\'employee_count\')::numeric > 0")
 
 
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
@@ -91,8 +108,7 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
             (SELECT s.data FROM bw_vendor_snapshots s
              WHERE s.brand_id = b.id AND s.snapshot_type = 'funding'
              ORDER BY s.observed_at DESC LIMIT 1) AS funding,
-            (SELECT COUNT(*) FROM bw_vendor_snapshots s
-             WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting') AS jobs,
+            0 AS jobs,
             (SELECT COUNT(*) FROM bw_article_categories bac
              WHERE bac.brand_id = b.id) AS articles,
             (SELECT MAX(s.observed_at) FROM bw_vendor_snapshots s
@@ -113,6 +129,23 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
               >= (NOW() - INTERVAL '30 days')::text
         GROUP BY 1
     """)).fetchall())
+
+    # Roles open now, from the same list a reader opens from the figure. This
+    # used to count every job_posting snapshot ever written for the vendor,
+    # so the registry said 7ai had 72 open roles while the hiring analysis on
+    # the same page said 32: five runs' worth of rows, LinkedIn and the
+    # careers page both counted, against one deduplicated present-now count.
+    from app.services import market_lists as _mlists
+    open_now: Dict[int, int] = {}
+    try:
+        _jobs = _mlists.jobs(conn, market_id, page_size=1, include_all=True)
+        for _row in _jobs.get("_all") or []:
+            if _row["status"] in ("currently_observed", "newly_observed",
+                                  "first_observation"):
+                open_now[int(_row["brand_id"])] = \
+                    open_now.get(int(_row["brand_id"]), 0) + 1
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("dataset: jobs list failed: %s", exc)
 
     idents = {}
     for brand_id, kind, value in conn.execute(text("""
@@ -160,7 +193,7 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
             "linkedin_url": ids.get("linkedin_company_url"),
             "crunchbase_url": ids.get("crunchbase_url"),
             "posts_30d": posts.get(r["id"], 0),
-            "open_jobs": r["jobs"],
+            "open_jobs": open_now.get(r["id"], 0),
             "articles_attributed": r["articles"],
             "last_observed": r["last_observed"].isoformat() if r["last_observed"] else None,
         })
@@ -215,23 +248,15 @@ def _parse_stamp(value) -> Optional[datetime]:
     return None
 
 
-def build_feed(conn, market: Dict[str, Any], *, base_url: str,
+def feed_items(conn, market: Dict[str, Any], *, base_url: str,
                limit: int = 50, kind: str = "all",
                classes: Optional[Sequence[str]] = None,
-               days: Optional[int] = None) -> bytes:
-    """The market as a subscribable feed: its articles and its events.
-
-    An aggregator, not a change log. Items are the articles that matched the
-    market's phrases — linked to the original publication, not to us — merged
-    with the timeline's events and sorted by date.
-
-    Each article item carries its kind as the first ``<category>``: news,
-    vendor, social or research. A reader who cannot tell a vendor's own blog
-    post from a trade-press story is being misled by the feed, and the
-    distinction costs one element.
-
-    Hand-rolled like the rest of this codebase's feed output — no third-party
-    dependency for eighty lines of XML.
+               days: Optional[int] = None,
+               allowed_brand_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+    """The items both feeds are built from: the matched articles, the
+    timeline's events and the approved briefings, newest first, cut to
+    ``limit``, and — for a shared subscriber — with every item that names a
+    withheld vendor dropped. See ``build_feed`` for the rules.
     """
     from app.services import market_corpus as mcorp
 
@@ -260,6 +285,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                     "permalink": True,
                     "description": row.get("summary") or row.get("title") or "",
                     "source": row.get("news_source"),
+                    "kind": row["article_class"], "review_kind": row.get("review_kind"),
                     # The review's kind ("launch", "partnership") is a better
                     # category than a phrase match for a post that was judged
                     # rather than matched.
@@ -289,13 +315,99 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                 "guid": f"market-event-{e['id']}",
                 "permalink": False,
                 "description": e["description"] or e["title"],
-                "source": None,
+                "source": None, "kind": "event", "review_kind": None,
                 "categories": ["event", e["event_type"], e["significance"]],
+            })
+
+    if kind in ("all", "articles", "briefings"):
+        # An approved briefing is an item too. It links to its own page on
+        # the report, and its description is the briefing's opening
+        # paragraph; the withheld-vendor drop below applies to it like any
+        # other item, so a shared subscriber sees it only if that paragraph
+        # names nobody it may not see.
+        from app.services import market_briefing as mbr
+        for b in mbr.approved_listing(conn, market_id, limit=limit):
+            stamp = _parse_stamp(b.get("updated_at"))
+            full = mbr.get(conn, market_id, int(b["id"])) or {}
+            items.append({
+                "stamp": stamp or datetime.now(timezone.utc),
+                "dated": stamp is not None,
+                "title": b.get("title") or f"{market['name']} — {b.get('period_label', '')}",
+                "link": (f"{site}/api/market-monitor/markets/{market_id}"
+                         f"/report.html?view=briefing&id={b['id']}"),
+                "guid": f"market-briefing-{b['id']}",
+                "permalink": False,
+                "description": mbr.feed_summary(full.get("report_content") or "")
+                               or b.get("title") or "",
+                "source": "Aunoo Market Monitor", "kind": "briefing", "review_kind": None,
+                "categories": ["briefing", str(b.get("period_label") or "")],
             })
 
     items.sort(key=lambda i: i["stamp"], reverse=True)
     items = items[:limit]
 
+    # A shared subscriber sees only items about vendors it is entitled to.
+    #
+    # Dropped at the item level rather than by refusing the feed: this route is
+    # deliberately anonymous so a feed reader can subscribe, and failing closed
+    # on the whole document would leave every public market with a permanently
+    # broken feed. An item is dropped when its own text names a withheld vendor,
+    # which also covers the case the row filter cannot — an article about two
+    # companies, attributed to one.
+    if allowed_brand_ids is not None:
+        from app.services import market_entitlements as ent
+        withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
+        if withheld:
+            import re as _re
+            pattern = _re.compile(
+                "|".join(rf"(?<!\w){_re.escape(n)}(?!\w)" for n in withheld),
+                _re.IGNORECASE)
+            # Every field, not just the prose. A vendor's name reaches the
+            # feed through its own domain in `link` and `guid` as readily as
+            # through a headline — exaforce survived a title-and-summary filter
+            # on the strength of exaforce.com appearing in the item URL, and
+            # the specification names URLs explicitly.
+            def _mentions(item: Dict[str, Any]) -> bool:
+                blob = " ".join(str(v) for v in item.values() if v is not None)
+                return bool(pattern.search(blob))
+
+            # A briefing item is ours, not an article about one vendor: its
+            # description is cut to the sentences naming nobody withheld, the
+            # same card a shared reader gets on the report, and then it is
+            # judged like every other item.
+            from app.services import market_briefing as mbr
+            for it in items:
+                if str(it.get("guid", "")).startswith("market-briefing-"):
+                    it["description"] = (mbr.safe_sentences(it["description"], withheld)
+                                         or it["title"])
+            items = [it for it in items if not _mentions(it)]
+
+    return items
+
+
+def build_feed(conn, market: Dict[str, Any], *, base_url: str,
+               limit: int = 50, kind: str = "all",
+               classes: Optional[Sequence[str]] = None,
+               days: Optional[int] = None,
+               allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+    """The market as a subscribable feed: its articles and its events.
+
+    An aggregator, not a change log. Items are the articles that matched the
+    market's phrases — linked to the original publication, not to us — merged
+    with the timeline's events and sorted by date.
+
+    Each article item carries its kind as the first ``<category>``: news,
+    vendor, social or research. A reader who cannot tell a vendor's own blog
+    post from a trade-press story is being misled by the feed, and the
+    distinction costs one element.
+
+    Hand-rolled like the rest of this codebase's feed output — no third-party
+    dependency for eighty lines of XML.
+    """
+    items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+    site = base_url.rstrip("/")
+    market_id = market["id"]
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         ('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" '
@@ -347,12 +459,76 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
             parts.append(f"<pubDate>{format_datetime(item['stamp'])}</pubDate>")
         parts.append("</item>")
     parts += ["</channel>", "</rss>"]
-    return "\n".join(parts).encode("utf-8")
+    rendered = "\n".join(parts)
+
+    # Same rule as the report: a shared feed must not name a vendor the
+    # subscriber is not entitled to. This feed disclosed 20 of the market's 84
+    # vendors anonymously, through article titles rather than any roster.
+    #
+    # Fails closed rather than filtering items, because an item can name a
+    # vendor in its title while being attributed to another.
+    if allowed_brand_ids is not None:
+        from app.services import market_entitlements as ent
+        rendered = ent.enforce_no_withheld(
+            rendered, ent.withheld_names(conn, market["id"], allowed_brand_ids),
+            context=f'market {market["id"]} feed')
+
+    return rendered.encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
 # Brief
 # ---------------------------------------------------------------------------
+
+def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
+                    limit: int = 50, kind: str = "all",
+                    classes: Optional[Sequence[str]] = None,
+                    days: Optional[int] = None,
+                    allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+    """The same items as the RSS feed, as JSON Feed 1.1
+    (https://jsonfeed.org/version/1.1) — for assistants and scripts, which
+    read JSON without a parser library. Each item carries the kind (news,
+    vendor, social, research, event, briefing), the review's kind when
+    there is one, and the matched phrases as ``tags``; the publication is
+    the ``authors`` name; ``_aunoo`` holds the same in named fields."""
+    items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+    site = base_url.rstrip("/")
+    market_id = market["id"]
+    out_items = []
+    for it in items:
+        cats = [str(c) for c in it["categories"] if c]
+        entry: Dict[str, Any] = {
+            "id": it["guid"],
+            "url": it["link"],
+            "title": it["title"],
+            "content_text": it["description"],
+            "tags": cats,
+            "_aunoo": {"kind": it.get("kind"), "review_kind": it.get("review_kind"),
+                       "source": it["source"], "external": bool(it["permalink"])},
+        }
+        if it["source"]:
+            entry["authors"] = [{"name": it["source"]}]
+        if it["dated"]:
+            entry["date_published"] = it["stamp"].isoformat()
+        out_items.append(entry)
+    doc = {
+        "version": "https://jsonfeed.org/version/1.1",
+        "title": f"{market['name']} — Market Monitor",
+        "home_page_url": f"{site}/explore",
+        "feed_url": f"{site}/api/market-monitor/markets/{market_id}/feed.json",
+        "description": market.get("question") or market["name"],
+        "language": "en",
+        "authors": [{"name": "Cyberfuturists", "url": "https://cyberfuturists.com/"}],
+        "_aunoo": {"market_id": market_id, "kinds": ["news", "vendor", "social", "research",
+                                                     "event", "briefing"],
+                   "ai_disclosure": "Contains AI-generated content produced by AunooAI. "
+                                    "Verify against cited sources before external use.",
+                   "rss": f"{site}/api/market-monitor/markets/{market_id}/feed.xml"},
+        "items": out_items,
+    }
+    return json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8")
+
 
 def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any]:
     """The market brief: what changed, who moved, and what is still unknown.
@@ -379,36 +555,22 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
                  event_date DESC
     """), {"sid": topic, "d": str(days)}).mappings().all()]
 
-    # Headcount movement: the newest profile against the workbook baseline.
-    movers = [dict(r) for r in conn.execute(text("""
-        SELECT b.display_name AS vendor,
-               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
-                   AS was,
-               (s.data->>'employee_count')::numeric AS now_count
-        FROM bw_market_brands mb
-        JOIN bw_brands b ON b.id = mb.brand_id
-        JOIN LATERAL (
-            SELECT data FROM bw_vendor_snapshots
-            WHERE brand_id = mb.brand_id AND snapshot_type = 'profile'
-            ORDER BY observed_at DESC LIMIT 1
-        ) s ON TRUE
-        WHERE mb.market_id = :m
-          -- Zero is a blank workbook cell. Left in, every such vendor became
-          -- a mover that had apparently hired its entire staff this period.
-          AND NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
-              IS NOT NULL
-          AND (s.data->>'employee_count') IS NOT NULL
-    """), {"m": market["id"]}).mappings().all()]
-    for m in movers:
-        m["delta"] = float(m["now_count"]) - float(m["was"])
-        m["pct"] = round(m["delta"] / float(m["was"]) * 100, 1) if m["was"] else None
-    movers.sort(key=lambda x: abs(x["delta"]), reverse=True)
-
-    # The mean and median read across every vendor with both a baseline and a
-    # current headcount, not just the ten biggest movers the list below is
-    # truncated to — a market-wide figure computed from the shortlist would
-    # be skewed toward whoever moved the most.
+    # Headcount movement, from two LinkedIn readings only. See
+    # headcount_market for why the old workbook-vs-LinkedIn comparison was
+    # replaced: it treated two different measurements as one series.
+    hc = headcount_market(conn, market)
+    movers = hc["movers"]
     pct_values = [m["pct"] for m in movers if m["pct"] is not None]
+    # An average across one vendor is that vendor's number wearing a market
+    # statistic's clothes. The panel read "Average +1.3% / Median +1.3% across
+    # 1 vendor", which is Dropzone AI's +1.3% printed three times.
+    #
+    # Same guard the market already applies to a share of voice below
+    # MIN_EARNED_FOR_SHARE and a per-post ratio below MIN_POSTS_FOR_RATIO:
+    # withhold the aggregate rather than compute one from too little, and let
+    # the caller show the movers themselves instead.
+    if len(pct_values) < MIN_VENDORS_FOR_HEADCOUNT_AVERAGE:
+        pct_values = []
     headcount_avg_pct = round(sum(pct_values) / len(pct_values), 1) if pct_values else None
     headcount_median_pct = (
         round(statistics.median(pct_values), 1) if pct_values else None)
@@ -472,10 +634,320 @@ def build_brief(conn, market: Dict[str, Any], *, days: int = 7) -> Dict[str, Any
         "headcount_avg_pct": headcount_avg_pct,
         "headcount_median_pct": headcount_median_pct,
         "headcount_n": len(pct_values),
+        # The market's own size, which needs only one reading per vendor and so
+        # is available now even though movement mostly is not.
+        "observed_market_headcount": hc["observed_market_headcount"],
+        "headcount_cohort": hc["cohort"],
+        "headcount_insufficient": hc["insufficient_total"],
+        "headcount_baseline": hc["baseline_comparison"],
+        "headcount_metric": hc["metric"],
         "loudest_vendors": loudest,
         "top_article_uris": top_articles,
         "coverage": dict(coverage or {}),
         "open_questions": gaps,
+    }
+
+
+def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
+                  limit: int = 6) -> Dict[str, Any]:
+    """Who moved, across every metric that can state a change.
+
+    Three metric families, and they do not all qualify at the same time.
+    Headcount needs two readings of the same vendor. Outside coverage needs
+    the period before this one to have been one we were collecting in, which
+    a market created last week does not have. Open roles need two successful
+    job runs for that vendor.
+
+    A metric that cannot state a change is named in ``unavailable`` with the
+    reason, rather than left out. "No movers" and "we cannot measure movement"
+    are different answers and the second one is the true one here.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.market_analysis import _POST_BRANDS, collection_started
+    from app.services.market_corpus import earned_sql, _iso_days_ago
+
+    movers: List[Dict[str, Any]] = []
+    unavailable: List[Dict[str, str]] = []
+
+    # "0 → 7 items, +7 from none" ranked six vendors as the market's fastest
+    # risers on a market eight days old. The earlier window was one nothing
+    # was collecting in, so the zero was never a measurement.
+    started = collection_started(conn, market["id"])
+    prev_window_start = datetime.now(timezone.utc) - timedelta(days=days * 2)
+    coverage_comparable = bool(started) and prev_window_start >= started
+
+    # --- Headcount -----------------------------------------------------
+    head = headcount_market(conn, market)
+    for m in (head.get("movers") or []):
+        pct = m.get("pct")
+        movers.append({
+            "vendor": m.get("vendor"), "brand_id": m.get("brand_id"),
+            "metric": "Staff",
+            "value": (f'{pct:+.1f}%' if isinstance(pct, (int, float))
+                      else f'{m.get("delta", 0):+.0f}'),
+            "sort": abs(pct if isinstance(pct, (int, float)) else 0),
+            "detail": f'{int(m.get("previous", 0))} → {int(m.get("latest", 0))}',
+            # The numbers as numbers. A caller wanting the net change should
+            # not have to parse them back out of the label.
+            "from": int(m.get("previous", 0)), "to": int(m.get("latest", 0)),
+        })
+    if not head.get("movers"):
+        short = len(head.get("insufficient_history") or [])
+        unavailable.append({"metric": "Staff",
+                            "reason": "too early to show a change"})
+
+    # --- Coverage by somebody other than the vendor --------------------
+    # Both windows in one pass. Two calls to share_of_voice cannot express
+    # "the period before this one" — its window is always "the last N days".
+    rows = [] if not coverage_comparable else conn.execute(text(f"""
+        WITH pb AS ({_POST_BRANDS})
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.publication_date, a.submission_date) >= :cur
+                     AND {earned_sql("a", "bac", ":m")}) AS now_n,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE COALESCE(a.publication_date, a.submission_date) >= :prev
+                     AND COALESCE(a.publication_date, a.submission_date) < :cur
+                     AND {earned_sql("a", "bac", ":m")}) AS prev_n
+          FROM bw_market_brands bmb
+          JOIN bw_brands b ON b.id = bmb.brand_id
+          LEFT JOIN pb bac ON bac.brand_id = b.id
+          LEFT JOIN articles a ON a.uri = bac.article_uri
+         WHERE bmb.market_id = :m AND bmb.role <> 'excluded'
+         GROUP BY 1, 2
+    """), {"m": market["id"], "cur": _iso_days_ago(days),
+           "prev": _iso_days_ago(days * 2)}).mappings().all()
+    if not coverage_comparable:
+        unavailable.append({
+            "metric": "Written about by others",
+            "reason": ("no earlier period to compare with yet"
+                       + (f' — collection began {started:%-d %B %Y}'
+                          if started else ""))})
+    for row in rows:
+        now_n, prev_n = int(row["now_n"] or 0), int(row["prev_n"] or 0)
+        if now_n == prev_n:
+            continue
+        delta = now_n - prev_n
+        # A percentage off a base of zero is not a percentage. Where the vendor
+        # had no coverage last period the honest statement is the count.
+        value = (f'{(delta / prev_n) * 100:+.0f}%' if prev_n
+                 else f'{delta:+d} from none')
+        movers.append({
+            "vendor": row["vendor"], "brand_id": row["brand_id"],
+            "metric": "Written about by others",
+            "value": value, "sort": abs(delta),
+            "detail": f'{prev_n} → {now_n} items',
+            "from": prev_n, "to": now_n})
+
+    # --- Open roles ----------------------------------------------------
+    from app.services import market_lists as ml
+    try:
+        # market_id, not the market dict, and there is no `days` here: a job
+        # listing is a stock of what is open now, so it has no window.
+        jobs = ml.jobs(conn, market["id"], include_all=True)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("movers: jobs list failed: %s", exc)
+        jobs = None
+    if jobs:
+        fresh: Dict[str, int] = {}
+        comparable = 0
+        for row in jobs.get("data") or []:
+            if row.get("runs_covering_vendor", 0) >= 2:
+                comparable += 1
+                if row.get("status") == "newly_observed":
+                    fresh[row.get("vendor") or ""] = fresh.get(
+                        row.get("vendor") or "", 0) + 1
+        for vendor, n in fresh.items():
+            movers.append({"vendor": vendor, "brand_id": None,
+                           "metric": "Open roles", "value": f"+{n}",
+                           "sort": n, "detail": "new since the last check",
+                           "from": None, "to": None})
+        if not fresh:
+            unavailable.append({
+                "metric": "Open roles",
+                "reason": ("too early to show a change" if not comparable
+                           else "unchanged")})
+
+    movers.sort(key=lambda m: (-m["sort"], m["vendor"] or ""))
+    return {"movers": movers[:limit], "unavailable": unavailable,
+            "window_days": days,
+            "collection_started": started.isoformat() if started else None}
+
+
+def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
+    """Observed market headcount, and the vendors that moved.
+
+    Two rules make this defensible, and the previous version broke both.
+
+    **Only exact counts are summed.** A LinkedIn profile may report a size band
+    ("51-200") instead of a number. A band is not a measurement of anything, so
+    it is never added to a total; the vendor is reported as having no exact
+    reading. Zero is treated the same way, because the provider returns 0 for a
+    company whose staff count it does not have.
+
+    **A mover needs two readings of the same kind.** The old query compared the
+    latest LinkedIn reading against the April workbook baseline, which are two
+    different measurements of two different things taken four months apart, and
+    called the difference growth. Every vendor therefore looked like a mover.
+    Movement now requires two LinkedIn readings, each with its own date.
+
+    Today that yields very few movers, because most vendors have exactly one
+    reading — the first full sweep only happened on 2026-08-26. That is the
+    honest answer and it fills in on its own as the next sweep lands. Vendors
+    with one reading are returned under ``insufficient_history`` rather than
+    being shown as having not moved, which is a claim we cannot make.
+
+    The workbook comparison is still returned, under its own key and labelled
+    with its own source. It is useful; it is just not a LinkedIn measurement.
+    """
+    from app.services import market_metrics as mm
+
+    market_id = market["id"]
+    profile_state = mm.collection_state(conn, market_id,
+                                        'linkedin_company_profile')
+    cadence = profile_state["freshness"]["expected_interval_seconds"]
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        WITH readings AS (
+            SELECT s.brand_id, s.observed_at,
+                   (s.data->>'employee_count')::numeric AS headcount
+              FROM bw_vendor_snapshots s
+              JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
+                   AND mb.market_id = :m AND mb.role <> 'excluded'
+             WHERE s.snapshot_type = 'profile'
+               -- Exact integers only. A band, a range or any other text is
+               -- not a count and must not reach the arithmetic below.
+               AND {EXACT_HEADCOUNT}
+        ), ranked AS (
+            SELECT brand_id, observed_at, headcount,
+                   ROW_NUMBER() OVER (PARTITION BY brand_id
+                                      ORDER BY observed_at DESC) AS rn,
+                   COUNT(*) OVER (PARTITION BY brand_id) AS readings
+              FROM readings
+        )
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               MAX(r.headcount) FILTER (WHERE r.rn = 1) AS latest,
+               MAX(r.observed_at) FILTER (WHERE r.rn = 1) AS latest_at,
+               MAX(r.headcount) FILTER (WHERE r.rn = 2) AS previous,
+               MAX(r.observed_at) FILTER (WHERE r.rn = 2) AS previous_at,
+               MAX(r.readings) AS readings,
+               NULLIF((mb.baseline->'metrics'->>'employee_count')::numeric, 0)
+                   AS workbook
+          FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+          LEFT JOIN ranked r ON r.brand_id = b.id AND r.rn <= 2
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+         GROUP BY b.id, b.display_name, mb.baseline
+         ORDER BY b.display_name
+    """), {"m": market_id}).mappings().all()]
+
+    now = datetime.now(timezone.utc)
+    cohort, movers, insufficient = [], [], []
+    workbook_only = 0
+    for row in rows:
+        latest, latest_at = row["latest"], row["latest_at"]
+        if latest is None:
+            # No exact LinkedIn reading at all. Say which fallback exists
+            # rather than reporting the vendor as zero staff.
+            insufficient.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "reason": ("no exact employee count has been read from LinkedIn"
+                           + (" — the imported workbook figure is the only one "
+                              "on file" if row["workbook"] else "")),
+                "workbook": (float(row["workbook"]) if row["workbook"] else None),
+            })
+            if row["workbook"]:
+                workbook_only += 1
+            continue
+
+        # Fresh means "inside two of this collector's own intervals". A weekly
+        # profile poll cannot be judged against a twelve-hour threshold.
+        fresh = bool(latest_at and
+                     (now - latest_at).total_seconds() <= cadence * 2)
+        entry = {
+            "vendor": row["vendor"], "brand_id": row["brand_id"],
+            "latest": float(latest),
+            "latest_at": latest_at.isoformat() if latest_at else None,
+            "fresh": fresh,
+        }
+        if fresh:
+            cohort.append(entry)
+
+        if row["previous"] is not None:
+            was, now_count = float(row["previous"]), float(latest)
+            delta = now_count - was
+            movers.append({**entry,
+                           "previous": was,
+                           "previous_at": (row["previous_at"].isoformat()
+                                           if row["previous_at"] else None),
+                           "delta": delta,
+                           "pct": (round(delta / was * 100, 1) if was else None)})
+        else:
+            insufficient.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "reason": ("only one LinkedIn headcount collected so far, so there is "
+                           "nothing to compare it with"),
+                "latest": float(latest),
+                "latest_at": latest_at.isoformat() if latest_at else None,
+            })
+
+    movers.sort(key=lambda m: abs(m["delta"]), reverse=True)
+    total = int(sum(c["latest"] for c in cohort))
+
+    # Kept apart from everything above. Same numbers, different measurement,
+    # and the label travels with it.
+    baseline_rows = []
+    for row in rows:
+        if row["latest"] is not None and row["workbook"]:
+            was, now_count = float(row["workbook"]), float(row["latest"])
+            baseline_rows.append({
+                "vendor": row["vendor"], "brand_id": row["brand_id"],
+                "workbook": was, "latest": now_count,
+                "delta": now_count - was,
+                "pct": round((now_count - was) / was * 100, 1) if was else None,
+            })
+    baseline_rows.sort(key=lambda m: abs(m["delta"]), reverse=True)
+
+    return {
+        "observed_market_headcount": total,
+        "cohort": len(cohort),
+        "registry_total": profile_state["coverage"]["registry_total"],
+        "with_exact_reading": sum(1 for r in rows if r["latest"] is not None),
+        "workbook_only": workbook_only,
+        "increases": [m for m in movers if m["delta"] > 0][:10],
+        "decreases": [m for m in movers if m["delta"] < 0][:10],
+        "movers": movers[:10],
+        "movers_total": len(movers),
+        "insufficient_history": insufficient,
+        "insufficient_total": len(insufficient),
+        "baseline_comparison": {
+            "rows": baseline_rows[:10],
+            "total": len(baseline_rows),
+            "source": "imported workbook baseline vs latest LinkedIn headcount",
+            "caution": ("Two different measurements taken months apart. Useful "
+                        "as a rough direction, not as observed growth."),
+        },
+        "metric": mm.metric(
+            "observed_market_headcount",
+            label="Total staff across the market",
+            definition=(
+                "We add up the most recent employee count each vendor shows on "
+                "LinkedIn. Some companies publish a range instead of a number, "
+                "like 51-200. We leave those out rather than guess, and we "
+                "leave out vendors we have no headcount for rather than count "
+                "them as zero."),
+            numerator="the latest exact employee count for each vendor",
+            denominator="vendors whose LinkedIn profile we have read recently",
+            collection=profile_state,
+            value=total,
+            limitations=[
+                "This is a floor, not the real total. Vendors publishing a "
+                "range instead of a number are missing from it.",
+                "LinkedIn headcount is self-reported by each company.",
+                ("Movement needs the headcount on two dates. %d of %d vendors have "
+                 "it on one so far." % (len(insufficient), len(rows))),
+            ]),
     }
 
 
@@ -581,6 +1053,9 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     """
     market_id = market["id"]
     since = f"(NOW() - INTERVAL '{int(days)} days')::text"
+    # Same rule as the posts list uses for `ownership=earned`, so the index
+    # channel and the drill-down a reader opens from it count the same set.
+    earned = earned_sql("a3", "bac3")
 
     coverage = _vendor_coverage(conn, market_id)
 
@@ -640,34 +1115,96 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
                    AND {_OWN_VOICE}
                    AND COALESCE(a.publication_date, a.submission_date) >= {since}
                ) AS posts,
-               (SELECT COUNT(*) FROM bw_vendor_snapshots s
-                 WHERE s.brand_id = b.id AND s.snapshot_type = 'job_posting'
-               ) AS jobs,
+               -- Jobs are filled in below from the same rules the hiring
+               -- drill-down applies, not counted here. `COUNT(*)` over the
+               -- snapshots read 209 listings against that list's 149: it
+               -- counted a listing again each time its payload changed, kept
+               -- the LinkedIn copy of a role already on the company's own
+               -- board, and kept listings last seen to be gone. An overview
+               -- figure 40% above the list behind it is the failure the
+               -- drill-downs exist to prevent.
+               0 AS jobs,
                -- Windowed to match `posts` — this used to count every article
                -- ever seen for the vendor regardless of period, so the sort
                -- mixed a period figure (posts) with an all-time one (articles)
                -- under one combined "signals" score.
-               (SELECT COUNT(*) FROM bw_article_categories bac2
+               (SELECT COUNT(DISTINCT a2.uri) FROM bw_article_categories bac2
                   JOIN articles a2 ON a2.uri = bac2.article_uri
                  WHERE bac2.brand_id = b.id
                    AND COALESCE(a2.publication_date, a2.submission_date) >= {since}
-               ) AS articles
+               ) AS articles,
+               -- Coverage by somebody other than the vendor. Kept apart from
+               -- `articles` because `articles` counts everything matched to
+               -- the vendor, and on this market 2516 of 2531 of those are the
+               -- vendor's own LinkedIn posts. Scoring the Activity Index on
+               -- `articles` therefore weighted the posts channel twice and
+               -- called the result a third, independent channel.
+               -- DISTINCT because a row here is (article, vendor, category)
+               -- and Brand Watcher's classifier writes one per category, so a
+               -- story filed under two headings counted as two stories.
+               (SELECT COUNT(DISTINCT a3.uri) FROM bw_article_categories bac3
+                  JOIN articles a3 ON a3.uri = bac3.article_uri
+                 WHERE bac3.brand_id = b.id
+                   AND {earned}
+                   AND COALESCE(a3.publication_date, a3.submission_date) >= {since}
+               ) AS earned
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
     """), {"m": market_id}).mappings().all()]
-    for row in activity:
-        row["signals"] = (row["posts"] or 0) + (row["jobs"] or 0)
-    # Sorted by earned coverage — what other people said about a vendor —
-    # rather than by owned output (own posts + open jobs). The old
-    # `signals`-first sort ranked "who posts on LinkedIn and is hiring" under
-    # a name that implied a composite activity signal, and pre-cut the table
-    # to the top 10 by that score before the frontend's sortable table ever
-    # saw the rest — so re-sorting by "Articles" client-side only re-sorted
-    # within a set signals had already decided. `signals` still ships as its
-    # own column for a reader who wants it.
-    activity.sort(key=lambda r: (r["articles"] or 0, r["signals"]), reverse=True)
-    quiet = [r for r in activity if r["signals"] == 0 and not r["articles"]]
+    # Currently observed listings, from `market_lists.jobs` so this figure and
+    # the list a reader opens from it are the same measurement. Present-now is
+    # `currently_observed` plus `newly_observed`; the latter is a subset of the
+    # former in spec 4.8 terms — present in the latest successful uncapped run,
+    # and additionally absent from the one before it.
+    from app.services import market_lists as _mlists
+    _jobs = _mlists.jobs(conn, market_id, page_size=1, include_all=True)
+    _present: Dict[int, int] = {}
+    for _row in _jobs.get("_all") or []:
+        # `first_observation` is a listing seen on a vendor's only run so
+        # far. It is open now; it is only not yet known to be new.
+        if _row["status"] in ("currently_observed", "newly_observed",
+                              "first_observation"):
+            _present[int(_row["brand_id"])] = \
+                _present.get(int(_row["brand_id"]), 0) + 1
+    for _row in activity:
+        _row["jobs"] = _present.get(int(_row["brand_id"]), 0)
+
+    # Whether each channel was measured for each vendor, then the index. A
+    # vendor missing one channel gets no index rather than a low one — see
+    # `market_metrics.activity_index`.
+    from app.services import market_metrics as _mmet
+    _health = _mmet.vendor_channel_health(conn, market_id)
+    _mmet.activity_index(activity, _health)
+
+    # There used to be a `signals` column here, posts + jobs. It was dropped
+    # because the sum has no meaning to recover: `posts` counts what a vendor
+    # published inside the selected period, `jobs` counts listings standing open
+    # right now. Adding a flow to a stock produces a number that changes when
+    # either the period or the hiring freeze changes and cannot be read as
+    # either. The three real measures ship on their own.
+    #
+    # Ordering is the Activity Index, which is a composite but a legible one:
+    # each channel becomes a percentile before they are averaged, so it cannot
+    # be the jobs column wearing a broader name the way `signals` was. Vendors
+    # whose index was withheld follow, ranked on the raw measures — earned
+    # coverage first, then the two owned ones — because they still have real
+    # counts and dropping them would hide most of the market on a young
+    # collection. `index_unavailable_because` says why, per vendor.
+    #
+    # Deterministic tie-break at the cutoff, per spec 4.0: ranking value, then
+    # earned mentions, then the canonical name. Without the last one, two
+    # vendors on the same figures could swap places between two requests and
+    # a restricted report's Top 10 would not be stable.
+    activity.sort(key=lambda r: (r["activity_index"] is None,
+                                 -(r["activity_index"] or 0),
+                                 -(r["earned"] or 0), -(r["posts"] or 0),
+                                 -(r["jobs"] or 0), r["vendor"] or ""))
+    # Quiet still means quiet on everything matched to the vendor, `articles`
+    # rather than `earned`: a vendor whose own posts are the only thing we saw
+    # is not a vendor we saw nothing from.
+    quiet = [r for r in activity
+             if not r["posts"] and not r["jobs"] and not r["articles"]]
 
     corpus: Dict[str, Any] = {}
     if conn.execute(text("SELECT to_regclass('bw_market_articles')")).scalar():
@@ -699,10 +1236,18 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
         "coverage": coverage,
         "funding": funding,
         "top_funded": top_funded,
-        # Full ranked list, not a pre-cut top 10 — DataTable on the frontend
-        # sorts and groups client-side, and a server-side cut by one score
-        # hides rows a different sort should have surfaced.
+        # Full ranked list. The cut to Top X is applied by the caller, because
+        # it is an entitlement decision rather than a display one: a restricted
+        # reader must never receive the rows the page then hides, and an
+        # authorised one wants every row to sort and group client-side.
         "most_active": activity,
+        "activity_index": {
+            "scored": sum(1 for r in activity
+                          if r["activity_index"] is not None),
+            "withheld": sum(1 for r in activity
+                            if r["activity_index"] is None),
+            "channels": ["posts", "jobs", "mentions"],
+        },
         "quiet_vendors": len(quiet),
         "corpus": corpus,
         "last_runs": last_runs,
@@ -724,8 +1269,8 @@ DATASETS = {
     "articles": "News, vendor blogs and research matched to this market, with "
                 "why each one matched. Vendor posts are in `posts`.",
     "posts": "Vendor LinkedIn posts with the review verdict on each.",
-    "profiles": "LinkedIn company readings: headcount, followers, location.",
-    "funding": "Crunchbase readings: rounds, investors, rank.",
+    "profiles": "LinkedIn company profiles: headcount, followers, location.",
+    "funding": "Crunchbase records: rounds, investors, rank.",
     "jobs": "Open job listings seen at these vendors.",
     "pages": "Vendor web pages watched, and what changed on them.",
     "runs": "Every collection run: source, status, records, latency, error.",

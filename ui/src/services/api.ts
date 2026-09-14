@@ -241,6 +241,9 @@ export interface KeyInsight {
 
 export interface TrendConvergenceData {
   topic?: string;
+  // Server run id (future_horizons_runs.id for the horizons tab). Present on
+  // generated payloads; used to pair executive summaries with their run.
+  analysis_id?: string;
   // New Auspex structure (Consensus Analysis tab)
   categories?: AuspexConsensusCategory[];
   // Legacy structure (for other tabs)
@@ -324,6 +327,9 @@ export interface Quote {
 }
 
 export interface MarketSignalsData {
+  // Not produced for signals payloads today — declared so shared code can
+  // probe `data?.analysis_id` across the TrendConvergenceData union.
+  analysis_id?: string;
   future_signals: FutureSignal[];
   risk_cards: RiskCard[];
   opportunity_cards: OpportunityCard[];
@@ -591,9 +597,10 @@ export async function getAvailableModels(): Promise<AIModel[]> {
 /**
  * Get previous analysis for a topic
  */
-export async function getPreviousAnalysis(topic: string): Promise<TrendConvergenceData> {
+export async function getPreviousAnalysis(topic: string, tab?: string): Promise<TrendConvergenceData> {
+  const suffix = tab ? `?tab=${encodeURIComponent(tab)}` : '';
   return fetchWithAuth<TrendConvergenceData>(
-    `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(topic)}/previous`
+    `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(topic)}/previous${suffix}`
   );
 }
 

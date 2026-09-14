@@ -16,74 +16,74 @@
 model_list:
   # ---- mini / nano / small -> Bedrock Claude Haiku 4.5 ----
   - model_name: gpt-4.1-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-4o-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-4.1-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5.4-mini
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   - model_name: gpt-5.4-nano
+    # 2026-09-08: repointed from Claude Haiku 4.5 to kimi-k2.5 (cost/quality decision; see ISSUE_MODEL_ALIAS_CLEANUP.md)
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+      model: bedrock/moonshotai.kimi-k2.5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking"]
 
   # ---- flagship / standard -> Bedrock Claude Sonnet 4.5 ----
   - model_name: gpt-4o
@@ -275,17 +275,79 @@ model_list:
       additional_drop_params: ["reasoning_effort", "response_format"]
 
 fallbacks:
+  # nova-lite scores relevance on every collected article and had no fallback:
+  # a 4-call Bedrock blip on 2026-09-08 opened the circuit breaker for 300 s and
+  # every scoring call in that window got an error instead of another model.
+  - nova-lite:
+      - bedrock-kimi-k2-5
+      - nova-pro
   - bedrock-kimi-k2-5:
       - bedrock-claude-haiku
+      - nova-lite
   - gpt-4o:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-4.1:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5.4:
       - bedrock-claude-haiku
+      - nova-pro
   - gpt-5.5:
       - bedrock-claude-haiku
-
+      - nova-pro
+  - gpt-4.1-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-4o-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-4.1-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5.4-mini:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gpt-5.4-nano:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - claude-4-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-3-7-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-3-5-sonnet-latest:
+      - bedrock-claude-haiku
+      - nova-pro
+  - mixtral-8x7b:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gemini-pro:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - gemini-2.0-flash-exp:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - bedrock-claude-haiku:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - bedrock-claude-sonnet:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-haiku-4-5:
+      - bedrock-kimi-k2-5
+      - nova-lite
+  - claude-sonnet-4-5:
+      - bedrock-claude-haiku
+      - nova-pro
 routing_strategy: least-busy

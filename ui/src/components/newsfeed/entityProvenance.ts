@@ -146,7 +146,26 @@ function sum<T>(rows: T[], pick: (row: T) => number): number {
   return rows.reduce((total, row) => total + (pick(row) || 0), 0);
 }
 
-/** How much an event should be believed, in words a reader can act on. */
+/**
+ * What the evidence for an event is, in words a reader can act on.
+ *
+ * Describes the evidence, never grades the truth. `vendor_claim` used to read
+ * "the vendor says so; not yet corroborated", which asserted two things and
+ * only one of them was a measurement: that the company said it is a fact about
+ * the evidence, whereas "not yet corroborated" reads as doubt about whether the
+ * event happened. For a company announcing its own partnership it is close to
+ * the best available source that the partnership exists; what is missing is the
+ * counterparty and an independent account of what it amounts to.
+ *
+ * "Not yet" also promised something the system does not do. The ladder only
+ * rises if a matching independent source happens to arrive in the corpus, and
+ * for a small vendor that may be never — so a permanently accurate state was
+ * worded as a temporary one.
+ *
+ * Tones follow the same rule. A vendor announcing its own news is how you
+ * normally learn about it, so that is `neutral`; `warn` is kept for having no
+ * recorded source at all, which is a real gap.
+ */
 export function corroborationNote(corroboration: string, sources: number):
     { tone: 'neutral' | 'warn' | 'good'; text: string } {
   switch (corroboration) {
@@ -157,9 +176,10 @@ export function corroborationNote(corroboration: string, sources: number):
     case 'single_source':
       return { tone: 'neutral', text: 'one independent source' };
     case 'vendor_claim':
-      return { tone: 'warn', text: 'the vendor says so; not yet corroborated' };
+      return { tone: 'neutral',
+               text: 'announced by the vendor, no independent source' };
     default:
-      return { tone: 'warn', text: 'uncorroborated' };
+      return { tone: 'warn', text: 'no source recorded' };
   }
 }
 

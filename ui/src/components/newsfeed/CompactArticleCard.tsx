@@ -1,3 +1,4 @@
+import { OriginalTitle } from './OriginalTitle';
 /**
  * Compact Article Card - Small format for related articles and lists
  * Used in sidebars, "more headlines" sections, and article lists
@@ -85,6 +86,7 @@ export function CompactArticleCard({
               article.title
             )}
           </h4>
+          <OriginalTitle article={article} className="mb-1" />
 
           {/* Summary (optional) */}
           {showSummary && article.summary && (

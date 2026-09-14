@@ -9,6 +9,14 @@ A market monitor needs the other question: which articles are *about this
 category*, whoever they name. That is a match against the market's own phrases
 ("SOC automation", "agentic SOC", "SOAR platform"), not against a company.
 
+It needs the first question answered too, and for a while it assumed Brand
+Watcher was answering it. It was not: Brand Watcher's classifier had attributed
+28 articles across 84 vendors in total, so every per-vendor "earned coverage"
+figure in the market monitor was read from a store that was empty by
+construction. :func:`attribute_vendors` now runs inside :func:`scan` and links
+each article that names a vendor to that vendor, so "who was mentioned" and
+"what is this about" are answered in the same pass over the same corpus.
+
 Everything here reads articles that were already collected, analysed and paid
 for. It calls no provider and collects nothing.
 
@@ -144,6 +152,54 @@ def context_terms(conn, market_id: int) -> List[str]:
     return list(DEFAULT_CONTEXT_TERMS)
 
 
+# Vocabulary that flips a match's meaning. Matching is case-insensitive, so
+# "AI SOC" — this market's own name for itself — also matches "AI SoC", the
+# system-on-chip, and "XDR" also matches Apple's Liquid Retina XDR display.
+# On 9 Sep 2026 that put eleven rows of consumer-tech coverage into a
+# security-operations corpus: Xiaomi XRING benchmark tweets, a Qualcomm
+# Snapdragon thesis, a Mac buying guide, an iPad review. Case cannot
+# separate the readings, but the surrounding vocabulary can: nobody scoring
+# a chipset on AnTuTu or praising a Liquid Retina panel is writing about a
+# security operations center. An article matching any phrase here is skipped
+# by the phrase scan entirely — losing a rare crossover article is a smaller
+# cost than serving consumer-silicon news as market coverage. A market
+# overrides the list with ``bw_markets.config['exclude_terms']``.
+DEFAULT_EXCLUDE_TERMS: List[str] = [
+    "AnTuTu",
+    "Geekbench",
+    "3DMark",
+    "chipset",
+    "system-on-chip",
+    "system on a chip",
+    "Snapdragon",
+    "MediaTek",
+    "Dimensity",
+    "Exynos",
+    "XRING",
+    "MacBook",
+    "iPad",
+    "Liquid Retina",
+    "XDR display",
+]
+
+
+def exclude_terms(conn, market_id: int) -> List[str]:
+    """The market's exclusion phrases, from config or the default list."""
+    cfg = conn.execute(text(
+        "SELECT config FROM bw_markets WHERE id = :m"), {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    terms = cfg.get("exclude_terms")
+    if isinstance(terms, list):
+        return [str(t).strip() for t in terms if str(t).strip()]
+    return list(DEFAULT_EXCLUDE_TERMS)
+
+
+def exclude_patterns(conn, market_id: int) -> List[re.Pattern]:
+    """Compiled exclusion phrases for the phrase scan."""
+    _, py_terms = compile_terms(exclude_terms(conn, market_id))
+    return [pattern for _, pattern in py_terms]
+
+
 def corpus_terms(conn, market_id: int) -> List[str]:
     """Everything the corpus scan matches on.
 
@@ -250,6 +306,56 @@ def _host(uri: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
+def vendor_domain_sql(article: str = "a", brand: Optional[str] = "bac",
+                      market_param: str = ":m") -> str:
+    """SQL for "this article was published on the vendor's own site".
+
+    The SQL twin of the domain check in :func:`classify_article`, which has
+    always got this right in Python and which the counting paths never
+    consulted. They keyed owned-versus-earned on ``bias_source`` alone, and a
+    vendor's blog carries no ``bias_source`` — so eleven of Dropzone AI's own
+    blog posts, and one of Radiant Security's, were counted as third parties
+    covering them. Half of this market's supposed earned coverage was vendors
+    talking about themselves.
+
+    ``brand`` is the alias holding the vendor the article is attributed to, and
+    the match is against *that* vendor's domains. This is deliberate and it is
+    the interesting part: Dropzone's blog writing about Crogl is Dropzone's own
+    voice for Dropzone and genuine third-party coverage for Crogl. Pass
+    ``brand=None`` where no vendor is in scope and any monitored vendor's domain
+    should count as owned.
+
+    Defined once here beside :func:`own_voice_sql` for the same reason: a second
+    copy of a classification rule is a second thing to drift, and a test asserts
+    this agrees with the Python row for row.
+    """
+    host = (f"lower(regexp_replace(COALESCE({article}.url, {article}.uri),"
+            f" '^https?://(www\\.)?([^/]+).*$', '\\2'))")
+    scope = (f"vi.brand_id = {brand}.brand_id" if brand else f"""
+                 EXISTS (SELECT 1 FROM bw_market_brands vmb
+                          WHERE vmb.brand_id = vi.brand_id
+                            AND vmb.market_id = {market_param}
+                            AND vmb.role <> 'excluded')""")
+    return f"""EXISTS (
+        SELECT 1 FROM bw_vendor_identifiers vi
+         WHERE vi.kind = 'domain' AND vi.valid_to IS NULL
+           AND {scope}
+           AND ({host} = lower(vi.normalized_value)
+                OR {host} LIKE '%.' || lower(vi.normalized_value)))"""
+
+
+def earned_sql(article: str = "a", brand: Optional[str] = "bac",
+               market_param: str = ":m") -> str:
+    """SQL for "somebody other than this vendor published this".
+
+    Earned coverage is the whole point of watching a market — it is the
+    difference between a company saying it matters and anyone else agreeing —
+    so it has to exclude both of the vendor's own channels, not just LinkedIn.
+    """
+    return (f"(COALESCE({article}.bias_source,'') <> 'vendor:linkedin'"
+            f" AND NOT {vendor_domain_sql(article, brand, market_param)})")
+
+
 def classify_article(uri: str, news_source: Optional[str],
                      bias_source: Optional[str], domains: set) -> str:
     """Which kind of thing this article is."""
@@ -272,6 +378,348 @@ def market_topic_name(market: Dict[str, Any]) -> str:
     cfg = market.get("config") if isinstance(market.get("config"), dict) else {}
     topic = ((cfg or {}).get("collection") or {}).get("topic_name")
     return topic or f"Market Monitoring {market.get('name')}"
+
+
+# ---------------------------------------------------------------------------
+# Which vendor an article names
+# ---------------------------------------------------------------------------
+
+#: ``bw_article_categories.classification_method`` for a row written here, so
+#: a reader can tell a name match from Brand Watcher's LLM classification and
+#: from a manual backfill, and so a re-run can find its own rows.
+NAME_MATCH_METHOD = "market_name_match"
+
+#: ``bw_market_articles.method`` for an article that reached the market corpus
+#: only because it named a vendor, not because it used a market phrase.
+NAME_MATCH_CORPUS_METHOD = "vendor_name"
+
+
+def _strip_parenthetical(name: str) -> str:
+    """"Variance (was Intrinsic)" -> "Variance"; "Strike48 (A Devo company)"
+    -> "Strike48". The bracketed part is a note to the operator, not a name
+    anyone would print in an article."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", name or "").strip()
+
+
+def vendor_name_terms(conn, market_id: int) -> List[Dict[str, Any]]:
+    """The names each vendor in the market can be recognised by.
+
+    ``bw_brands.brand_keywords`` and ``product_keywords`` are the reviewed
+    alias table the spec asks for — an operator wrote "Cantina security" for
+    Cantina and "Variance security" for Variance precisely because the bare
+    word matches restaurants and statistics. They are used as written. Only a
+    vendor with no keyword at all falls back to its display name, with any
+    bracketed note stripped.
+
+    Excluded vendors are left out: an article naming an out-of-scope company
+    is not this market's coverage. ``config.news_keyword_excludes`` is carried
+    through so the per-brand negative list Brand Watcher honours is honoured
+    here too.
+    """
+    rows = conn.execute(text("""
+        SELECT b.id, b.display_name, b.brand_keywords, b.product_keywords,
+               b.config
+          FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+         ORDER BY b.id
+    """), {"m": market_id}).fetchall()
+    out: List[Dict[str, Any]] = []
+    for brand_id, display_name, brand_kw, product_kw, cfg in rows:
+        terms: List[str] = []
+        for source in (brand_kw, product_kw):
+            for kw in (source or []) if isinstance(source, list) else []:
+                t = str(kw or "").strip()
+                if t and t.lower() not in {x.lower() for x in terms}:
+                    terms.append(t)
+        if not terms:
+            fallback = _strip_parenthetical(display_name)
+            if fallback:
+                terms.append(fallback)
+        cfg = cfg if isinstance(cfg, dict) else {}
+        excludes = [str(x).strip() for x in (cfg.get("news_keyword_excludes") or [])
+                    if str(x).strip()]
+        if terms:
+            out.append({"brand_id": int(brand_id), "vendor": display_name,
+                        "terms": terms, "excludes": excludes})
+    return out
+
+
+def market_qualifier(conn, market_id: int) -> Optional[str]:
+    """The one word the market's collection was qualified with ("security").
+
+    Set at collection setup, in ``config.collection.qualifier``, to keep a
+    vendor-name search from returning the wrong company. It does the same job
+    here, on the corpus side.
+    """
+    cfg = conn.execute(text(
+        "SELECT config FROM bw_markets WHERE id = :m"), {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    q = ((cfg.get("collection") or {}).get("qualifier") or "").strip()
+    return q or None
+
+
+def context_patterns(conn, market_id: int) -> List[re.Pattern]:
+    """What a third-party article has to contain, besides a vendor's name.
+
+    A name on its own is not enough. Measured over ninety days of this corpus,
+    "Joon" matched a K-drama cast list and a BTS story, "Andesite" matched a
+    mining assay, and none of them was about the company. Requiring the market
+    qualifier ("security") or one of the market's own phrases in the same text
+    removed all three.
+
+    It also removed fourteen articles that were about the vendor — its own blog
+    posts, which talk about the product and never say "security", and a
+    practitioner thanking "7AI" for a sponsorship. So the requirement is not
+    applied everywhere: see :func:`attribute_vendors` for the two cases where
+    the name is taken as it stands. The rule stays one an operator can read off
+    the match — the vendor's name, plus the market's word, unless the name
+    could not be anything else or the page is the vendor's own.
+    """
+    terms: List[str] = []
+    q = market_qualifier(conn, market_id)
+    if q:
+        terms.append(q)
+    terms.extend(corpus_terms(conn, market_id))
+    _, py_terms = compile_terms(terms)
+    return [pattern for _, pattern in py_terms]
+
+
+def _distinctive(term: str) -> bool:
+    """Whether a name could be nothing but a name.
+
+    A token with a digit or a dot in it ("7ai", "Secure.com", "Strike48") is
+    not a word in any language, so it needs no context to be believed. A bare
+    word — "Joon", "Andesite", "Alpha Level" — does, because the corpus has
+    shown it will match something else.
+    """
+    t = (term or "").strip()
+    return bool(t) and any(ch.isdigit() or ch == "." for ch in t)
+
+
+#: URL-like tokens: full links, bare www hosts, and host/path fragments the
+#: way social posts truncate them ("open.spotify.com/playlist/7aI.."). A
+#: bare domain with no path ("Secure.com" in prose) is left alone.
+_URLISH = re.compile(r"https?://\S+|\bwww\.\S+|\b\S+\.[a-z]{2,4}/\S*", re.I)
+
+
+def _without_urls(text: str) -> str:
+    """Text with URL-like tokens removed before name matching.
+
+    A vendor name inside a link is not a mention: a Bluesky post whose whole
+    text was a truncated Spotify playlist URL containing "7aI" was attributed
+    to 7ai and shown on the public site (8 Sep 2026)."""
+    return _URLISH.sub(" ", text or "")
+
+
+def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
+                 ) -> List[Tuple[Dict[str, Any], str]]:
+    """``[(vendor, term that matched)]`` for one article's text.
+
+    Uses Brand Watcher's ``_mentions`` so the two paths agree on what a name
+    match is: word-boundaried, and tolerant of a keyword that starts or ends
+    with a non-word character ("7ai", "Secure.com").
+    """
+    from app.routes.brand_watcher_routes import _mentions
+
+    hits: List[Tuple[Dict[str, Any], str]] = []
+    for vendor in vendors:
+        if any(_mentions(text_content, x) for x in vendor["excludes"]):
+            continue
+        for term in vendor["terms"]:
+            if _mentions(text_content, term):
+                hits.append((vendor, term))
+                break
+    return hits
+
+
+def _link_entity(conn, uri: str, brand_id: int, term: str) -> None:
+    """Tell the entity layer about a link the market just made.
+
+    The vendor page's "External mentions" reads ``bw_entity_mentions``; the
+    market overview's "earned" reads ``bw_article_categories``. The entity
+    layer's own backlog matcher consults ``bw_article_categories`` when it
+    first examines an article, so a fresh attribution reaches both stores —
+    but it examines each article once, and 1,704 of them had already been
+    examined and found to name nobody before this pass existed. Linking here
+    keeps the two counts in step instead of leaving the vendor page reading 0
+    while the overview reads 2 for the same vendor and the same articles.
+
+    A fault in the entity layer must not undo an attribution, so the link is
+    written inside a savepoint and rolled back to it on failure. Catching the
+    exception alone is not enough: Postgres aborts the whole transaction on an
+    error, and the scan's own writes would be lost with it at commit.
+    """
+    from app.services import entity_flags
+
+    if not entity_flags.enabled():
+        return
+    conn.execute(text("SAVEPOINT market_entity_link"))
+    try:
+        from app.services import entity_ingest
+
+        # "keyword" is the entity layer's name for a reviewed brand keyword
+        # found in the text, which is what this is.
+        entity_ingest.link_content(conn, uri, candidates=[{
+            "brand_id": brand_id, "term": term,
+            "attribution_method": "keyword",
+            "mention_type": "explicit_name",
+        }])
+        conn.execute(text("RELEASE SAVEPOINT market_entity_link"))
+    except Exception:                                           # noqa: BLE001
+        conn.execute(text("ROLLBACK TO SAVEPOINT market_entity_link"))
+        logger.exception("entity link failed for %s / brand %s", uri, brand_id)
+
+
+def attribute_vendors(conn, market_id: int, *,
+                      topic_name: Optional[str] = None,
+                      days: Optional[int] = None,
+                      limit: int = DEFAULT_LIMIT,
+                      dry_run: bool = False) -> Dict[str, Any]:
+    """Link every article that names a vendor to that vendor.
+
+    Writes one ``bw_article_categories`` row per (article, vendor), never a
+    second one for a pair any method has already linked — the overview and
+    the benchmark count rows, and a second category on the same article would
+    count one story twice. The article is also entered in
+    ``bw_market_articles`` when the phrase scan did not already put it there,
+    so the coverage feed and the post review see it.
+
+    A third-party article must also carry the market's qualifier or one of
+    its phrases (:func:`context_patterns`), unless the name is one that could
+    not be a word (:func:`_distinctive`) or the page is on a tracked vendor's
+    own domain. Everything the rule turns away is returned under ``rejected``.
+
+    Reads titles and summaries. Writes nothing when ``dry_run``.
+    """
+    vendors = vendor_name_terms(conn, market_id)
+    if not vendors:
+        return {"vendors": 0, "scanned": 0, "matched": 0, "attributed": 0,
+                "already_linked": 0, "without_context": 0, "corpus_added": 0,
+                "samples": [], "rejected": []}
+
+    pg_pattern, _ = compile_terms(
+        [t for v in vendors for t in v["terms"]])
+    contexts = context_patterns(conn, market_id)
+
+    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat",
+             # A vendor's LinkedIn post is attributed when it lands, by the
+             # account it came from, which is exact. Re-reading it here would
+             # only re-find the vendor's name in the vendor's own words.
+             "COALESCE(a.bias_source, '') <> 'vendor:linkedin'",
+             # Our own approved pieces (market_briefing.FEED_ORIGIN): this
+             # scan is the second door the 7 Sep self-citation came through —
+             # the piece names 7AI, so the name scan attributed it and put
+             # the article back after the phrase scan's exclusion.
+             "COALESCE(a.article_origin, '') <> 'report'"]
+    params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
+    if days:
+        where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = _iso_days_ago(days)
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary, a.topic, a.news_source,
+               COALESCE(a.publication_date, a.submission_date) AS published
+          FROM articles a
+         WHERE {' AND '.join(where)}
+         ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+         LIMIT :lim
+    """), params).mappings().all()
+
+    from app.routes.brand_watcher_routes import _mentions
+    from app.services.market_collect import _categorize
+
+    domains = vendor_domains(conn, market_id)
+    topic = topic_name or ""
+    matched = attributed = already = without_context = corpus_added = 0
+    samples: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+    per_vendor: Dict[str, int] = {}
+    for row in rows:
+        content = _without_urls(f"{row['title'] or ''} {row['summary'] or ''}")
+        hits = _vendor_hits(content, vendors)
+        if not hits:
+            continue
+        # The context requirement, and the two cases it does not apply to: a
+        # page on a tracked vendor's own site is about a vendor by definition,
+        # and a name with a digit or a dot in it cannot be a dictionary word.
+        host = _host(row["uri"])
+        own_site = bool(host) and any(host == d or host.endswith("." + d)
+                                      for d in domains)
+        in_context = own_site or not contexts or \
+            any(p.search(content) for p in contexts)
+        kept = [(v, t) for v, t in hits if in_context or _distinctive(t)]
+        for v, t in hits:
+            if (v, t) not in kept:
+                without_context += 1
+                if len(rejected) < 25:
+                    rejected.append({"uri": row["uri"], "title": row["title"],
+                                     "source": row["news_source"],
+                                     "vendor": v["vendor"], "term": t})
+        hits = kept
+        if not hits:
+            continue
+        matched += 1
+        in_title = False
+        for vendor, term in hits:
+            per_vendor[vendor["vendor"]] = per_vendor.get(vendor["vendor"], 0) + 1
+            in_title = in_title or _mentions(row["title"] or "", term)
+            if len(samples) < 25:
+                samples.append({"uri": row["uri"], "title": row["title"],
+                                "source": row["news_source"],
+                                "published": row["published"],
+                                "vendor": vendor["vendor"], "term": term})
+            if dry_run:
+                continue
+            cats = _categorize(row["title"] or "", row["summary"] or "")
+            category = cats[0] if cats else "Media & Advertising"
+            wrote = conn.execute(text("""
+                INSERT INTO bw_article_categories
+                    (article_uri, brand_id, category, classification_method,
+                     confidence)
+                SELECT :uri, :bid, :cat, :method, 1.0
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM bw_article_categories x
+                      WHERE x.article_uri = :uri AND x.brand_id = :bid)
+            """), {"uri": row["uri"], "bid": vendor["brand_id"],
+                   "cat": category, "method": NAME_MATCH_METHOD}).rowcount
+            if wrote:
+                attributed += 1
+                _link_entity(conn, row["uri"], vendor["brand_id"], term)
+            else:
+                already += 1
+        if dry_run:
+            continue
+        origin = "collected" if (topic and row["topic"] == topic) else "corpus"
+        # A name in the headline is the story's subject, the same weight the
+        # phrase scan gives a phrase in the headline.
+        score = TITLE_WEIGHT if in_title else BODY_WEIGHT
+        corpus_added += conn.execute(text("""
+            INSERT INTO bw_market_articles
+                (market_id, article_uri, matched_terms, title_terms,
+                 body_terms, score, method, origin)
+            VALUES (:m, :uri, '{}', :tt, :bt, :score, :method, :origin)
+            ON CONFLICT (market_id, article_uri) DO NOTHING
+        """), {"m": market_id, "uri": row["uri"],
+               "tt": 1 if in_title else 0, "bt": 0 if in_title else 1,
+               "score": score, "method": NAME_MATCH_CORPUS_METHOD,
+               "origin": origin}).rowcount
+
+    return {
+        "vendors": len(vendors),
+        "scanned": len(rows),
+        "matched": matched,
+        "attributed": attributed,
+        "already_linked": already,
+        "without_context": without_context,
+        "corpus_added": corpus_added,
+        "truncated": len(rows) >= int(limit),
+        "dry_run": dry_run,
+        "by_vendor": dict(sorted(per_vendor.items(), key=lambda kv: -kv[1])),
+        "samples": samples,
+        # What the context rule turned away, so an operator can see whether
+        # it is turning away the right things.
+        "rejected": rejected,
+    }
 
 
 def scan(conn, market_id: int, *,
@@ -306,7 +754,14 @@ def scan(conn, market_id: int, *,
         return {"error": "no usable terms", "terms": 0, "scanned": 0,
                 "matched": 0, "inserted": 0, "updated": 0}
 
-    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat"]
+    where = ["(COALESCE(a.title,'') || ' ' || COALESCE(a.summary,'')) ~* :pat",
+             # Our own approved briefings and analysis pieces come back through
+             # the feed as articles rows (market_briefing.FEED_ORIGIN). A site
+             # must not cite itself as market coverage: left in, a piece
+             # matches its own market's terms, gets attributed to the first
+             # vendor it names, and comes out as a "development" sourced to
+             # this host (7 Sep 2026, piece 18 credited to 7ai).
+             "COALESCE(a.article_origin, '') <> 'report'"]
     params: Dict[str, Any] = {"pat": pg_pattern, "lim": int(limit)}
     if require_analyzed:
         where.append("a.analyzed = true")
@@ -325,17 +780,25 @@ def scan(conn, market_id: int, *,
         LIMIT :lim
     """), params).mappings().all()
 
+    excludes = exclude_patterns(conn, market_id)
     topic = topic_name or ""
     inserted = 0
     updated = 0
     matched = 0
     below = 0
+    excluded = 0
     samples: List[Dict[str, Any]] = []
 
     for row in rows:
         terms_hit, title_hits, body_hits, score = score_article(
             row["title"], row["summary"], py_terms)
         if not terms_hit:
+            continue
+        # The other "AI SoC": an article whose vocabulary says consumer
+        # silicon is not this market's coverage, whatever phrase it matched.
+        content = f"{row['title'] or ''} {row['summary'] or ''}"
+        if any(p.search(content) for p in excludes):
+            excluded += 1
             continue
         if score < min_score:
             below += 1
@@ -372,11 +835,17 @@ def scan(conn, market_id: int, *,
         else:
             updated += 1
 
+    # Same window, same limit, same dry-run: an article that names a vendor is
+    # this market's coverage whether or not it used a market phrase.
+    names = attribute_vendors(conn, market_id, topic_name=topic_name,
+                              days=days, limit=limit, dry_run=dry_run)
+
     return {
         "terms": len(terms),
         "scanned": len(rows),
         "matched": matched,
         "below_min_score": below,
+        "excluded_context": excluded,
         "inserted": inserted,
         "updated": updated,
         "min_score": min_score,
@@ -385,6 +854,7 @@ def scan(conn, market_id: int, *,
         "truncated": len(rows) >= int(limit),
         "dry_run": dry_run,
         "samples": samples,
+        "vendor_names": names,
     }
 
 
@@ -441,6 +911,7 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         GROUP BY 1 ORDER BY 1
     """), {"m": market_id, "since": _iso_days_ago(max(days, 90))}
     ).mappings().all()
+    weekly = _mark_partial_weeks([dict(r) for r in by_week])
 
     domains = vendor_domains(conn, market_id)
     kinds: Dict[str, int] = {c: 0 for c in ARTICLE_CLASSES}
@@ -477,7 +948,7 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "recent": recent,
         "top_terms": [dict(r) for r in top_terms],
         "top_sources": [dict(r) for r in top_sources],
-        "by_week": [dict(r) for r in by_week],
+        "by_week": weekly,
         # Same floor as by_week just above: a shorter selection would draw a
         # 1-2 point chart, which reads as broken rather than as "not much
         # history yet". Before this, sentiment_trend ignored `days` entirely
@@ -486,6 +957,47 @@ def summary(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
         "sentiment_trend": sentiment_trend(conn, market_id,
                                            weeks=max(days, 90) // 7),
     }
+
+
+def _mark_partial_weeks(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flag the week that has not finished, and say how much of it we have.
+
+    The last bar is always short and always looks like a collapse. The week
+    starting Monday 24 August read 41 against roughly 170 for a full week,
+    which is what three and a half days looks like — not a drop in coverage.
+
+    Two separate reasons the newest bar under-reads, and the chart has to admit
+    both. The week is not over, and matching runs behind publication: 1,200
+    articles were matched into one market on a single day, most of them
+    published earlier, so a recent week keeps filling for days after it ends.
+    That makes the most recent *complete* week provisional too.
+    """
+    if not rows:
+        return rows
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
+    # Monday of the current week, matching DATE_TRUNC('week') in the query.
+    this_monday = today - timedelta(days=today.weekday())
+    for row in rows:
+        try:
+            monday = datetime.strptime(row["week"], "%Y-%m-%d").date()
+        except (ValueError, TypeError, KeyError):
+            continue
+        if monday >= this_monday:
+            row["partial"] = True
+            row["days_covered"] = (today - monday).days + 1
+            row["partial_reason"] = (
+                f'{row["days_covered"]} of 7 days so far')
+        elif monday >= this_monday - timedelta(days=7):
+            # Finished, but too recent to have stopped filling.
+            row["partial"] = True
+            row["days_covered"] = 7
+            row["partial_reason"] = (
+                "still filling — we match articles for several days after "
+                "they are published")
+        else:
+            row["partial"] = False
+    return rows
 
 
 def sentiment_trend(conn, market_id: int, *, weeks: int = 26) -> List[Dict[str, Any]]:
@@ -642,8 +1154,12 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
              min_score: float = 0.0,
              classes: Optional[Sequence[str]] = None,
              require_signal_for_social: bool = True,
-             vendor_id: Optional[int] = None) -> List[Dict[str, Any]]:
+             vendor_id: Optional[int] = None,
+             uris: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """The matched corpus, newest first.
+
+    ``uris`` restricts the result to those articles, for a page that already
+    knows which rows it wants (a stored topic's members, say).
 
     ``require_signal_for_social`` is the rule that lets vendor LinkedIn posts
     back in. They were excluded wholesale because 562 of them against 122 news
@@ -658,7 +1174,12 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     # to be loosened first, or "give me 100 news items" silently returns the
     # news items that happened to be inside the first 100 rows of every kind.
     fetch = min(limit * 5, 2000) if classes else limit
-    where = ["ma.market_id = :m", "ma.score >= :ms"]
+    # An operator can take a matched page out of the market for good by
+    # setting review_verdict = 'excluded'. The term scan's upsert never
+    # touches the verdict, so the exclusion outlives every rescan — deleting
+    # the link would not, the next scan would match the page again.
+    where = ["ma.market_id = :m", "ma.score >= :ms",
+             "COALESCE(ma.review_verdict, '') <> 'excluded'"]
     params: Dict[str, Any] = {"m": market_id, "ms": min_score,
                               "lim": fetch, "off": offset}
     if days:
@@ -672,6 +1193,9 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                                 WHERE bac.article_uri = a.uri
                                   AND bac.brand_id = :vendor_id)""")
         params["vendor_id"] = vendor_id
+    if uris is not None:
+        where.append("a.uri = ANY(:uris)")
+        params["uris"] = list(uris)
     if require_signal_for_social:
         # An unreviewed *vendor* post is not yet known to be worth showing, so
         # it is left out with the ones judged noise. Practitioner posts are not
@@ -686,7 +1210,8 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                a.sentiment, a.category, a.analyzed, a.bias_source,
                a.social_meta,
                ma.score, ma.matched_terms, ma.origin, ma.title_terms,
-               ma.review_verdict, ma.review_kind, ma.review_reason
+               ma.review_verdict, ma.review_kind, ma.review_reason,
+               ma.review_customer
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE {' AND '.join(where)}

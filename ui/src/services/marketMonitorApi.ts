@@ -11,6 +11,89 @@ const BASE = '/api/market-monitor';
 // Types
 // ============================================================================
 
+// ---------------------------------------------------------------------------
+// The metric contract
+// ---------------------------------------------------------------------------
+
+/** What a figure's state actually is. Only `observed_zero` licenses printing a
+ *  zero: it means a collector ran, completed across the stated population, and
+ *  found nothing. The four states in `UNMEASURED_STATES` mean the number is not
+ *  a measurement and must not be rendered as one. */
+export type DataState =
+  | 'observed_zero' | 'healthy' | 'not_configured' | 'never_collected'
+  | 'collecting' | 'partial' | 'stale' | 'failed';
+
+/** States where there is no defensible value to show. Mirrors
+ *  market_metrics.UNMEASURED on the server; the server's copy is
+ *  authoritative and `MetricMeta.measured` already carries the verdict, so
+ *  prefer that over re-deriving it here. */
+export const UNMEASURED_STATES: DataState[] = [
+  'not_configured', 'never_collected', 'collecting', 'failed',
+];
+
+export interface MetricSource {
+  provider: string;
+  dataset: string;
+  platform: string;
+  ownership: string;
+  status: DataState;
+  last_success_at: string | null;
+  expected_interval_seconds: number;
+  records_observed: number | null;
+  truncated: boolean;
+}
+
+/** Collection completeness — how much of the market we successfully measured.
+ *  Deliberately not called "coverage" on its own: that word was doing double
+ *  duty for this and for content volume, which is why a percentage alone is
+ *  never enough. Numerator and denominator both travel. */
+export interface MetricCoverage {
+  registry_total: number;
+  eligible: number;
+  attempted: number;
+  successful: number;
+  pct_of_eligible: number | null;
+  label: string;
+}
+
+export interface MetricFreshness {
+  last_success_at: string | null;
+  expected_interval_seconds: number;
+  stale_after: string | null;
+  is_stale: boolean;
+}
+
+/** Travels with every figure. Feeds the "What this means" control, so a reader
+ *  can always get to the definition, the period, the provider and the
+ *  limitations without leaving the page. */
+export interface MetricMeta {
+  metric_id: string;
+  label: string;
+  definition: string;
+  numerator: string;
+  denominator: string | null;
+  window: { days?: number | null; start?: string; end?: string } | null;
+  as_of: string;
+  data_state: DataState;
+  data_state_label: string;
+  /** False when the figure is not a measurement. Render the state, not a 0. */
+  measured: boolean;
+  state_detail: string | null;
+  sources: MetricSource[];
+  coverage: MetricCoverage | null;
+  freshness: MetricFreshness | null;
+  limitations: string[];
+}
+
+export interface SourceLegendRow {
+  key: string;
+  content: string;
+  platform: string;
+  provider: string;
+  ownership: string;
+  dataset: string;
+}
+
 export interface Market {
   id: number;
   name: string;
@@ -602,12 +685,51 @@ export async function getWireArticles(uris: string[]): Promise<WireArticle[]> {
  *  WireEventCard (article_uris expand-on-click, vendor pivot) works for both. */
 export type BriefEvent = TimelineEvent;
 
+export interface QuietVendor {
+  brand_id: number;
+  vendor: string;
+  /** When collection last succeeded for this vendor. Null in `unmeasured`. */
+  collected_at: string | null;
+  /** The vendor's most recent own post at any time, not just inside the
+   *  selected window — see the note in market_analysis.share_of_voice. */
+  last_posted_at: string | null;
+  posts_in_selected_window: number;
+}
+
 export interface HeadcountMover {
   vendor: string;
-  was: number;
-  now_count: number;
+  brand_id: number;
+  /** Both readings come from LinkedIn, so the difference is a measurement of
+   *  the same thing twice. Each carries its own date because a +1 over two days
+   *  and a +1 over four months are not the same fact. */
+  previous: number;
+  previous_at: string | null;
+  latest: number;
+  latest_at: string | null;
   delta: number;
   pct: number | null;
+  fresh: boolean;
+}
+
+/** A vendor we cannot report movement for, and why. Shown instead of listing
+ *  it as unchanged, which would be a claim we have no reading to support. */
+export interface HeadcountGap {
+  vendor: string;
+  brand_id: number;
+  reason: string;
+  latest?: number;
+  latest_at?: string | null;
+  workbook?: number | null;
+}
+
+/** The workbook-vs-LinkedIn comparison, kept separate from movement above
+ *  because the two figures are different measurements months apart. */
+export interface HeadcountBaseline {
+  rows: { vendor: string; brand_id: number; workbook: number;
+          latest: number; delta: number; pct: number | null }[];
+  total: number;
+  source: string;
+  caution: string;
 }
 
 export interface MarketPulse {
@@ -624,6 +746,11 @@ export interface MarketPulse {
   headcount_avg_pct: number | null;
   headcount_median_pct: number | null;
   headcount_n: number;
+  observed_market_headcount: number;
+  headcount_cohort: number;
+  headcount_insufficient: number;
+  headcount_baseline: HeadcountBaseline;
+  headcount_metric: MetricMeta;
   loudest_vendors: { vendor: string; posts: number }[];
   /** Whatever matched this market's phrases in the window, ranked by
    *  engagement then recency. Fetch titles/links via getWireArticles. */
@@ -696,6 +823,284 @@ export async function getHeadcountTrend(
   return jsonOrThrow(
     await fetch(`${BASE}/markets/${marketId}/headcount-trend?weeks=${weeks}`,
       { credentials: 'include' }), 'Failed to load headcount trend');
+}
+
+/** Observed market headcount and movement.
+ *
+ *  Separate from getHeadcountTrend, which is a normalized weekly index. This is
+ *  the absolute total plus the vendors that actually moved, and it holds to the
+ *  rule that movement needs two readings of the same measurement — so
+ *  `movers` is often much shorter than the vendor list and
+ *  `insufficient_history` carries the rest with a reason each.
+ */
+export interface MarketHeadcount {
+  observed_market_headcount: number;
+  /** Vendors whose latest exact reading is current. Shown beside the total,
+   *  because a market total without its cohort is not interpretable. */
+  cohort: number;
+  registry_total: number;
+  with_exact_reading: number;
+  workbook_only: number;
+  increases: HeadcountMover[];
+  decreases: HeadcountMover[];
+  movers: HeadcountMover[];
+  movers_total: number;
+  insufficient_history: HeadcountGap[];
+  insufficient_total: number;
+  baseline_comparison: HeadcountBaseline;
+  metric: MetricMeta;
+}
+
+export async function getHeadcountMarket(
+  marketId: number,
+): Promise<MarketHeadcount> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/headcount/movers`,
+      { credentials: 'include' }), 'Failed to load market headcount');
+}
+
+/** Per-source collection state: whether a zero on this page is a measurement.
+ *
+ *  Distinct from getSourceHealth, which answers "is the collector working".
+ *  This answers "may I believe this number", and its denominator is that
+ *  source's own eligible vendors rather than the whole registry.
+ */
+export interface CollectionStateRow {
+  source: string;
+  state: DataState;
+  state_detail: string | null;
+  scheduled: boolean;
+  coverage: MetricCoverage;
+  freshness: MetricFreshness;
+  latest_run: {
+    status: string; error_code: string | null;
+    records_received: number | null;
+    started_at: string | null; completed_at: string | null;
+  } | null;
+}
+
+export interface CollectionStateResponse {
+  market_id: number;
+  sources: CollectionStateRow[];
+  legend: SourceLegendRow[];
+  state_labels: Record<string, string>;
+  /** Which states mean "not a measurement". Sent by the server so the browser
+   *  does not keep its own copy of the rule. */
+  unmeasured_states: string[];
+}
+
+export async function getCollectionState(
+  marketId: number,
+): Promise<CollectionStateResponse> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/collection-state`,
+      { credentials: 'include' }), 'Failed to load collection state');
+}
+
+// ---------------------------------------------------------------------------
+// Drill-downs: the records behind a number
+// ---------------------------------------------------------------------------
+
+/** The shape every list endpoint returns.
+ *
+ *  `applied_filters` is echoed by the server so a caller can prove the list it
+ *  is showing is the one it asked for. A drill-down whose filters differ from
+ *  the aggregate's will report a different total, and then neither number can
+ *  be trusted -- so pass the card's own filters through rather than rebuilding
+ *  them here.
+ */
+export interface ListEnvelope<T> {
+  data: T[];
+  meta: {
+    metric: MetricMeta | null;
+    pagination: {
+      page: number; page_size: number; total: number; pages: number;
+      sort: string; has_more: boolean;
+    };
+    applied_filters: Record<string, unknown>;
+    /** Disclosed caps or unclassifiable subsets. A silently bounded list reads
+     *  as a complete one, so anything the query could not answer is said. */
+    notes: string[];
+  };
+}
+
+export interface PostRecord {
+  brand_id: number; vendor: string; uri: string;
+  title: string | null; url: string | null;
+  published_at: string | null; observed_at: string | null;
+  excerpt: string | null; account: string | null; platform: string;
+  engagement: number; is_reshare: boolean; is_owned: boolean;
+  /** Four values. A LinkedIn post and a post on the vendor's own site are both
+   *  the vendor speaking; a reshare is it amplifying somebody else; earned is
+   *  anyone else publishing about it. The vendor's website used to fall into
+   *  `earned`, which was half this market's supposed third-party coverage. */
+  ownership: 'owned' | 'owned_web' | 'reshared' | 'earned';
+  classification: string;
+  classification_raw: string | null;
+  classification_kind: string | null;
+  why_relevant: string | null;
+  matched_terms: string[] | null;
+  relevance_score: number | null;
+  provider: string;
+}
+
+export interface CoverageRecord {
+  uri: string; title: string | null; url: string | null;
+  published_at: string | null; bias_source: string | null;
+  platform: string; ownership: string; excerpt: string | null;
+}
+
+export type JobStatus = 'currently_observed' | 'newly_observed'
+                      | 'no_longer_observed' | 'first_observation';
+
+export interface JobRecord {
+  provider_item_id: string; brand_id: number; vendor: string;
+  title: string | null; location: string | null; seniority: string | null;
+  function: string | null; function_group: string;
+  employment_type: string | null; url: string | null;
+  /** Which collector found it: `linkedin_jobs` or `ats_jobs`. Listings are only
+   *  ever compared against runs of their own source, or every listing from one
+   *  would read as closed on the next sweep of the other. */
+  source: string;
+  /** The board it came from, e.g. `ats:greenhouse`. */
+  observed_source: string | null;
+  /** First seen and last seen by us, never an opening or closing date -- we
+   *  observe listings, we do not see the hiring decision. */
+  first_seen: string; last_seen: string;
+  /** When the company published it, where its board says so. Greenhouse and
+   *  Ashby both do; the LinkedIn dataset never did reliably, so this is null
+   *  for most LinkedIn listings. */
+  posted_at: string | null;
+  status: JobStatus;
+  runs_covering_vendor: number;
+}
+
+export interface FundingRecord {
+  brand_id: number; vendor: string;
+  disclosed_total_musd: number | null;
+  /** `undisclosed` is a company that chose not to say; `unavailable` is data we
+   *  do not have. Rendering either as 0 puts them at the bottom of a chart
+   *  beside genuinely small raises. */
+  disclosure: 'disclosed' | 'undisclosed' | 'unavailable';
+  funding_status: string | null;
+  stage_raw: string | null; stage_group: string; is_equity_stage: boolean;
+  rounds: number | null; growth_score: number | null;
+  heat_score: number | null; cb_rank: number | null;
+  investors: string[] | null; lead_investors: string[] | null;
+  crunchbase_url: string | null; crunchbase_read_at: string | null;
+  /** Per field, because the total and the stage have different origins. */
+  sources: Record<string, string>;
+}
+
+export interface InvestorRecord {
+  investor: string; normalized: string; vendor_count: number;
+  forms?: string[];
+  vendors: { brand_id: number; vendor: string; evidence_url: string | null }[];
+}
+
+export interface VoicePostRecord {
+  uri: string; title: string | null; url: string | null;
+  published_at: string | null; platform: string; engagement: number;
+  excerpt: string | null; matched_terms: string[] | null;
+  relevance_score: number | null; why_relevant: string | null;
+  vendors_mentioned: string[];
+}
+
+function listQuery(params: Record<string, unknown>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+export async function getMarketPosts(
+  marketId: number,
+  params: {
+    days?: number | null; vendor_id?: number; platform?: string;
+    ownership?: string; classification?: string;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<PostRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/posts${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load posts');
+}
+
+export async function getCoverageItems(
+  marketId: number,
+  params: {
+    days?: number | null; week?: string; source?: string; vendor_id?: number;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<CoverageRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/coverage/items${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load coverage items');
+}
+
+export async function getMarketJobs(
+  marketId: number,
+  params: {
+    brand_id?: number; status?: JobStatus; source?: string;
+    page?: number; page_size?: number; sort?: string;
+  } = {},
+): Promise<ListEnvelope<JobRecord> & { openings: number; postings: JobRecord[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/jobs${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load job listings');
+}
+
+export async function getFundingVendors(
+  marketId: number,
+  params: { stage?: string; disclosure?: string;
+            page?: number; page_size?: number; sort?: string } = {},
+): Promise<ListEnvelope<FundingRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/vendors${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load funding');
+}
+
+export async function getInvestors(
+  marketId: number,
+  params: { min_vendors?: number; page?: number; page_size?: number } = {},
+): Promise<ListEnvelope<InvestorRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/investors${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load investors');
+}
+
+export async function getInvestorVendors(
+  marketId: number, investor: string,
+): Promise<ListEnvelope<{ brand_id: number; vendor: string;
+                          evidence_url: string | null }>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/funding/investors/`
+                + encodeURIComponent(investor),
+      { credentials: 'include' }), 'Failed to load investor');
+}
+
+export async function getVoicePosts(
+  marketId: number, author: string,
+  params: { days?: number | null; page?: number; page_size?: number } = {},
+): Promise<ListEnvelope<VoicePostRecord>> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/voices/`
+                + encodeURIComponent(author) + `/posts${listQuery(params)}`,
+      { credentials: 'include' }), 'Failed to load posts for this account');
+}
+
+/** CSV of a list, using the same server-side filters as the JSON.
+ *
+ *  Built as a URL rather than fetched so the browser downloads it directly.
+ *  The server applies the same authorization it applies to the list itself.
+ */
+export function listCsvUrl(
+  marketId: number, path: string, params: Record<string, unknown> = {},
+): string {
+  return `${BASE}/markets/${marketId}/${path}`
+       + listQuery({ ...params, fmt: 'csv' });
 }
 
 export interface DatasetRow { [key: string]: unknown }
@@ -837,8 +1242,17 @@ export interface MarketOverview {
   };
   top_funded: { vendor: string; brand_id: number; musd: number | null;
                 last_round: string | null }[];
+  /** Ranked by Activity Index. A vendor whose index is null was not measured
+   *  on every channel, so it is listed without a rank rather than ranked low
+   *  on evidence we never collected. */
   most_active: { brand_id: number; vendor: string; posts: number;
-                 jobs: number; articles: number; signals: number }[];
+                 jobs: number; articles: number; earned: number;
+                 activity_index: number | null;
+                 activity_percentiles: { posts: number; jobs: number;
+                                         mentions: number } | null;
+                 channel_states: Record<string, string>;
+                 index_unavailable_because: string | null }[];
+  activity_index: { scored: number; withheld: number; channels: string[] };
   quiet_vendors: number;
   corpus: CorpusSummary | Record<string, never>;
   last_runs: { source: string; status: string; records_received: number;
@@ -869,7 +1283,13 @@ export interface CorpusSummary {
   recent: number;
   top_terms: { term: string; n: number }[];
   top_sources: { source: string; n: number }[];
-  by_week: { week: string; n: number }[];
+  /** `partial` marks a bar that is still filling: the current week is not
+   *  over, and matching runs behind publication for several days after that.
+   *  Drawn hatched, never as a plain bar — the last bar always under-reads. */
+  by_week: {
+    week: string; n: number;
+    partial?: boolean; days_covered?: number; partial_reason?: string;
+  }[];
   collection_terms?: string[];
   context_terms?: string[];
   /** Weekly net-sentiment index (%positive minus %negative among classified
@@ -1150,10 +1570,12 @@ export async function getDrilldown(
 // Report and bundle
 // ============================================================================
 
-/** The whole market as one self-contained HTML file. Needs a session, or a
- *  signed link from getReportLink(). */
+/** The whole market as one self-contained HTML file. `full=1` with the
+ *  session renders every vendor and figure; the same URL without it is the
+ *  shared view (vendor cap, blurred evidence, trial form) for anybody,
+ *  which is what a pasted link shows. Signed links come from getReportLink(). */
 export function reportUrl(marketId: number, days = 30): string {
-  return `${BASE}/markets/${marketId}/report.html?days=${days}`;
+  return `${BASE}/markets/${marketId}/report.html?days=${days}&full=1`;
 }
 
 /** Every dataset in one zip: nine CSVs, market.json, and a README. */
@@ -1182,12 +1604,19 @@ export interface BriefingSummary {
   title: string | null;
   status: 'draft' | 'approved' | 'rejected';
   /** "fallback" means the model returned nothing usable and the stored text is
-   *  the assembled evidence rather than written prose. */
-  generation: 'generated' | 'fallback';
+   *  the assembled evidence rather than written prose; "written" means a
+   *  person wrote it and no model was involved. */
+  generation: 'generated' | 'fallback' | 'edited' | 'written';
   model_used: string | null;
   created_at: string;
   updated_at: string;
   sources: number | null;
+  /** A briefing is written by the model from the period's facts; an analysis
+   *  or a note is our own piece, written by a person. */
+  kind: 'briefing' | 'analysis' | 'note';
+  author: string | null;
+  /** When it was first approved; null while a draft. */
+  published_at: string | null;
 }
 
 export interface BriefingDetail extends BriefingSummary {
@@ -1228,6 +1657,59 @@ export async function generateBriefing(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(wireBody),
   }), 'Briefing generation failed');
+}
+
+/** Save a piece a person wrote — an analysis or a note — as a draft. */
+export async function writePiece(
+  marketId: number,
+  body: { kind: 'analysis' | 'note'; title: string; report_content: string; author?: string | null },
+): Promise<BriefingDetail> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/briefings/write`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), 'Could not save the piece');
+}
+
+export interface BriefingRevision {
+  id: number; title: string | null; generation: string | null;
+  reason: string; saved_by: string | null; saved_at: string; length: number;
+}
+
+/** Replace the briefing's text with a person's; the previous text is kept. */
+export async function editBriefing(
+  marketId: number, briefingId: number, body: { report_content: string; title?: string | null },
+): Promise<BriefingDetail> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }), 'Could not save the briefing');
+}
+
+export async function getBriefingRevisions(
+  marketId: number, briefingId: number,
+): Promise<{ revisions: BriefingRevision[] }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions`,
+      { credentials: 'include' }), 'Could not load the history');
+}
+
+export async function getBriefingRevision(
+  marketId: number, briefingId: number, revisionId: number,
+): Promise<BriefingRevision & { report_content: string }> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions/${revisionId}`,
+      { credentials: 'include' }), 'Could not load the revision');
+}
+
+export async function restoreBriefingRevision(
+  marketId: number, briefingId: number, revisionId: number,
+): Promise<BriefingDetail> {
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/briefings/${briefingId}/revisions/${revisionId}/restore`,
+      { method: 'POST', credentials: 'include' }), 'Could not restore the revision');
 }
 
 export async function setBriefingStatus(
@@ -1324,8 +1806,13 @@ export interface ShareOfVoice {
   /** Vendors with zero own LinkedIn posts in the window — the actual quiet
    *  end of the market, not the bottom of `loudest` reversed. Capped at 10;
    *  see `quietest_total` for the real count. */
-  quietest: { brand_id: number; vendor: string }[];
+  quietest: QuietVendor[];
   quietest_total: number;
+  /** Vendors whose post collection has never succeeded. Never folded into
+   *  `quietest`: silence we did not listen for is not silence. */
+  unmeasured: QuietVendor[];
+  unmeasured_total: number;
+  metric: MetricMeta;
   reactions_total: number;
   earned_total: number;
   /** False when `earned_total` is too small for a percentage to mean
@@ -1338,16 +1825,73 @@ export interface ShareOfVoice {
   coverage: Coverage;
 }
 
+/** The stored account profile behind a handle, when one has been built.
+ *  Shared with Brand Watcher's Accounts tab: one social_accounts row. */
+export interface VoiceAccount {
+  account_id: number;
+  handle: string;
+  handle_canonical: string;
+  display_name: string | null;
+  followers: number | null;
+  posts_count: number | null;
+  summary: string | null;
+  bio: string | null;
+  profile_url: string | null;
+  avatar_url: string | null;
+  verified: boolean;
+  watchlisted: boolean;
+  tags: string[];
+  topics: string[];
+  /** The account's part in this market, as the profile read it. */
+  relation: string | null;
+  /** One of vendor, vendor_staff, practitioner, analyst_or_press, reseller,
+   *  promoter_or_bot, unrelated — or null for a profile built before roles. */
+  role: string | null;
+  /** The company the account is or works for, when the profile named one. */
+  org: string | null;
+  last_profiled_at: string | null;
+  profiled: boolean;
+}
+
+export interface Voice {
+  author: string; platform: string; posts: number; likes: number;
+  comments: number; reposts: number; engagement: number; last_seen: string;
+  /** What this account talks about, and whom it talks about. */
+  terms: { term: string; n: number }[];
+  vendors: { vendor: string; n: number }[];
+  /** The account's page on its platform. */
+  profile_url: string | null;
+  latest_post: { url: string | null; title: string | null };
+  /** Null when we have seen the handle post but never profiled it. */
+  account: VoiceAccount | null;
+  /** Set when the account is a vendor's own or a vendor's staff — from the
+   *  profile's role, or from the handle matching a tracked vendor. Kept on
+   *  the list, tagged. */
+  vendor_tag: { label: string; org: string | null; brand_id: number | null;
+                tracked: boolean; linked: boolean; source: string } | null;
+  sample_of_one: boolean;
+}
+
 export interface TopVoices {
-  voices: {
-    author: string; platform: string; posts: number; likes: number;
-    comments: number; reposts: number; engagement: number; last_seen: string;
-    /** What this account talks about, and whom it talks about. */
-    terms: { term: string; n: number }[];
-    vendors: { vendor: string; n: number }[];
-  }[];
+  voices: Voice[];
+  consistent: Voice[];
+  breakout: Voice[];
+  consistent_min_posts: number;
+  /** Accounts in the period, all of them, not just the rows returned. */
+  accounts: number;
+  accounts_multi_post: number;
+  /** How many of the returned rows carry a profile. */
+  profiled: number;
   days: number | null;
   coverage: Coverage;
+}
+
+export interface VoiceProfileJob {
+  state: 'idle' | 'running' | 'done';
+  market_id: number;
+  total?: number; done?: number; built?: number; failed?: number;
+  skipped?: number; errors?: string[];
+  started_at?: string; finished_at?: string | null;
 }
 
 export interface ChannelMix {
@@ -1383,6 +1927,49 @@ export interface Leaderboards {
   career_moves: { moves: CareerMove[]; days: number | null; coverage: Coverage };
 }
 
+// ---- The follow list: accounts whose timelines we read for the market ----
+
+export interface FollowedAccount {
+  id: number; platform: string; handle: string; display_name: string | null;
+  followers_count: number | null; profile_url: string | null; avatar_url: string | null;
+  last_profiled_at: string | null; role: string | null;
+}
+
+export async function getFollowed(marketId: number): Promise<{ accounts: FollowedAccount[] }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`,
+    { credentials: 'include' }), 'Failed to load the follow list');
+}
+
+/** Follow an account; it is profiled first when it has no profile. */
+export async function followAccount(
+  marketId: number, platform: string, handle: string,
+): Promise<unknown> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, handle }),
+  }), 'Could not follow the account');
+}
+
+export async function unfollowAccount(
+  marketId: number, platform: string, handle: string,
+): Promise<unknown> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow`, {
+    method: 'DELETE', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, handle }),
+  }), 'Could not unfollow the account');
+}
+
+/** Read the followed accounts' timelines now and keep what touches the market. */
+export async function collectFollowed(
+  marketId: number,
+): Promise<{ accounts: number; fetched: number; matched: number; stored: number; skipped: string[] }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/follow/collect`, {
+    method: 'POST', credentials: 'include',
+  }), 'Could not read the followed accounts');
+}
+
 export async function getTopVoices(
   marketId: number, days?: number, limit = 25,
 ): Promise<TopVoices> {
@@ -1390,6 +1977,157 @@ export async function getTopVoices(
   if (days) q.set('days', String(days));
   return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices?${q}`,
     { credentials: 'include' }), 'Failed to load voices');
+}
+
+// Market Horizon: scale against momentum, one dot per rated vendor.
+export interface HorizonInput {
+  value: number; percentile: number; weight: number; axis: 'scale' | 'momentum';
+}
+/** The stage cuts (scale scores, three of them) and band cuts (momentum scores, two). */
+export type HorizonCuts = { stage_cuts?: number[]; band_cuts?: number[] };
+
+export interface HorizonVendor {
+  brand_id: number; vendor: string; scale: number; momentum: number;
+  tier: 'executors' | 'innovators' | 'established' | 'emerging';
+  /** The momentum band: accelerating, growing or holding. */
+  band?: 'accelerating' | 'growing' | 'holding';
+  inputs: Record<string, HorizonInput>;
+  /** Product-work score beside the axes, and the top-third marker. */
+  innovation: number | null;
+  innovation_inputs: Record<string, { value: number; percentile: number; weight: number }>;
+  innovating: boolean;
+  /** Hiring and Funded markers, beside Innovating; absent on maps stored before them. */
+  hiring?: boolean;
+  hiring_detail?: { open_roles: number; per_100: number } | null;
+  funded?: HorizonRound | null;
+  /** The analyst's note and per-input multipliers, if any were set. */
+  analyst_note: string | null;
+  multipliers: Record<string, number> | null;
+  previous: { tier: string; scale: number; momentum: number } | null;
+  moved: boolean;
+  /** Change on each axis since the previous map, and whether it is a large one. */
+  shift?: { scale: number; momentum: number } | null;
+  big_move?: boolean;
+}
+export interface HorizonMove {
+  brand_id: number; vendor: string; scale: number; momentum: number;
+  tier: string; previous_tier: string;
+}
+export interface HorizonRound {
+  date: string; round: string | null; title: string;
+  source: 'own post' | 'news event' | 'Crunchbase news' | string;
+}
+export interface HorizonMarkers {
+  hiring: { brand_id: number; vendor: string; rated: boolean; open_roles: number; per_100: number }[];
+  funded: ({ brand_id: number; vendor: string; rated: boolean } & HorizonRound)[];
+  hiring_bar: number | null;
+  min_open_roles: number;
+  funded_days: number;
+}
+export interface HorizonAcquired {
+  brand_id: number; vendor: string; status: 'acquired' | 'closed' | 'pivoted';
+  acquired_by: string | null; status_date: string | null; note: string | null;
+}
+export interface HorizonControls {
+  multipliers: Record<string, number>;
+  note: string | null;
+  status: 'active' | 'acquired' | 'closed' | 'pivoted';
+  acquired_by: string | null;
+  status_date: string | null;
+  updated_by?: string | null;
+  updated_at?: string | null;
+}
+export interface HorizonNotRated {
+  brand_id: number; vendor: string;
+  missing: { key: string; label: string; reason: string }[];
+}
+export interface MarketHorizon {
+  id?: number;
+  market_id: number;
+  market: string | null;
+  computed_at: string;
+  previous_at: string | null;
+  days: number;
+  config: {
+    days: number; customer_days: number;
+    inputs: Record<string, { axis: 'scale' | 'momentum'; weight: number; label: string;
+                             note?: string; optional?: boolean }>;
+    tiers: HorizonCuts;
+  };
+  tiers: Record<string, { label: string; means: string; count: number }>;
+  /** The momentum bands — accelerating, growing, holding — with counts. */
+  bands?: Record<string, { label: string; means: string; count: number }>;
+  rated: HorizonVendor[];
+  not_rated: HorizonNotRated[];
+  acquired: HorizonAcquired[];
+  innovating: string[];
+  markers?: HorizonMarkers;
+  /** Large movers since the previous map, biggest first. */
+  moves?: HorizonMove[];
+  large_shift?: number;
+  /** Vendors that look acquired but are not marked so; a person confirms. */
+  acquisition_hints: { brand_id: number; vendor: string; why: string }[];
+  counts: { eligible: number; rated: number; not_rated: number; acquired: number; innovating: number;
+            hiring?: number; funded?: number };
+  what_it_is_not: string;
+}
+
+export async function getHorizonControls(marketId: number, brandId: number): Promise<{
+  controls: HorizonControls;
+  inputs: Record<string, { label: string; axis: string; weight: number }>;
+  statuses: string[];
+}> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/horizon-controls`,
+    { credentials: 'include' }), 'Failed to load horizon controls');
+}
+
+export async function saveHorizonControls(
+  marketId: number, brandId: number, body: HorizonControls,
+): Promise<HorizonControls> {
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/horizon-controls`, {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }), 'Failed to save horizon controls');
+}
+
+export async function getMarketHorizon(marketId: number): Promise<MarketHorizon | null> {
+  const res = await fetch(`${BASE}/markets/${marketId}/horizon`, { credentials: 'include' });
+  if (res.status === 404) return null;
+  return jsonOrThrow(res, 'Failed to load Market Maturity Map');
+}
+
+export async function computeMarketHorizon(marketId: number): Promise<MarketHorizon> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/horizon/compute`, {
+    method: 'POST', credentials: 'include',
+  }), 'Failed to compute Market Maturity Map');
+}
+
+export async function profileVoice(
+  marketId: number, platform: string, author: string,
+): Promise<Record<string, unknown>> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, author }),
+  }), 'Failed to profile account');
+}
+
+export async function profileAllVoices(
+  marketId: number, opts: { days?: number; limit?: number; refresh?: boolean } = {},
+): Promise<VoiceProfileJob> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile-all`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  }), 'Failed to start profiling');
+}
+
+export async function getVoiceProfileJob(marketId: number): Promise<VoiceProfileJob> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/voices/profile-all`,
+    { credentials: 'include' }), 'Failed to read profiling status');
 }
 
 export async function getChannelMix(
@@ -1702,4 +2440,170 @@ export async function getMarketGeography(
                           { credentials: 'include' });
   if (res.status === 404) return null;   // entity layer switched off
   return jsonOrThrow(res, 'market geography');
+}
+
+/** One vendor against its market on one metric (spec 4.16).
+ *
+ *  `vendor_value` is null when the vendor was not measured, which is not the
+ *  same as zero and must never be plotted as one — `vendor_unmeasured_because`
+ *  says which source is missing. `suppressed` means the market itself had too
+ *  few measured peers to compare against, so the aggregates are absent rather
+ *  than computed from a cohort too small to mean anything. */
+export interface VendorBenchmark {
+  metric: { key: string; label: string; unit: string;
+            window: 'period' | 'as_of'; as_of_note?: string };
+  vendor_id: number;
+  vendor: string | null;
+  vendor_value: number | null;
+  vendor_unmeasured_because: string | null;
+  eligible_count: number;
+  measured_count: number;
+  market_peer_count: number;
+  collection: { state: string; label?: string; [k: string]: any };
+  as_of: string | null;
+  top_peer_count: number;
+  top_label: string | null;
+  market_median: number | null;
+  market_average: number | null;
+  top_median: number | null;
+  top_average: number | null;
+  top_q1: number | null;
+  top_q3: number | null;
+  vendor_percentile: number | null;
+  delta_from_market_median: number | null;
+  percentage_delta_from_market_median: number | null;
+  delta_from_market_average: number | null;
+  delta_from_top_median: number | null;
+  percentage_delta_from_top_median: number | null;
+  suppressed: boolean;
+  degraded: boolean;
+  notes: string[];
+  /** Only present for a caller entitled to the whole market. */
+  cohort?: { brand_id: number; vendor: string | null; value: number }[];
+}
+
+export interface VendorBenchmarks {
+  market_id: number;
+  vendor_id: number;
+  vendor: string | null;
+  period_days: number;
+  cohort_named: boolean;
+  metrics: VendorBenchmark[];
+  note: string;
+}
+
+export async function getVendorBenchmarks(
+  marketId: number, brandId: number, days = 30, metrics?: string[],
+): Promise<VendorBenchmarks> {
+  const q = new URLSearchParams({ days: String(days) });
+  if (metrics?.length) q.set('metrics', metrics.join(','));
+  return jsonOrThrow(await fetch(
+    `${BASE}/markets/${marketId}/vendors/${brandId}/benchmarks?${q}`,
+    { credentials: 'include' }), 'vendor benchmarks');
+}
+
+// ---------------------------------------------------------------------------
+// Findings (spec §4.2): deduplicated market changes with their evidence
+// ---------------------------------------------------------------------------
+
+export interface FindingVendor {
+  brand_id: number;
+  vendor: string;
+  relation: string;
+}
+
+export interface FindingEvidence {
+  excerpt: string | null;
+  uri: string | null;
+  [k: string]: unknown;
+}
+
+export interface MarketFinding {
+  finding_id: number;
+  headline: string;
+  summary: string | null;
+  why_it_matters: string | null;
+  materiality: 'high' | 'medium' | 'low';
+  materiality_reason: string | null;
+  finding_type: string;
+  finding_subtype: string | null;
+  theme: string;
+  /** confirmed, corroborated, watch or dismissed. */
+  status: string;
+  /** vendor_claim, single_source, corroborated … — who is saying this. */
+  corroboration: string;
+  confidence: number | null;
+  review_state: string;
+  vendors: FindingVendor[];
+  occurred_at: string | null;
+  date_precision: string;
+  first_observed_at: string | null;
+  last_updated_at: string | null;
+  independent_source_count: number;
+  non_vendor_source_count: number;
+  vendor_voiced: boolean;
+  self_reportable: boolean;
+  evidence_count: number;
+  source_platforms: string[];
+  strongest_evidence: FindingEvidence | null;
+  has_contradiction: boolean;
+  limitations: string[];
+  attributes: Record<string, unknown>;
+  is_new_in_period: boolean;
+}
+
+export interface MarketFindings {
+  data: MarketFinding[];
+  /** The few that deserve attention now; never a low-materiality watch item. */
+  executive: MarketFinding[];
+  by_theme: Record<string, MarketFinding[]>;
+  watch_items: MarketFinding[];
+  meta: {
+    metric: MetricMeta;
+    pagination?: { page?: number; page_size?: number; total?: number; [k: string]: unknown };
+    synthesis?: { state: string; detail: string | null; evidence_items?: number };
+    counts?: Record<string, unknown>;
+    themes?: string[];
+    [k: string]: unknown;
+  };
+}
+
+export async function getMarketFindings(
+  marketId: number,
+  opts: { days?: number; theme?: string; status?: string; materiality?: string;
+          sort?: string; page?: number; pageSize?: number } = {},
+): Promise<MarketFindings> {
+  const params = new URLSearchParams();
+  if (opts.days) params.set('days', String(opts.days));
+  if (opts.theme) params.set('theme', opts.theme);
+  if (opts.status) params.set('status', opts.status);
+  if (opts.materiality) params.set('materiality', opts.materiality);
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.page) params.set('page', String(opts.page));
+  if (opts.pageSize) params.set('page_size', String(opts.pageSize));
+  return jsonOrThrow(
+    await fetch(`${BASE}/markets/${marketId}/findings?${params}`,
+      { credentials: 'include' }), 'Failed to load findings');
+}
+
+// ---- Analyst feeds: the analyst firms' public pages read for the market ----
+
+export interface AnalystFeed { firm: string; url: string; domain?: string }
+
+export async function getAnalystFeeds(
+  marketId: number,
+): Promise<{ feeds: AnalystFeed[]; defaults: boolean }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analyst-feeds`,
+    { credentials: 'include' }), 'Failed to load the analyst feeds');
+}
+
+/** Replace the list; the feeds are registered with the RSS monitor at once. */
+export async function putAnalystFeeds(
+  marketId: number, feeds: { firm: string; url: string }[],
+): Promise<{ feeds: AnalystFeed[]; defaults: boolean; sync: { added: number; deactivated: number; feeds: number } }> {
+  return jsonOrThrow(await fetch(`${BASE}/markets/${marketId}/analyst-feeds`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feeds }),
+  }), 'Could not save the analyst feeds');
 }

@@ -20,8 +20,9 @@ rather than on-topic. That produced the failure it was meant to avoid: on
 wileytest the three top candidates the curator saw were Bluesky posts about a
 city council election, scored 0.00 against the topic they were filed under,
 winning purely because they were the newest rows in the table. Alignment now
-carries half the composite score, recency a tenth, and social posts are out of
-the pool entirely.
+carries the largest share of the composite score, recency reorders near-equal
+candidates without ever outweighing a large alignment gap, and social posts
+and code-forge pages are out of the pool entirely.
 
 The pipeline is an async generator yielding progress events (SSE-framed by the
 route), terminating with a ``complete`` event. ``compose_daily_briefing`` is a

@@ -1,3 +1,4 @@
+import { OriginalTitle, OriginalSummary } from './OriginalTitle';
 /**
  * Article Detail Panel - Slide-in panel for full article details
  * Shows rich metadata, summary, and action buttons
@@ -431,6 +432,7 @@ Please provide:
           <h1 className="text-xl font-bold text-gray-900 leading-tight">
             {article.title}
           </h1>
+          <OriginalTitle article={article} className="mt-1" />
 
           {/* Source and date */}
           <div className="flex items-center gap-2 mt-3 text-sm text-gray-700 dark:text-gray-300">
@@ -583,6 +585,7 @@ Please provide:
             <p className="text-gray-700 leading-relaxed">
               {article.summary || 'No summary available.'}
             </p>
+            <OriginalSummary article={article} className="mt-2" />
           </div>
 
           {/* Metadata Grid */}

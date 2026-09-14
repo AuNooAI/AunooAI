@@ -16,9 +16,15 @@ import {
 import { MarketVendorPage } from './MarketVendorPage';
 import { MarketGeographyMap } from './map/MarketGeographyMap';
 import { MarketAnalysisView } from './MarketAnalysisView';
+import { MarketVoicesView } from './MarketVoicesView';
+import { MarketHorizonView } from './MarketHorizonView';
+import { MarketFindingsView } from './MarketFindingsView';
 import { MarketBriefingsView } from './MarketBriefingsView';
+import { MarketAnalystFeeds } from './MarketAnalystFeeds';
 import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
+import { MetricHeading, SourceLegend } from './MarketMetric';
+import { DrilldownHost, type DrilldownSpec } from './MarketDrilldownHost';
 import {
   BarChart, Bar, CartesianGrid, Cell, Legend, Line,
   LineChart as RLineChart, ReferenceArea, ReferenceLine,
@@ -34,11 +40,13 @@ import {
   getLeaderboards,
   getMarketTable, getFacets,
   getMarketTimeline, getMarkets, getOverview, getReviewTasks, getWireArticles,
-  getRuns, getSourceHealth, getSources, getVendors, reviewPosts, saveSources,
+  getCollectionState, getRuns, getSourceHealth, getSources, getVendors,
+  reviewPosts, saveSources,
   scanCorpus,
   setCollectionTerms, setVendorCollection, setupCollection, updateMarket,
   autoCloseReviewTasks, closeReviewTask, fixReviewTask,
-  type CollectionPlan, type CollectionRun, type CorpusArticle,
+  type CollectionPlan, type CollectionRun, type CollectionStateResponse,
+  type CorpusArticle,
   type ArticleClass, type CorpusSummary, type DatasetInfo,
   type DrilldownVendor,
   type DiscoveryResult, type Facets, type FundingAnalysis,
@@ -59,7 +67,7 @@ import {
  * pipeline: health, sources, the raw corpus and event feed, and dataset
  * export — "what did we collect and is it working", a different question
  * from "what does the market show", with its own sub-navigation below. */
-type View = 'findings' | 'collection' | 'briefings' | 'vendors';
+type View = 'findings' | 'analysis' | 'voices' | 'horizon' | 'collection' | 'briefings' | 'vendors';
 type CollectionSubView = 'overview' | 'health' | 'coverage' | 'wire' | 'data' | 'sourcemap';
 /** Segments over the same vendor set. */
 type Segment = 'all' | 'review' | 'entrants';
@@ -305,6 +313,91 @@ function Stat({ label, value, hint, onClick, tone }: {
  *  read-only data for two different audiences (a reader checking the
  *  pipeline vs. an admin mid-configuration) — one component so they can't
  *  drift apart. */
+/** Whether a zero on this page is a measurement.
+ *
+ *  Deliberately separate from HealthPanel below, which answers "is the
+ *  collector working". This answers "may I believe this number", and the
+ *  denominator is different: that source's own eligible vendors, not the whole
+ *  registry. A source with no vendors configured for it is not broken, and a
+ *  source that reached 20 of 39 vendors is not healthy — both used to read as
+ *  the same "no data".
+ */
+function CollectionStatePanel({ state }: { state: CollectionStateResponse | null }) {
+  if (!state) return null;
+  const unmeasured = new Set(state.unmeasured_states);
+  return (
+    <div className="space-y-3 max-w-4xl">
+      <div className="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+          Can these numbers be believed?
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+          One row per source. &ldquo;Collected&rdquo; is how many of the vendors
+          this source <em>can</em> run for it actually reached — so a source with
+          no configured vendors reads as unconfigured rather than empty.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-slate-500 dark:text-gray-400">
+                <th className="py-1 pr-3 font-medium">Source</th>
+                <th className="py-1 pr-3 font-medium">State</th>
+                <th className="py-1 pr-3 font-medium">Collected</th>
+                <th className="py-1 font-medium">Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.sources.map(s => (
+                <tr key={s.source} className="border-t border-slate-100 dark:border-gray-700">
+                  <td className="py-1 pr-3 text-slate-700 dark:text-gray-200">
+                    {s.source}
+                    {!s.scheduled && (
+                      <span className="ml-1 text-slate-400 dark:text-gray-500">
+                        (not scheduled)
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3">
+                    <span className={
+                      s.state === 'healthy'
+                        ? 'text-slate-600 dark:text-gray-300'
+                        : unmeasured.has(s.state)
+                        ? 'text-red-700 dark:text-red-400'
+                        : 'text-amber-700 dark:text-amber-400'}>
+                      {state.state_labels[s.state] ?? s.state}
+                    </span>
+                  </td>
+                  <td className="py-1 pr-3 tabular-nums text-slate-600 dark:text-gray-300">
+                    {s.coverage.eligible
+                      ? `${s.coverage.successful}/${s.coverage.eligible}`
+                      : '—'}
+                  </td>
+                  <td className="py-1 text-slate-500 dark:text-gray-400">
+                    {s.state_detail ?? ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-3 bg-white dark:bg-gray-800">
+        <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+          Where coverage comes from
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+          The platform something was published on, and the provider we collected
+          it through, are different things. Bright Data is a provider; LinkedIn
+          is a platform; Xpoz is a provider whose items carry their own platform.
+        </p>
+        <SourceLegend rows={state.legend} />
+      </div>
+    </div>
+  );
+}
+
+
 function HealthPanel({ health, runs }: {
   health: SourceHealth; runs: CollectionRun[] | null;
 }) {
@@ -618,8 +711,11 @@ function TimelineTooltip({ active, payload }: any) {
  *  a count and a significance are not something a reader can check without
  *  seeing what they were computed from. Vendor badges on each article pivot
  *  to that vendor's page, the same as Coverage already does. */
-function WireEventCard({ event: e, onVendor }: {
+function WireEventCard({ event: e, onVendor, vendorIds }: {
   event: TimelineEvent; onVendor: (brandId: number) => void;
+  /** display name (lower-cased) → brand id for the market's vendors, so a
+   *  card can say which of the companies it names are the ones we track. */
+  vendorIds?: Map<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const [articles, setArticles] = useState<WireArticle[] | null>(null);
@@ -637,12 +733,37 @@ function WireEventCard({ event: e, onVendor }: {
   }
 
   const hasArticles = (e.article_uris?.length ?? 0) > 0;
+  // The extractor names every company in the story. A customer, an acquirer
+  // or a rival outside the registry sat beside a tracked vendor with nothing
+  // to tell them apart; the tracked ones are chips, the rest plain text.
+  const named = Array.isArray(e.entities)
+    ? (e.entities as unknown[]).filter((n): n is string => typeof n === 'string') : [];
+  const tracked = named.filter(n => vendorIds?.has(n.toLowerCase()));
+  const others = named.filter(n => !vendorIds?.has(n.toLowerCase()));
 
   return (
     <li className="border rounded-lg p-3 bg-white dark:bg-gray-800">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-slate-800 dark:text-gray-100">{e.title}</div>
+          {named.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 mt-1">
+              {tracked.map(n => (
+                <button key={n} onClick={() => onVendor(vendorIds!.get(n.toLowerCase())!)}
+                        className="text-xs px-1.5 py-0.5 rounded border
+                                   bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100
+                                   dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                  {n}
+                </button>
+              ))}
+              {others.length > 0 && (
+                <span className="text-xs text-slate-500 dark:text-gray-400">
+                  {tracked.length ? 'with ' : ''}{others.join(', ')}
+                  {tracked.length === 0 && ' — not a tracked vendor'}
+                </span>
+              )}
+            </div>
+          )}
           {e.description && (
             <p className="text-sm text-slate-600 mt-1 dark:text-gray-400">{e.description}</p>
           )}
@@ -900,7 +1021,7 @@ function CoverageTimeline({ articles }: { articles: CorpusArticle[] }) {
   );
 }
 
-export function MarketMonitorTab() {
+export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void } = {}) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const [markets, setMarkets] = useState<Market[] | null>(null);
@@ -924,6 +1045,15 @@ export function MarketMonitorTab() {
   const [facets, setFacets] = useState<Facets | null>(null);
   const [tasks, setTasks] = useState<ReviewTask[] | null>(null);
   const [health, setHealth] = useState<SourceHealth | null>(null);
+  const [collectionState, setCollectionState] =
+    useState<CollectionStateResponse | null>(null);
+  /** Which records the reader asked to see. One at a time: a stack of open
+   *  drill-downs makes it unclear which figure the rows belong to.
+   *
+   *  Named `records` rather than `drill` because `drill` is already the vendor
+   *  drill-down below, which lists vendors behind an overview figure. This one
+   *  lists the underlying posts, articles, listings and funding rows. */
+  const [records, setRecords] = useState<DrilldownSpec | null>(null);
   const [runs, setRuns] = useState<CollectionRun[] | null>(null);
   const [plan, setPlan] = useState<CollectionPlan | null>(null);
 
@@ -952,6 +1082,13 @@ export function MarketMonitorTab() {
    *  voices, channel mix). Formation and funding describe the market's
    *  current state and never respond to this — see market_analysis.run. */
   const [periodDays, setPeriodDays] = useState(30);
+
+  /** Which channel the activity leaderboard is ranked by. 'index' is the
+   *  blended Activity Index; the others rank on one channel's raw count, which
+   *  is only honest because the table shows that count in its own column. */
+  const [activityRank, setActivityRank] =
+    useState<'index' | 'posts' | 'jobs' | 'earned'>('index');
+  const [activityShowAll, setActivityShowAll] = useState(false);
   const [headcountTrend, setHeadcountTrend] =
     useState<MarketHeadcountTrend | null>(null);
   const [fundingMomentum, setFundingMomentum] =
@@ -963,7 +1100,13 @@ export function MarketMonitorTab() {
   const headcountConfidence = useMemo(() => {
     const withData = headcountTrend?.points
       ?.filter(p => p.avg_pct_vs_baseline !== null) ?? [];
-    return { ok: withData.length > 1, withData };
+    // Two points make a line but not a trend, and the panel's own caption
+    // called both of them the least trustworthy points on it. A week counts
+    // when at least half the watched vendors were read as of that week, and
+    // it takes three of those before a line is drawn.
+    const watching = headcountTrend?.watching ?? 0;
+    const solid = withData.filter(p => watching > 0 && p.n_vendors * 2 >= watching);
+    return { ok: solid.length >= 3, withData, solid };
   }, [headcountTrend]);
   const momentumConfidence = useMemo(() => {
     const withData = fundingMomentum?.by_month
@@ -978,8 +1121,9 @@ export function MarketMonitorTab() {
         id: 'headcount-trend',
         title: 'Headcount, market-wide',
         why: "Average % change against each vendor's own baseline, by week.",
-        need: total ? `${headcountConfidence.withData.length} of ${total} weeks read`
-                     : 'loading, or no readings yet',
+        need: total
+          ? `${headcountConfidence.solid.length} of ${total} weeks read by at least half the vendors; three needed`
+          : 'loading, or no readings yet',
       });
     }
     if (!momentumConfidence.ok) {
@@ -1087,10 +1231,12 @@ export function MarketMonitorTab() {
       getVendors(marketId), getFacets(marketId),
       getReviewTasks(marketId, { status: 'open' }),
       getSourceHealth(marketId), getRuns(marketId, 20),
+      getCollectionState(marketId),
       getCollectionPlan(marketId, vendorMode), getPulse(marketId, periodDays),
       getSources(marketId), getOverview(marketId, periodDays),
       getCorpusSummary(marketId, periodDays),
-    ]).then(([v, f, t, h, r, p, b, s, o, cs]) => {
+    ]).then(([v, f, t, h, r, colState, p, b, s, o, cs]) => {
+      setCollectionState(colState);
       setPulse(b); setSources(s.sources); setMinInterval(s.min_interval_hours);
       setOverview(o); setCorpus(cs);
       setVendors(v); setFacets(f); setTasks(t); setHealth(h); setRuns(r); setPlan(p);
@@ -1142,6 +1288,15 @@ export function MarketMonitorTab() {
       return true;
     });
   }, [vendors, search, fundingFilter, foundedFilter]);
+
+  // The sub-category column is hidden when every listed vendor shares one
+  // value. On a single-segment market it read "SOC Automation" 84 times.
+  const vendorIds = useMemo(() => new Map(
+    (vendors ?? []).map(v => [v.display_name.toLowerCase(), v.brand_id])), [vendors]);
+  const showSubCategory = useMemo(() => {
+    const values = new Set(shown.map(v => v.baseline?.taxonomy?.sub_category ?? '—'));
+    return values.size > 1;
+  }, [shown]);
 
   // The Coverage view is the only consumer of the matched corpus, so it loads
   // on demand rather than on every market switch.
@@ -1213,9 +1368,9 @@ export function MarketMonitorTab() {
   // also wants funding momentum, for its "featured" funding-moves list, so
   // it shares this fetch rather than triggering a second one.
   useEffect(() => {
-    if (marketId === null || (view !== 'findings' && !inCollectionCoverage)) return;
+    if (marketId === null || (view !== 'analysis' && !inCollectionCoverage)) return;
     let live = true;
-    if (view === 'findings') {
+    if (view === 'analysis') {
       getHeadcountTrend(marketId, 26)
         .then(r => { if (live) setHeadcountTrend(r); })
         .catch(e => { if (live) setError(String(e.message ?? e)); });
@@ -1530,6 +1685,9 @@ export function MarketMonitorTab() {
         <div className="flex gap-1">
           {([
             ['findings', 'Findings'],
+            ['analysis', 'Analysis'],
+            ['voices', 'Top voices'],
+            ['horizon', 'Market Maturity Map'],
             ['collection', 'Collection'],
             ['briefings', 'Reports'],
             ['vendors', `Vendors${market?.vendors ? ` (${market.vendors})` : ''}`],
@@ -1542,11 +1700,11 @@ export function MarketMonitorTab() {
             </button>
           ))}
         </div>
-        {(view === 'findings'
+        {(view === 'findings' || view === 'analysis' || view === 'voices'
           || (view === 'collection' && (collectionSubView === 'coverage' || collectionSubView === 'wire'))
          ) && (
           <div className="flex items-center gap-1.5 pb-1.5 pr-1"
-               title="Shared by Findings and Collection's Coverage and Wire sub-views. Founding years and current funding/stage data are always all-time, regardless of this setting.">
+               title="Shared by Findings, Analysis and Collection's Coverage and Wire sub-views. Founding years and current funding/stage data are always all-time, regardless of this setting.">
             <span className="text-xs text-slate-500 dark:text-gray-400">Period</span>
             <select value={periodDays}
                     onChange={e => setPeriodDays(Number(e.target.value))}
@@ -1609,17 +1767,44 @@ export function MarketMonitorTab() {
                   // one screen with nothing saying so read as one window.
                   { key: 'announcements', label: 'Announced (all time)',
                     align: 'right' },
-                  { key: 'openings', label: 'Open roles (all time)',
-                    align: 'right' },
+                  // No longer qualified as LinkedIn-only: listings now come
+                  // from each company's own hiring system too, which is where
+                  // most of them actually are. Dropzone AI read 0 here and had
+                  // 11 on its own Greenhouse board.
+                  //
+                  // Zero is printed rather than dashed. Both collectors ran, so
+                  // this is a measured zero; a dash would claim we had not
+                  // looked. What a zero still cannot rule out is a company that
+                  // publishes no structured listings anywhere, which the
+                  // tooltip says.
+                  { key: 'openings', label: 'Open roles',
+                    align: 'right',
+                    render: v => v.openings
+                      ? <button
+                          onClick={e => { e.stopPropagation();
+                                          setRecords({
+                                            kind: 'jobs',
+                                            title: `${v.vendor}: job listings`,
+                                            vendorId: v.brand_id,
+                                            expectedTotal: v.openings,
+                                          }); }}
+                          className="text-sky-700 dark:text-sky-400 hover:underline
+                                     tabular-nums">
+                          {v.openings}
+                        </button>
+                      : <span className="tabular-nums text-slate-500 dark:text-gray-400"
+                              title="None found on LinkedIn or on this company's own hiring system. A company that publishes no structured listings anywhere would also read as zero.">
+                          0
+                        </span> },
                 ]} />
             </div>
           )}
         </div>
       )}
 
-      {/* ---- Pulse: the one-look state of the market ---- */}
-      {view === 'findings' && overview && (
-        <div className="space-y-4">
+      {/* ---- Exports and sharing, on both reading tabs ---- */}
+      {(view === 'findings' || view === 'analysis') && overview && (
+        <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-600 dark:text-gray-400">
               {pulse
@@ -1650,23 +1835,24 @@ export function MarketMonitorTab() {
             </button>
           </div>
           {shareLink && (
-            <p className="text-xs text-slate-600 -mt-2 break-all dark:text-gray-400">
+            <p className="text-xs text-slate-600 break-all dark:text-gray-400">
               <span className="text-slate-500 dark:text-gray-400">Shareable report link: </span>
               {shareLink}
             </p>
           )}
+        </div>
+      )}
 
-          {pulse?.standing_summary && (
-            <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-              <div className="text-sm font-medium text-slate-800 mb-1 dark:text-gray-100">
-                Summary
-              </div>
-              <p className="text-sm text-slate-700 whitespace-pre-line dark:text-gray-300">
-                {pulse.standing_summary}
-              </p>
-            </div>
-          )}
+      {/* ---- Findings: the list ---- */}
+      {view === 'findings' && marketId !== null && (
+        <MarketFindingsView marketId={marketId} days={periodDays}
+                            onVendor={openVendorPage}
+                            overview={overview} pulse={pulse} />
+      )}
 
+      {/* ---- Pulse: the one-look state of the market ---- */}
+      {view === 'analysis' && overview && (
+        <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="Vendors watched"
                   value={`${overview.coverage.watching} of ${overview.coverage.vendors}`}
@@ -1709,29 +1895,86 @@ export function MarketMonitorTab() {
             })()}
           </div>
 
-          <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-              Most active vendors
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-              LinkedIn posts in the last {overview.period_days} days plus open
-              job listings and matched articles. Activity, not performance —
-              click a row to open that vendor's page.
-            </p>
-            <div className="max-h-[420px] overflow-y-auto">
-              <DataTable
-                rows={overview.most_active} rowKey={v => v.brand_id}
-                initialSort="articles" initialDir="desc"
-                onRowClick={v => openVendorPage(v.brand_id)}
-                columns={[
-                  { key: 'vendor', label: 'Vendor' },
-                  { key: 'posts', label: 'Posts', align: 'right' },
-                  { key: 'jobs', label: 'Jobs', align: 'right' },
-                  { key: 'articles', label: 'Articles', align: 'right' },
-                  { key: 'signals', label: 'Signals', align: 'right' },
-                ]} />
-            </div>
-          </div>
+          {(() => {
+            const all = overview.most_active ?? [];
+            const scored = all.filter(v => v.activity_index !== null);
+            const withheld = all.length - scored.length;
+            // Ranking on the index can only order the vendors that have one.
+            // Ranking on a raw channel can order every vendor, because the
+            // count itself was measured even when a sibling channel was not.
+            const pool = activityRank === 'index' ? scored : all;
+            const key = activityRank === 'index' ? 'activity_index' : activityRank;
+            const ranked = [...pool].sort((a, b) =>
+              ((b as any)[key] ?? -1) - ((a as any)[key] ?? -1)
+              || (b.earned ?? 0) - (a.earned ?? 0)
+              || (a.vendor || '').localeCompare(b.vendor || ''));
+            const rows = activityShowAll ? ranked : ranked.slice(0, 10);
+            return (
+              <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                    Most active vendors
+                  </div>
+                  <select value={activityRank}
+                          onChange={e => setActivityRank(e.target.value as any)}
+                          className="text-xs border rounded-md px-2 py-1 bg-white hover:bg-slate-50 dark:bg-gray-800 dark:hover:bg-gray-700">
+                    <option value="index">Rank by overall activity</option>
+                    <option value="posts">Rank by owned posts</option>
+                    <option value="jobs">Rank by observed jobs</option>
+                    <option value="earned">Rank by earned mentions</option>
+                  </select>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
+                  The Activity Index scores three channels over the last{' '}
+                  {overview.period_days} days — posts the vendor published
+                  itself, job listings observed open, and coverage published
+                  by somebody other than the vendor. Each is converted to a
+                  percentile
+                  against the vendors measured on all three, then averaged with
+                  equal weight, so a vendor with dozens of open roles cannot
+                  outrank one on job count alone. It measures activity, not
+                  performance. Click a row to open that vendor's page.
+                </p>
+                <div className="max-h-[420px] overflow-y-auto">
+                  <DataTable
+                    rows={rows} rowKey={v => v.brand_id}
+                    onRowClick={v => openVendorPage(v.brand_id)}
+                    columns={[
+                      { key: 'vendor', label: 'Vendor' },
+                      { key: 'activity_index', label: 'Activity Index',
+                        align: 'right',
+                        render: v => v.activity_index === null ? (
+                          <span className="text-slate-400 dark:text-gray-500"
+                                title={v.index_unavailable_because ?? undefined}>
+                            Partial
+                          </span>
+                        ) : <span>{v.activity_index}</span> },
+                      { key: 'posts', label: 'Owned posts', align: 'right' },
+                      { key: 'jobs', label: 'Observed jobs', align: 'right' },
+                      { key: 'earned', label: 'Earned mentions', align: 'right' },
+                    ]} />
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <p className="text-xs text-slate-500 dark:text-gray-400">
+                    {withheld > 0
+                      ? `${withheld} of ${all.length} vendors are shown as
+                         Partial: at least one channel was not measured for
+                         them this period, so an index would rank them on
+                         evidence we do not have.`
+                      : `All ${all.length} vendors were measured on all three
+                         channels this period.`}
+                  </p>
+                  {ranked.length > 10 && (
+                    <button onClick={() => setActivityShowAll(v => !v)}
+                            className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+                      {activityShowAll ? 'Show top 10'
+                        : `Show all ${ranked.length}`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
             <div className="text-sm font-medium text-slate-800 dark:text-gray-100">Sentiment</div>
@@ -1821,12 +2064,35 @@ export function MarketMonitorTab() {
                 sibling doesn't leave an empty grid cell. */}
             <div className={`border rounded-lg p-4 bg-white dark:bg-gray-800 ${
                               headcountConfidence.ok ? '' : 'lg:col-span-2'}`}>
-              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                Headcount change
-              </div>
+              <MetricHeading title="Headcount change"
+                             meta={pulse?.headcount_metric} />
+              {/* This panel used to compare the latest LinkedIn reading against
+                  the April workbook import and call the difference growth. Two
+                  different measurements, four months apart, so nearly every
+                  vendor looked like a mover. Movement now needs two LinkedIn
+                  readings, which most vendors do not have yet — the first full
+                  sweep was 2026-08-26 — so the list is short on purpose and
+                  fills as the next sweep lands. */}
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                LinkedIn count vs imported baseline. Vendors with both values only.
+                Two LinkedIn readings of the same vendor, each with its own date.
+                Vendors with only one reading are listed below as awaiting a
+                second rather than shown as unchanged.
               </p>
+              {pulse && (
+                <div className="text-sm mb-3">
+                  <span className="text-slate-500 dark:text-gray-400">
+                    Observed market headcount{' '}
+                  </span>
+                  <span className="font-medium tabular-nums text-slate-800 dark:text-gray-100">
+                    {pulse.observed_market_headcount.toLocaleString()}
+                  </span>
+                  <span className="text-slate-400 dark:text-gray-500">
+                    {' '}across {pulse.headcount_cohort} vendor
+                    {pulse.headcount_cohort === 1 ? '' : 's'} with a current
+                    exact reading
+                  </span>
+                </div>
+              )}
               {pulse && pulse.headcount_n > 0 && (
                 <div className="flex gap-4 text-sm mb-3">
                   <span>
@@ -1850,10 +2116,46 @@ export function MarketMonitorTab() {
                   </span>
                 </div>
               )}
+              {/* Why the average row above is absent. A withheld figure that
+                  simply disappears reads as a rendering fault; this says it was
+                  withheld and what would bring it back. */}
+              {pulse && pulse.headcount_n === 0
+                    && pulse.headcount_movers.length > 0 && (
+                <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
+                  No market average yet: it needs several vendors with two
+                  readings, and {pulse.headcount_movers.length === 1
+                    ? 'only one has' : `only ${pulse.headcount_movers.length} have`}
+                  {' '}a second one so far. An average across one vendor is that
+                  vendor&apos;s number, not the market&apos;s.
+                </p>
+              )}
               {!pulse || pulse.headcount_movers.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
-                  No vendor has both values.
+                  No vendor has two LinkedIn readings yet
+                  {pulse ? `, so movement cannot be measured for any of the
+                            ${pulse.headcount_insufficient} awaiting a second one`
+                         : ''}.
                 </p>
+              ) : pulse.headcount_movers.length < 3 ? (
+                // Fewer than three movers is a short list, not a distribution.
+                // A bar chart of one bar on a 0-1 axis is a number wearing a
+                // chart; the number is shown as itself.
+                <ul className="text-sm space-y-1">
+                  {pulse.headcount_movers.map(m => (
+                    <li key={m.brand_id} className="flex items-center gap-2">
+                      <button onClick={() => openVendorPage(m.brand_id)}
+                              className="text-slate-800 hover:underline dark:text-gray-100">
+                        {m.vendor}
+                      </button>
+                      <span className={`tabular-nums font-medium ${deltaTextClass(m.delta)}`}>
+                        {m.delta > 0 ? '+' : ''}{m.delta} staff ({m.pct > 0 ? '+' : ''}{m.pct}%)
+                      </span>
+                      <span className="text-xs text-slate-400 dark:text-gray-500">
+                        {m.previous} → {m.latest}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={pulse.headcount_movers.slice(0, 8)}
@@ -1932,10 +2234,10 @@ export function MarketMonitorTab() {
                     <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Line type="monotone" dataKey="avg_heat_score" name="Attention"
+                    <Line type="monotone" dataKey="avg_heat_score" name="Crunchbase Heat"
                           stroke={cc(isDark, '#0369a1', '#38bdf8')} strokeWidth={2} dot={{ r: 3 }}
                           connectNulls={false} />
-                    <Line type="monotone" dataKey="avg_growth_score" name="Growth outlook"
+                    <Line type="monotone" dataKey="avg_growth_score" name="Crunchbase Growth"
                           stroke={cc(isDark, '#b45309', '#fbbf24')} strokeWidth={2} dot={{ r: 3 }}
                           connectNulls={false} />
                   </RLineChart>
@@ -1954,10 +2256,12 @@ export function MarketMonitorTab() {
                 Who's getting more attention or momentum
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                Companies whose attention (how much people are noticing them)
-                or growth outlook (how fast they look like they're growing)
-                moved since the last check. Only real changes are listed —
-                nothing here means the company held steady.
+                Companies whose Crunchbase Growth or Heat score moved since
+                the last check. Both are Crunchbase's own scores and we cannot
+                reproduce how either is calculated, so treat a move as a change
+                in what Crunchbase reports rather than a measured change in the
+                company. Only real changes are listed — nothing here means the
+                score held steady.
               </p>
               {!fundingMomentum?.momentum_events?.length ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2007,11 +2311,19 @@ export function MarketMonitorTab() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
+              {/* Named for what it is. "Coverage by week" was doing double
+                  duty for content volume and for collection completeness, so a
+                  low bar could mean either "little was published" or "we
+                  collected almost nothing that week" and the chart could not
+                  say which. Volume lives here; completeness is the Collection
+                  state panel. */}
               <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                Coverage by week
+                Content observed by week
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
                 Articles matching the market&apos;s phrases, by publication week.
+                A bar is how much we observed that week, which is a floor for
+                how much was published, not a measure of it.
               </p>
               {!overview.corpus?.by_week?.length ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2021,30 +2333,78 @@ export function MarketMonitorTab() {
                 <>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={overview.corpus.by_week}>
+                    {/* Hatch for the bars that are still filling. Without it
+                        the newest bar reads as a collapse in coverage when it
+                        is really three and a half days of a seven-day week. */}
+                    <defs>
+                      <pattern id="mm-partial" width="6" height="6"
+                               patternUnits="userSpaceOnUse"
+                               patternTransform="rotate(45)">
+                        <rect width="6" height="6"
+                              fill={cc(isDark, '#cbd5e1', '#4b5563')} />
+                        <line x1="0" y1="0" x2="0" y2="6" strokeWidth="3"
+                              stroke={cc(isDark, '#94a3b8', '#6b7280')} />
+                      </pattern>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={cc(isDark, '#e2e8f0', '#374151')} />
                     <XAxis dataKey="week" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip />
+                    <Tooltip formatter={(v: any, _n: any, p: any) => [
+                      p?.payload?.partial
+                        ? `${v} so far — ${p.payload.partial_reason}`
+                        : v,
+                      'Articles',
+                    ]} />
                     {/* Clicking a week opens the articles it counted. A bar
                         that names a number without offering the rows behind it
                         is a dead end. */}
+                    {/* The clicked week is passed through as the server's own
+                        filter rather than being turned into a date range here,
+                        so the list cannot bound the week differently from the
+                        bar. */}
                     <Bar dataKey="n" fill={cc(isDark, '#475569', '#9ca3af')} name="Articles"
-                         cursor="pointer" onClick={() => openCollection('coverage')} />
+                         cursor="pointer"
+                         onClick={(d: any) => setRecords({
+                           kind: 'coverage',
+                           title: `Content observed, week of ${d?.week ?? ''}`,
+                           week: d?.week, expectedTotal: d?.n,
+                         })}>
+                      {overview.corpus.by_week.map((w) => (
+                        <Cell key={w.week}
+                              fill={w.partial ? 'url(#mm-partial)'
+                                              : cc(isDark, '#475569', '#9ca3af')} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="text-xs text-slate-400 text-center -mt-1 dark:text-gray-500">
                   Click a bar to open the articles.
+                  {overview.corpus.by_week.some(w => w.partial) && (
+                    <> Hatched bars are still filling and will rise.</>
+                  )}
                 </p>
                 </>
               )}
             </div>
 
             <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                LinkedIn post volume
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                  LinkedIn post volume
+                </div>
+                <button
+                  onClick={() => setRecords({
+                    kind: 'posts',
+                    title: `Vendor posts, last ${periodDays} days`,
+                    days: periodDays, ownership: 'owned',
+                  })}
+                  className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                  All posts
+                </button>
               </div>
               <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-                Posts published in the selected window.
+                Posts published in the selected window. Click a bar for that
+                vendor&apos;s posts.
               </p>
               {!pulse || pulse.loudest_vendors.length === 0 ? (
                 <p className="text-sm text-slate-500 py-8 text-center dark:text-gray-400">
@@ -2060,10 +2420,19 @@ export function MarketMonitorTab() {
                     <YAxis type="category" dataKey="vendor" width={110}
                            fontSize={11} interval={0} />
                     <Tooltip />
+                    {/* Opens the posts, not the vendor page. The bar states a
+                        post count, so the records behind it are the posts —
+                        sending the reader to a profile instead is the dead end
+                        this whole layer exists to remove. */}
                     <Bar dataKey="posts" fill="#d6409f" cursor="pointer"
                          onClick={(d: any) => {
                            const hit = vendors?.find(v => v.display_name === d?.vendor);
-                           if (hit) openVendorPage(hit.brand_id);
+                           if (hit) setRecords({
+                             kind: 'posts',
+                             title: `${hit.display_name}: posts, last ${periodDays} days`,
+                             days: periodDays, vendorId: hit.brand_id,
+                             ownership: 'owned', expectedTotal: d?.posts,
+                           });
                          }} radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2072,12 +2441,26 @@ export function MarketMonitorTab() {
           </div>
 
           <div className="border rounded-lg p-4 bg-white dark:bg-gray-800">
-            <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
-              Largest disclosed raises
+            {/* Not "largest raise". These are cumulative totals, and there is
+                no round-level amount or date in the data, so naming a single
+                raise would be a claim nothing supports. */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-medium text-slate-800 dark:text-gray-100">
+                Largest disclosed total funding
+              </div>
+              <button
+                onClick={() => setRecords({
+                  kind: 'funding',
+                  title: 'Funding by vendor',
+                })}
+                className="text-xs text-sky-700 dark:text-sky-400 hover:underline">
+                All vendors
+              </button>
             </div>
             <p className="text-xs text-slate-500 mt-0.5 mb-2 dark:text-gray-400">
-              Total raised, from the imported registry. Vendors that never
-              disclosed a figure are absent, not zero.
+              Cumulative total raised, from the imported registry — not a single
+              round. Vendors that never disclosed a figure are absent rather
+              than shown as zero.
             </p>
             <div className="divide-y max-h-[420px] overflow-y-auto pr-1">
               {overview.top_funded.map(v => (
@@ -2106,7 +2489,7 @@ export function MarketMonitorTab() {
             ) : (
               <ol className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
                 {pulse.events.map(e => (
-                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} />
+                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
                 ))}
               </ol>
             )}
@@ -2159,8 +2542,18 @@ export function MarketMonitorTab() {
         </div>
       )}
 
-      {view === 'findings' && marketId !== null && (
+      {view === 'voices' && marketId !== null && (
+        <MarketVoicesView marketId={marketId} days={periodDays}
+                          onRecords={setRecords} />
+      )}
+
+      {view === 'horizon' && marketId !== null && (
+        <MarketHorizonView marketId={marketId} onVendor={openVendorPage} />
+      )}
+
+      {view === 'analysis' && marketId !== null && (
         <MarketAnalysisView marketId={marketId} onVendor={openVendorPage}
+                            onRecords={setRecords}
                             days={periodDays}
                             onDrill={(kind, value) => {
                               if (kind === 'founded') {
@@ -2196,6 +2589,7 @@ export function MarketMonitorTab() {
 
           {collectionSubView === 'overview' && overview && (
             <div className="space-y-4">
+              {marketId !== null && <MarketAnalystFeeds marketId={marketId} />}
               {/* The registry's own count vs. the header's — the two are
                   allowed to differ (this includes excluded vendors, the
                   header doesn't) but the gap should be visible, not silent. */}
@@ -2283,7 +2677,14 @@ export function MarketMonitorTab() {
                     State of the most recent run, not a 30-day history.
                   </p>
                   <div className="divide-y max-h-[320px] overflow-y-auto pr-1">
-                    {overview.last_runs.map(r => (
+                    {overview.last_runs.map(r => {
+                      // A source nobody schedules is not broken because its
+                      // last hand-run failed months ago. Indeed, PitchBook and
+                      // ZoomInfo read as three red rows here on the strength
+                      // of runs stranded on 2026-08-24.
+                      const manualOnly = collectionState?.sources
+                        .some(cs => cs.source === r.source && !cs.scheduled) ?? false;
+                      return (
                       <div key={r.source}
                            className="flex items-center justify-between py-1.5 text-sm">
                         <span className="text-slate-700 dark:text-gray-300">{r.source}</span>
@@ -2291,6 +2692,12 @@ export function MarketMonitorTab() {
                           <span className="text-slate-500 tabular-nums dark:text-gray-400">
                             {r.records_received} records
                           </span>
+                          {manualOnly && r.status !== 'succeeded' ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded border text-slate-500 border-slate-200 dark:text-gray-400 dark:border-gray-700"
+                                  title={r.error ?? undefined}>
+                              manual only · last run {r.status}
+                            </span>
+                          ) : (
                           <span className={`text-xs px-1.5 py-0.5 rounded border ${
                             r.status === 'succeeded'
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
@@ -2299,9 +2706,11 @@ export function MarketMonitorTab() {
                               : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'}`}>
                             {r.status}
                           </span>
+                          )}
                         </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -2408,9 +2817,9 @@ export function MarketMonitorTab() {
               <p className="text-xs text-slate-500 -mt-1 dark:text-gray-400">
                 Career moves and Crunchbase score changes for this market are
                 on the{' '}
-                <button onClick={() => setView('findings')}
+                <button onClick={() => setView('analysis')}
                         className="underline hover:text-slate-700 dark:hover:text-gray-300">
-                  Findings tab
+                  Analysis tab
                 </button>
                 {' '}— not repeated here to avoid showing the same two lists twice.
               </p>
@@ -2421,13 +2830,26 @@ export function MarketMonitorTab() {
                 </div>
                 <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
                   &quot;Most discussed&quot; and &quot;most shared&quot; only
-                  count posts tagged to a specific vendor. That tagging barely
-                  reaches practitioner posts on Twitter, Reddit or Bluesky
-                  today — a real gap in the data, not a quiet market. Where a
-                  network shows nothing here, that is what it means.
+                  count posts tagged to a specific vendor. A post is tagged
+                  when it names the vendor by one of its reviewed keywords, so
+                  a practitioner writing &quot;the Dropzone thing&quot; is not
+                  counted. Where a network shows nothing here, nobody named a
+                  vendor on it in this period.
                 </p>
+                {/* A network with nothing tagged gets one line, not a card
+                    that says "not enough" three times. */}
+                {leaderboards.networks.some(n => !n.most_discussed.length && !n.most_shared.length && !n.top_posts.length) && (
+                  <p className="text-xs text-slate-500 mb-2 dark:text-gray-400">
+                    Nothing tagged to a vendor yet on{' '}
+                    {leaderboards.networks
+                      .filter(n => !n.most_discussed.length && !n.most_shared.length && !n.top_posts.length)
+                      .map(n => n.platform[0].toUpperCase() + n.platform.slice(1)).join(', ')}.
+                  </p>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {leaderboards.networks.map(n => (
+                  {leaderboards.networks
+                    .filter(n => n.most_discussed.length || n.most_shared.length || n.top_posts.length)
+                    .map(n => (
                     <div key={n.platform} className="border rounded-lg p-3 bg-white dark:bg-gray-800">
                       <div className="text-sm font-medium text-slate-800 capitalize mb-1.5 dark:text-gray-100">
                         {n.platform}
@@ -2690,14 +3112,17 @@ export function MarketMonitorTab() {
       )}
 
           {collectionSubView === 'health' && health && (
-            <HealthPanel health={health} runs={runs} />
+            <div className="space-y-3">
+              <CollectionStatePanel state={collectionState} />
+              <HealthPanel health={health} runs={runs} />
+            </div>
           )}
         </div>
       )}
 
       {/* ---- Briefings ---- */}
       {view === 'briefings' && marketId !== null && (
-        <MarketBriefingsView marketId={marketId} />
+        <MarketBriefingsView marketId={marketId} onFeedChanged={onFeedChanged} />
       )}
 
       {/* ---- Data (Collection sub-view) ---- */}
@@ -2952,7 +3377,7 @@ export function MarketMonitorTab() {
             <>
             <ol className="space-y-2">
               {events.map(e => (
-                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} />
+                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
               ))}
             </ol>
             {events.length >= 50 && (
@@ -3111,7 +3536,8 @@ export function MarketMonitorTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 dark:bg-gray-700 dark:text-gray-400">
                 <tr>
-                  {['Vendor', 'Sub-category', 'Country', 'Founded', 'LinkedIn headcount',
+                  {['Vendor', ...(showSubCategory ? ['Sub-category'] : []),
+                    'Country', 'Founded', 'LinkedIn headcount',
                     'Funding', 'Links', 'Collecting', 'Brand'].map(h => (
                     <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                   ))}
@@ -3129,8 +3555,10 @@ export function MarketMonitorTab() {
                         <span className="text-xs text-slate-500 dark:text-gray-400">out of scope</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
-                      {v.baseline?.taxonomy?.sub_category ?? '—'}</td>
+                    {showSubCategory && (
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
+                        {v.baseline?.taxonomy?.sub_category ?? '—'}</td>
+                    )}
                     <td className="px-3 py-2 text-slate-600 whitespace-nowrap dark:text-gray-400">
                       {v.baseline?.hq_country ?? '—'}</td>
                     <td className="px-3 py-2 text-slate-600 dark:text-gray-400">
@@ -3734,6 +4162,22 @@ export function MarketMonitorTab() {
         </div>
       )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* The records behind whichever figure was clicked. A dialog rather than
+          an inline panel: the list can be long, and it belongs to the figure
+          that opened it rather than to the section it happens to sit in. */}
+      {records && marketId !== null && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center
+                        overflow-y-auto bg-black/40 p-4 sm:p-8"
+             role="dialog" aria-modal="true"
+             aria-label={records.title}
+             onClick={() => setRecords(null)}>
+          <div className="w-full max-w-6xl" onClick={e => e.stopPropagation()}>
+            <DrilldownHost marketId={marketId} spec={records}
+                           onClose={() => setRecords(null)}
+                           onVendor={openVendorPage} />
           </div>
         </div>
       )}

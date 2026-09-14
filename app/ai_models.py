@@ -109,6 +109,88 @@ def extract_json_response(text: Optional[str]):
         raise first_err
 
 
+class StageReplyError(ValueError):
+    """A multi-stage generator got a reply it cannot use: cut off at
+    max_tokens with nothing to salvage, or without the field the stage reads."""
+
+
+def salvage_json_array(text: Optional[str], key: str) -> list:
+    """Complete objects from a JSON array that was cut off mid-stream.
+
+    Finds ``"key": [`` in the text and decodes one object at a time until
+    the first that fails (the one the cut landed in). Returns [] when the
+    array never started."""
+    s = text or ""
+    m = re.search(r'"%s"\s*:\s*\[' % re.escape(key), s)
+    if not m:
+        return []
+    decoder = json.JSONDecoder()
+    pos = m.end()
+    items = []
+    while True:
+        while pos < len(s) and s[pos] in " \t\r\n,":
+            pos += 1
+        if pos >= len(s) or s[pos] == "]":
+            break
+        try:
+            obj, end = decoder.raw_decode(s, pos)
+        except json.JSONDecodeError:
+            break
+        items.append(obj)
+        pos = end
+    return items
+
+
+def parse_stage_reply(response, key: str, *, stage: str, errors: Optional[list] = None,
+                      max_tokens: Optional[int] = None) -> dict:
+    """Parse one stage's JSON reply without letting a truncated reply
+    collapse into an empty result.
+
+    ``extract_json_response`` on a reply cut at ``max_tokens`` returns the
+    first complete inner object it can decode, which is usually a single
+    list item. A caller doing ``result.get(key, [])`` then reads an empty
+    list and the run continues on nothing, reporting success. (Focus-group
+    discovery on Kimi K2.5: 42 complete mentions written, reply cut at
+    4000 tokens, 0 personas.)
+
+    Returns the parsed dict when it carries ``key``. If the reply was cut
+    and ``key`` is an array, returns the complete items salvaged from it
+    and records that in ``errors``. Otherwise raises StageReplyError, after
+    recording why, so the stage's except-block runs its fallback."""
+    choice = response.choices[0]
+    text = choice.message.content or ""
+    finish = getattr(choice, "finish_reason", None)
+    cap = f"={max_tokens}" if max_tokens else ""
+    try:
+        obj = extract_json_response(text)
+    except json.JSONDecodeError:
+        obj = None
+    if isinstance(obj, dict) and key in obj:
+        if finish == "length":
+            logger.warning(f"{stage}: reply hit max_tokens{cap} but parsed with '{key}' intact")
+        return obj
+
+    salvaged = salvage_json_array(text, key)
+    if salvaged:
+        msg = (f"{stage}: reply cut at max_tokens{cap} (finish_reason={finish}); "
+               f"kept {len(salvaged)} complete '{key}' items, the rest were lost")
+        logger.warning(msg)
+        if errors is not None:
+            errors.append(msg)
+        return {key: salvaged, "_truncated": True}
+
+    if finish == "length":
+        msg = f"{stage}: reply cut at max_tokens{cap} before any complete '{key}' item"
+    elif obj is None:
+        msg = f"{stage}: reply was not JSON (finish_reason={finish}, {len(text)} chars)"
+    else:
+        msg = f"{stage}: reply had no '{key}' field (finish_reason={finish}, keys={list(obj.keys())[:6] if isinstance(obj, dict) else type(obj).__name__})"
+    logger.error(msg)
+    if errors is not None:
+        errors.append(msg)
+    raise StageReplyError(msg)
+
+
 # ── Global LLM concurrency gate ───────────────────────────────────────────
 # Every LLM call here ultimately runs ``litellm.completion`` (sync), which
 # async paths dispatch via ``asyncio.to_thread``. Without a cap, multiple
@@ -776,11 +858,16 @@ class LiteLLMModel(AIModel):
         local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
         default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
 
-        config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-
-        fallbacks_config = config.get("fallbacks", [])
+        # Merge the fallback lists of both files, as the Router does at startup.
+        # This used to read ONLY the .local file when one existed; every tenant
+        # has one (seven self-hosted models, no fallbacks), so the breaker's
+        # fallback list was empty for every model on every site since 2025-12
+        # (found 2026-09-09 while adding the nova-lite fallback).
+        fallbacks_config = []
+        for path in (default_config_path, local_config_path):
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    fallbacks_config.extend((yaml.safe_load(f) or {}).get("fallbacks", []) or [])
 
         # Find fallbacks for the current model
         for fallback_dict in fallbacks_config:

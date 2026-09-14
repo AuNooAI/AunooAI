@@ -95,7 +95,10 @@ def narrate_social_posts(brand: str, posts: List[Dict[str, Any]]) -> Optional[st
         )
         out = (model.generate_response(
             [{"role": "user", "content": prompt}], temperature=0.2) or "").strip()
-        if not out or out.startswith(("-", "*", "#")):
+        # LiteLLMModel signals failure by RETURNING error prose ("⚠️ <model> is
+        # currently unavailable...") instead of raising — treat it as a miss or
+        # it ends up verbatim in customer-facing digests and alert emails.
+        if not out or out.startswith(("-", "*", "#", "⚠")):
             return None
         return out[:700]
     except Exception as e:  # noqa: BLE001

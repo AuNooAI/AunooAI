@@ -131,7 +131,15 @@ function generateSixArticlesCacheKey(config: NewsFeedConfig): string {
   return `${config.persona}_${config.topic || 'all'}_${config.dateRange}_${config.profileId || 'none'}`;
 }
 
-export function useNewsFeed(): UseNewsFeedReturn {
+/**
+ * @param feedEnabled  false on a dedicated Brand Watcher site, where the news
+ *   river and the six-article briefing are never shown. Without the gate every
+ *   Explore load on such a site fetched the river and started a briefing
+ *   generation (a long model call) that nothing displayed; when that call was
+ *   cut off the hook raised the page-level "Error / Failed to fetch" banner
+ *   over the Brand Watcher dashboard (oviva, 2026-09-08).
+ */
+export function useNewsFeed(feedEnabled: boolean = true): UseNewsFeedReturn {
   // Load config from localStorage
   const loadStoredConfig = (): NewsFeedConfig => {
     try {
@@ -295,8 +303,9 @@ export function useNewsFeed(): UseNewsFeedReturn {
 
   // Fetch articles when config changes
   useEffect(() => {
+    if (!feedEnabled) return;
     fetchArticles();
-  }, [config.dateRange, config.topic, config.page, config.perPage, config.profileId, config.model]);
+  }, [feedEnabled, config.dateRange, config.topic, config.page, config.perPage, config.profileId, config.model]);
 
 
   const loadInitialData = async () => {
@@ -423,6 +432,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
   // Fetch six articles briefing when relevant config changes
   // Skip initial fetch if we already have cached data to preserve user's briefing
   useEffect(() => {
+    if (!feedEnabled) return;
     const currentKey = generateSixArticlesCacheKey(config);
 
     if (isInitialMount.current) {
@@ -445,7 +455,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
       prevConfigKey.current = currentKey;
       fetchSixArticles();
     }
-  }, [fetchSixArticles, config, sixArticles]);
+  }, [feedEnabled, fetchSixArticles, config, sixArticles]);
 
   // Update config
   const updateConfig = useCallback((updates: Partial<NewsFeedConfig>) => {

@@ -11,9 +11,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileText, Loader2, Play } from 'lucide-react';
-import {
-  generateBriefing, getBriefing, getBriefings, setBriefingStatus,
+import { AlertTriangle, CheckCircle2, Download, FileText, History, Loader2, Pencil, PenLine, Play, Save, X } from 'lucide-react';
+import { MarkdownEditor } from './MarkdownEditor';
+import { getBriefingRevision, type BriefingRevision, restoreBriefingRevision, getBriefingRevisions, editBriefing,
+  generateBriefing, getBriefing, getBriefings, setBriefingStatus, writePiece,
   type BriefingDetail, type BriefingSummary,
 } from '../../services/marketMonitorApi';
 
@@ -59,14 +60,21 @@ function renderMarkdown(md: string, citations?: CitationIndex): string {
   const inline = (s: string) => esc(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*(?!\*)(.+?)\*(?!\*)/g, '$1<em>$2</em>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    // A citation's reference entry ends in a bare URL — the only other link
-    // this renderer needs to produce, so full markdown-link syntax is not
-    // worth the extra rule. Must run BEFORE the citation-marker replace below:
-    // that one injects a real <a href="..."> tag, and if this regex ran after,
-    // it would re-match the URL sitting inside that href and wrap it again,
-    // producing nested/malformed tags that browsers render as literal text.
-    .replace(/(https?:\/\/\S+)/g,
+    // Underscore emphasis only at word edges: an X handle like jp_young_26
+    // or a snake_case name is not italics (the operator saw one mangled).
+    .replace(/(^|[\s(])_(\S(?:.*?\S)?)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    // A markdown link, [text](url), as a person writes in an analysis
+    // piece; the public page renders these, so the preview must too.
+    // Runs before the bare-URL rule, which would otherwise wrap the href.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    // A citation's reference entry ends in a bare URL. Must run BEFORE the
+    // citation-marker replace below: that one injects a real <a href="...">
+    // tag, and if this regex ran after, it would re-match the URL sitting
+    // inside that href and wrap it again, producing nested/malformed tags
+    // that browsers render as literal text. The lookbehind keeps it off the
+    // href the markdown-link rule just wrote.
+    .replace(/(?<!href=")(https?:\/\/[^\s<]+)/g,
              '<a href="$1" target="_blank" rel="noreferrer">$1</a>')
     // An inline citation marker becomes a link to the article it names,
     // right where the reader is, not only in the References list below.
@@ -163,14 +171,35 @@ function periodOptions(kind: PeriodKind): { refDate: string; label: string }[] {
   return out;
 }
 
-export function MarketBriefingsView({ marketId }: { marketId: number }) {
+export function MarketBriefingsView({ marketId, onFeedChanged }: {
+  marketId: number;
+  /** An approved briefing is an item in the news feed, and rejecting or
+   *  regenerating one takes it out again. The page owns the feed's article
+   *  list, so it is told when that list has changed underneath it. */
+  onFeedChanged?: () => void;
+}) {
   const [list, setList] = useState<BriefingSummary[] | null>(null);
   const [open, setOpen] = useState<BriefingDetail | null>(null);
   const [showFacts, setShowFacts] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Editing by hand: the draft text and title, the history drawer, and the
+  // revision being previewed. The previous text is always kept server-side.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState<BriefingRevision[] | null>(null);
+  const [preview, setPreview] = useState<{ id: number; content: string } | null>(null);
   const [periodKind, setPeriodKind] = useState<PeriodKind>('month');
+  // Our own pieces: a person writes an analysis or a note here; it is a draft
+  // until approved, like a briefing.
+  const [writing, setWriting] = useState(false);
+  const [pieceKind, setPieceKind] = useState<'analysis' | 'note'>('analysis');
+  const [pieceTitle, setPieceTitle] = useState('');
+  const [pieceAuthor, setPieceAuthor] = useState('');
+  const [pieceBody, setPieceBody] = useState('');
   const options = periodOptions(periodKind);
   // The most recent complete period of the chosen kind, matching what
   // "Write last month's" wrote before there was a picker at all.
@@ -190,6 +219,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
            [periodKind]);
 
   async function openBriefing(id: number) {
+    setEditing(false); setHistory(null); setPreview(null);
     setShowFacts(false);
     try {
       setOpen(await getBriefing(marketId, id));
@@ -207,9 +237,96 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
           ? `${r.period_label}: ${r.item_count} items — too few to write from, or the model returned nothing. The stored briefing is the evidence itself.`
           : `${r.period_label} written from ${r.item_count} items.`);
       reload();
+      onFeedChanged?.();
       if (r.id) openBriefing(r.id);
     } catch (e: any) {
       setNote(`Could not write it: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePiece() {
+    setBusy(true); setNote(null);
+    try {
+      const row = await writePiece(marketId, {
+        kind: pieceKind, title: pieceTitle.trim(), report_content: pieceBody,
+        author: pieceAuthor.trim() || null,
+      });
+      setNote(`Saved as a draft. Approve it to publish it on the front page and in the feed.`);
+      setWriting(false); setPieceTitle(''); setPieceBody('');
+      reload();
+      openBriefing(row.id);
+    } catch (e: any) {
+      setNote(`Could not save it: ${e.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEdit() {
+    if (!open) return;
+    setDraft(open.report_content || '');
+    setDraftTitle(open.title || '');
+    setEditing(true); setShowFacts(false); setNote(null); setError(null);
+  }
+
+  async function saveEdit() {
+    if (!open) return;
+    setSaving(true); setError(null);
+    try {
+      const updated = await editBriefing(marketId, open.id, {
+        report_content: draft, title: draftTitle.trim() || null,
+      });
+      setOpen(updated);
+      setEditing(false);
+      setHistory(null);
+      setNote(updated.status === 'approved'
+        ? 'Saved. The feed item follows the new text.'
+        : 'Saved. The previous text is kept in the history.');
+      setList(prev => prev?.map(b => b.id === updated.id
+        ? { ...b, title: updated.title, generation: updated.generation, updated_at: updated.updated_at }
+        : b) ?? prev);
+      onFeedChanged?.();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadHistory() {
+    if (!open) return;
+    if (history) { setHistory(null); setPreview(null); return; }
+    try {
+      setHistory((await getBriefingRevisions(marketId, open.id)).revisions);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
+  async function previewRevision(id: number) {
+    if (!open) return;
+    if (preview?.id === id) { setPreview(null); return; }
+    try {
+      const r = await getBriefingRevision(marketId, open.id, id);
+      setPreview({ id, content: r.report_content });
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
+  }
+
+  async function restoreRevision(id: number) {
+    if (!open) return;
+    if (!window.confirm('Put this earlier text back? The current text is kept in the history.')) return;
+    setBusy(true); setError(null);
+    try {
+      const updated = await restoreBriefingRevision(marketId, open.id, id);
+      setOpen(updated); setHistory(null); setPreview(null);
+      setNote('Restored. The text that was there is kept in the history.');
+      onFeedChanged?.();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
     } finally {
       setBusy(false);
     }
@@ -221,6 +338,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
       await setBriefingStatus(marketId, open.id, status);
       setOpen({ ...open, status: status as BriefingDetail['status'] });
       reload();
+      onFeedChanged?.();
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -281,7 +399,49 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                 : <Play className="w-4 h-4" />}
           Generate report
         </button>
+        <button onClick={() => { setWriting(w => !w); setNote(null); }} disabled={busy}
+                className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50
+                           disabled:opacity-50 inline-flex items-center gap-1.5 dark:hover:bg-gray-700">
+          <PenLine className="w-4 h-4" />
+          Write a piece
+        </button>
       </div>
+
+      {writing && (
+        <div className="border rounded-lg bg-white p-4 space-y-3 dark:bg-gray-800">
+          <p className="text-sm text-slate-600 dark:text-gray-400">
+            Your own analysis or note, in Markdown. It is saved as a draft; approving it
+            puts it on the market's front page, under Analysis, and into the feed. The
+            page says who wrote it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <select value={pieceKind} onChange={e => setPieceKind(e.target.value as 'analysis' | 'note')}
+                    className="text-sm px-2 py-1.5 border rounded-md bg-white text-slate-700 dark:bg-gray-800 dark:text-gray-300">
+              <option value="analysis">Analysis</option>
+              <option value="note">Note</option>
+            </select>
+            <input value={pieceTitle} onChange={e => setPieceTitle(e.target.value)}
+                   placeholder="Title" maxLength={300}
+                   className="flex-1 min-w-[240px] text-sm px-2 py-1.5 border rounded-md bg-white text-slate-800 dark:bg-gray-800 dark:text-gray-100" />
+            <input value={pieceAuthor} onChange={e => setPieceAuthor(e.target.value)}
+                   placeholder="Author (your name)" maxLength={120}
+                   className="min-w-[200px] text-sm px-2 py-1.5 border rounded-md bg-white text-slate-800 dark:bg-gray-800 dark:text-gray-100" />
+          </div>
+          <MarkdownEditor value={pieceBody} onChange={setPieceBody} rows={18} autoFocus
+                          placeholder="The piece. Markdown: # heading, **bold**, - list, [link](url)." />
+          <div className="flex gap-2">
+            <button onClick={savePiece} disabled={busy || !pieceTitle.trim() || !pieceBody.trim()}
+                    className="text-sm px-3 py-1.5 border rounded-md bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 inline-flex items-center gap-1.5">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save as draft
+            </button>
+            <button onClick={() => setWriting(false)} disabled={busy}
+                    className="text-sm px-3 py-1.5 border rounded-md hover:bg-slate-50 dark:hover:bg-gray-700">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {note && (
         <div className="text-sm px-3 py-2 rounded-md bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-gray-300">
@@ -305,7 +465,7 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                       open?.id === b.id ? 'bg-slate-50 dark:bg-gray-700' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
-                  {b.period_label}
+                  {b.kind === 'briefing' ? b.period_label : (b.title ?? b.period_label)}
                 </span>
                 <span className={`text-xs px-1.5 py-0.5 rounded border ${
                   STATUS_TONE[b.status]}`}>
@@ -313,8 +473,9 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                 </span>
               </div>
               <div className="text-xs text-slate-500 mt-0.5 dark:text-gray-400">
-                {b.sources ?? 0} sources
-                {b.generation === 'fallback' && ' · evidence only'}
+                {b.kind === 'briefing'
+                  ? <>{b.sources ?? 0} sources{b.generation === 'fallback' && ' · evidence only'}</>
+                  : <>{b.kind === 'analysis' ? 'Analysis' : 'Note'}{b.author ? ` · ${b.author}` : ''}</>}
               </div>
             </button>
           ))}
@@ -336,8 +497,23 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                   STATUS_TONE[open.status]}`}>{open.status}</span>
                 <span className="text-xs text-slate-500 dark:text-gray-400">
                   {open.model_used} · {open.article_uris.length} sources
+                  {open.generation === 'edited' && ' · edited by hand'}
                 </span>
                 <div className="flex-1" />
+                {!editing && (
+                  <button onClick={startEdit}
+                          className="text-xs px-2 py-1 border rounded hover:bg-slate-50
+                                     inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                    <Pencil className="w-3 h-3" /> Edit
+                  </button>
+                )}
+                {!editing && (
+                  <button onClick={loadHistory}
+                          className="text-xs px-2 py-1 border rounded hover:bg-slate-50
+                                     inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                    <History className="w-3 h-3" /> History
+                  </button>
+                )}
                 <button onClick={downloadReport}
                         className="text-xs px-2 py-1 border rounded hover:bg-slate-50
                                    inline-flex items-center gap-1 dark:hover:bg-gray-700">
@@ -386,7 +562,75 @@ export function MarketBriefingsView({ marketId }: { marketId: number }) {
                 </div>
               )}
 
-              {showFacts ? (
+              {editing && (
+                <div className="mb-3">
+                  <input value={draftTitle} onChange={e => setDraftTitle(e.target.value)}
+                         placeholder="Title" maxLength={300}
+                         className="w-full text-sm font-medium px-2 py-1 mb-2 rounded border
+                                    bg-white dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
+                  <div className="text-xs text-slate-500 mb-1 dark:text-gray-400">
+                    Markdown. Citations like [A3] stay linked to the evidence.
+                  </div>
+                  <MarkdownEditor value={draft} onChange={setDraft} rows={26}
+                                  renderPreview={md => renderMarkdown(md, open.facts?.citation_index)} />
+                  <div className="flex items-center gap-2 mt-2">
+                    <button onClick={saveEdit} disabled={saving || !draft.trim()}
+                            className="text-xs px-2.5 py-1.5 border rounded bg-white hover:bg-emerald-50
+                                       text-emerald-700 border-emerald-200 disabled:opacity-50
+                                       inline-flex items-center gap-1 dark:bg-gray-800 dark:text-emerald-400 dark:border-emerald-800">
+                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
+                    </button>
+                    <button onClick={() => setEditing(false)} disabled={saving}
+                            className="text-xs px-2.5 py-1.5 border rounded hover:bg-slate-50
+                                       inline-flex items-center gap-1 dark:hover:bg-gray-700">
+                      <X className="w-3 h-3" /> Cancel
+                    </button>
+                    <span className="text-xs text-slate-500 dark:text-gray-400">
+                      The previous text is kept and can be restored from History.
+                      {open.status === 'approved' && ' This briefing is approved: saving updates its feed item.'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {history && !editing && (
+                <div className="mb-3 border rounded p-3 dark:border-gray-700">
+                  <div className="text-xs font-medium text-slate-700 mb-1 dark:text-gray-200">
+                    History — every earlier text, newest first
+                  </div>
+                  {history.length === 0 ? (
+                    <div className="text-xs text-slate-500 dark:text-gray-400">No earlier text: this is the model's draft as written.</div>
+                  ) : (
+                    <ul className="text-xs space-y-1">
+                      {history.map(r => (
+                        <li key={r.id} className="flex flex-wrap items-center gap-2">
+                          <span className="text-slate-600 dark:text-gray-300">
+                            {r.saved_at.slice(0, 16).replace('T', ' ')}
+                          </span>
+                          <span className="text-slate-500 dark:text-gray-400">
+                            {r.reason}{r.saved_by ? ` by ${r.saved_by}` : ''} · {r.generation ?? '—'} · {r.length.toLocaleString()} chars
+                          </span>
+                          <button onClick={() => previewRevision(r.id)}
+                                  className="underline text-sky-700 dark:text-sky-400">
+                            {preview?.id === r.id ? 'hide' : 'view'}
+                          </button>
+                          <button onClick={() => restoreRevision(r.id)} disabled={busy}
+                                  className="underline text-amber-700 dark:text-amber-400">restore</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {preview && (
+                    <div className="mm-prose text-sm text-slate-700 dark:text-gray-300 border-t mt-2 pt-2
+                                    max-h-[24rem] overflow-y-auto dark:border-gray-700"
+                         dangerouslySetInnerHTML={{
+                           __html: renderMarkdown(preview.content, open.facts?.citation_index),
+                         }} />
+                  )}
+                </div>
+              )}
+
+              {editing ? null : showFacts ? (
                 <pre className="text-xs bg-slate-50 border rounded p-3
                                 overflow-x-auto whitespace-pre-wrap dark:bg-gray-700">
                   {JSON.stringify(open.facts, null, 1)}

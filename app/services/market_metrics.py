@@ -1,0 +1,676 @@
+"""What a number on the Market Monitor page means, and whether it was measured.
+
+Every figure on that page used to be a bare integer. A vendor with no posts and
+a vendor whose collection had never run both rendered as ``0``, and nothing on
+screen separated them. That is the failure this module exists to prevent: a zero
+is a measurement, and it may only be shown when a collector actually ran,
+completed, and found nothing.
+
+The state does not need new plumbing. ``bw_entity_source_policies`` already
+carries, per vendor per source, whether the source can run at all
+(``eligible`` / ``ineligible_reason``), when it last tried
+(``last_attempt_at``), when it last worked (``last_success_at``), how often it
+is meant to run (``cadence_seconds``) and whether it is currently failing
+(``consecutive_failures``). ``bw_collection_runs`` carries the outcome of each
+attempt. So the whole coverage contract is a read over two existing tables.
+
+Two ideas are kept apart here, because conflating them is what made the old
+page untrustworthy:
+
+*   **Collection coverage** — how much of the market we successfully measured.
+    Successful over eligible.
+*   **Content volume** — how many qualifying items we found.
+
+A percentage on its own hides which one it is, so every coverage block carries
+its numerator and denominator and the UI is expected to show both.
+
+Freshness comes from each source's own cadence, never a single global constant.
+A profile collector on a weekly cadence and a post collector on a twelve-hour
+one cannot share a staleness threshold; using one meant the weekly source read
+as stale six days out of seven.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from bisect import bisect_left, bisect_right
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from sqlalchemy import text
+
+from app.services import entity_scheduler as sch
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Where coverage comes from (spec 4.10)
+# ---------------------------------------------------------------------------
+#
+# Content, platform and collection provider are three different things and the
+# page used to blur them. Bright Data is a provider; LinkedIn is a platform;
+# Xpoz is a provider whose items carry their own real platform. Reporting
+# "Xpoz" as a platform made practitioner discussion on Bluesky look like a
+# fourth network, and reporting "LinkedIn" as a provider implied we have a
+# relationship with LinkedIn that we do not.
+#
+# Held as data rather than as markup so the live UI and the downloadable report
+# cannot drift apart. Both render this list.
+SOURCE_LEGEND: List[Dict[str, str]] = [
+    {"key": "linkedin_company_post", "content": "Company posts",
+     "platform": "LinkedIn", "provider": "Bright Data",
+     "ownership": "vendor-owned",
+     "dataset": "LinkedIn company posts"},
+    {"key": "linkedin_company_profile", "content": "Company profiles and headcount",
+     "platform": "LinkedIn", "provider": "Bright Data",
+     "ownership": "vendor profile",
+     "dataset": "LinkedIn company profiles"},
+    {"key": "linkedin_jobs", "content": "Job listings",
+     "platform": "LinkedIn", "provider": "Bright Data",
+     "ownership": "vendor-associated",
+     "dataset": "LinkedIn jobs"},
+    {"key": "indeed_jobs", "content": "Job listings (experimental)",
+     "platform": "Indeed", "provider": "Bright Data",
+     "ownership": "vendor-associated; we have not yet checked that every "
+                  "listing is the vendor's own",
+     "dataset": "Indeed jobs"},
+    {"key": "xpoz_social", "content": "Practitioner discussion",
+     "platform": "X (Twitter), Reddit, TikTok and Instagram",
+     "provider": "Xpoz",
+     "ownership": "third-party (earned)",
+     "dataset": "social posts"},
+    {"key": "bluesky", "content": "Practitioner discussion",
+     "platform": "Bluesky", "provider": "Bluesky (direct)",
+     "ownership": "third-party (earned)",
+     "dataset": "posts"},
+    {"key": "glassdoor", "content": "Employee reviews",
+     "platform": "Glassdoor", "provider": "OpenWebNinja",
+     "ownership": "third-party (current and former staff)",
+     "dataset": "company reviews"},
+    {"key": "news", "content": "News",
+     "platform": "the publication itself", "provider": "configured news/RSS feeds",
+     "ownership": "third-party (earned)",
+     "dataset": "articles"},
+    {"key": "vendor_web", "content": "Vendor site updates",
+     "platform": "vendor website / RSS", "provider": "site and RSS collector",
+     "ownership": "vendor-owned",
+     "dataset": "pages"},
+    {"key": "ats_jobs", "content": "Job listings",
+     "platform": "the company's own hiring system",
+     "provider": "the hiring system's public job board API",
+     "ownership": "vendor-associated",
+     "dataset": "job board postings"},
+    {"key": "ats_discovery", "content": "Finding a vendor's hiring system",
+     "platform": "vendor website", "provider": "site collector",
+     "ownership": "vendor-owned",
+     "dataset": "careers page"},
+    {"key": "vendor_web_discovery", "content": "Finding a vendor's feed",
+     "platform": "vendor website", "provider": "site and RSS collector",
+     "ownership": "vendor-owned",
+     "dataset": "feed discovery"},
+    {"key": "pitchbook_company", "content": "Funding and ownership",
+     "platform": "PitchBook", "provider": "Bright Data",
+     "ownership": "third-party company data",
+     "dataset": "PitchBook companies"},
+    {"key": "zoominfo_company", "content": "Company profile and contacts",
+     "platform": "ZoomInfo", "provider": "Bright Data",
+     "ownership": "third-party company data",
+     "dataset": "ZoomInfo companies"},
+    {"key": "crunchbase_company", "content": "Funding stages, investors and scores",
+     "platform": "Crunchbase", "provider": "Bright Data",
+     "ownership": "third-party company data",
+     "dataset": "Crunchbase companies"},
+    {"key": "workbook", "content": "Disclosed funding totals",
+     "platform": "imported workbook", "provider": "operator import",
+     "ownership": "third-party company data",
+     "dataset": "vendor baseline"},
+]
+
+_LEGEND_BY_KEY = {row["key"]: row for row in SOURCE_LEGEND}
+
+
+def legend_for(source: str) -> Dict[str, str]:
+    """Platform, provider and ownership for one source key.
+
+    Falls back to naming the source rather than guessing a platform. An unknown
+    source with "LinkedIn" filled in by default is worse than one that admits
+    it is unlabelled.
+    """
+    row = _LEGEND_BY_KEY.get(source)
+    if row:
+        return dict(row)
+    return {"key": source, "content": source, "platform": "unknown",
+            "provider": "unknown", "ownership": "unknown", "dataset": source}
+
+
+# ---------------------------------------------------------------------------
+# Data states (spec 3)
+# ---------------------------------------------------------------------------
+
+# Numeric zero is only one of these, and only ever the one that was measured.
+STATES = ("observed_zero", "healthy", "not_configured", "never_collected",
+          "collecting", "partial", "stale", "failed")
+
+# Plain-language rendering, so the UI and the HTML report cannot describe the
+# same state in two different ways.
+STATE_LABELS: Dict[str, str] = {
+    "observed_zero": "we looked and found none",
+    "healthy": "checked",
+    "not_configured": "not set up",
+    "never_collected": "never checked",
+    "collecting": "checking now",
+    "partial": "some vendors checked",
+    "stale": "last check is out of date",
+    "failed": "the check failed",
+}
+
+# Which states mean "this number is not a measurement". A caller rendering a
+# figure consults this rather than re-deriving the rule; the old code had the
+# test written four different ways in four places.
+UNMEASURED = frozenset({"not_configured", "never_collected", "collecting",
+                        "failed"})
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _cadence_seconds(source: str, rows: List[Dict[str, Any]]) -> int:
+    """The cadence this source actually runs on.
+
+    Prefers what the policy rows say, because an operator can change a single
+    vendor's cadence and the freshness threshold should follow it. Falls back to
+    the source default.
+    """
+    stated = [int(r["cadence_seconds"]) for r in rows
+              if r.get("cadence_seconds")]
+    if stated:
+        return min(stated)
+    return sch.CADENCE_HOURS.get(source, 24) * 3600
+
+
+def tracked_sources() -> List[str]:
+    """The sources a market panel should report on, in reading order.
+
+    Scheduled sources first, because those are the ones a zero can legitimately
+    come from. The manual-only ones follow so a reader can see they exist and
+    why they are not running, rather than wondering whether we simply forgot
+    them.
+    """
+    return list(sch.SCHEDULED_SOURCES) + sorted(sch.MANUAL_ONLY_SOURCES)
+
+
+def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
+    """Whether ``source`` measured this market, and how much of it.
+
+    Returns the coverage block from spec section 3 together with a state that
+    is *not* value-dependent: this function does not know what was counted, so
+    it never returns ``observed_zero``. Combine it with the observed value
+    through :func:`resolve` to get the state a card should render.
+    """
+    policies = [dict(r) for r in conn.execute(text("""
+        SELECT p.brand_id, p.enabled, p.eligible, p.ineligible_reason,
+               p.cadence_seconds, p.last_attempt_at, p.last_success_at,
+               p.consecutive_failures, p.claimed_at
+          FROM bw_entity_source_policies p
+          JOIN bw_market_brands mb ON mb.brand_id = p.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND p.source = :s
+    """), {"m": market_id, "s": source}).mappings().all()]
+
+    registry_total = conn.execute(text("""
+        SELECT COUNT(*) FROM bw_market_brands
+         WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).scalar() or 0
+
+    eligible_rows = [r for r in policies if r["eligible"] and r["enabled"]]
+    eligible = len(eligible_rows)
+    attempted = sum(1 for r in eligible_rows if r["last_attempt_at"])
+    successful = sum(1 for r in eligible_rows if r["last_success_at"])
+    in_flight = sum(1 for r in eligible_rows if r["claimed_at"])
+
+    last_success = max((r["last_success_at"] for r in eligible_rows
+                        if r["last_success_at"]), default=None)
+    cadence = _cadence_seconds(source, policies)
+    # Two missed intervals, not one. A collector that runs every twelve hours
+    # and is thirteen hours late has not failed; calling that stale trains the
+    # reader to ignore the badge.
+    stale_after = (last_success + timedelta(seconds=cadence * 2)
+                   if last_success else None)
+    is_stale = bool(stale_after and stale_after < _now())
+
+    # The most recent run for this market and source, for the failed state and
+    # for the error the panel shows.
+    latest = conn.execute(text("""
+        SELECT status, error, error_code, completed_at, started_at,
+               records_received, records_new
+          FROM bw_collection_runs
+         WHERE market_id = :m AND source = :s
+         ORDER BY started_at DESC LIMIT 1
+    """), {"m": market_id, "s": source}).mappings().first()
+    latest = dict(latest) if latest else None
+
+    scheduled = (source not in sch.MANUAL_ONLY_SOURCES
+                 and source not in sch.PAUSED_SOURCES)
+
+    # Bound before the chain, not inside one branch of it. Assigning a name
+    # only on the paths that have something to say leaves it unbound on every
+    # other path, and this function has seven.
+    public: Optional[str] = None
+
+    if eligible == 0:
+        # Nothing in this market can be collected from this source. Usually a
+        # missing identifier, which is worth saying rather than reporting as a
+        # failure somebody is meant to fix in the collector.
+        reasons = sorted({r["ineligible_reason"] for r in policies
+                          if r.get("ineligible_reason")})
+        state = "not_configured"
+        # A source that is manual-only by policy is not misconfigured, and the
+        # reason it cannot be scheduled is the useful thing to say. Reporting
+        # Indeed as "no vendor has the required identifier" sends the reader
+        # looking for an identifier that does not exist.
+        detail = (sch.MANUAL_ONLY_REASONS.get(source)
+                  or sch.PAUSED_SOURCES.get(source)
+                  or "; ".join(reasons)
+                  or (f"no vendor in this market has a "
+                      f"{sch.REQUIRED_IDENTIFIER.get(source, 'required identifier')}"))
+        # The operator note above says why *we* have not wired this up. A
+        # shared report needs the reader-facing half of that, which is simply
+        # which source the figures beside it do not cover.
+        public = sch.MANUAL_ONLY_PUBLIC.get(source)
+    elif in_flight and successful == 0:
+        state, detail = "collecting", "a run is in progress"
+    elif successful == 0 and latest and latest["status"] == "failed":
+        state, detail = "failed", (latest.get("error_code")
+                                   or latest.get("error") or "the last run failed")
+        # An error code is for whoever fixes it. A reader needs to know the
+        # figure beside it is missing this source, not why.
+        public = "the last check failed, so this source is missing here"
+    elif successful == 0:
+        state, detail = "never_collected", (
+            "configured, but no run has succeeded yet")
+        public = "set up, but we have not managed a successful check yet"
+    elif successful < eligible:
+        state = "partial"
+        detail = f"{successful} of {eligible} vendors collected"
+        public = (f"we checked {successful} of the {eligible} vendors we have "
+                  "a way to look up")
+    elif is_stale:
+        state = "stale"
+        detail = (f"last successful collection "
+                  f"{_ago(last_success)}, expected every {_every(cadence)}")
+        public = (f"we last checked {_ago(last_success)}, and we aim to check "
+                  f"every {_every(cadence)}")
+    else:
+        state, detail = "healthy", None
+
+    return {
+        "source": source,
+        "state": state,
+        "state_detail": detail,
+        # Falls back to the operator note, so a source nobody has written a
+        # public line for still says something rather than nothing.
+        "state_detail_public": public or detail,
+        "scheduled": scheduled,
+        "coverage": {
+            "registry_total": int(registry_total),
+            "eligible": eligible,
+            "attempted": attempted,
+            "successful": successful,
+            "pct_of_eligible": (round(successful / eligible * 100, 1)
+                                if eligible else None),
+            "label": (f"{successful} of {eligible} vendors"
+                      if eligible else "no vendor is configured for this source"),
+        },
+        "freshness": {
+            "last_success_at": _iso(last_success),
+            "expected_interval_seconds": cadence,
+            "stale_after": _iso(stale_after),
+            "is_stale": is_stale,
+        },
+        "latest_run": ({
+            "status": latest["status"],
+            "error_code": latest.get("error_code"),
+            "records_received": latest.get("records_received"),
+            "started_at": _iso(latest.get("started_at")),
+            "completed_at": _iso(latest.get("completed_at")),
+        } if latest else None),
+    }
+
+
+def resolve(collection: Dict[str, Any], value: Optional[float]) -> str:
+    """The state a card should render, given what collection did and what it found.
+
+    This is the one rule the whole module exists for: a zero is only a zero when
+    collection succeeded across the stated population. Everything else that
+    looks like nothing is reported as what it actually is.
+    """
+    state = collection.get("state", "never_collected")
+    if state != "healthy":
+        return state
+    if value is None:
+        return "never_collected"
+    return "observed_zero" if not value else "healthy"
+
+
+# ---------------------------------------------------------------------------
+# Activity Index (spec 4.0)
+# ---------------------------------------------------------------------------
+
+# The three channels the index averages, and the collector policies that decide
+# whether each one was actually measured for a given vendor. Jobs has two
+# sources because a vendor is covered when *either* its own board or LinkedIn
+# was read successfully; the others have one each.
+ACTIVITY_CHANNELS: Dict[str, Tuple[str, ...]] = {
+    "posts": ("linkedin_company_post",),
+    "jobs": ("ats_jobs", "linkedin_jobs"),
+}
+
+# Earned mentions are not collected per vendor. The news and social collectors
+# sweep the market on its keywords and attribution happens afterwards, so there
+# is no per-vendor policy row to read and the channel is healthy or not for the
+# whole market at once.
+MENTION_CHANNEL = "mentions"
+
+
+def mentions_channel_state(conn, market_id: int) -> str:
+    """Whether earned mentions were measured for this market at all.
+
+    Read from the ``corpus_match`` run, which is the pass that decides which
+    collected articles belong to this market. It is market-wide by design — the
+    news and social collectors sweep on the market's keywords and attribution
+    to a vendor happens afterwards — so unlike the owned channels there is no
+    per-vendor policy row and the answer is the same for every vendor.
+
+    Its cadence is the slow poll, so two missed intervals is 48 hours by
+    default, matching :func:`collection_state` rather than inventing a second
+    staleness rule.
+    """
+    latest = conn.execute(text("""
+        SELECT status, started_at
+          FROM bw_collection_runs
+         WHERE market_id = :m AND source = 'corpus_match'
+         ORDER BY started_at DESC LIMIT 1
+    """), {"m": market_id}).mappings().first()
+    if not latest:
+        return "never_collected"
+    if latest["status"] in ("queued", "running"):
+        return "collecting"
+
+    last_success = conn.execute(text("""
+        SELECT MAX(started_at) FROM bw_collection_runs
+         WHERE market_id = :m AND source = 'corpus_match'
+           AND status = 'succeeded'
+    """), {"m": market_id}).scalar()
+    if not last_success:
+        return "never_collected" if latest["status"] != "failed" else "failed"
+    if latest["status"] == "failed":
+        return "failed"
+
+    hours = _env_int("MARKET_SLOW_POLL_INTERVAL_HOURS", 24)
+    if last_success + timedelta(hours=hours * 2) < _now():
+        return "stale"
+    return "healthy"
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def vendor_channel_health(conn, market_id: int,
+                          mentions_state: Optional[str] = None
+                          ) -> Dict[int, Dict[str, str]]:
+    """Per vendor, whether each Activity Index channel was measured.
+
+    Returns ``{brand_id: {channel: state}}`` using the same state vocabulary as
+    the rest of the module, so a caller can test membership of :data:`UNMEASURED`
+    rather than re-deriving the rule.
+
+    The distinction that matters here is between a vendor we read and found
+    nothing for, and one we never read. Both produce a raw count of zero, and
+    averaging the second into a market percentile would rank a vendor we know
+    nothing about above one we measured and found quiet.
+    """
+    sources = sorted({s for group in ACTIVITY_CHANNELS.values() for s in group})
+    rows = [dict(r) for r in conn.execute(text("""
+        SELECT p.brand_id, p.source, p.enabled, p.eligible,
+               p.cadence_seconds, p.last_success_at, p.consecutive_failures,
+               p.claimed_at
+          FROM bw_entity_source_policies p
+          JOIN bw_market_brands mb ON mb.brand_id = p.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND p.source = ANY(:sources)
+    """), {"m": market_id, "sources": sources}).mappings().all()]
+
+    by_vendor: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    for row in rows:
+        by_vendor.setdefault(int(row["brand_id"]), {})[row["source"]] = row
+
+    brand_ids = [int(r[0]) for r in conn.execute(text("""
+        SELECT brand_id FROM bw_market_brands
+         WHERE market_id = :m AND role <> 'excluded'
+    """), {"m": market_id}).all()]
+
+    mention_state = mentions_state or mentions_channel_state(conn, market_id)
+    out: Dict[int, Dict[str, str]] = {}
+    for brand_id in brand_ids:
+        policies = by_vendor.get(brand_id, {})
+        states = {MENTION_CHANNEL: mention_state}
+        for channel, channel_sources in ACTIVITY_CHANNELS.items():
+            states[channel] = _channel_state(
+                [policies.get(s) for s in channel_sources])
+        out[brand_id] = states
+    return out
+
+
+def _channel_state(policies: List[Optional[Dict[str, Any]]]) -> str:
+    """The best state across the sources that can answer for one channel.
+
+    Best, not worst: a vendor whose ATS was read successfully is measured for
+    jobs whether or not LinkedIn also ran. Taking the worst would mark every
+    such vendor unmeasured on the strength of a source that was never going to
+    add anything for it.
+    """
+    ranked = []
+    for policy in policies:
+        if not policy:
+            ranked.append("not_configured")
+            continue
+        if not policy["enabled"] or not policy["eligible"]:
+            ranked.append("not_configured")
+            continue
+        if policy["claimed_at"] and not policy["last_success_at"]:
+            ranked.append("collecting")
+            continue
+        if not policy["last_success_at"]:
+            ranked.append("never_collected")
+            continue
+        if (policy["consecutive_failures"] or 0) > 0:
+            ranked.append("failed")
+            continue
+        cadence = int(policy["cadence_seconds"] or 86400)
+        if policy["last_success_at"] + timedelta(seconds=cadence * 2) < _now():
+            ranked.append("stale")
+            continue
+        ranked.append("healthy")
+    order = ["healthy", "stale", "failed", "collecting", "never_collected",
+             "not_configured"]
+    return min(ranked, key=order.index) if ranked else "not_configured"
+
+
+# A channel that is stale is not a measurement of this period either, so it
+# joins the states that withhold the index. UNMEASURED alone would let a
+# six-week-old profile reading rank a vendor as though it were current.
+INDEX_BLOCKING = UNMEASURED | {"stale"}
+
+
+def activity_index(rows: List[Dict[str, Any]],
+                   health: Dict[int, Dict[str, str]]) -> None:
+    """Add ``activity_index`` and its components to each vendor row, in place.
+
+    The index converts each channel to a percentile before averaging, which is
+    the whole reason it exists: job listings run to dozens per vendor and owned
+    posts to single figures, so a raw sum is a jobs ranking wearing a broader
+    name. A percentile makes "busier than 80% of the market on this channel"
+    mean the same thing on all three.
+
+    A vendor is scored only when all three channels were measured for it. The
+    alternative — treating an unmeasured channel as zero — publishes a low rank
+    for a vendor we never read, which is the failure this module exists to
+    prevent.
+    """
+    measured = [r for r in rows
+                if not (set(health.get(int(r["brand_id"]), {}).values())
+                        & INDEX_BLOCKING)]
+    cohort = {
+        "posts": sorted(r["posts"] or 0 for r in measured),
+        "jobs": sorted(r["jobs"] or 0 for r in measured),
+        MENTION_CHANNEL: sorted(r["earned"] or 0 for r in measured),
+    }
+    # `earned`, not `articles`. `articles` counts everything matched to the
+    # vendor, and on the SOC Automation market 2516 of those 2531 rows are the
+    # vendor's own LinkedIn posts — so scoring this channel on `articles` fed
+    # the posts count in twice and presented the result as a third, independent
+    # channel. Coverage by somebody other than the vendor is the thing the
+    # channel is named after.
+    column = {"posts": "posts", "jobs": "jobs", MENTION_CHANNEL: "earned"}
+    measured_ids = {int(r["brand_id"]) for r in measured}
+
+    for row in rows:
+        states = health.get(int(row["brand_id"]), {})
+        blocked = sorted(c for c, s in states.items() if s in INDEX_BLOCKING)
+        row["channel_states"] = states
+        if blocked or int(row["brand_id"]) not in measured_ids:
+            row["activity_index"] = None
+            row["activity_percentiles"] = None
+            row["index_unavailable_because"] = (
+                "Partial activity — index unavailable: "
+                + ", ".join(f"{c} {STATE_LABELS.get(states[c], states[c])}"
+                            for c in blocked)
+                if blocked else
+                "Partial activity — index unavailable")
+            continue
+        percentiles = {c: _percentile(cohort[c], row[column[c]] or 0)
+                       for c in cohort}
+        row["activity_percentiles"] = {c: round(p * 100, 1)
+                                       for c, p in percentiles.items()}
+        row["activity_index"] = round(
+            100 * sum(percentiles.values()) / len(percentiles))
+        row["index_unavailable_because"] = None
+
+
+def _percentile(sorted_values: List[float], value: float) -> float:
+    """Where this value sits in the cohort, with ties sharing their ground.
+
+    Midrank rather than "fraction at or below". A market where 81 of 84 vendors
+    earned no mentions at all is a real state, and "at or below" hands every
+    one of those 81 the 96th percentile on that channel — a near-top score for
+    having been mentioned by nobody. Averaging the two bounds puts a tied group
+    in the middle of the range it shares, so those 81 land near 50 and none of
+    them outranks the others on a tie.
+
+    An empty cohort gives 0.0 — with nobody to compare against there is no
+    rank, and the caller has already withheld the index in that case.
+    """
+    if not sorted_values:
+        return 0.0
+    n = len(sorted_values)
+    return (bisect_left(sorted_values, value)
+            + bisect_right(sorted_values, value)) / 2 / n
+
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
+def _every(seconds: int) -> str:
+    hours = seconds / 3600
+    if hours < 1:
+        return f"{int(seconds / 60)} minutes"
+    if hours < 48:
+        return f"{int(hours)} hours"
+    return f"{int(hours / 24)} days"
+
+
+def _ago(when: Optional[datetime]) -> str:
+    if not when:
+        return "never"
+    seconds = (_now() - when).total_seconds()
+    if seconds < 3600:
+        return f"{int(seconds / 60)} minutes ago"
+    if seconds < 172800:
+        return f"{int(seconds / 3600)} hours ago"
+    return f"{int(seconds / 86400)} days ago"
+
+
+# ---------------------------------------------------------------------------
+# The metric envelope (spec 3)
+# ---------------------------------------------------------------------------
+
+def metric(metric_id: str, *, label: str, definition: str,
+           numerator: str, denominator: Optional[str] = None,
+           window: Optional[Dict[str, Any]] = None,
+           collection: Optional[Dict[str, Any]] = None,
+           collections: Optional[List[Dict[str, Any]]] = None,
+           value: Optional[float] = None,
+           limitations: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Assemble the metadata block that must travel with every figure.
+
+    Accepts either one ``collection`` state or several. A metric fed by more
+    than one source takes the worst state of its inputs, because a market total
+    whose news half failed is not healthy just because its LinkedIn half worked.
+    """
+    states = [c for c in ([collection] if collection else []) + (collections or [])
+              if c]
+    # Worst-first: anything that is not a measurement outranks a measurement,
+    # and among measurements, partial and stale outrank healthy.
+    order = ["failed", "never_collected", "not_configured", "collecting",
+             "partial", "stale", "healthy"]
+    worst = min((c["state"] for c in states),
+                key=lambda s: order.index(s) if s in order else 0,
+                default="never_collected")
+    combined = dict(states[0]) if len(states) == 1 else {"state": worst}
+    data_state = resolve({"state": worst}, value)
+
+    sources = []
+    for c in states:
+        leg = legend_for(c["source"])
+        sources.append({
+            "provider": leg["provider"],
+            "dataset": leg["dataset"],
+            "platform": leg["platform"],
+            "ownership": leg["ownership"],
+            "status": c["state"],
+            "last_success_at": c["freshness"]["last_success_at"],
+            "expected_interval_seconds":
+                c["freshness"]["expected_interval_seconds"],
+            "records_observed": (c.get("latest_run") or {}).get("records_received"),
+            # Provider caps are recorded per run when a batch comes back at the
+            # limit. Absent means not truncated, not unknown.
+            "truncated": bool((c.get("latest_run") or {}).get("truncated")),
+        })
+
+    return {
+        "metric_id": metric_id,
+        "label": label,
+        "definition": definition,
+        "numerator": numerator,
+        "denominator": denominator,
+        "window": window,
+        "as_of": _iso(_now()),
+        "data_state": data_state,
+        "data_state_label": STATE_LABELS.get(data_state, data_state),
+        "measured": data_state not in UNMEASURED,
+        "state_detail": combined.get("state_detail"),
+        "state_detail_public": (combined.get("state_detail_public")
+                                or combined.get("state_detail")),
+        "sources": sources,
+        "coverage": (states[0]["coverage"] if len(states) == 1 else None),
+        "freshness": (states[0]["freshness"] if len(states) == 1 else None),
+        "limitations": limitations or [],
+    }

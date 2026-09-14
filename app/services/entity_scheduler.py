@@ -64,12 +64,25 @@ MANUAL_ONLY_REASONS: Dict[str, str] = {
         'there is no slug to guess from the company name'
     ),
     'indeed_jobs': (
-        "the dataset has no employer field. keyword_search is free text and "
-        "posted_by is a closed enum of poster types ('Employer' is a member, a "
-        "company name is rejected), so a listing cannot be attributed to a "
-        "specific vendor the way LinkedIn jobs can. Confirmed against the "
-        "provider on 2026-08-26."
+        "attribution works, but every search is billed and needs a location. "
+        "keyword_search takes the company name and each listing is kept only "
+        "when the employer Indeed reports contains every word of the vendor's "
+        "name — posted_by is a closed enum of poster types and is not the "
+        "employer filter it looks like. Left manual because the dataset has no "
+        "'anywhere' location, so a vendor hiring in several countries needs one "
+        "paid input per location."
     ),
+}
+
+# The same facts without the operator's working notes. A shared report is read
+# by somebody who does not run this system and cannot act on "posted_by is a
+# closed enum"; what they need is whether the number in front of them covers
+# this source, and it does not.
+MANUAL_ONLY_PUBLIC: Dict[str, str] = {
+    'pitchbook_company': 'we do not track PitchBook for these vendors',
+    'zoominfo_company': 'we do not track ZoomInfo for these vendors',
+    'indeed_jobs': ('we do not search Indeed on a schedule, so job counts here '
+                    'cover LinkedIn and the vendors\' own careers pages only'),
 }
 
 # Sources temporarily withheld from automatic dispatch, with the reason. These
@@ -95,6 +108,13 @@ CADENCE_HOURS: Dict[str, int] = {
     'crunchbase_company': 168,
     'vendor_web': 12,
     'vendor_web_discovery': 168,
+    # The company's own hiring system. Free and unauthenticated, so this can
+    # run more often than the billed LinkedIn jobs dataset — daily is enough
+    # for a job board and keeps the newly/no-longer-observed comparison
+    # meaningful without hammering somebody else's API.
+    'ats_jobs': 24,
+    # Which system a company uses changes when it migrates, which is rare.
+    'ats_discovery': 336,
 }
 
 # The identifier a source cannot run without.
@@ -107,6 +127,11 @@ REQUIRED_IDENTIFIER: Dict[str, str] = {
     'vendor_web_discovery': 'domain',
     'pitchbook_company': 'pitchbook_url',
     'zoominfo_company': 'zoominfo_url',
+    # Discovery needs somewhere to look; collection needs the board discovery
+    # found. Keeping them separate means a vendor with no board sits out of the
+    # collection backlog instead of looking permanently overdue.
+    'ats_discovery': 'domain',
+    'ats_jobs': 'ats_board',
 }
 
 SCHEDULED_SOURCES = tuple(CADENCE_HOURS)
@@ -218,6 +243,10 @@ def reconcile_from_history(conn, source: Optional[str] = None) -> int:
     updated = conn.execute(text("""
         UPDATE bw_entity_source_policies p
            SET last_success_at = s.newest,
+               -- A success is an attempt. Only claim_due stamped attempts, so
+               -- every source collected outside the claim path reported
+               -- "attempted 0, collected 69" in the coverage table.
+               last_attempt_at = COALESCE(p.last_attempt_at, s.newest),
                next_due_at = s.newest + make_interval(secs => p.cadence_seconds),
                updated_at = NOW()
           FROM (SELECT brand_id, source, max(observed_at) AS newest
@@ -290,6 +319,7 @@ def record_success(conn, source: str, brand_ids: List[int]) -> int:
     return int(conn.execute(text("""
         UPDATE bw_entity_source_policies
            SET last_success_at = NOW(),
+               last_attempt_at = COALESCE(last_attempt_at, NOW()),
                next_due_at = NOW() + make_interval(secs => cadence_seconds),
                claimed_at = NULL, claimed_by = NULL,
                consecutive_failures = 0, last_error = NULL, updated_at = NOW()
@@ -303,12 +333,16 @@ def record_failure(conn, source: str, brand_ids: List[int],
 
     ``last_success_at`` is deliberately untouched: the vendor's data is as old
     as it was, and pretending otherwise would hide staleness behind a failure.
+    ``last_attempt_at`` is set when a probe fails before anything claimed the
+    row (the discovery sweep calls this directly), so "never tried" means what
+    it says and a vendor whose site throws is not tried again every tick.
     """
     if not brand_ids:
         return 0
     return int(conn.execute(text("""
         UPDATE bw_entity_source_policies
            SET consecutive_failures = consecutive_failures + 1,
+               last_attempt_at = COALESCE(last_attempt_at, NOW()),
                last_error = :err,
                claimed_at = NULL, claimed_by = NULL,
                next_due_at = NOW() + LEAST(

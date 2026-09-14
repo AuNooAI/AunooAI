@@ -109,6 +109,9 @@ function formatErrorMessage(err: unknown, prefix: string): string {
 const VOICE_PRESETS = [
   { value: 'business_analyst', label: 'Business Analyst' },
   { value: 'industry_analyst', label: 'Industry Analyst' },
+  { value: 'market_researcher', label: 'Market Researcher' },
+  { value: 'brand_and_communications_lead', label: 'Brand & Communications Lead' },
+  { value: 'science_journalist', label: 'Science Journalist' },
   { value: 'tech_journalist', label: 'Tech Journalist' },
   { value: 'investment_advisor', label: 'Investment Advisor' },
   { value: 'principal_security_engineer', label: 'Principal Security Engineer' },

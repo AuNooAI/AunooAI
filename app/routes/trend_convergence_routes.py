@@ -51,6 +51,17 @@ CONTEXT_LIMITS = {
     'claude-4-opus': 200000,
     'claude-4-sonnet': 200000,
     'claude-4-haiku': 200000,
+    # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
+    # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
+    'claude-sonnet-5': 200000,
+    'claude-opus-5': 200000,
+    'claude-sonnet-4-5': 200000,
+    'claude-haiku-4-5': 200000,
+    'bedrock-claude-sonnet': 200000,
+    'bedrock-claude-haiku': 200000,
+    'nova-pro': 300000,
+    'nova-lite': 300000,
+    'bedrock-kimi-k2-5': 256000,
     'gemini-pro': 32768,
     'gemini-1.5-pro': 2097152,
     'llama-2-70b': 4096,
@@ -576,6 +587,60 @@ async def get_trend_convergence_models():
         logger.error(f"Error fetching models: {str(e)}")
         return _all
 
+# Label table lives in app.compliance.ai_disclosure so the EOS and focus-group
+# run metadata, the exports and this route all spell a model the same way.
+from app.compliance.ai_disclosure import model_label as _disclosure_label
+
+@router.get("/api/ai-disclosure/models", dependencies=[Depends(verify_session_api)])
+async def get_ai_disclosure_models(days: int = Query(30, ge=1, le=365)):
+    """Models that actually ran on this deployment, for the EU AI Act
+    Art. 50 disclosure footer.
+
+    The picker route above lists what a user MAY choose, ordered
+    flagship-first, so a footer that copied its first entries named Claude
+    Sonnet and Opus on sites whose enrichment runs on Kimi and Nova. This
+    route reads the usage ledger instead: distinct models with at least one
+    successful call in the window, most-used first. Falls back to the
+    configured picker list only when the ledger is missing or empty.
+    """
+    import asyncio
+
+    def _read_ledger():
+        db = get_database_instance()
+        return db.fetch_all(
+            """
+            SELECT COALESCE(NULLIF(resolved_model, ''), model) AS model_id,
+                   COUNT(*) AS calls
+            FROM llm_usage_log
+            WHERE created_at > NOW() - make_interval(days => ?)
+              AND COALESCE(status, 'success') = 'success'
+            GROUP BY 1
+            ORDER BY 2 DESC
+            """,
+            (int(days),),
+        )
+
+    rows = []
+    try:
+        rows = await asyncio.to_thread(_read_ledger)
+    except Exception as e:
+        logger.warning(f"ai-disclosure: usage ledger unavailable, using picker list: {e}")
+
+    if rows:
+        seen: Dict[str, Dict[str, Any]] = {}
+        for r in rows:
+            label = _disclosure_label(str(r.get('model_id') or ''))
+            if not label:
+                continue
+            entry = seen.setdefault(label, {'id': r.get('model_id'), 'name': label, 'calls': 0})
+            entry['calls'] += int(r.get('calls') or 0)
+        models = sorted(seen.values(), key=lambda m: -m['calls'])
+        return {'source': 'usage_ledger', 'days': days, 'models': models}
+
+    picker = await get_trend_convergence_models()
+    return {'source': 'configured', 'days': days,
+            'models': [{'id': m['id'], 'name': m['name'], 'calls': None} for m in picker]}
+
 @router.get("/api/trend-convergence/{topic}")
 async def generate_trend_convergence(
     topic: str,
@@ -604,6 +669,17 @@ async def generate_trend_convergence(
         import uuid
         run_id = str(uuid.uuid4())
 
+        # No profile given: use the tenant's default profile, resolved here so
+        # the cache key and the run log record the profile the prompt used.
+        if not profile_id:
+            try:
+                default_profile = (DatabaseQueryFacade(db, logger)).get_default_organisational_profile()
+                if default_profile:
+                    profile_id = default_profile['id']
+                    logger.info(f"No profile_id given; using default organisational profile {profile_id} ({default_profile['name']})")
+            except Exception as e:
+                logger.error(f"Default organisational profile lookup failed: {e}")
+
         # Generate comprehensive cache key for all parameters including tab
         cache_key = generate_comprehensive_cache_key(
             topic, timeframe_days, model, source_quality, sample_size_mode,
@@ -613,10 +689,15 @@ async def generate_trend_convergence(
         # cache_only mode: return any cached result regardless of age, never generate
         if cache_only:
             facade = DatabaseQueryFacade(db, logger)
-            # Try exact cache key first, then fall back to any recent analysis for this topic
+            # Try exact cache key first, then fall back to the newest analysis for
+            # this topic that carries the requested tab's content. Falling back to
+            # "newest of any tab" handed the Horizons tab a Consensus run, whose
+            # analysis_id then 404'd on /horizons/{id}/download.html (sunstar, 2026-09-03).
             result = facade.get_cached_trend_analysis(cache_key)
             if not result:
-                result = facade.get_latest_cached_trend_analysis_for_topic(topic)
+                result = facade.get_latest_cached_trend_analysis_for_topic(
+                    topic, content_key=_TAB_CONTENT_KEYS.get(tab or "")
+                )
             if result:
                 analysis_data = json.loads(result['version_data'])
                 raw_created = result['created_at']
@@ -758,11 +839,20 @@ async def generate_trend_convergence(
         # Prepare analysis summary using diverse articles
         analysis_summary = prepare_analysis_summary(diverse_articles, topic)
         
-        # Get organizational profile if specified
+        # Get organizational profile if specified; otherwise the tenant's
+        # default profile, so a request without the picker is still analysed
+        # from the tenant's own perspective rather than a generic one.
         organizational_profile = None
-        if profile_id:
+        if True:
             try:
-                profile_row = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_id)
+                facade_for_profile = DatabaseQueryFacade(db, logger)
+                if profile_id:
+                    profile_row = facade_for_profile.get_organisational_profile(profile_id)
+                else:
+                    profile_row = facade_for_profile.get_default_organisational_profile()
+                    if profile_row:
+                        profile_id = profile_row['id']
+                        logger.info(f"No profile_id given; using default organisational profile {profile_id} ({profile_row['name']})")
                 if profile_row:
                     # get_organisational_profile returns a SQLAlchemy mapping
                     # (keyed by column name), so access by name — positional
@@ -797,7 +887,7 @@ async def generate_trend_convergence(
                         'custom_context': profile_row['custom_context']
                     }
                 else:
-                    logger.warning(f"Organizational profile {profile_id} not found, using default template")
+                    logger.warning(f"Organizational profile {profile_id} not found and no default profile set, using generic template")
             except Exception as e:
                 logger.error(f"Error loading organizational profile: {str(e)}")
                 
@@ -1270,6 +1360,27 @@ Article {i}:
                 if actual_type not in ['h1', 'h2', 'h3']:
                     logger.error(f"INVALID TYPE: Scenario {i} has type '{actual_type}' instead of h1/h2/h3")
                     logger.error(f"Full scenario: {scenario}")
+
+        # Drop categories a truncated response left half-written. json_repair
+        # closes the JSON where the model stopped, so the last category can be
+        # missing its confidence block (and everything after it); the React
+        # card reads `3_confidence_level.majority_agreement` and the whole tab
+        # crashed on one such category (wileytest, Patent Cliffs, 2026-09-03).
+        if isinstance(trend_convergence_data.get('categories'), list):
+            complete, dropped = [], []
+            for category in trend_convergence_data['categories']:
+                if (isinstance(category, dict)
+                        and isinstance(category.get('1_consensus_type'), dict)
+                        and isinstance(category.get('3_confidence_level'), dict)):
+                    complete.append(category)
+                else:
+                    dropped.append((category or {}).get('category_name', '?') if isinstance(category, dict) else '?')
+            if dropped:
+                logger.warning(
+                    f"Dropping {len(dropped)} incomplete consensus categor{'y' if len(dropped) == 1 else 'ies'} "
+                    f"(missing 1_consensus_type or 3_confidence_level, usually a truncated response): {dropped}"
+                )
+                trend_convergence_data['categories'] = complete
 
         # Normalize sentiment distributions in categories (fix data quality issues)
         if 'categories' in trend_convergence_data:
@@ -2585,13 +2696,42 @@ async def ensure_cache_table_v2(db: Database):
     except Exception as e:
         logger.error(f"Failed to ensure cache table: {e}")
 
+#: tab → the payload key that must hold content for a saved version to count
+#: as a sample of that tab (each generation run saves only the tab it produced).
+_TAB_CONTENT_KEYS = {
+    "consensus": "categories",
+    "horizons": "scenarios",
+    "strategic": "strategic_recommendations",
+    "signals": "future_signals",
+    "timeline": "impact_timeline",
+}
+
+
 @router.get("/api/trend-convergence/{topic}/previous", dependencies=[Depends(verify_session_api)])
 async def load_previous_analysis(
     topic: str,
+    tab: Optional[str] = Query(None, description="Return the newest saved version that has content for this tab"),
     db: Database = Depends(get_database_instance)
 ):
-    """Load the latest previous analysis version for a topic"""
+    """Load the latest previous analysis version for a topic.
+
+    Without ``tab``: the newest saved version of any kind. With ``tab``: the
+    newest version that actually carries that tab's content, so a later run of
+    a different tab does not bury it."""
     try:
+        content_key = _TAB_CONTENT_KEYS.get(tab or "")
+        if content_key:
+            rows = (DatabaseQueryFacade(db, logger)).get_recent_analysis_versions(topic)
+            for row in rows or []:
+                try:
+                    candidate = json.loads(row[0])
+                except Exception:
+                    continue
+                content = candidate.get(content_key)
+                if content and (not isinstance(content, (list, dict)) or len(content) > 0):
+                    return candidate
+            raise HTTPException(status_code=404, detail=f"No previous {tab} analysis found for this topic")
+
         previous_analysis = await _load_latest_analysis_version(topic, db)
         if previous_analysis:
             return previous_analysis
@@ -3500,11 +3640,16 @@ async def generate_horizons_executive_summary(
         # Prepare scenarios JSON
         scenarios_json = json.dumps(request.scenarios, indent=2)
 
-        # Get organizational profile if profile_id provided
+        # Get organizational profile if profile_id provided, else the tenant's default
         organizational_profile = "No specific organizational context provided."
-        if request.profile_id:
+        if True:
             facade = DatabaseQueryFacade(db, logger)
-            profile = facade.get_organisational_profile(request.profile_id)
+            if request.profile_id:
+                profile = facade.get_organisational_profile(request.profile_id)
+            else:
+                profile = facade.get_default_organisational_profile()
+                if profile:
+                    logger.info(f"Executive summary: no profile_id given; using default profile {profile['id']} ({profile['name']})")
             if profile:
                 profile_parts = []
                 if profile.get('name'):

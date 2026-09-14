@@ -23,7 +23,18 @@ from sqlalchemy import text
 
 from app.services.market_corpus import _iso_days_ago
 
-from app.services.market_corpus import own_voice_sql
+from app.services import entity_flags
+from app.services import market_metrics as mm
+# The findings-first layer: deduplicated material developments, vendor
+# observation states, candidate findings and synthesis. Kept in its own module
+# for size, and re-exported here so ``market_analysis.material_developments``
+# is the name callers reach for.
+from app.services.market_assessment import (  # noqa: F401
+    assess as assess_market, candidate_findings, distribution, is_noise,
+    market_synthesis, material_developments, source_coverage,
+    vendor_observation)
+from app.services.market_corpus import (earned_sql, own_voice_sql,
+                                        vendor_domain_sql)
 
 logger = logging.getLogger(__name__)
 
@@ -291,11 +302,13 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
                   FROM bw_vendor_snapshots s
                   JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                            AND mb.market_id = :m
+                                           AND mb.role <> 'excluded'
                  WHERE s.snapshot_type = 'funding'),
                (SELECT COUNT(DISTINCT i.brand_id)
                   FROM bw_vendor_identifiers i
                   JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
                                            AND mb.market_id = :m
+                                           AND mb.role <> 'excluded'
                  WHERE i.kind = 'crunchbase_url' AND i.valid_to IS NULL)
     """), {"m": market_id}).fetchone()
 
@@ -376,7 +389,9 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
                    (s.data->>'growth_score')::numeric AS growth_score,
                    LAG((s.data->>'heat_score')::numeric) OVER w AS prev_heat,
                    LAG((s.data->>'growth_score')::numeric) OVER w AS prev_growth,
-                   LAG(s.observed_at) OVER w AS prev_observed_at
+                   LAG(s.observed_at) OVER w AS prev_observed_at,
+                   s.data->>'name' AS cb_name,
+                   LAG(s.data->>'name') OVER w AS prev_cb_name
             FROM bw_vendor_snapshots s
             JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                      AND mb.market_id = :m AND mb.role <> 'excluded'
@@ -389,6 +404,11 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
                growth_score - prev_growth AS growth_delta
         FROM ordered
         WHERE prev_heat IS NOT NULL
+          -- Two readings of two different Crunchbase entities are not a
+          -- change. "Andesite" (heat 89) followed by "Andesite AI" (heat 5)
+          -- reported as attention falling 84 points, when what happened was
+          -- the lookup resolving to a different profile.
+          AND COALESCE(cb_name, '') = COALESCE(prev_cb_name, '')
           AND (heat_score IS DISTINCT FROM prev_heat
                OR growth_score IS DISTINCT FROM prev_growth)
         ORDER BY observed_at DESC LIMIT 50
@@ -417,9 +437,9 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
 _FUNCTION_GROUPS = (
     ("engineering", ("engineering", "information technology", "research")),
     ("sales", ("sales", "business development")),
-    ("marketing", ("marketing", "product management")),
+    ("marketing", ("marketing", "product management", "product")),
     ("operations", ("management", "manufacturing", "administrative",
-                    "human resources", "finance")),
+                    "human resources", "finance", "operations")),
 )
 
 
@@ -544,8 +564,11 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
     rows = [dict(r) for r in conn.execute(text(f"""
         SELECT DISTINCT ON (s.provider_item_id)
                b.id AS brand_id, b.display_name AS vendor,
+               s.source AS source,
                s.data->>'title' AS title,
-               s.data->>'function' AS function,
+               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
+               -- the department in `function_hint`; LinkedIn fills `function`.
+               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
                s.data->>'seniority' AS seniority,
                s.data->>'employment_type' AS employment_type,
                s.data->>'location' AS location
@@ -557,6 +580,14 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
               {window}
         ORDER BY s.provider_item_id, s.observed_at DESC
     """), params).mappings().all()]
+
+    # One role published on both LinkedIn and the company's own board is one
+    # role. Both were being counted, so this aggregate said 188 where the
+    # drill-down behind it said 149 — and a card that disagrees with its own
+    # records is worse than either number alone. The rule lives in
+    # market_lists so the two cannot drift apart.
+    from app.services.market_lists import drop_cross_source_duplicates
+    rows = drop_cross_source_duplicates(rows)
 
     by_function: Dict[str, int] = {}
     by_role: Dict[str, int] = {}
@@ -624,11 +655,12 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
         "by_vendor": sorted(per_vendor.values(),
                             key=lambda v: -v["openings"]),
         "coverage": _coverage(len(per_vendor), in_scope,
-                              "vendors have job listings we have seen"),
+                              "vendors have public job listings"),
     }
 
 
-_DAYS_AWARE = {"signal_noise", "hiring", "share_of_voice"}
+_DAYS_AWARE = {"signal_noise", "hiring", "share_of_voice",
+               "material_developments", "observation"}
 
 
 def run(conn, market_id: int, name: str, *, days: Optional[int] = None
@@ -643,7 +675,12 @@ def run(conn, market_id: int, name: str, *, days: Optional[int] = None
     """
     fn = {"formation": formation, "signal_noise": signal_noise,
           "funding": funding, "hiring": hiring,
-          "share_of_voice": share_of_voice}.get(name)
+          "share_of_voice": share_of_voice,
+          # Not in ANALYSES: the Analysis view and the export bundle list
+          # that tuple, and these two are the report's lead rather than a
+          # panel. Reachable by name through the same endpoint.
+          "material_developments": material_developments,
+          "observation": vendor_observation}.get(name)
     if not fn:
         raise ValueError(f"unknown analysis: {name}")
     if name in _DAYS_AWARE:
@@ -783,7 +820,9 @@ def job_postings(conn, market_id: int,
                s.data->>'title' AS title,
                s.data->>'location' AS location,
                s.data->>'seniority' AS seniority,
-               s.data->>'function' AS function,
+               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
+               -- the department in `function_hint`; LinkedIn fills `function`.
+               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
                s.data->>'employment_type' AS employment_type,
                s.data->>'posted_date' AS posted_date,
                s.data->>'url' AS url,
@@ -822,14 +861,24 @@ def job_postings(conn, market_id: int,
 MIN_EARNED_FOR_SHARE = 20
 
 
-def share_of_voice(conn, market_id: int, days: Optional[int] = None
-                   ) -> Dict[str, Any]:
-    """Coverage per vendor, split by who produced it."""
+def share_of_voice(conn, market_id: int, days: Optional[int] = None,
+                   until_days_ago: Optional[int] = None) -> Dict[str, Any]:
+    """Coverage per vendor, split by who produced it.
+
+    ``until_days_ago`` closes the window at the top as well as the bottom, so
+    the same function can answer for the period before this one. Without it a
+    caller wanting "the previous 30 days" has to write the query again, and two
+    copies of a window definition drift.
+    """
     window = ""
     params: Dict[str, Any] = {"m": market_id}
     if days:
         window = ("AND COALESCE(a.publication_date, a.submission_date) >= :since")
         params["since"] = _iso_days_ago(days)
+    if until_days_ago:
+        window += (" AND COALESCE(a.publication_date, a.submission_date)"
+                   " < :until")
+        params["until"] = _iso_days_ago(until_days_ago)
 
     rows = [dict(r) for r in conn.execute(text(f"""
         WITH pb AS ({_POST_BRANDS})
@@ -843,8 +892,16 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                COUNT(DISTINCT a.uri) FILTER (
                    WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
                      AND NOT {_OWN_VOICE}) AS reshared,
+               -- A post on the vendor's own site is the vendor speaking, the
+               -- same as its LinkedIn. It carries no bias_source, so it used to
+               -- fall through to earned: eleven of Dropzone AI's blog posts and
+               -- one of Radiant Security's counted as third parties covering
+               -- them, which was half this market's earned coverage.
                COUNT(DISTINCT a.uri) FILTER (
-                   WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin') AS earned,
+                   WHERE COALESCE(a.bias_source,'') <> 'vendor:linkedin'
+                     AND {vendor_domain_sql("a", "pb")}) AS owned_web,
+               COUNT(DISTINCT a.uri) FILTER (
+                   WHERE {earned_sql("a", "pb")}) AS earned,
                COUNT(DISTINCT a.uri) AS total
         FROM pb
         JOIN articles a ON a.uri = pb.article_uri
@@ -875,6 +932,44 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         GROUP BY 1
     """), params).fetchall()}
 
+    # Earned attention, by channel, from the entity layer's resolved mentions.
+    #
+    # bw_entity_mentions already holds this — 1,933 rows across 53 brands, with
+    # channel and platform kept separate exactly as they should be — and no
+    # Market Monitor read path referenced it, while
+    # ENTITY_INTELLIGENCE_MENTION_READ was on. So practitioner discussion of a
+    # vendor was being resolved and then ignored: `earned` here counts 22
+    # articles where the mentions table has 43 across news, Twitter, Bluesky,
+    # Reddit and Glassdoor.
+    #
+    # Added beside `earned` rather than replacing it. `earned` comes from
+    # bw_article_categories and existing callers compare against it; a number
+    # that silently doubles is worse than two numbers whose sources are stated.
+    mentions: Dict[int, Dict[str, Any]] = {}
+    if entity_flags.mention_read():
+        mwindow = ""
+        if days:
+            mwindow = ("AND COALESCE(a.publication_date, a.submission_date) "
+                       ">= :since")
+        for r in conn.execute(text(f"""
+            SELECT m.brand_id, m.channel, m.platform,
+                   COUNT(DISTINCT m.article_uri) AS items
+              FROM bw_entity_mentions m
+              JOIN bw_market_brands mb ON mb.brand_id = m.brand_id
+                                       AND mb.market_id = :m
+              JOIN articles a ON a.uri = m.article_uri
+             WHERE mb.role <> 'excluded' {mwindow}
+             GROUP BY 1, 2, 3
+        """), params).mappings().all():
+            # Keyed by (channel, platform) and split afterwards. Aggregating
+            # platform independently mixed the vendor's own LinkedIn posts into
+            # a platform breakdown labelled earned attention — 72 next to a
+            # total of 13, which is not a rounding disagreement, it is two
+            # different measures under one heading.
+            bucket = mentions.setdefault(int(r["brand_id"]), {})
+            key = (r["channel"] or "unknown", r["platform"])
+            bucket[key] = bucket.get(key, 0) + int(r["items"])
+
     earned_total = sum(r["earned"] for r in rows) or 0
     own_total = sum(r["own_posts"] for r in rows) or 0
     # A percentage of a handful of mentions turns noise into a ranking — a
@@ -883,6 +978,23 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
     # this is the market-wide equivalent for the denominator itself.
     share_reliable = earned_total >= MIN_EARNED_FOR_SHARE
     for row in rows:
+        # Owned social is the vendor's own channel and is already counted as
+        # own_posts; including it here would double it under a different name.
+        # Excluded from both breakdowns, not just the channel one.
+        by_channel: Dict[str, int] = {}
+        by_platform: Dict[str, int] = {}
+        for (channel, platform), items in (
+                mentions.get(row["brand_id"]) or {}).items():
+            if channel == "owned_social":
+                continue
+            by_channel[channel] = by_channel.get(channel, 0) + items
+            if platform:
+                by_platform[platform] = by_platform.get(platform, 0) + items
+        row["attention"] = {
+            "by_channel": by_channel,
+            "by_platform": by_platform,
+            "total": sum(by_channel.values()),
+        }
         hit = reach.get(row["brand_id"])
         row["reactions"] = int(hit[1] or 0) if hit else 0
         row["measured_posts"] = int(hit[2] or 0) if hit else 0
@@ -903,6 +1015,11 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         WHERE market_id = :m AND role <> 'excluded'
     """), {"m": market_id}).scalar() or 0
 
+    # Read once and reused by the quiet/unmeasured split and by the metric
+    # block, so the two cannot disagree about whether this source worked.
+    post_collection = mm.collection_state(conn, market_id,
+                                          'linkedin_company_post')
+
     loudest = sorted((r for r in rows if r["own_posts"]),
                      key=lambda r: -r["own_posts"])[:10]
 
@@ -912,10 +1029,33 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
     # full in-scope registry instead of deriving "quietest" from `loudest`
     # (the earlier version was `loudest[-10:]` reversed: the bottom of the top
     # ten, not the vendors that actually say nothing).
-    quietest = [dict(r) for r in conn.execute(text(f"""
-        SELECT b.id AS brand_id, b.display_name AS vendor
+    # Silence is only silence if somebody listened. A vendor whose post
+    # collection has never succeeded has no posts on file, so the query above
+    # returned it as quiet — the dashboard accused 57 companies of saying
+    # nothing when nothing had ever been collected from them. Quiet now
+    # requires a successful run for that vendor; the rest are reported as
+    # unmeasured, which is a different claim and an honest one.
+    #
+    # The gate is the per-vendor policy row, not the presence of posts. Reading
+    # it from content would be circular: no posts is exactly the condition
+    # under test.
+    quiet_sql = f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               p.last_success_at AS collected_at,
+               -- All-time, deliberately unbounded by the selected window. A
+               -- vendor quiet this month may have posted last month, and
+               -- "last posted: never" when it posted in June is a lie the
+               -- window would tell.
+               (SELECT MAX(COALESCE(a.publication_date, a.submission_date))
+                  FROM bw_article_categories bac
+                  JOIN articles a ON a.uri = bac.article_uri
+                 WHERE bac.brand_id = b.id
+                   AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
+                   AND {_OWN_VOICE}) AS last_posted_at
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
+        LEFT JOIN bw_entity_source_policies p
+               ON p.brand_id = b.id AND p.source = 'linkedin_company_post'
         WHERE mb.market_id = :m AND mb.role <> 'excluded'
           AND NOT EXISTS (
               SELECT 1 FROM bw_article_categories bac
@@ -925,29 +1065,53 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
                 AND {_OWN_VOICE}
                 {window}
           )
+          AND p.last_success_at IS {{null_test}}
         ORDER BY b.display_name
-        LIMIT 10
-    """), params).mappings().all()]
-    quietest_total = conn.execute(text(f"""
-        SELECT COUNT(*)
-        FROM bw_market_brands mb
-        JOIN bw_brands b ON b.id = mb.brand_id
-        WHERE mb.market_id = :m AND mb.role <> 'excluded'
-          AND NOT EXISTS (
-              SELECT 1 FROM bw_article_categories bac
-              JOIN articles a ON a.uri = bac.article_uri
-              WHERE bac.brand_id = b.id
-                AND COALESCE(a.bias_source,'') = 'vendor:linkedin'
-                AND {_OWN_VOICE}
-                {window}
-          )
-    """), params).scalar() or 0
+    """
+    quietest = [dict(r) for r in conn.execute(
+        text(quiet_sql.format(null_test="NOT NULL")),
+        params).mappings().all()]
+    # Not quiet and not loud: not measured. Kept as its own list so no caller
+    # can accidentally fold it back into the quiet count.
+    unmeasured = [dict(r) for r in conn.execute(
+        text(quiet_sql.format(null_test="NULL")),
+        params).mappings().all()]
+    for row in quietest + unmeasured:
+        row["posts_in_selected_window"] = 0
+    quietest_total = len(quietest)
+    unmeasured_total = len(unmeasured)
 
     return {
         "vendors": rows,
         "loudest": loudest,
         "quietest": quietest,
         "quietest_total": quietest_total,
+        # Vendors we cannot describe either way. Separate from quiet by
+        # design — see the comment on quiet_sql.
+        "unmeasured": unmeasured,
+        "unmeasured_total": unmeasured_total,
+        "metric": mm.metric(
+            "owned_post_volume",
+            label="Posts the vendors published themselves",
+            definition=(
+                "Posts a vendor put out on its own LinkedIn account during the "
+                "period. If a vendor reshared somebody else's post, we count "
+                "that separately, because resharing is not the same as having "
+                "something to say."),
+            numerator="posts from the vendors' own LinkedIn accounts",
+            denominator="vendors whose posts we managed to collect",
+            window={"days": days},
+            collection=post_collection,
+            value=own_total,
+            limitations=[
+                "LinkedIn only. A vendor that is busy on another network "
+                "will look quieter here than it is.",
+                "We only started recording whether a post was a reshare "
+                "part-way through. Older posts all count as the vendor's own.",
+                "When we say somebody wrote about a vendor, we mean somebody "
+                "other than the vendor. A post on the vendor's own site counts "
+                "as the vendor talking, not as coverage of it.",
+            ]),
         "reactions_total": sum(r["reactions"] for r in rows),
         "earned_total": earned_total,
         "earned_share_reliable": share_reliable,
@@ -958,6 +1122,68 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None
         "coverage": _coverage(len([r for r in rows if r["total"]]), in_scope,
                               "vendors appear in any coverage"),
     }
+
+
+def social_highlights(conn, market_id: int, days: Optional[int] = None,
+                      limit: int = 3) -> List[Dict[str, Any]]:
+    """The individual posts that travelled furthest, with what they said.
+
+    ``top_voices`` ranks accounts. This ranks posts, because a quote is a post
+    and not an account — the sidebar needs the sentence somebody wrote, not a
+    handle and a total.
+
+    Vendors' own LinkedIn posts are excluded on the same rule the rest of the
+    report uses: a company promoting itself is volume, and this panel is about
+    who else is talking.
+    """
+    window = ""
+    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    if days:
+        window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
+        params["since"] = _iso_days_ago(days)
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary,
+               a.social_meta->>'author' AS author,
+               COALESCE(a.social_meta->>'platform',
+                        SPLIT_PART(a.news_source, ':', 2),
+                        a.news_source) AS platform,
+               COALESCE((a.social_meta->>'likes')::numeric, 0)
+                 + COALESCE((a.social_meta->>'comments')::numeric, 0)
+                 + COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)
+                 AS engagement,
+               COALESCE(a.publication_date, a.submission_date) AS published
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
+          AND a.social_meta IS NOT NULL
+          AND a.social_meta->>'author' IS NOT NULL
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          {window}
+        ORDER BY engagement DESC,
+                 COALESCE(a.publication_date, a.submission_date) DESC
+        LIMIT :lim
+    """), params).mappings().all()]
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        # The post's own words. Title first: for a social item the title is
+        # usually the post, and the summary is a truncation of it.
+        quote = (row.get("title") or row.get("summary") or "").strip()
+        # A training log or a job hunt is not an outside voice on the market.
+        if not quote or is_noise(quote):
+            continue
+        out.append({
+            "uri": row["uri"],
+            "author": row["author"],
+            "platform": row["platform"],
+            "engagement": int(row["engagement"] or 0),
+            "published": row["published"],
+            "quote": quote,
+        })
+    return out
 
 
 def top_voices(conn, market_id: int, days: Optional[int] = None,
@@ -995,10 +1221,20 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                  + SUM(COALESCE((a.social_meta->>'reposts')::numeric,
                                 (a.social_meta->>'shares')::numeric, 0))
                    AS engagement,
-               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen
+               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen,
+               -- The most recent post, so a row can be read at its source.
+               (ARRAY_AGG(COALESCE(a.url, a.uri)
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_url,
+               (ARRAY_AGG(a.title
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_title
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
@@ -1011,6 +1247,77 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         for key in ("likes", "comments", "reposts"):
             v[key] = int(v[key] or 0)
         v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+        v["profile_url"] = profile_url(v["platform"], v["author"])
+        v["latest_post"] = {"url": v.pop("latest_url", None),
+                            "title": v.pop("latest_title", None)}
+
+    # How the whole population splits, not just the `limit` rows shown. A
+    # table where every row says "1 post" needs the reader told whether that
+    # is the table or the market.
+    accounts_total, accounts_multi = conn.execute(text(f"""
+        SELECT COUNT(*), COUNT(*) FILTER (WHERE posts > 1) FROM (
+            SELECT a.social_meta->>'author', COUNT(*) AS posts
+            FROM bw_market_articles ma
+            JOIN articles a ON a.uri = ma.article_uri
+            WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
+              AND a.social_meta->>'author' IS NOT NULL
+              AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+              {window}
+            GROUP BY 1) t
+    """), {k: v for k, v in params.items() if k != "lim"}).fetchone()
+
+    # The list has to include the accounts that keep posting even when their
+    # reactions are low. The engagement LIMIT above cut them: on one market the
+    # two accounts with three and four posts sat below twenty single posts
+    # that each drew more reactions, and the report said no account posted
+    # more than once or twice. So the repeat posters are fetched on their own
+    # and added to the list where the cut dropped them.
+    threshold = consistent_voice_min_posts()
+    have = {(v["author"], v["platform"]) for v in voices}
+    for r in conn.execute(text(f"""
+        SELECT a.social_meta->>'author' AS author,
+               COALESCE(a.social_meta->>'platform',
+                        SPLIT_PART(a.news_source, ':', 2),
+                        a.news_source) AS platform,
+               COUNT(*) AS posts,
+               SUM(COALESCE((a.social_meta->>'likes')::numeric, 0)) AS likes,
+               SUM(COALESCE((a.social_meta->>'comments')::numeric, 0)) AS comments,
+               SUM(COALESCE((a.social_meta->>'reposts')::numeric,
+                            (a.social_meta->>'shares')::numeric, 0)) AS reposts,
+               MAX(COALESCE(a.publication_date, a.submission_date)) AS last_seen,
+               (ARRAY_AGG(COALESCE(a.url, a.uri)
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_url,
+               (ARRAY_AGG(a.title
+                          ORDER BY COALESCE(a.publication_date,
+                                            a.submission_date) DESC))[1]
+                   AS latest_title
+        FROM bw_market_articles ma
+        JOIN articles a ON a.uri = ma.article_uri
+        WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
+          AND a.social_meta IS NOT NULL
+          AND a.social_meta->>'author' IS NOT NULL
+          AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          {window}
+        GROUP BY 1, 2
+        HAVING COUNT(*) >= :threshold
+        ORDER BY posts DESC, 4 DESC
+        LIMIT :lim
+    """), {**params, "threshold": threshold}).mappings().all():
+        if (r["author"], r["platform"]) in have:
+            continue
+        v = dict(r)
+        for key in ("likes", "comments", "reposts"):
+            v[key] = int(v[key] or 0)
+        v["engagement"] = v["likes"] + v["comments"] + v["reposts"]
+        v["profile_url"] = profile_url(v["platform"], v["author"])
+        v["latest_post"] = {"url": v.pop("latest_url", None),
+                            "title": v.pop("latest_title", None)}
+        voices.append(v)
+        have.add((v["author"], v["platform"]))
 
     # Who each handle belongs to. Brand monitoring already keeps account
     # profiles in social_accounts — bio, reach, topics, brand-relative
@@ -1030,7 +1337,10 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             for r in conn.execute(text("""
                 SELECT platform, handle_canonical, id AS account_id, handle,
                        display_name, followers_count, summary, watchlisted,
-                       tags, bio, profile_url,
+                       tags, bio, profile_url, topics, verified, brand_context,
+                       avatar_url, posts_count, last_profiled_at,
+                       metadata->>'market_role' AS role,
+                       metadata->>'market_org' AS org,
                        last_profiled_at IS NOT NULL AS profiled
                   FROM social_accounts
                  WHERE (platform, handle_canonical) IN (
@@ -1056,8 +1366,30 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                 "profile_url": hit["profile_url"],
                 "watchlisted": bool(hit["watchlisted"]),
                 "tags": hit["tags"] or [],
+                "topics": hit["topics"] or [],
+                "verified": bool(hit["verified"]),
+                "posts_count": hit["posts_count"],
+                "avatar_url": hit["avatar_url"],
+                # The service stores it under the brand's name; for a market
+                # it is the account's part in the market.
+                "relation": hit["brand_context"],
+                "role": hit["role"],
+                "org": hit["org"],
+                "last_profiled_at": (str(hit["last_profiled_at"])
+                                     if hit["last_profiled_at"] else None),
                 "profiled": bool(hit["profiled"]),
             } if hit else None)
+            if v["account"] and v["account"].get("profile_url"):
+                v["profile_url"] = v["account"]["profile_url"]
+
+    # Vendors' own accounts stay on the list — a vendor posting about the
+    # market is part of the conversation — but are tagged, so a reader does
+    # not take a company's marketing for an outside voice. The tag comes from
+    # the profile's role reading where there is one, and from the handle or
+    # display name matching a tracked vendor where there is not.
+    tracked = _tracked_vendor_names(conn, market_id)
+    for v in voices:
+        v["vendor_tag"] = _vendor_tag(v, tracked)
 
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
@@ -1073,6 +1405,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             JOIN articles a ON a.uri = ma.article_uri,
                  UNNEST(ma.matched_terms) AS term
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' = ANY(:handles)
               {window}
         """), {**params, "handles": handles}).fetchall():
@@ -1088,6 +1421,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             JOIN bw_brands b ON b.id = bac.brand_id
             JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' = ANY(:handles)
               {window}
         """), {**params, "handles": handles}).fetchall():
@@ -1109,6 +1443,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
+          AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND (a.news_source = 'bluesky' OR a.news_source LIKE 'xpoz%')
           {window}
@@ -1117,7 +1452,6 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
     # Two different questions, split rather than blended. `voices` stays as it
     # was so existing callers keep working; it is the union, still engagement-
     # ranked.
-    threshold = consistent_voice_min_posts()
     for v in voices:
         v["sample_of_one"] = int(v["posts"] or 0) <= 1
 
@@ -1136,10 +1470,128 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         "consistent": consistent,
         "breakout": breakout,
         "consistent_min_posts": threshold,
+        "accounts": int(accounts_total or 0),
+        "accounts_multi_post": int(accounts_multi or 0),
+        "profiled": sum(1 for v in voices
+                        if (v.get("account") or {}).get("profiled")),
         "days": days,
         "coverage": _coverage(with_author or 0, total or 0,
                               "practitioner posts name an author"),
     }
+
+
+def _norm_name(value: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+SOCIAL_IDENTIFIER_KIND = "social_account"
+
+
+def _tracked_vendor_names(conn, market_id: int) -> Dict[str, Dict[str, Any]]:
+    """normalised name or alias -> {brand_id, display}, for this market's
+    vendors; plus, under ``"_linked"``, the social accounts already recorded
+    on a vendor profile (``platform:handle`` -> brand_id)."""
+    out: Dict[str, Any] = {}
+    for brand_id, name, display in conn.execute(text("""
+        SELECT b.id, b.name, b.display_name
+          FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND mb.role <> 'excluded'
+        UNION
+        SELECT b.id, vi.normalized_value, b.display_name
+          FROM bw_vendor_identifiers vi
+          JOIN bw_brands b ON b.id = vi.brand_id
+          JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
+         WHERE vi.kind IN ('alias', 'former_name') AND vi.valid_to IS NULL
+    """), {"m": market_id}).fetchall():
+        for key in (name, display):
+            k = _norm_name(key)
+            if len(k) >= 4:
+                out[k] = {"brand_id": brand_id, "display": display}
+    out["_linked"] = {
+        r[0]: r[1] for r in conn.execute(text("""
+            SELECT vi.normalized_value, vi.brand_id
+              FROM bw_vendor_identifiers vi
+              JOIN bw_market_brands mb ON mb.brand_id = vi.brand_id
+                   AND mb.market_id = :m
+             WHERE vi.kind = :k AND vi.valid_to IS NULL
+        """), {"m": market_id, "k": SOCIAL_IDENTIFIER_KIND}).fetchall()}
+    return out
+
+
+def social_identifier(platform: Optional[str], handle: Optional[str]) -> str:
+    """The value recorded on a vendor profile for one of its social accounts."""
+    return f"{(platform or '').lower()}:{(handle or '').strip().lstrip('@').lower()}"
+
+
+def _vendor_tag(v: Dict[str, Any], tracked: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    acct = v.get("account") or {}
+    role = acct.get("role")
+    linked_to = (tracked.get("_linked") or {}).get(
+        social_identifier(v.get("platform"), v.get("author")))
+    names = {k: x for k, x in tracked.items() if k != "_linked"}
+
+    def _tag(label: str, hit: Optional[Dict[str, Any]], org: Optional[str], source: str):
+        return {"label": label,
+                "org": hit["display"] if hit else org,
+                "brand_id": hit["brand_id"] if hit else linked_to,
+                "tracked": bool(hit or linked_to),
+                # Recorded on the vendor's profile already (or just now).
+                "linked": linked_to is not None,
+                "source": source}
+
+    if role in ("vendor", "vendor_staff"):
+        org = acct.get("org")
+        hit = names.get(_norm_name(org)) if org else None
+        label = "vendor" if role == "vendor" else "vendor staff"
+        # The company's own account carries its name in the handle or the
+        # display name. A founder posting under their own name is the vendor
+        # speaking, but not the vendor's account, and must not be recorded on
+        # the vendor profile as one.
+        if label == "vendor":
+            org_key = _norm_name(hit["display"] if hit else org)
+            carries = org_key and len(org_key) >= 4 and any(
+                org_key in _norm_name(c) for c in (v.get("author"), acct.get("display_name")))
+            if not carries:
+                label = "vendor staff"
+        return _tag(label, hit, org, "profile")
+    if role:
+        # The profile read the account and it is not a vendor. Trust it.
+        return None
+    for candidate in (v.get("author"), acct.get("display_name")):
+        k = _norm_name(candidate)
+        if not k:
+            continue
+        hit = names.get(k)
+        if not hit:
+            # "dropzoneai" for "Dropzone", "torq_io" for "Torq": the handle
+            # begins with the vendor's name and adds a suffix.
+            for key, x in names.items():
+                if len(key) >= 5 and k.startswith(key) and len(k) - len(key) <= 4:
+                    hit = x
+                    break
+        if hit:
+            return _tag("vendor", hit, None, "name")
+    return None
+
+
+_PROFILE_URLS = {
+    "twitter": "https://x.com/{h}",
+    "x": "https://x.com/{h}",
+    "bluesky": "https://bsky.app/profile/{h}",
+    "reddit": "https://www.reddit.com/user/{h}",
+    "tiktok": "https://www.tiktok.com/@{h}",
+    "instagram": "https://www.instagram.com/{h}",
+    "linkedin": "https://www.linkedin.com/in/{h}",
+}
+
+
+def profile_url(platform: Optional[str], handle: Optional[str]) -> Optional[str]:
+    """Where the account lives on its platform, from the handle alone."""
+    h = (handle or "").strip().lstrip("@")
+    tpl = _PROFILE_URLS.get((platform or "").lower())
+    if not h or not tpl or "/" in h or " " in h:
+        return None
+    return tpl.format(h=h)
 
 
 # ---------------------------------------------------------------------------
@@ -1227,7 +1679,8 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
                  AS engagement
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
-        WHERE ma.market_id = :m AND a.social_meta IS NOT NULL {window}
+        WHERE ma.market_id = :m AND COALESCE(ma.review_verdict, '') <> 'excluded'
+          AND a.social_meta IS NOT NULL {window}
         ORDER BY engagement DESC
         LIMIT 500
     """), params).mappings().all()
@@ -1335,8 +1788,42 @@ def career_moves(conn, market_id: int, *, days: Optional[int] = None,
     }
 
 
+def collection_started(conn, market_id: int):
+    """When we began collecting this market, as a timezone-aware datetime.
+
+    The earlier of the market's own creation and its first collection run
+    that succeeded. Anything dated before this was not observed as it
+    happened: it was either collected later as backlog (a LinkedIn post
+    carries its publication date whenever we fetch it) or not at all. A
+    figure for a window that starts before this date is a floor, and a
+    comparison between two such windows is not a comparison.
+    """
+    from datetime import datetime, timezone
+
+    row = conn.execute(text("""
+        SELECT LEAST(
+            (SELECT created_at FROM bw_markets WHERE id = :m),
+            (SELECT MIN(started_at) FROM bw_collection_runs
+              WHERE market_id = :m AND status = 'succeeded'))
+    """), {"m": market_id}).scalar()
+    if row is None:
+        return None
+    if isinstance(row, str):
+        row = datetime.fromisoformat(row)
+    if row.tzinfo is None:
+        row = row.replace(tzinfo=timezone.utc)
+    return row
+
+
 def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """This reporting period against the immediately preceding one, same length.
+
+    ``comparable`` says whether the earlier window was one we were collecting
+    in. On a market created eight days ago the "previous 30 days" is a window
+    nothing was watching, and a table of "398 → 655" against it reads as a
+    rise that never happened. The counts are still returned, because they
+    are true counts of dated records; the caller decides not to show them as
+    a change.
 
     Deliberately narrow: only counts that are cheap and exact to bound by
     date — announcement-kind counts, job postings observed, and matched
@@ -1381,6 +1868,7 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
             SELECT COUNT(*) FROM bw_market_articles ma
             JOIN articles a ON a.uri = ma.article_uri
             WHERE ma.market_id = :m
+              AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND COALESCE(a.publication_date, a.submission_date) >= :start
               AND COALESCE(a.publication_date, a.submission_date) < :end
         """), {"m": market_id, "start": start, "end": end}).scalar() or 0
@@ -1395,6 +1883,10 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
     all_keys = set(current) | set(previous)
     deltas = {k: current.get(k, 0) - previous.get(k, 0) for k in all_keys}
 
+    started = collection_started(conn, market_id)
+    comparable = bool(started) and prev_start_dt >= started
+    comparable_from = (started + timedelta(days=days * 2)) if started else None
+
     return {
         "days": days,
         "current_range": (curr_start[:10], curr_end[:10]),
@@ -1402,6 +1894,10 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
         "current": current,
         "previous": previous,
         "deltas": deltas,
+        "comparable": comparable,
+        "collection_started": started.isoformat() if started else None,
+        "comparable_from": (comparable_from.date().isoformat()
+                            if comparable_from else None),
     }
 
 

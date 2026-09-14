@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   generateTrendConvergence,
   loadCachedTrendConvergence,
+  getPreviousAnalysis,
   getTopics,
   getOrganizationalProfiles,
   getAvailableModels,
@@ -70,10 +71,18 @@ const DEFAULT_CONFIG: AnalysisConfig = {
 
 const STORAGE_KEYS = {
   CONFIG: 'trendConvergence_config',
-  DATA: 'trendConvergence_data', // Legacy key
-  DATA_PREFIX: 'trendConvergence_data_', // Per-tab keys: trendConvergence_data_consensus, etc.
+  DATA: 'trendConvergence_data', // Legacy topic-agnostic key — purged on write, never read
+  DATA_PREFIX: 'trendConvergence_data_', // Per-topic+tab keys — see tcDataKey()
   TOPIC: 'trendConvergence_topic'
 };
+
+// Cache key for one topic+tab pair. The topic MUST be part of the key:
+// tab-only keys let one topic's cached analysis (and its analysis_id)
+// surface under another topic. That is how a January "U.S. Federal R&D
+// Pullback" executive summary ended up rendered beneath a fresh
+// "Market Monitoring SOC Automation" run (2026-09-02).
+export const tcDataKey = (topic: string, tab: string) =>
+  `${STORAGE_KEYS.DATA_PREFIX}${topic}::${tab}`;
 
 // Stored configs from before the flagship-default change carry a
 // non-flagship ``model`` value the user never explicitly picked (it was
@@ -110,22 +119,18 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     return DEFAULT_CONFIG;
   };
 
-  // Load cached analysis data for current tab
-  const loadStoredData = (tab?: string): TrendConvergenceData | MarketSignalsData | null => {
+  // Load cached analysis data for the current topic+tab
+  const loadStoredData = (topic?: string, tab?: string): TrendConvergenceData | MarketSignalsData | null => {
     try {
-      // Try per-tab cache first
-      if (tab) {
-        const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${tab}`;
-        const stored = localStorage.getItem(tabKey);
+      if (topic && tab) {
+        const stored = localStorage.getItem(tcDataKey(topic, tab));
         if (stored) {
           return JSON.parse(stored);
         }
       }
-      // Fall back to legacy key
-      const stored = localStorage.getItem(STORAGE_KEYS.DATA);
-      if (stored) {
-        return JSON.parse(stored);
-      }
+      // Deliberately NO fallback to the legacy `trendConvergence_data` key:
+      // it is topic- and tab-agnostic, so it resurrects whatever analysis
+      // last wrote it — for any topic.
     } catch (err) {
       console.error('Error loading stored data:', err);
     }
@@ -159,15 +164,15 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     loadInitialData();
   }, []);
 
-  // Load tab-specific data when config.tab changes
+  // Load topic+tab-specific data when either changes
   useEffect(() => {
-    if (config.tab) {
-      const cachedData = loadStoredData(config.tab);
+    if (config.tab && config.topic) {
+      const cachedData = loadStoredData(config.topic, config.tab);
       if (cachedData) {
         setData(cachedData);
       }
     }
-  }, [config.tab]);
+  }, [config.tab, config.topic]);
 
   const loadInitialData = async () => {
     try {
@@ -180,6 +185,17 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       setTopics(topicsData);
       setProfiles(profilesData);
       setModels(modelsData);
+
+      // Pre-select the tenant's default organisational profile when none is
+      // stored (or the stored one no longer exists). A fresh browser used to
+      // start with the picker empty, and every analysis then ran with no
+      // organisation context.
+      if (profilesData.length > 0 && !profilesData.some(p => p.id === config.profile_id)) {
+        const fallback = profilesData.find(p => p.is_default) || profilesData[0];
+        if (fallback?.id) {
+          setConfig(prev => ({ ...prev, profile_id: fallback.id }));
+        }
+      }
 
       // Set default topic if available and not already set
       if (topicsData.length > 0 && !config.topic) {
@@ -201,7 +217,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     if (!config.topic || !config.tab) return;
 
     // 1. Check localStorage
-    const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
+    const tabKey = tcDataKey(config.topic, config.tab);
     const localData = localStorage.getItem(tabKey);
     if (localData) {
       try {
@@ -231,7 +247,26 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       console.error('Error loading cached analysis from backend:', err);
     }
 
-    // 3. No cache anywhere — user needs to generate
+    // 3. Fall back to the topic's last SAVED analysis (any model/settings).
+    // The cache_only endpoint keys on the exact current config, so an
+    // analysis generated with different settings (or with caching off) is
+    // invisible to it even though it exists. Only accept the saved payload
+    // if it actually carries data for the tab being viewed.
+    try {
+      // The server returns the newest saved version that carries this tab's
+      // content (404 when none exists), so a later run of a different tab
+      // does not bury the sample.
+      const previous = await getPreviousAnalysis(config.topic, config.tab as string);
+      if (previous) {
+        setData(previous);
+        setNeedsGeneration(false);
+        return;
+      }
+    } catch {
+      // 404 = genuinely nothing saved for this topic+tab; fall through.
+    }
+
+    // 4. No cache anywhere — user needs to generate
     setNeedsGeneration(true);
   }, [config]);
 
@@ -265,14 +300,14 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
       setData(result);
 
-      // Save analysis data to localStorage (per-tab)
+      // Save analysis data to localStorage (per topic+tab)
       try {
         if (config.tab) {
-          const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
-          localStorage.setItem(tabKey, JSON.stringify(result));
+          localStorage.setItem(tcDataKey(config.topic, config.tab), JSON.stringify(result));
         }
-        // Also save to legacy key for backwards compatibility
-        localStorage.setItem(STORAGE_KEYS.DATA, JSON.stringify(result));
+        // Purge the legacy topic-agnostic key so data written by old
+        // builds can never resurface under a different topic.
+        localStorage.removeItem(STORAGE_KEYS.DATA);
       } catch (err) {
         console.error('Error saving analysis data:', err);
       }
@@ -372,7 +407,16 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
   // Update configuration
   const updateConfig = useCallback((updates: Partial<AnalysisConfig>) => {
-    setConfig(prev => ({ ...prev, ...updates }));
+    setConfig(prev => {
+      // No-op when nothing actually changes: keeping the same object identity
+      // keeps loadCached (and every effect depending on it) stable. Without
+      // this, a tab-switch effect that sets an unchanged tab re-created the
+      // config on every render and hammered the cache_only endpoint in an
+      // infinite fetch loop (ERR_INSUFFICIENT_RESOURCES in the browser).
+      const changed = (Object.keys(updates) as (keyof AnalysisConfig)[])
+        .some(k => prev[k] !== updates[k]);
+      return changed ? { ...prev, ...updates } : prev;
+    });
   }, []);
 
   // Clear error

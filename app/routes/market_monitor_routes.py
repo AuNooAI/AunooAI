@@ -20,9 +20,11 @@ provider echoes back, and finds its market from the run row.
 """
 
 import asyncio
+from urllib.parse import urlencode
 import json
 import logging
 import os
+import re
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -66,11 +68,10 @@ KNOWN_SOURCES = {
 # attribution field is an inference not yet confirmed against a real
 # response. They still route through the same manual-run/webhook machinery
 # as everything else here — nothing about them is a bespoke pipeline.
-PAID_SOURCES = {
-    "linkedin_company_post", "linkedin_company_profile",
-    "crunchbase_company", "linkedin_jobs",
-    "pitchbook_company", "zoominfo_company", "indeed_jobs",
-}
+# One definition, in the module that prices a record. A second copy here
+# would let a new paid source be added to one list and missed by the other,
+# and the one that matters for spend is the pricing side.
+PAID_SOURCES = mc.PAID_SOURCES
 
 # indeed_jobs matches a listing back to a vendor by employer name, a field
 # inferred from Bright Data's own sample request and not yet confirmed
@@ -422,6 +423,18 @@ async def create_market(payload: MarketCreate, session=Depends(verify_session_ap
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+# Declared above ``/markets/{market_id}``, and it has to stay there. FastAPI
+# matches routes in registration order, so with the parameterised route first
+# this literal path is read as a market id of "benchmark-metrics" and the
+# request fails validation instead of reaching this function.
+@router.get("/markets/benchmark-metrics")
+async def benchmark_metrics(session=Depends(verify_session_api)):
+    """What the Benchmark view can compare on, and on what clock."""
+    from app.services import market_benchmark as mbench
+    return {"metrics": mbench.available_metrics(),
+            "min_peers": mbench.MIN_PEERS, "top_n": mbench.TOP_N}
 
 
 @router.get("/markets/{market_id}")
@@ -1188,9 +1201,20 @@ async def market_feed(
             if not market.get("is_public") and not session:
                 raise HTTPException(status_code=404, detail="Market not found")
             picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
+            # An anonymous subscriber is a shared viewer, so it sees the same
+            # vendor set a shared report does. This feed named 20 of the
+            # market's 84 vendors to anyone who asked.
+            from app.services import market_entitlements as ent
+            entitlement = ent.resolve(
+                session=session, signed_link=False,
+                market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="feed.xml")
             return mp.build_feed(conn, market, base_url=base, kind=kind,
                                  classes=picked or None, days=days,
-                                 limit=limit)
+                                 limit=limit, allowed_brand_ids=allowed)
         finally:
             conn.close()
 
@@ -1198,6 +1222,53 @@ async def market_feed(
     return Response(content=xml,
                     media_type="application/rss+xml; charset=utf-8",
                     headers={"Cache-Control": "public, max-age=900"})
+
+
+@router.get("/markets/{market_id}/feed.json")
+async def market_feed_json(
+    market_id: int,
+    request: Request,
+    kind: str = Query("all", pattern="^(all|articles|events)$"),
+    classes: Optional[str] = Query(None, description="Comma-separated: news, vendor, social, research."),
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    limit: int = Query(50, ge=1, le=200),
+    session=Depends(verify_session_optional),
+):
+    """The same feed as ``feed.xml``, as JSON Feed 1.1 for assistants and
+    scripts. Same access rule: a public market serves anonymously as the
+    shared view; a private one needs a session and answers 404 otherwise."""
+    from fastapi.responses import Response
+
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    if not base:
+        base = str(request.base_url).rstrip("/")
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if not market.get("is_public") and not session:
+                raise HTTPException(status_code=404, detail="Market not found")
+            picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
+            from app.services import market_entitlements as ent
+            entitlement = ent.resolve(
+                session=session, signed_link=False,
+                market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="feed.json")
+            return mp.build_feed_json(conn, market, base_url=base, kind=kind,
+                                      classes=picked or None, days=days,
+                                      limit=limit, allowed_brand_ids=allowed)
+        finally:
+            conn.close()
+
+    body = await asyncio.to_thread(_work)
+    return Response(content=body,
+                    media_type="application/feed+json; charset=utf-8",
+                    headers={"Cache-Control": "public, max-age=900",
+                             "Access-Control-Allow-Origin": "*"})
 
 
 # Report sharing reuses the signal-report token scheme rather than inventing
@@ -1253,39 +1324,404 @@ async def market_report(
     days: int = Query(30, ge=1, le=365),
     exp: Optional[int] = Query(None),
     token: Optional[str] = Query(None),
+    key: Optional[str] = Query(None, max_length=120,
+                               description="A subscriber's access key: the full dataset, no session needed."),
+    view: str = Query("v2", description="v2 (the front page, the default), report (the assessment), news, briefing."),
+    id: Optional[int] = Query(None, description="view=briefing: which approved briefing; the latest when absent."),
+    section: Optional[str] = Query(None, description="view=v2: one section as its own page (analysis, moves, launches, hiring, cases, voices, social, research)."),
+    piece: Optional[int] = Query(None, description="view=v2: one of our own pieces (an approved analysis or note) as a page."),
+    page: Optional[str] = Query(None, description="view=v2: a page of the site that is not a section (about)."),
+    sort: Optional[str] = Query(None, description="view=v2 section pages: newest first by default; 'rank' restores the front page's order."),
+    full: Optional[int] = Query(None, description="1 with a session: the whole market. Without it the page is the shared view, whoever opens it."),
+    topic: Optional[int] = Query(None, description="view=v2: one discussed or emerging subject as a page of its articles."),
+    run: Optional[str] = Query(None, max_length=40, description="page=consensus|horizons: an earlier run's id; the newest when absent."),
     session=Depends(verify_session_optional),
 ):
     """The market as one self-contained HTML file.
 
-    Three ways in, in order: a valid signed link, a session, or a public
-    market. Anything else is a 404 rather than a redirect — a redirect is what
-    made the feed unusable for machines.
+    The plain URL is the shared view for everybody, session or not: the
+    vendor cap, the blur and the trial form. That is the URL people paste,
+    and an operator looking at it sees what the recipient will see. The
+    whole market needs ``full=1`` *and* a session; the app's own Report
+    button adds it. Access is still decided by the session, token or
+    public flag — ``full`` only chooses how much of it is rendered.
+
+    ``view=v2``, the default since 29 August 2026, is the front page: the
+    period laid out like a news site, one section per kind of development;
+    ``section=`` makes one section a page of its own. ``view=report`` is the
+    assessment. ``view=news`` is the river: every record in the period as a
+    time-ordered list of headlines, no analysis.
+
+    Four ways in, in order: a valid signed link, a session, a subscriber's
+    ``key``, or a public market. Anything else is a 404 rather than a
+    redirect — a redirect is what made the feed unusable for machines. A
+    subscriber's key is the one credential that renders the full dataset
+    without a session; it is sold on the subscribe page and revoked by
+    Stripe's lifecycle webhook.
     """
     import hmac
     import time
 
     from fastapi.responses import Response
 
-    from app.services.market_report_html import build_market_report
+    from app.services.market_report_html import (V2_SECTIONS,
+                                                 build_market_briefing_page,
+                                                 build_market_news_page,
+                                                 build_market_report,
+                                                 build_market_report_v2)
 
     signed = bool(
         exp and token
         and exp > int(time.time())
         and hmac.compare_digest(token, _market_report_token(market_id, exp)))
 
+    from app.services import market_entitlements as ent
+
     def _work():
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            if not (signed or session or market.get("is_public")):
+            # A paying subscriber's key opens the full dataset without a
+            # session. It is looked up by hash and dies with the Stripe
+            # subscription, on the next request.
+            subscriber = None
+            if key:
+                from app.services import market_subscription as msub
+                subscriber = msub.active_by_key(conn, market_id, key)
+            if not (signed or session or subscriber or market.get("is_public")):
                 raise HTTPException(status_code=404, detail="Market not found")
-            return build_market_report(conn, market, days=days)
+            # A signed link and a public market are both shared views. Neither
+            # is the account holder, so neither gets the whole roster: this
+            # report used to name all 84 vendors to anybody with the URL, and
+            # because is_public was true it needed no token at all.
+            full_view = bool(session) and full == 1
+            if subscriber:
+                entitlement = ent.Entitlement("full", None, "active subscription")
+            else:
+                entitlement = ent.resolve(
+                    session=session if full_view else None,
+                    signed_link=signed or bool(session),
+                    market_is_public=bool(market.get("is_public")))
+            allowed = ent.authorized_brand_ids(
+                conn, market_id, entitlement.vendor_limit)
+            ent.log_access(market_id=market_id, entitlement=entitlement,
+                           surface="report.html",
+                           viewer=(f"subscription {subscriber['id']}" if subscriber
+                                   else (session or {}).get("user")
+                                   if isinstance(session, dict) else None))
+            # The signed pair travels with every period link. Without it a
+            # shared reader switching from 30 days to 7 loses the token and
+            # lands on a 404 — and `days` is not part of what the token
+            # signs, so changing the window is safe. A subscriber's key
+            # travels the same way.
+            params = ({"key": key} if subscriber
+                      else {"exp": exp, "token": token} if signed
+                      else ({"full": 1} if full_view else {}))
+            if view == "briefing":
+                return build_market_briefing_page(
+                    conn, market, briefing_id=id, days=days,
+                    allowed_brand_ids=allowed, link_params=params)
+            if view == "v2":
+                if section is not None and section not in V2_SECTIONS:
+                    raise HTTPException(status_code=404, detail="Section not found")
+                if page is not None and page not in ("about", "consensus", "horizons"):
+                    raise HTTPException(status_code=404, detail="Page not found")
+                if page in ("consensus", "horizons"):
+                    # Our reports on the coverage: public in full, like the
+                    # editorial pieces, and served as their own document.
+                    from app.services import market_foresight as mf
+                    front = "?" + urlencode({**params, "days": days, "view": "v2"})
+                    try:
+                        blob = mf.render(conn, page, market, run_id=run, front_href=front)
+                    except LookupError:
+                        raise HTTPException(status_code=404, detail="Run not found")
+                    if blob is None:
+                        raise HTTPException(status_code=404,
+                                            detail="No analysis has been run for this market yet")
+                    return blob
+                try:
+                    return build_market_report_v2(
+                        conn, market, days=days, section=section, piece=piece, page=page,
+                        sort=sort, topic=topic, allowed_brand_ids=allowed, link_params=params)
+                except LookupError:
+                    raise HTTPException(status_code=404, detail="Piece or topic not found")
+            builder = (build_market_news_page if view == "news"
+                       else build_market_report)
+            return builder(
+                conn, market, days=days, allowed_brand_ids=allowed,
+                link_params=params)
         finally:
             conn.close()
 
     html = await asyncio.to_thread(_work)
     return Response(content=html, media_type="text/html; charset=utf-8",
                     headers={"Cache-Control": "private, max-age=300"})
+
+
+class TrialRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    email: str = Field(..., min_length=3, max_length=254)
+    title: Optional[str] = Field(None, max_length=200)
+
+
+_TRIAL_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+TRIAL_REQUESTS_PER_IP_PER_DAY = 20
+
+
+def _notify_trial_request(market: Dict[str, Any], row_id: int, name: str,
+                          email: str, title: Optional[str]) -> bool:
+    """Tell whoever handles trials. Stored first, mailed second: the row is
+    the record, the mail is a convenience, and a mail outage loses nothing."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("trial request %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, "
+                    "so no mail was sent", row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("trial request %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Name: {name}", f"Email: {email}", f"Title: {title or '-'}",
+                 f"Market: {market['name']} (id {market['id']})",
+                 f"Request id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(
+            to, f"Trial request: {name} — {market['name']}",
+            html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("trial request %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/trial-request", status_code=201)
+async def market_trial_request(market_id: int, body: TrialRequest, request: Request):
+    """A reader of the shared report asks for a trial.
+
+    No session, by design: the people filling this in are the ones without
+    one. The market has to exist, the address has to look like one, and one
+    address gets a small number of requests a day.
+    """
+    name = body.name.strip()
+    email = body.email.strip().lower()
+    title = (body.title or "").strip() or None
+    if not name or not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422,
+                            detail="A name and a valid email address are required")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT COUNT(*) FROM market_trial_requests
+                     WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day'
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_trial_requests
+                    (market_id, name, email, title, surface, viewer_reason, ip, user_agent)
+                VALUES (:m, :n, :e, :t, 'report.html', 'shared view', :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "n": name, "e": email, "t": title,
+                   "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_trial_request(market, row_id, name, email, title):
+                conn.execute(text("UPDATE market_trial_requests SET notified = true "
+                                  "WHERE id = :i"), {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class VendorRequest(BaseModel):
+    company: str = Field(..., min_length=1, max_length=200)
+    website: Optional[str] = Field(None, max_length=300)
+    email: str = Field(..., min_length=3, max_length=254)
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+def _notify_vendor_request(market: Dict[str, Any], row_id: int, company: str,
+                           website: Optional[str], email: str,
+                           note: Optional[str]) -> bool:
+    """Same handling as a trial request: stored first, mailed second."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("vendor request %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, "
+                    "so no mail was sent", row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("vendor request %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Company: {company}", f"Website: {website or '-'}",
+                 f"Contact: {email}", f"Note: {note or '-'}",
+                 f"Market: {market['name']} (id {market['id']})",
+                 f"Request id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(
+            to, f"Missing vendor: {company} — {market['name']}",
+            html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("vendor request %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/vendor-request", status_code=201)
+async def market_vendor_request(market_id: int, body: VendorRequest, request: Request):
+    """A reader says their company belongs on this market's list.
+
+    No session, like the trial request, and the same limits: the market has
+    to exist, the address has to look like one, and one address gets a small
+    number of requests a day (shared with trial requests).
+    """
+    company = body.company.strip()
+    website = (body.website or "").strip()[:300] or None
+    email = body.email.strip().lower()
+    note = (body.note or "").strip() or None
+    if not company or not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422,
+                            detail="A company name and a valid email address are required")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT (SELECT COUNT(*) FROM market_vendor_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_trial_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_vendor_requests
+                    (market_id, company, website, email, note, ip, user_agent)
+                VALUES (:m, :c, :w, :e, :n, :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "c": company, "w": website, "e": email,
+                   "n": note, "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_vendor_request(market, row_id, company, website, email, note):
+                conn.execute(text("UPDATE market_vendor_requests SET notified = true "
+                                  "WHERE id = :i"), {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class NewsTip(BaseModel):
+    url: str = Field(..., min_length=8, max_length=1000)
+    note: Optional[str] = Field(None, max_length=2000)
+    email: Optional[str] = Field(None, max_length=254)
+
+
+_TIP_URL_RE = re.compile(r"^https?://[^\s/]+\.[^\s]+$", re.I)
+
+
+def _notify_news_tip(market: Dict[str, Any], row_id: int, url: str,
+                     note: Optional[str], email: Optional[str]) -> bool:
+    """Stored first, mailed second, like a vendor request."""
+    import html as _html
+
+    to = [a.strip() for a in (os.getenv("MARKET_TRIAL_NOTIFY_EMAIL") or "").split(",")
+          if a.strip()]
+    if not to:
+        logger.info("news tip %s stored; MARKET_TRIAL_NOTIFY_EMAIL is unset, so no mail was sent",
+                    row_id)
+        return False
+    try:
+        from app.services.email_service import EmailService
+        svc = EmailService()
+        if not svc.is_available():
+            logger.warning("news tip %s stored; email service not configured", row_id)
+            return False
+        lines = [f"Link: {url}", f"Note: {note or '-'}", f"From: {email or '-'}",
+                 f"Market: {market['name']} (id {market['id']})", f"Tip id: {row_id}"]
+        html_body = "<p>" + "<br>".join(_html.escape(l) for l in lines) + "</p>"
+        return bool(svc.send_email(to, f"News tip — {market['name']}", html_body, "\n".join(lines)))
+    except Exception as exc:  # noqa: BLE001 — never fail the request over mail
+        logger.warning("news tip %s stored; notification failed: %s", row_id, exc)
+        return False
+
+
+@router.post("/markets/{market_id}/news-tip", status_code=201)
+async def market_news_tip(market_id: int, body: NewsTip, request: Request):
+    """A reader points us at a story: a link, what it is, and an email if
+    they want an answer. No session; the same daily limit per address as
+    the trial and vendor requests, shared with them."""
+    url = body.url.strip()
+    note = (body.note or "").strip() or None
+    email = (body.email or "").strip().lower() or None
+    if not _TIP_URL_RE.match(url):
+        raise HTTPException(status_code=422, detail="A link starting with http:// or https:// is required")
+    if email and not _TRIAL_EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="That email address does not look right")
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = (forwarded.split(",")[0].strip() if forwarded
+          else (request.client.host if request.client else None)) or None
+    agent = (request.headers.get("user-agent") or "")[:400]
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            if ip:
+                recent = conn.execute(text("""
+                    SELECT (SELECT COUNT(*) FROM market_news_tips
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_vendor_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                         + (SELECT COUNT(*) FROM market_trial_requests
+                             WHERE ip = :ip AND created_at > NOW() - INTERVAL '1 day')
+                """), {"ip": ip}).scalar() or 0
+                if recent >= TRIAL_REQUESTS_PER_IP_PER_DAY:
+                    raise HTTPException(status_code=429,
+                                        detail="Too many requests from this address today")
+            row_id = conn.execute(text("""
+                INSERT INTO market_news_tips (market_id, url, note, email, ip, user_agent)
+                VALUES (:m, :u, :n, :e, :ip, :ua)
+                RETURNING id
+            """), {"m": market_id, "u": url, "n": note, "e": email, "ip": ip, "ua": agent}).scalar()
+            conn.commit()
+            if _notify_news_tip(market, row_id, url, note, email):
+                conn.execute(text("UPDATE market_news_tips SET notified = true WHERE id = :i"),
+                             {"i": row_id})
+                conn.commit()
+            return {"ok": True, "id": int(row_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.get("/markets/{market_id}/export.zip")
@@ -1465,6 +1901,45 @@ async def market_briefing_detail(market_id: int, briefing_id: int,
 
 class BriefingStatus(BaseModel):
     status: str = Field(..., pattern="^(draft|approved|rejected)$")
+    override: bool = Field(False, description="Approve despite citation findings that would otherwise refuse it.")
+
+
+class BriefingWrite(BaseModel):
+    kind: str = Field("analysis", pattern="^(analysis|note)$")
+    title: str = Field(..., min_length=1, max_length=300)
+    report_content: str = Field(..., min_length=1, max_length=200_000)
+    author: Optional[str] = Field(None, max_length=120)
+
+
+@router.post("/markets/{market_id}/briefings/write")
+async def market_piece_write(market_id: int, body: BriefingWrite,
+                             session=Depends(verify_session_api)):
+    """A piece a person wrote — an analysis or a note — saved as a draft.
+    Approve it like a briefing and it goes on the front page and into the
+    feed; edits keep every earlier text."""
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                row = mbr.create_piece(conn, market, kind=body.kind, title=body.title,
+                                       content=body.report_content,
+                                       author=body.author, saved_by=by)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            # Every save reads each citation against its source (piece_citations);
+            # the findings land in the piece's lint, and approval refuses an
+            # unsupported one.
+            from app.services import piece_citations as pc
+            pc.run_and_store(conn, market_id, row)
+            return mbr.get(conn, market_id, int(row["id"]))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
 
 
 @router.put("/markets/{market_id}/briefings/{briefing_id}/status")
@@ -1477,14 +1952,165 @@ async def market_briefing_status(market_id: int, briefing_id: int,
     def _work():
         conn = _conn()
         try:
-            _load_market(conn, market_id)
+            market = _load_market(conn, market_id)
+            if body.status == "approved" and not body.override:
+                from app.services import piece_citations as pc
+                current = mbr.get(conn, market_id, briefing_id)
+                if current and current.get("kind") in ("analysis", "note"):
+                    # Re-read the citations now: the index or the text may have
+                    # changed since the last save.
+                    findings = pc.run_and_store(conn, market_id, current)
+                    bad = pc.blocking(findings)
+                    if bad:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Not approved: " + "; ".join(b["detail"] for b in bad)
+                                   + ". Fix the citation, or approve with override=true.")
             if not mbr.set_status(conn, market_id, briefing_id, body.status):
                 raise HTTPException(status_code=404, detail="Briefing not found")
-            return {"ok": True, "id": briefing_id, "status": body.status}
+            # An approved briefing is a news-feed item; anything else is not.
+            feed = mbr.sync_feed_entry(conn, market, briefing_id)
+            return {"ok": True, "id": briefing_id, "status": body.status,
+                    "feed": feed}
         finally:
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+class BriefingEdit(BaseModel):
+    report_content: str = Field(..., min_length=1, max_length=200_000)
+    title: Optional[str] = Field(None, max_length=300)
+
+
+def _session_user(session) -> Optional[str]:
+    """The person's name for an audit column. The session's ``user`` is a
+    dict on this stack, so take its username or email, never its repr."""
+    if not isinstance(session, dict):
+        return None
+    user = session.get("user")
+    if isinstance(user, dict):
+        for key in ("username", "email", "name"):
+            if user.get(key):
+                return str(user[key])[:120]
+    for key in ("username", "email"):
+        if session.get(key):
+            return str(session[key])[:120]
+    return str(user)[:120] if isinstance(user, str) and user else None
+
+
+@router.put("/markets/{market_id}/briefings/{briefing_id}")
+async def market_briefing_edit(market_id: int, briefing_id: int, body: BriefingEdit,
+                               session=Depends(verify_session_api)):
+    """Replace the briefing's text with a person's. The previous text is
+    kept as a revision; an approved briefing's feed item follows the edit."""
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                row = mbr.save_edit(conn, market, briefing_id,
+                                    content=body.report_content, title=body.title,
+                                    saved_by=by)
+                if row and row.get("kind") in ("analysis", "note"):
+                    from app.services import piece_citations as pc
+                    pc.run_and_store(conn, market_id, row)
+                    row = mbr.get(conn, market_id, briefing_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if not row:
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/revisions")
+async def market_briefing_revisions(market_id: int, briefing_id: int,
+                                    session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            if not mbr.get(conn, market_id, briefing_id):
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return {"revisions": mbr.revisions(conn, market_id, briefing_id)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/revisions/{revision_id}")
+async def market_briefing_revision(market_id: int, briefing_id: int, revision_id: int,
+                                   session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            row = mbr.revision(conn, market_id, briefing_id, revision_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Revision not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/briefings/{briefing_id}/revisions/{revision_id}/restore")
+async def market_briefing_restore(market_id: int, briefing_id: int, revision_id: int,
+                                  session=Depends(verify_session_api)):
+    from app.services import market_briefing as mbr
+    by = _session_user(session)
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            row = mbr.restore(conn, market, briefing_id, revision_id, saved_by=by)
+            if not row:
+                raise HTTPException(status_code=404, detail="Revision not found")
+            return row
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/briefings/{briefing_id}/report.html")
+async def market_briefing_page(market_id: int, briefing_id: int,
+                               session=Depends(verify_session)):
+    """The briefing as a page. This is the URL its news-feed item opens.
+
+    A session is required, and a reader without one is sent to the login
+    page rather than shown a 401, because this link is followed by people
+    clicking a feed card, not by machines.
+    """
+    from fastapi.responses import HTMLResponse
+    from app.services import market_briefing as mbr
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            row = mbr.get(conn, market_id, briefing_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="Briefing not found")
+            return mbr.render_page(market, row)
+        finally:
+            conn.close()
+
+    return HTMLResponse(await asyncio.to_thread(_work))
 
 
 class ReviewFix(BaseModel):
@@ -1561,20 +2187,249 @@ async def market_review_auto_close(market_id: int,
 @router.get("/markets/{market_id}/jobs")
 async def market_jobs(market_id: int,
                       brand_id: Optional[int] = Query(None),
+                      status: Optional[str] = Query(
+                          None, description="currently_observed, "
+                                            "newly_observed, "
+                                            "no_longer_observed or "
+                                            "first_observation."),
+                      source: Optional[str] = Query(
+                          None, description="linkedin_jobs, or ats_jobs for "
+                                            "the company's own hiring system."),
+                      page: int = Query(1, ge=1),
+                      page_size: int = Query(50, ge=1, le=500),
+                      sort: str = Query("vendor:asc"),
+                      fmt: str = Query("json", pattern="^(json|csv)$"),
                       session=Depends(verify_session_api)):
-    """The job listings behind the hiring counts, each with its URL."""
-    from app.services import market_analysis as man
+    """The job listings behind the hiring counts, each with its URL.
+
+    ``openings`` and ``postings`` are still returned so existing callers keep
+    working, alongside the paginated envelope every other list uses.
+    """
+    from fastapi.responses import Response
+
+    from app.services import market_lists as ml
 
     def _work():
         conn = _conn()
         try:
-            _load_market(conn, market_id)
-            rows = man.job_postings(conn, market_id, brand_id)
-            return {"openings": len(rows), "postings": rows}
+            market = _load_market(conn, market_id)
+            return market, ml.jobs(conn, market_id, brand_id=brand_id,
+                                   status=status, source=source, page=page,
+                                   page_size=(500 if fmt == "csv" else page_size),
+                                   sort=sort, include_all=(fmt != "csv"))
         finally:
             conn.close()
 
-    return await asyncio.to_thread(_work)
+    market, out = await asyncio.to_thread(_work)
+    if fmt == "csv":
+        return _list_csv(market, "jobs", out)
+    # The old shape, kept beside the new one rather than replaced: the vendor
+    # page and the hiring panel both read `postings` today, and both expect
+    # every listing rather than the first page.
+    out["openings"] = out["meta"]["pagination"]["total"]
+    out["postings"] = out.pop("_all", out["data"])
+    return out
+
+
+def _list_csv(market: Dict[str, Any], name: str, out: Dict[str, Any]):
+    """A list as CSV, from the same rows the JSON returned.
+
+    Same rows and same filters, so an export cannot disagree with the screen.
+    """
+    from fastapi.responses import Response
+
+    from app.services import market_lists as ml
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filename = f"{market['slug']}-{name}-{stamp}.csv"
+    return Response(
+        content=ml.csv_of(out["data"]), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/markets/{market_id}/posts")
+async def market_posts(
+    market_id: int,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    vendor_id: Optional[int] = Query(None),
+    platform: Optional[str] = Query(None),
+    ownership: Optional[str] = Query(
+        None, description="owned, reshared or earned. A reshare is neither the "
+                          "vendor speaking nor coverage of it."),
+    classification: Optional[str] = Query(
+        None, description="signal, commentary, noise or unreviewed."),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("published_at:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """The posts behind a post count.
+
+    Pass the same ``days`` the card used. The window bound is a string
+    comparison against a TEXT column, so a window computed independently here
+    would disagree with the card by whatever sits on the boundary.
+    """
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.posts(
+                conn, market_id, days=days, vendor_id=vendor_id,
+                platform=platform, ownership=ownership,
+                classification=classification, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "posts", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/coverage/items")
+async def market_coverage_items(
+    market_id: int,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    week: Optional[str] = Query(
+        None, description="ISO date inside the week, as the chart's x-axis "
+                          "carries it."),
+    source: Optional[str] = Query(
+        None, description="news, vendor_linkedin, or a platform name."),
+    vendor_id: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("published_at:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """The records behind one bar of the weekly content chart."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.coverage_items(
+                conn, market_id, days=days, week=week, source=source,
+                vendor_id=vendor_id, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "coverage", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/funding/vendors")
+async def market_funding_vendors(
+    market_id: int,
+    stage: Optional[str] = Query(None, description="A stage group name."),
+    disclosure: Optional[str] = Query(
+        None, description="disclosed, undisclosed or unavailable. Undisclosed "
+                          "is a company that did not say; unavailable is data "
+                          "we do not have."),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    sort: str = Query("disclosed:desc"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Funding per vendor, each field labelled with where it came from."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.funding_vendors(
+                conn, market_id, stage=stage, disclosure=disclosure, page=page,
+                page_size=(500 if fmt == "csv" else page_size), sort=sort)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "funding", out) if fmt == "csv" else out
+
+
+# Literal before parameterised: `/funding/investors` must not be captured by
+# `/funding/investors/{investor}`, and FastAPI matches in declaration order.
+@router.get("/markets/{market_id}/funding/investors")
+async def market_investors(
+    market_id: int,
+    min_vendors: int = Query(2, ge=1, le=50),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Investors appearing in more than one monitored vendor's record.
+
+    Portfolio overlap only. It says nothing about amount invested, ownership,
+    who led a round, or how the investment did.
+    """
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.investors(
+                conn, market_id, min_vendors=min_vendors, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "investors", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/funding/investors/{investor}")
+async def market_investor_vendors(
+    market_id: int, investor: str,
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every monitored vendor whose record names one investor."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.investor_vendors(conn, market_id, investor)
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "investor", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/voices/{author}/posts")
+async def market_voice_posts(
+    market_id: int, author: str,
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every relevant post by one account, and what made each one match."""
+    from app.services import market_lists as ml
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, ml.voice_posts(
+                conn, market_id, author, days=days, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "voice", out) if fmt == "csv" else out
 
 
 @router.get("/markets/{market_id}/drilldown/{name}")
@@ -1619,6 +2474,403 @@ async def market_voices(market_id: int,
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+class FollowRequest(BaseModel):
+    platform: str = Field(..., pattern="^(twitter|bluesky|reddit)$")
+    handle: str = Field(..., min_length=1, max_length=200)
+
+
+@router.get("/markets/{market_id}/follow")
+async def market_follow_list(market_id: int, session=Depends(verify_session_api)):
+    """The accounts we follow for this market: their timelines are read and
+    the posts that touch the market kept, whatever the keyword collector saw."""
+    from app.services import market_follow as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return {"accounts": mf.followed(conn)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/follow")
+async def market_follow_add(market_id: int, body: FollowRequest,
+                            session=Depends(verify_session_api)):
+    """Follow an account. It is profiled first when it has no profile (two
+    xpoz calls and one short model call), so the page can say who it is."""
+    from app.services import market_follow as mf
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+    finally:
+        conn.close()
+    try:
+        row = await mf.follow(get_database_instance(), body.platform, body.handle,
+                              market["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    if not row:
+        raise HTTPException(status_code=404,
+                            detail=f"No {body.platform} account found for @{body.handle}")
+    return row
+
+
+@router.delete("/markets/{market_id}/follow")
+async def market_follow_remove(market_id: int, body: FollowRequest,
+                               session=Depends(verify_session_api)):
+    from app.services import market_follow as mf
+
+    if not await asyncio.to_thread(mf.unfollow, get_database_instance(),
+                                   body.platform, body.handle):
+        raise HTTPException(status_code=404, detail="Not on the list")
+    return {"ok": True}
+
+
+class AnalystFeed(BaseModel):
+    firm: str = Field(..., min_length=1, max_length=60)
+    url: str = Field(..., min_length=8, max_length=500, pattern=r"^https?://")
+
+
+class AnalystFeeds(BaseModel):
+    feeds: List[AnalystFeed] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/markets/{market_id}/analyst-feeds")
+async def market_analyst_feeds(market_id: int, session=Depends(verify_session_api)):
+    """The analyst firms' public feeds read for this market, and whether
+    they are the defaults (nothing set on the market yet)."""
+    from app.services import market_research as mres
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return {"feeds": mres.feeds(market), "defaults": mres.uses_defaults(market)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.put("/markets/{market_id}/analyst-feeds")
+async def set_market_analyst_feeds(market_id: int, payload: AnalystFeeds,
+                                   session=Depends(verify_session_api)):
+    """Replace the list and register it with the RSS monitor under the
+    market's collection topic; a feed taken off the list is switched off."""
+    from app.services import market_research as mres
+
+    cleaned: List[Dict[str, str]] = []
+    seen = set()
+    for f in payload.feeds:
+        url = f.url.strip()
+        if url in seen:
+            continue
+        seen.add(url)
+        cleaned.append({"firm": f.firm.strip(), "url": url})
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            conn.execute(text("""
+                UPDATE bw_markets
+                SET config = COALESCE(config, '{}'::jsonb)
+                             || jsonb_build_object('analyst_feeds', CAST(:f AS JSONB)),
+                    updated_at = NOW()
+                WHERE id = :m
+            """), {"m": market_id, "f": json.dumps(cleaned)})
+            conn.commit()
+            market = _load_market(conn, market_id)
+            result = mres.sync_feeds(conn, market)
+            return {"feeds": mres.feeds(market), "defaults": False, "sync": result}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/follow/collect")
+async def market_follow_collect(market_id: int, session=Depends(verify_session_api)):
+    """Read the followed accounts' timelines now and keep what touches the
+    market. The poller does this on its own cadence as well."""
+    from app.services import market_follow as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mf.collect_followed(conn, market)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+class VoiceProfileRequest(BaseModel):
+    author: str = Field(..., min_length=1, max_length=200)
+    platform: str = Field(..., min_length=1, max_length=40)
+
+
+class VoiceProfileAllRequest(BaseModel):
+    days: Optional[int] = Field(None, ge=1, le=3650)
+    limit: int = Field(50, ge=1, le=200)
+    refresh: bool = False
+    # "build" fetches from the platform; "reread" re-runs the model step over
+    # stored profiles only (adds the market role to older profiles cheaply).
+    mode: str = Field("build", pattern="^(build|reread)$")
+
+
+@router.post("/markets/{market_id}/voices/profile")
+async def market_voice_profile(market_id: int, body: VoiceProfileRequest,
+                               session=Depends(verify_session_api)):
+    """Build one voice's account profile, framed by this market.
+
+    The same profile brand monitoring builds from the Accounts tab, stored in
+    the same ``social_accounts`` row, so the two never disagree about a handle.
+    """
+    from app.services import market_voice_profiles as mvp
+
+    conn = _conn()
+    try:
+        market = await asyncio.to_thread(_load_market, conn, market_id)
+    finally:
+        conn.close()
+    try:
+        prof = await mvp.profile_one(get_database_instance(), body.platform,
+                                     body.author, market["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not prof:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {body.platform} account found for @{body.author}")
+    try:
+        await asyncio.to_thread(mvp.link_vendor_accounts, get_database_instance(), market_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("linking vendor accounts failed: %s", exc)
+    return prof
+
+
+@router.post("/markets/{market_id}/voices/profile-all", status_code=202)
+async def market_voice_profile_all(market_id: int, body: VoiceProfileAllRequest,
+                                   session=Depends(verify_session_api)):
+    """Profile every voice on the list that has no profile yet.
+
+    Runs in the background; poll the GET for progress. ``refresh`` rebuilds
+    the ones already profiled too.
+    """
+    from app.services import market_analysis as man
+    from app.services import market_voice_profiles as mvp
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, man.top_voices(conn, market_id, days=body.days,
+                                          limit=body.limit)
+        finally:
+            conn.close()
+
+    market, voices = await asyncio.to_thread(_work)
+    try:
+        return mvp.start_many(get_database_instance(), market_id, market["name"],
+                              voices.get("voices") or [], refresh=body.refresh,
+                              mode=body.mode)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get("/markets/{market_id}/horizon")
+async def market_horizon(market_id: int, session=Depends(verify_session_api)):
+    """The latest stored Market Horizon, with movement against the one before.
+
+    404 until a map has been computed; the page offers the compute button.
+    """
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            stored = mh.latest(conn, market_id, n=2)
+            if not stored:
+                raise HTTPException(status_code=404,
+                                    detail="No Market Horizon computed yet")
+            return mh.with_movement(stored[0], stored[1] if len(stored) > 1 else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/horizon/compute", status_code=201)
+async def market_horizon_compute(market_id: int,
+                                 session=Depends(verify_session_api)):
+    """Compute the map from today's readings, store it, and return it."""
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            previous = mh.latest(conn, market_id, n=1)
+            result = mh.compute(conn, market)
+            result["id"] = mh.store(conn, result)
+            return mh.with_movement(result, previous[0] if previous else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/topics")
+async def market_topics(market_id: int, session=Depends(verify_session_api)):
+    """The newest stored "Being discussed" and "Emerging" run. 404 until
+    one has been computed; the tick computes one a day."""
+    from app.services import market_topics as mt
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            stored = mt.latest(conn, market_id)
+            if not stored:
+                raise HTTPException(status_code=404, detail="No topics computed yet")
+            return stored
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.post("/markets/{market_id}/topics/compute", status_code=201)
+async def market_topics_compute(
+        market_id: int,
+        model: Optional[str] = Query(None, description="Override the naming model."),
+        session=Depends(verify_session_api)):
+    """Group the last 30 days' headlines now, store and return the run.
+    The gather and the store run in a thread on their own connections; the
+    one model call is awaited on the loop between them."""
+    from app.services import market_topics as mt
+
+    def _compute():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, mt.compute(conn, market)
+        finally:
+            conn.close()
+
+    market, result = await asyncio.to_thread(_compute)
+    if not result.get("items"):
+        raise HTTPException(status_code=422,
+                            detail=result.get("reason") or "Nothing to group")
+    try:
+        await mt.group(result, market["name"], model=model)
+    except mt.GroupingFailed as exc:
+        raise HTTPException(status_code=502, detail=f"Grouping failed: {exc}")
+    mt.rank(result)
+    result.pop("items", None)
+
+    def _store():
+        conn = _conn()
+        try:
+            return mt.store(conn, result)
+        finally:
+            conn.close()
+
+    result["id"] = await asyncio.to_thread(_store)
+    return result
+
+
+class HorizonControls(BaseModel):
+    multipliers: Dict[str, float] = Field(default_factory=dict)
+    note: Optional[str] = Field(None, max_length=4000)
+    status: str = Field("active", pattern="^(active|acquired|closed|pivoted)$")
+    acquired_by: Optional[str] = Field(None, max_length=200)
+    status_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}/horizon-controls")
+async def get_horizon_controls(market_id: int, brand_id: int,
+                               session=Depends(verify_session_api)):
+    """The analyst's controls for one vendor on this market's horizon, and
+    the inputs they can weight."""
+    from app.services import market_horizon as mh
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            cfg = mh.load_config()
+            return {"controls": mh.load_controls(conn, market_id).get(brand_id)
+                    or {"multipliers": {}, "note": None, "status": "active",
+                        "acquired_by": None, "status_date": None},
+                    "inputs": {k: {"label": v["label"], "axis": v["axis"],
+                                   "weight": v["weight"]}
+                               for k, v in cfg["inputs"].items()},
+                    "statuses": list(mh.STATUSES)}
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.put("/markets/{market_id}/vendors/{brand_id}/horizon-controls")
+async def put_horizon_controls(market_id: int, brand_id: int, body: HorizonControls,
+                               session=Depends(verify_session_api)):
+    """Save the controls. Applied on the next compute, printed beside the
+    vendor, so an adjustment is never silent."""
+    from app.services import market_horizon as mh
+    by = None
+    if isinstance(session, dict):
+        by = session.get("username") or session.get("user") or session.get("email")
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            if not conn.execute(text(
+                    "SELECT 1 FROM bw_market_brands WHERE market_id = :m AND brand_id = :b"),
+                    {"m": market_id, "b": brand_id}).scalar():
+                raise HTTPException(status_code=404, detail="Vendor is not on this market")
+            return mh.save_controls(
+                conn, market_id, brand_id, multipliers=body.multipliers, note=body.note,
+                status=body.status, acquired_by=body.acquired_by,
+                status_date=body.status_date, updated_by=str(by) if by else None)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/horizon/config")
+async def market_horizon_config(market_id: int,
+                                session=Depends(verify_session_api)):
+    """The weights, window and cut-offs in force, and where to change them."""
+    from app.services import market_horizon as mh
+    return {"config": mh.load_config(), "path": mh.config_path(),
+            "tiers": mh.TIERS, "what_it_is_not": mh.WHAT_IT_IS_NOT}
+
+
+@router.get("/markets/{market_id}/voices/profile-all")
+async def market_voice_profile_status(market_id: int,
+                                      session=Depends(verify_session_api)):
+    from app.services import market_voice_profiles as mvp
+    return mvp.status(market_id)
 
 
 @router.get("/markets/{market_id}/channel-mix")
@@ -1794,6 +3046,8 @@ class PostReviewRequest(BaseModel):
     batch: int = Field(20, ge=1, le=50)
     days: Optional[int] = Field(None, ge=1, le=3650)
     redo: bool = False
+    # With redo: only posts already given one of these kinds.
+    kinds: Optional[List[str]] = None
     dry_run: bool = False
 
 
@@ -1819,7 +3073,7 @@ async def market_post_review(market_id: int, body: PostReviewRequest,
         return await mpr.review(
             conn, market_id, market["name"],
             limit=body.limit, batch=body.batch, days=body.days,
-            redo=body.redo, dry_run=body.dry_run)
+            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run)
     finally:
         conn.close()
 
@@ -2055,6 +3309,126 @@ async def market_headcount_trend(
             conn.close()
 
     return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/headcount/movers")
+async def market_headcount_movers(
+    market_id: int,
+    session=Depends(verify_session_api),
+):
+    """Observed market headcount, the vendors that moved, and who we cannot say.
+
+    Separate from /headcount-trend, which is a normalized weekly index. This is
+    the absolute figure and the mover list, and it holds itself to the rule that
+    movement needs two readings of the same measurement. Vendors with one
+    reading come back under ``insufficient_history`` rather than as unchanged.
+    """
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return mp.headcount_market(conn, market)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/collection-state")
+async def market_collection_state(
+    market_id: int,
+    session=Depends(verify_session_api),
+):
+    """Per source: what state it is in, how much of the market it reached.
+
+    The panel that tells a reader whether a zero on this page is a measurement.
+    ``source-health`` answers "is the collector working"; this answers "may I
+    believe this number", which is a different question with a different
+    denominator — that source's own eligible vendors, not the whole registry.
+    """
+    from app.services import market_metrics as mmet
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            states = [mmet.collection_state(conn, market_id, src)
+                      for src in mmet.tracked_sources()]
+            return {
+                "market_id": market_id,
+                "sources": states,
+                "legend": mmet.SOURCE_LEGEND,
+                "state_labels": mmet.STATE_LABELS,
+                "unmeasured_states": sorted(mmet.UNMEASURED),
+            }
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+@router.get("/markets/{market_id}/findings")
+async def market_findings(
+    market_id: int,
+    days: Optional[int] = Query(30, ge=1, le=3650),
+    theme: Optional[str] = Query(None, description="One of the six themes."),
+    vendor_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(
+        None, description="confirmed, corroborated, watch or dismissed."),
+    materiality: Optional[str] = Query(None, description="high, medium or low."),
+    sort: str = Query("recommended"),
+    include_dismissed: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """What changed in this market, as findings rather than a feed.
+
+    A finding is a deduplicated change with its evidence attached, so several
+    reports of one event are one finding. The default order is the
+    specification's deterministic tiers, not a relevance score.
+    """
+    from app.services import market_findings as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            return market, mf.findings(
+                conn, market_id, days=days, theme=theme, vendor_id=vendor_id,
+                status=status, materiality=materiality, sort=sort,
+                include_dismissed=include_dismissed, page=page,
+                page_size=(500 if fmt == "csv" else page_size))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "findings", out) if fmt == "csv" else out
+
+
+@router.get("/markets/{market_id}/findings/{finding_id}/evidence")
+async def market_finding_evidence(
+    market_id: int, finding_id: int,
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    session=Depends(verify_session_api),
+):
+    """Every record behind one finding, with whose voice each one is."""
+    from app.services import market_findings as mf
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                return market, mf.evidence(conn, market_id, finding_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+        finally:
+            conn.close()
+
+    market, out = await asyncio.to_thread(_work)
+    return _list_csv(market, "evidence", out) if fmt == "csv" else out
 
 
 # ---------------------------------------------------------------------------
@@ -2383,6 +3757,7 @@ async def brightdata_linkedin_callback(
                 conn, run_id,
                 status=mc.outcome_status(len(records), result.get("stored", 0),
                                          result.get("provider_errors", 0)),
+                provider_errors=result.get("provider_errors", 0),
                 received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)
@@ -2466,6 +3841,14 @@ async def vendor_detail(market_id: int, brand_id: int,
                 WHERE brand_id = :b AND snapshot_type = 'funding'
                 ORDER BY observed_at DESC LIMIT 1
             """), {"b": brand_id}).scalar()
+            # Bright Data's Crunchbase record gives the acquirer as an object
+            # ({acquirer, transaction_name, acquirer_permalink}); the vendor
+            # page prints it as text, and React refuses an object as a child
+            # (the Explore page went blank on 31 August after the first full
+            # Crunchbase sweep). Hand the page the name.
+            acq = (vendor["funding"] or {}).get("acquired_by") if isinstance(vendor["funding"], dict) else None
+            if isinstance(acq, dict):
+                vendor["funding"]["acquired_by"] = acq.get("acquirer") or acq.get("transaction_name") or None
 
             # Latest state per watched page, with whatever changed last time.
             vendor["pages"] = [dict(r) for r in conn.execute(text("""
@@ -2481,7 +3864,8 @@ async def vendor_detail(market_id: int, brand_id: int,
             vendor["jobs"] = [dict(r) for r in conn.execute(text("""
                 SELECT DISTINCT ON (provider_item_id)
                        data->>'title' AS title, data->>'location' AS location,
-                       data->>'seniority' AS seniority, data->>'function' AS function,
+                       data->>'seniority' AS seniority,
+                       COALESCE(NULLIF(data->>'function', ''), data->>'function_hint') AS function,
                        data->>'posted_date' AS posted_date, data->>'url' AS url
                 FROM bw_vendor_snapshots
                 WHERE brand_id = :b AND snapshot_type = 'job_posting'
@@ -2577,6 +3961,213 @@ async def vendor_detail(market_id: int, brand_id: int,
 MANUAL_IDENTIFIER_KINDS = {"pitchbook_url", "zoominfo_url"}
 
 
+@router.get("/markets/{market_id}/vendors/{brand_id}/benchmarks")
+async def vendor_benchmarks(market_id: int, brand_id: int,
+                            days: int = 30, metrics: Optional[str] = None,
+                            session=Depends(verify_session_api)):
+    """One vendor against the measured market and the top of it (spec 4.16).
+
+    ``metrics`` is an optional comma-separated subset of
+    ``market_benchmark.METRICS``; without it every supported metric is
+    returned, which is what the comparison table needs.
+
+    The route requires a session, so the caller is always entitled to the whole
+    market and the Top-N members are named. The restricted path is the shared
+    report, which never reaches here.
+    """
+    from app.services import market_benchmark as mbench
+
+    def _work():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            keys = ([k.strip() for k in metrics.split(",") if k.strip()]
+                    if metrics else None)
+            return mbench.benchmarks(conn, market, brand_id,
+                                     days=max(1, min(int(days), 365)),
+                                     metric_keys=keys, include_cohort=True)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc))
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_work)
+
+
+_VENDOR_EXPORT_FMTS = ("md", "csv", "pdf")
+
+
+def _fmt_bench(val, unit: str) -> str:
+    if val is None:
+        return "—"
+    if unit == "musd":
+        return f"${val:g}M"
+    if unit == "percent":
+        return f"{val:+.1f}%"
+    return f"{val:g}"
+
+
+def _bench_rows(bench: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The benchmark metrics flattened for the exports, suppressed ones out."""
+    rows = []
+    for m in (bench or {}).get("metrics") or []:
+        if m.get("suppressed"):
+            continue
+        unit = (m.get("metric") or {}).get("unit") or ""
+        rows.append({
+            "metric": (m.get("metric") or {}).get("label"),
+            "unit": unit,
+            "vendor_value": m.get("vendor_value"),
+            "unmeasured_because": m.get("vendor_unmeasured_because"),
+            "market_median": m.get("market_median"),
+            "market_average": m.get("market_average"),
+            "top10_median": m.get("top_median"),
+            "vendor_percentile": m.get("vendor_percentile"),
+            "delta_from_market_median": m.get("delta_from_market_median"),
+            "measured": f'{m.get("measured_count")} of {m.get("eligible_count")}',
+            "as_of": (m.get("metric") or {}).get("as_of_note"),
+            "degraded": bool(m.get("degraded")),
+        })
+    return rows
+
+
+def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any],
+                     bench: Optional[Dict[str, Any]] = None) -> str:
+    """The vendor page as a Markdown dossier, same data as the screen."""
+    from app.services import market_horizon as mh
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [f"# {v['display_name']} — vendor dossier",
+             f"_Market: {market['name']} · compiled {stamp} from collected public data_", ""]
+    base = (v.get("baseline") or {})
+    idents = [i for i in v.get("identifiers") or [] if i.get("live")]
+    lines += ["## Registry",
+              f"- Role {v.get('role')}; collection {'on' if v.get('collection_enabled') else 'off'}.",
+              "- Identifiers: " + ("; ".join(f"{i['kind']} = {i['display_value']}" for i in idents) or "none"), ""]
+    fund = base.get("funding_baseline") or {}
+    if fund:
+        total = fund.get("total_musd")
+        lines += ["## Funding (registry baseline)",
+                  f"- {fund.get('status')}" + (f", ${total}M total" if isinstance(total, (int, float)) else "")
+                  + (f". {fund.get('notes')}" if fund.get("notes") else ""), ""]
+    series = v.get("profile_series") or []
+    if series:
+        last = series[-1]
+        lines += ["## LinkedIn profile",
+                  f"- Latest: {last.get('employee_count')} employees, {last.get('followers')} followers "
+                  f"({str(last.get('observed_at'))[:10]}); {len(series)} reading(s) on file.", ""]
+    cb = v.get("funding") or {}
+    if cb:
+        inv = ", ".join(cb.get("investors") or [])
+        lines += ["## Crunchbase",
+                  f"- Rounds {cb.get('num_funding_rounds')}, last {cb.get('last_funding_type')}; "
+                  f"rank {cb.get('cb_rank')}, growth {cb.get('growth_score')}, heat {cb.get('heat_score')}."
+                  + (f" Acquired by {cb.get('acquired_by')}." if cb.get("acquired_by") else "")
+                  + (f" Investors: {inv}." if inv else ""), ""]
+    jobs = v.get("jobs") or []
+    if jobs:
+        lines += [f"## Open roles ({len(jobs)})"] + [
+            f"- {j.get('title')} — {j.get('location') or ''} {('(' + j['function'] + ')') if j.get('function') else ''}".rstrip()
+            for j in jobs[:25]] + [""]
+    ann = v.get("announcements") or []
+    if ann:
+        lines += [f"## Announcements the review pass kept ({len(ann)})"] + [
+            f"- {str(a.get('publication_date') or '')[:10]} · {a.get('review_kind') or ''} — {(a.get('title') or '')[:120]}"
+            for a in ann] + [""]
+    posts = v.get("posts") or []
+    if posts:
+        lines += ["## Latest own LinkedIn posts"] + [
+            f"- {str(p.get('publication_date') or '')[:10]} — {(p.get('title') or '')[:120]}" for p in posts] + [""]
+    brows = _bench_rows(bench)
+    if brows:
+        lines += [f"## Benchmarks (last {bench.get('period_days')} days, against "
+                  f"{bench.get('metrics')[0].get('eligible_count')} vendors)"]
+        for b in brows:
+            if b["vendor_value"] is None:
+                lines.append(f"- {b['metric']}: not measured — {b['unmeasured_because']}")
+                continue
+            u = b["unit"]
+            lines.append(
+                f"- {b['metric']}: {_fmt_bench(b['vendor_value'], u)}"
+                + (f" (p{b['vendor_percentile']:.0f})" if b.get("vendor_percentile") is not None else "")
+                + f" — market median {_fmt_bench(b['market_median'], u)}"
+                + (f", top-{bench.get('metrics')[0].get('top_peer_count') or 10} median {_fmt_bench(b['top10_median'], u)}"
+                   if b.get("top10_median") is not None else "")
+                + (f"; measured for {b['measured']}" if b.get("measured") else "")
+                + (" (collection degraded)" if b["degraded"] else ""))
+        lines.append("")
+    cov = v.get("coverage_by_category") or []
+    if cov:
+        lines += ["## Coverage by category",
+                  "; ".join(f"{c['category']} {c['n']}" for c in cov), ""]
+    try:
+        conn2 = _conn()
+        try:
+            maps = mh.latest(conn2, market["id"], n=1)
+        finally:
+            conn2.close()
+        if maps:
+            m0 = maps[0]
+            r = next((x for x in m0.get("rated") or [] if x.get("brand_id") == v["brand_id"]), None)
+            if r:
+                lines += ["## Market Maturity Map",
+                          f"- Stage {mh.TIERS.get(r['tier'], {}).get('label', r['tier'])}, band {r['band']}; "
+                          f"scale {r['scale']:.1f}, momentum {r['momentum']:.1f} "
+                          f"(map computed {str(m0.get('computed_at'))[:10]}).", ""]
+    except Exception:  # noqa: BLE001 — the dossier is still useful without the map
+        pass
+    return "\n".join(lines)
+
+
+@router.get("/markets/{market_id}/vendors/{brand_id}/export")
+async def vendor_export(market_id: int, brand_id: int,
+                        fmt: str = Query("md", pattern="^(md|csv|pdf)$"),
+                        session=Depends(verify_session_api)):
+    """The vendor page as a file: Markdown, CSV or PDF, from the same
+    payload the screen renders, so an export cannot disagree with it."""
+    from fastapi.responses import Response
+    from app.services import market_lists as ml
+    vendor = await vendor_detail(market_id, brand_id, session)
+    from app.services import market_benchmark as mbench
+
+    def _market_and_bench():
+        conn = _conn()
+        try:
+            market = _load_market(conn, market_id)
+            try:
+                bench = mbench.benchmarks(conn, market, brand_id, days=90,
+                                          metric_keys=None, include_cohort=True)
+            except Exception:  # noqa: BLE001 — the dossier is useful without it
+                bench = None
+            return market, bench
+        finally:
+            conn.close()
+    market, bench = await asyncio.to_thread(_market_and_bench)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    slug = vendor.get("slug") or str(brand_id)
+    if fmt == "csv":
+        sections = []
+        for name, rows in (("benchmarks", _bench_rows(bench)),
+                           ("announcements", vendor.get("announcements")),
+                           ("posts", vendor.get("posts")),
+                           ("jobs", vendor.get("jobs")),
+                           ("profile_series", vendor.get("profile_series")),
+                           ("identifiers", [i for i in vendor.get("identifiers") or [] if i.get("live")])):
+            if rows:
+                sections.append(f"# {name}\r\n" + ml.csv_of([dict(r) for r in rows]))
+        body = "\r\n".join(sections) or "# empty\r\n"
+        return Response(content=body, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.csv"'})
+    md = await asyncio.to_thread(_vendor_markdown, market, vendor, bench)
+    if fmt == "pdf":
+        from app.services.report_pdf import markdown_report_to_pdf
+        pdf = await asyncio.to_thread(markdown_report_to_pdf,
+                                      f"{vendor['display_name']} — vendor dossier", md)
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.pdf"'})
+    return Response(content=md, media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.md"'})
+
+
 class SetIdentifier(BaseModel):
     kind: str
     value: str = Field(..., min_length=1, max_length=500)
@@ -2642,3 +4233,9 @@ async def set_vendor_identifier(market_id: int, brand_id: int,
 from app.routes.market_entity_routes import router as _entity_router  # noqa: E402
 
 router.include_router(_entity_router, prefix="")
+from app.routes.market_inquiry_routes import router as _inquiry_router  # noqa: E402
+
+router.include_router(_inquiry_router, prefix="")
+from app.routes.market_subscription_routes import router as _subscription_router  # noqa: E402
+
+router.include_router(_subscription_router, prefix="")

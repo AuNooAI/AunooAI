@@ -1067,7 +1067,7 @@ function TopicCadenceInline({ topic }: { topic: string }) {
 
   return (
     <div className="p-3 bg-white dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded text-sm flex flex-col md:flex-row md:items-center gap-2">
-      <div className="font-medium text-gray-800 dark:text-gray-100 text-xs uppercase tracking-wide">Wiley cadence for this topic:</div>
+      <div className="font-medium text-gray-800 dark:text-gray-100 text-xs uppercase tracking-wide">Delivery cadence for this topic:</div>
       <select
         value={cadence}
         onChange={(e) => { setCadence(e.target.value as any); setDirty(true); }}
@@ -1081,7 +1081,7 @@ function TopicCadenceInline({ topic }: { topic: string }) {
         type="text"
         value={email}
         onChange={(e) => { setEmail(e.target.value); setDirty(true); }}
-        placeholder="recipient@wiley.com"
+        placeholder="recipient@example.com"
         className="border rounded px-2 py-1 text-xs bg-white dark:bg-gray-800 dark:text-gray-100 flex-1 max-w-md"
       />
       {dirty && (

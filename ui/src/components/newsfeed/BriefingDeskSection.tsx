@@ -63,6 +63,7 @@ import {
 } from '../../services/briefingDeskApi';
 import { Skeleton } from '../ui/skeleton';
 import { ShareModal, ShareDeskBriefingData } from '../ShareModal';
+import { getDeployedModelNames } from '../../services/aiDisclosureModels';
 
 interface BriefingDeskSectionProps {
   isFullTab?: boolean;
@@ -1724,7 +1725,7 @@ function BriefingDetailPanel({
                 {briefing.metadata && (
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Generated with {briefing.model_used || 'AI'} on {formatDate(briefing.finalized_at)}
+                      Generated with {briefing.model_used || getDeployedModelNames() || 'AI'} on {formatDate(briefing.finalized_at)}
                     </p>
                   </div>
                 )}

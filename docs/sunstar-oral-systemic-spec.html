@@ -1,0 +1,272 @@
+<title>Sunstar Oral–Systemic Health Demo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F6F9FA; --surface:#FFFFFF; --ink:#152230; --muted:#5C6C78; --rule:#D8E1E6;
+  --accent:#0F7C7A; --accent-soft:#E3F1F0; --warn:#A8561C; --warn-soft:#FBEFE4;
+  --code-bg:#EDF2F4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101820; --surface:#161F28; --ink:#E6EDF1; --muted:#9BABB6; --rule:#2A3742;
+    --accent:#4FB8B4; --accent-soft:#16302F; --warn:#E39A5C; --warn-soft:#332417;
+    --code-bg:#1E2A34;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101820; --surface:#161F28; --ink:#E6EDF1; --muted:#9BABB6; --rule:#2A3742;
+  --accent:#4FB8B4; --accent-soft:#16302F; --warn:#E39A5C; --warn-soft:#332417;
+  --code-bg:#1E2A34;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.6}
+main{max-width:76ch;margin:0 auto;padding:3rem 1.25rem 5rem}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,"Times New Roman",serif;font-weight:600;line-height:1.2;text-wrap:balance;margin:0}
+h1{font-size:2.25rem;letter-spacing:-0.01em}
+h2{font-size:1.5rem;margin-top:3rem;padding-top:1.25rem;border-top:1px solid var(--rule)}
+h3{font-size:1.125rem;margin-top:1.75rem}
+p{margin:0.9rem 0;max-width:68ch}
+ul,ol{margin:0.6rem 0;padding-left:1.4rem;max-width:68ch}
+li{margin:0.35rem 0}
+li::marker{color:var(--muted)}
+a{color:var(--accent)}
+code{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.88em;background:var(--code-bg);padding:0.08em 0.35em;border-radius:3px}
+.kicker{font-size:0.75rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:0.75rem}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0.75rem 1.5rem;margin:1.75rem 0 0;padding:1.25rem 1.5rem;background:var(--surface);border:1px solid var(--rule);border-radius:6px}
+.facts dt{font-size:0.72rem;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.facts dd{margin:0.15rem 0 0;font-size:0.95rem}
+.question{margin:2rem 0 0.5rem;padding:1.25rem 1.5rem;border-left:3px solid var(--accent);background:var(--accent-soft);font-family:"Source Serif 4",Georgia,serif;font-size:1.25rem;line-height:1.4;text-wrap:balance}
+.tablewrap{overflow-x:auto;margin:1rem 0;border:1px solid var(--rule);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:0.92rem}
+th,td{text-align:left;vertical-align:top;padding:0.6rem 0.8rem;border-bottom:1px solid var(--rule)}
+th{font-size:0.72rem;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--bg)}
+tbody tr:last-child td{border-bottom:none}
+td.mono,code.kw{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:0.82rem}
+.steps{list-style:none;padding:0;margin:1rem 0;counter-reset:step}
+.steps li{display:grid;grid-template-columns:2.2rem 9rem 1fr 6.5rem;gap:0.75rem;padding:0.7rem 0;border-bottom:1px solid var(--rule);align-items:baseline}
+.steps li::before{counter-increment:step;content:counter(step);font-family:"IBM Plex Mono",monospace;color:var(--accent);font-weight:500}
+.steps .when{color:var(--muted);font-size:0.9rem}
+.steps .effort{font-variant-numeric:tabular-nums;color:var(--muted);font-size:0.9rem;text-align:right}
+.risk{border-left:3px solid var(--warn);background:var(--warn-soft);padding:0.75rem 1rem;margin:0.75rem 0;border-radius:0 4px 4px 0}
+.risk strong{color:var(--warn)}
+.jp{font-family:"IBM Plex Sans","Hiragino Sans","Noto Sans JP",sans-serif}
+@media (max-width:640px){.steps li{grid-template-columns:2rem 1fr;grid-auto-rows:auto}.steps .effort{text-align:left;grid-column:2}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<main>
+<div class="kicker">Build spec · 31 August 2026</div>
+<h1>Sunstar demo: oral health and whole-body health across four markets</h1>
+
+<dl class="facts">
+  <div><dt>Status</dt><dd>Build in progress since 31 Aug 10:30 UK (see end)</dd></div>
+  <div><dt>Demo</dt><dd>Thu 3 Sep, 16:30–17:00 UK</dd></div>
+  <div><dt>Contact</dt><dd>Brendan Jennings, Sunstar</dd></div>
+  <div><dt>Deal</dt><dd>Prospecting · €35,000 · closes 31 Oct</dd></div>
+  <div><dt>Brief</dt><dd>Oliver's email of 21 Aug (Gmail thread <code>1a02343337a50e66</code>)</dd></div>
+  <div><dt>Brendan's questions</dt><dd>Promised, not yet received. Due end of day Tue 1 Sep.</dd></div>
+</dl>
+
+<p>Brendan's role and remit are not recorded anywhere, so this spec does not assume them.</p>
+
+<h2>The question the demo has to answer</h2>
+<div class="question">How is understanding of the relationship between oral health and wider health developing across different regional markets?</div>
+<p>The email commits us to comparing three perspectives:</p>
+<ol>
+  <li>What dental and medical researchers are finding.</li>
+  <li>What Sunstar, its competitors and other companies are saying.</li>
+  <li>What consumers, patients and other end users are discussing online.</li>
+</ol>
+<p>And then to show four things about them: where the perspectives agree or diverge, how the discussion differs by market, which themes are gaining attention, and where commercial or public narratives are running ahead of the research.</p>
+<p>Scope offered to Brendan, open to swaps: markets Japan, United States, Germany, France; competitors Lion, Kao, Colgate-Palmolive and P&amp;G/Oral-B alongside Sunstar. Two example questions we offered: the current evidence linking periodontal health to cardiovascular, metabolic and other systemic conditions; and which areas of dental research (enamel regeneration, tooth regrowth) are moving towards practical use. The email also promised a brand and adverse-media view of Sunstar and the competitors across the four markets.</p>
+<p>Everything below exists to make those sentences demonstrable on Thursday with real collected data, not slides.</p>
+
+<h2>Where to build it</h2>
+<p>Build a dedicated site, <code>sunstar.aunoo.ai</code>. Do not put this on bugfixing or pearson.</p>
+<ul>
+  <li>Provision with <code>scripts/provision_brand_tenant.py provision --slug sunstar --brand "Sunstar"</code> from the bwtemplate golden dump, then flip to the full platform (<code>BW_DEDICATED_MODE=0</code>, <code>ENABLED_MODULES=*</code>). That is the path used for ibaset on 5 August; about four minutes of wall clock.</li>
+  <li>Immediately rsync <code>app/</code>, <code>alembic/</code>, <code>static/trend-convergence</code> and <code>templates/</code> from bugfixing with an anchored <code>--exclude='/config/'</code>, then <code>alembic upgrade head</code>. The template was last refreshed on 13 July and lags canonical by seven weeks; ibaset needed eight migrations after provisioning.</li>
+  <li>Bedrock-only: copy ibaset's <code>litellm_config.yaml</code> wholesale (verified 6 August to route nothing to OpenAI; carries nova-lite, nova-pro and kimi). Set the enrichment default to <code>bedrock-kimi-k2-5</code> in <code>keyword_monitor_settings</code>. No per-article work on a flagship model.</li>
+  <li>Replace the template's "Generic Enterprise" org profile with a Sunstar profile built only from what we know (oral care manufacturer; brands GUM, Ora2, BUTLER; Japanese origin, Swiss headquarters). Leave the judgement fields NULL rather than guess.</li>
+  <li>Check <code>module_config</code> after provisioning. On pearson a single leftover row silently disabled every module. Brand Watcher, GeoHotSpots and ScienceWatch must be on.</li>
+  <li>Ports 10002, 10004, 10006, 10016–10018, 10020, 10022, 10023 and 10025 are bound; let the script's <code>pick_port()</code> choose.</li>
+</ul>
+<p>Why a separate site: the brand registry has to be Sunstar-first (bugfixing's 86 brands are AI-SOC vendors), the org profile frames every generated report, and if the demo lands we hand Brendan a login to this site the same week.</p>
+
+<h2>How each perspective maps to data we can collect</h2>
+<h3>Researchers</h3>
+<ul>
+  <li><strong>Semantic Scholar collector</strong> is the backbone. It indexes the PubMed-covered dental and medical journals, returns abstracts, venues and citation counts, and has years of history, which is what "how is understanding developing" needs. Add a <code>topic_field_mapping</code> entry for the research topic → <code>["Medicine", "Biology"]</code> in <code>app/collectors/semantic_scholar_collector.py:19</code>, or the field filter is skipped. Two constraints found on 31 August: no tenant has a Semantic Scholar API key, a single unauthenticated request from this host already answered 429, and the collector returns an empty list on 429 without retrying (<code>semantic_scholar_collector.py:115-117</code>). The monitor also asks every collector for <code>page_size</code> results per keyword per run (10 on bugfixing), so the scheduled path cannot backfill five years by itself. Apply for the free API key today and write a one-off backfill script that pages <code>publicationDateOrYear</code> year by year with a sleep between calls.</li>
+  <li><strong>arXiv collector</strong> for the small amount of preprint material (oral microbiome bioinformatics, enamel materials).</li>
+  <li><strong>RSS feeds</strong> (<code>rss_feeds</code>, tied to the research topic) for Journal of Clinical Periodontology, Journal of Dental Research, Periodontology 2000, Journal of Periodontology, Oral Diseases, and the EFP and AAP news pages. Cheapest way to get guideline and consensus-statement news that Semantic Scholar indexes late.</li>
+  <li>There is no PubMed collector. Semantic Scholar covers the content; say "medical literature", not "PubMed", in the demo.</li>
+</ul>
+<h3>Companies</h3>
+<ul>
+  <li><strong>Brand Watch topics</strong> from <code>setup-monitoring</code> (one <code>&lt;name&gt; - Brand Watch</code> group per company) carry news coverage of each firm.</li>
+  <li><strong>Newsroom RSS</strong> for each company's press page, registered in <code>rss_feeds</code> against its Brand Watch topic. This is the company's own voice, which is what "what companies are saying" means. Confirm each feed URL when registering.</li>
+  <li><strong>LinkedIn posts</strong> via <code>market_collect.py</code> and BrightData exist on bugfixing for the AI-SOC market (<code>bias_source = vendor:linkedin</code>). Wiring them needs <code>bw_markets</code> and <code>bw_market_brands</code> rows. Optional for Thursday; worth doing the week after if Brendan bites.</li>
+</ul>
+<h3>Consumers and patients</h3>
+<ul>
+  <li><strong>xpoz collector</strong> for Twitter/X, Reddit, Instagram and TikTok, set per group in <code>keyword_groups.social_platforms</code>. It accepts a <code>language</code> argument and ignores it (<code>xpoz_collector.py:246</code> is the only mention), so Japanese keywords are not filtered on our side; whether xpoz returns Japanese posts is untested. X is the dominant public network in Japan, so the Japanese consumer view depends on this collector working with Japanese keywords. The key is shared with wbm and wileytest and has hit 429s; keep the consumer topic on a daily check, not hourly.</li>
+  <li><strong>Reddit collector</strong> (free RSS) for the English-speaking patient conversation. It turns the first term of each keyword into a subreddit slug and reads <code>r/&lt;slug&gt;/.rss</code> untouched, then runs a keyword search filtered to the same terms (<code>reddit_collector.py:104-110</code>). So the keywords <code>Dentistry</code>, <code>askdentists</code> and <code>oralhealth</code> pull those three subreddit feeds whole; every other keyword only reaches the search path.</li>
+  <li><strong>Bluesky</strong> as a low-volume extra.</li>
+</ul>
+
+<h2>Topics to create</h2>
+<p>Create every topic through the Add-Topic wizard or the <code>save-topic</code> endpoint, never by inserting into <code>keyword_groups</code> alone. The analysis step refuses to classify any topic whose ontology has an empty list, and it does so silently. After seeding, confirm every topic in <code>config.json</code> has non-empty <code>categories</code>, <code>future_signals</code>, <code>sentiment</code>, <code>time_to_impact</code> and <code>driver_types</code>.</p>
+<p>Quote every multi-word phrase in <code>monitored_keywords</code>. API-seeded keywords do not get the wizard's quoting, and the firehose treats an unquoted phrase as AND-of-words.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>#</th><th>Topic</th><th>Perspective</th><th>Collectors</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td class="mono">T1</td><td>Oral–Systemic Health Research</td><td>Researchers</td><td class="mono">semantic_scholar, arxiv, rss</td><td>English only; the literature is. Backfill 5 years.</td></tr>
+<tr><td class="mono">T2-JP</td><td>Oral Health &amp; Whole-Body Health — Japan</td><td>News and public discussion</td><td class="mono">thenewsapi (primary), newsdata</td><td>Japanese keywords, language <code>ja</code>. Measured 31 Aug: TheNewsAPI returned 111 articles for 歯周病 in the last 30 days.</td></tr>
+<tr><td class="mono">T2-US</td><td>… — United States</td><td>same</td><td class="mono">newsfirehose (primary), thenewsapi</td><td>English. Firehose returned 100+ for periodontitis, "gum disease heart" and "oral health" over 90 days.</td></tr>
+<tr><td class="mono">T2-DE</td><td>… — Germany</td><td>same</td><td class="mono">thenewsapi (primary), newsdata</td><td>German keywords, language <code>de</code>. Measured: 21 articles for Parodontitis in 30 days.</td></tr>
+<tr><td class="mono">T2-FR</td><td>… — France</td><td>same</td><td class="mono">thenewsapi (primary), newsdata</td><td>French keywords, language <code>fr</code>. Measured: 3 articles for parodontite in 30 days, the thinnest market; widen the keyword list and lean on elmex/meridol brand coverage.</td></tr>
+<tr><td class="mono">T3</td><td>Regenerative Dentistry</td><td>Researchers plus news</td><td class="mono">semantic_scholar, arxiv, newsfirehose, thenewsapi</td><td>Brendan's second example question.</td></tr>
+<tr><td class="mono">T4</td><td>Oral Health — Consumer Voice</td><td>Consumers</td><td class="mono">xpoz, reddit, bluesky</td><td>Consumer phrasing, daily check.</td></tr>
+</tbody></table></div>
+<h3>What the news collectors can actually do (checked 31 August)</h3>
+<ul>
+  <li><strong>NewsFirehose</strong> (our own aggregator at <code>NEWSFIREHOSE_BASE_URL</code>) is English only. Its <code>/v1/languages</code> endpoint lists one language, English, with 4.25 million articles; Japanese, German and French queries return nothing. Right primary for T2-US and the English half of T3, useless for the other three markets.</li>
+  <li><strong>TheNewsAPI</strong> is the only collector that returns Japanese, German and French press, on the <code>language</code> parameter. It is the same account key on bugfixing, wileytest and wbm, and the collector keeps an in-process cap of 100 requests per day. Four market topics with about nine keywords each cost 36 requests per check, so run the news topics every 6–12 hours, not hourly, or the new site burns the quota the paying customer relies on. The <code>.env</code> value is wrapped in quotes; the app's loader strips them, a hand-run curl does not.</li>
+  <li><strong>NewsData</strong> is a secondary at best. On the free plan the collector's <code>/news</code> endpoint has no date filter and reaches back about 48 hours (<code>newsdata_collector.py:172</code>), 200 requests per day. bugfixing's <code>NEWSDATA_API_KEY</code> is empty, so the template clone will not have one either; copy wileytest's when provisioning.</li>
+</ul>
+<p>One news topic per market is deliberate. It gives the market comparison for free in every existing view (filter by topic), and it is the only way to give each market its own collection language until a per-group language setting exists (see engineering, below).</p>
+
+<h3>Keyword seeds</h3>
+<p>Starting lists, to be checked against the first collection pass. Drop anything that pulls unrelated coverage.</p>
+<p><strong>T1 research:</strong> <code class="kw">"periodontitis cardiovascular disease"</code> · <code class="kw">"periodontal disease diabetes"</code> · <code class="kw">"periodontitis atherosclerosis"</code> · <code class="kw">"oral microbiome systemic disease"</code> · <code class="kw">"Porphyromonas gingivalis Alzheimer"</code> · <code class="kw">"periodontitis dementia"</code> · <code class="kw">"periodontal disease adverse pregnancy outcomes"</code> · <code class="kw">"oral health pneumonia elderly"</code> · <code class="kw">"periodontitis rheumatoid arthritis"</code> · <code class="kw">"oral-systemic health"</code> · <code class="kw">"periodontal treatment glycemic control"</code> · <code class="kw">"oral frailty"</code></p>
+<p><strong>T2-US (English, also the base for translation):</strong> <code class="kw">"gum disease" "heart disease"</code> · <code class="kw">"gum disease" diabetes</code> · <code class="kw">"oral health" "overall health"</code> · <code class="kw">"oral microbiome"</code> · <code class="kw">periodontitis "Alzheimer's"</code> · <code class="kw">"oral health" dementia</code> · <code class="kw">"mouth-body connection"</code> · <code class="kw">"oral health" pregnancy</code></p>
+<p class="jp"><strong>T2-JP:</strong> 歯周病 心疾患 · 歯周病 糖尿病 · 歯周病 認知症 · 口腔ケア 全身の健康 · オーラルフレイル · 口腔 全身疾患 · 歯周病 動脈硬化 · 誤嚥性肺炎 口腔ケア · 口腔細菌 アルツハイマー. Oral frailty (オーラルフレイル) is a distinctly Japanese public-health frame and will likely be the sharpest market difference in the whole demo.</p>
+<p><strong>T2-DE:</strong> Parodontitis Herz-Kreislauf · Parodontitis Diabetes · Mundgesundheit Allgemeingesundheit · Parodontitis Alzheimer · Parodontitis Demenz · Zahnfleischentzündung Herzinfarkt · Mundgesundheit Schwangerschaft · orales Mikrobiom</p>
+<p><strong>T2-FR:</strong> parodontite maladie cardiovasculaire · parodontite diabète · santé bucco-dentaire santé générale · parodontite Alzheimer · maladie parodontale grossesse · microbiote buccal · santé bucco-dentaire cœur</p>
+<p><strong>T3 regenerative:</strong> <code class="kw">"enamel regeneration"</code> · <code class="kw">"tooth regrowth"</code> · <code class="kw">"tooth regeneration"</code> · <code class="kw">"USAG-1 antibody"</code> · <code class="kw">"Toregem Biopharma"</code> · <code class="kw">"dental stem cells"</code> · <code class="kw">"biomimetic enamel"</code> · <code class="kw">"hydroxyapatite remineralization"</code> · <code class="kw">"regenerative endodontics"</code> · <span class="jp">歯生え薬 · 歯の再生</span>. The Kyoto-origin tooth-regrowth drug trials are Japanese, which ties this topic back to Brendan's home market.</p>
+<p><strong>T4 consumer:</strong> <code class="kw">"gum disease" heart</code> · <code class="kw">"bleeding gums" diabetes</code> · <code class="kw">"oral microbiome"</code> · <code class="kw">"oil pulling"</code> · <code class="kw">"hydroxyapatite toothpaste"</code> · <code class="kw">"probiotic toothpaste"</code> · <code class="kw">"mouth taping" teeth</code> · <code class="kw">"gum health"</code> · <code class="kw">"receding gums"</code> · <span class="jp">歯周病</span> (for X in Japanese). The product-trend terms are there because "which themes are gaining attention" in consumer channels is a product question as much as a health one; if they swamp the topic, split them into a fifth topic.</p>
+
+<h3>Ontology (shared by T1–T4, edited per topic in the wizard)</h3>
+<p><strong>Categories:</strong> Periodontal–cardiovascular link; Periodontal–diabetes and metabolic link; Oral microbiome and neurological disease; Pregnancy and maternal health; Respiratory and aspiration pneumonia in older adults; Oral frailty and ageing; Oral cancer and HPV; Regenerative dentistry (enamel, tooth regrowth); Preventive products and health claims; Public health policy, reimbursement and screening; Clinical guidelines and professional bodies; Consumer behaviour and trends; Corporate and competitive moves.</p>
+<p>Future signals, sentiment, time-to-impact and driver types: take the standard platform lists (the values on the first topic of bugfixing's <code>config.json</code>). The categories are the part that has to be dental-specific; the other four lists only have to be non-empty and consistent.</p>
+
+<h2>Brands to register</h2>
+<p><code>bw_brands</code> with Sunstar primary and four peers. Keyword scoping is the whole job here; every one of these names collides with something.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Brand</th><th>brand_keywords</th><th>product_keywords</th><th>Avoid</th></tr></thead>
+<tbody>
+<tr><td>Sunstar (primary)</td><td>"Sunstar", "Sunstar Group", "Sunstar Americas", "Sunstar Europe", "Sunstar Suisse"</td><td>"GUM toothbrush", "Sunstar GUM", "G·U·M", "Ora2", "BUTLER toothbrush"</td><td>bare <code>GUM</code>; Merced Sun-Star and SunStar Philippines newspapers (both already in our caches)</td></tr>
+<tr><td>Lion Corporation</td><td>"Lion Corporation", "Lion Corp", <span class="jp">ライオン株式会社</span></td><td>"Systema toothbrush", "Clinica toothpaste", "Dentor Systema", "NONIO"</td><td>bare <code>Lion</code>, <code>Systema</code> alone</td></tr>
+<tr><td>Kao Corporation</td><td>"Kao Corporation", "Kao Corp", <span class="jp">花王</span></td><td>"PureOra", "Clear Clean", "Kao oral care"</td><td>bare <code>Kao</code> (a common surname)</td></tr>
+<tr><td>Colgate-Palmolive</td><td>"Colgate-Palmolive", "Colgate"</td><td>"Colgate Total", "elmex", "meridol", "Colgate Optic White"</td><td>none serious; elmex/meridol carry the German and French markets</td></tr>
+<tr><td>P&amp;G / Oral-B</td><td>"Procter &amp; Gamble" AND oral, "Oral-B"</td><td>"Oral-B iO", "Crest toothpaste", "blend-a-med", "Crest Pro-Health"</td><td>bare <code>Crest</code>, bare <code>P&amp;G</code></td></tr>
+</tbody></table></div>
+<p>Put the scoping rule in each brand's <code>description</code>, as ibaset does, so whoever edits keywords later knows why the bare name is missing. Add <code>news_keyword_excludes</code> for the two newspapers on Sunstar.</p>
+<p>Brand Watcher's adverse-media screening, alert rules and perception view come with <code>setup-monitoring</code> and need no extra work. One gap to accept: <code>setup-monitoring</code> creates one news group per brand, and a group has one collection language, so Lion and Kao coverage in the Japanese press only arrives if their brand groups are set to <code>ja</code> (losing their English coverage) or a second group per brand is added. For Thursday, leave the brand groups in English and say so. Per-brand social collection is a separate gap and should not be promised as populated on Thursday.</p>
+
+<h2>What the demo shows, and which existing feature shows it</h2>
+<p>No new UI is needed for Thursday. Every promised view maps to something the platform already does once the topics above have data.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Promise in the email</th><th>Feature</th><th>Run on</th></tr></thead>
+<tbody>
+<tr><td>Three perspectives, where they agree and diverge</td><td>Consensus Analysis (<code>/api/trend-convergence/{topic}</code>), exported with <code>consensus_html.py</code>; three runs side by side</td><td>T1 (research), T2-US or T2-JP (public), T4 (consumer)</td></tr>
+<tr><td>How the discussion differs by market</td><td>The four T2 topics in Explore, Consensus per market, GeoHotSpots map</td><td>T2-JP/US/DE/FR</td></tr>
+<tr><td>Which themes are gaining attention</td><td>Emerging Topics detection across T1–T4; Three Horizons per topic</td><td>all</td></tr>
+<tr><td>Narratives running ahead of the research</td><td>Auspex deep-research answer to each of Brendan's questions, citations drawn from T1 versus T2/T4; Futures Cone on T3</td><td>T1, T3, T4</td></tr>
+<tr><td>Brand and adverse media across markets</td><td>Brand Watcher perception, alerts, incidents</td><td>the five brands</td></tr>
+</tbody></table></div>
+<p>The one thing no existing feature does is put the three cohorts on one page for one category and score the gap between them. That is the follow-on build, not the demo.</p>
+<p><strong>Perspective-gap report (after the demo, about one AI day).</strong> Group enriched articles across T1–T4 by category and cohort, where cohort comes from fields we already store: <code>news_source IN ('semantic_scholar','arXiv')</code> or a journal RSS = research; <code>bias_source LIKE 'vendor:%'</code> or a newsroom RSS = corporate; <code>social_meta IS NOT NULL</code> = consumer; everything else = press. For each category show attention share and sentiment per cohort, the strongest claims per cohort, and a short model-written note on where they disagree, in <code>CLINICAL_STYLE</code>. Render through <code>html_report_common.py</code>. Analysis logic in a service, the renderer only renders, following the market report pattern.</p>
+
+<h3>Run of show (30 minutes)</h3>
+<ol>
+  <li>Two minutes: the question, the four markets, the three perspectives, on the Explore dashboard with the seven topics visible.</li>
+  <li>Eight minutes: the market comparison. T2-JP against T2-US on the same category (periodontal–systemic), then oral frailty as the Japan-only frame.</li>
+  <li>Eight minutes: research versus public narrative. Consensus Analysis on T1 next to T2-US; then the Auspex answer to the periodontal–cardiovascular question with citations from both.</li>
+  <li>Five minutes: regenerative dentistry (T3) with Emerging Topics and the Futures Cone.</li>
+  <li>Five minutes: Sunstar and the four competitors in Brand Watcher, then the leave-behinds.</li>
+  <li>Two minutes: what a live site would add (LinkedIn, the perspective-gap report, French depth).</li>
+</ol>
+<p>Minimum data before a view goes in the show: 40 enriched articles above the relevance gate for any T2 market shown, 60 for T1, 25 for T4, and at least one Consensus run that names every category. A view under those numbers gets cut, not padded.</p>
+<h2>Engineering that has to happen before collection</h2>
+<ol>
+  <li><strong>Per-topic collection language and country.</strong> Today <code>app/tasks/keyword_monitor.py</code> reads one tenant-wide <code>keyword_monitor_settings.language</code> (lines 108–132, default <code>en</code>) and passes it to every collector at line 315. With that, the Japanese, German and French topics return nothing, because NewsData and TheNewsAPI filter server-side on the language parameter. Add optional <code>language</code> and <code>country</code> columns to <code>keyword_groups</code> via Alembic, read them in the monitor with the tenant setting as fallback, and pass <code>country</code> to NewsData (the collector already accepts it, <code>newsdata_collector.py:106</code>). Setting them by SQL for four groups is fine for Thursday; wizard exposure only if time allows. About half an AI day including a collection check per language. If this slips, the fallback is a one-off TheNewsAPI pull per language written straight into the topic by script, which gives Thursday's data but no live collection.</li>
+  <li><strong>Semantic Scholar field mapping</strong> for T1 and T3. Fifteen minutes.</li>
+  <li><strong>Enrichment on non-English text has never been validated end to end.</strong> The Pearson build noted the same gap for German and never closed it. Run twenty Japanese and twenty German articles through the analysis step by hand on day one and check that categories are assigned and summaries are usable. If summaries come back in the source language, add one line to the analysis prompt asking for English output and re-run those topics.</li>
+  <li><strong>Backfill.</strong> Research via a Semantic Scholar backfill script to 2021 (the scheduled monitor returns <code>page_size</code> results per keyword and no more). English news via the firehose to 90 days. Non-English news via TheNewsAPI to 30 days, in one pass, because of the shared quota. NewsAPI's free tier returns nothing and is not a failure. Consumer topics only as far back as xpoz allows.</li>
+</ol>
+
+<h2>Build order and effort</h2>
+<p>Times are for an AI operator. Collection wall-clock is separate and dominates.</p>
+<ol class="steps">
+  <li><span class="when">Mon 31 Aug</span><span>Provision tenant, resync from canonical, migrate, Bedrock yaml, org profile, module_config check, per-topic language change, Scholar mapping</span><span class="effort">~1 AI day</span></li>
+  <li><span class="when">Mon 31 Aug, evening</span><span>Seed T1–T4 and the five brands, register RSS feeds, start collection and backfills</span><span class="effort">~2 AI hours, then wait</span></li>
+  <li><span class="when">Tue 1 Sep</span><span>Check volumes per topic after the relevance gate (<code>topic_alignment_score &gt;= 0.4</code>), prune collision keywords, validate JP/DE enrichment, run Consensus, Emerging Topics, Horizons, Brand perception; draft Auspex answers to the two example questions</span><span class="effort">~half an AI day</span></li>
+  <li><span class="when">Tue 1 Sep, evening</span><span>Fold in Brendan's questions if they arrive; otherwise keep the two we offered</span><span class="effort">~1 AI hour</span></li>
+  <li><span class="when">Wed 2 Sep</span><span>Rehearse the walk-through, export the Consensus HTML and a topic report as leave-behinds, confirm every view has data</span><span class="effort">~2 AI hours</span></li>
+  <li><span class="when">Thu 3 Sep 16:30 UK</span><span>Demo</span><span class="effort"></span></li>
+</ol>
+
+<h2>Risks and open items</h2>
+<div class="risk"><strong>Brendan's questions.</strong> Not received as of 31 August. The two examples in the email stand in until they arrive. If his questions need a topic we do not have, there is no time to collect for it and the answer comes from Auspex over the web, not the corpus. Say so if it happens.</div>
+<div class="risk"><strong>Research leg volume.</strong> Semantic Scholar without a key rate-limits from this host on the first call. If the key does not arrive, the research leg is whatever a throttled backfill script collects overnight plus the journal RSS feeds. Test on Monday evening, not Tuesday.</div>
+<div class="risk"><strong>French is thin.</strong> Three press articles in 30 days for parodontite. Say so on the call rather than pad it; the French view rests on elmex/meridol brand coverage and on the research leg.</div>
+<div class="risk"><strong>Japanese consumer volume.</strong> Depends entirely on xpoz with Japanese keywords on a shared, rate-limited key. If it is thin on Tuesday, present the consumer leg on US data and show Japan through news and oral-frailty coverage instead.</div>
+<div class="risk"><strong>Non-English enrichment quality</strong> is unproven. This is the most likely thing to make a market look empty when collection actually worked.</div>
+<div class="risk"><strong>Collision keywords.</strong> Lion, Kao, GUM and Crest pull noise the moment anyone loosens the scoping. The first collection pass is the test.</div>
+<div class="risk"><strong>Brand social tabs will be empty.</strong> Per-brand social collection is not wired; the consumer leg lives in T4, not in Brand Watcher. Do not open the brand social tab in the demo.</div>
+<div class="risk"><strong>Sunstar's own brand set per market</strong> is a guess from public product lines. Ask Brendan which brands matter in each market; the answer changes product_keywords, not the design.</div>
+<div class="risk"><strong>Cost.</strong> Enrichment on kimi, relevance on nova-lite, nothing per-article on Sonnet-class models. The five-year research backfill is the largest batch; run it once.</div>
+<div class="risk"><strong>Case study language.</strong> Sunstar is a prospect. Anything written for the demo says "example" or "case study", not "customer".</div>
+
+<h2>Out of scope for the demo</h2>
+<p>Market Maturity Map for oral care (five companies is too few for the map to say anything), the perspective-gap report, any new dashboard or page, Japanese-language UI, and LinkedIn collection via BrightData. All are reasonable week-two items if the call goes well.</p>
+<h2>Build status (31 August, 11:00 UK)</h2>
+<p>Done today, in this order:</p>
+<ul>
+  <li><code>sunstar.aunoo.ai</code> provisioned from the bwtemplate dump (port 10019, DB <code>sunstar</code>, credentials in <code>/var/tmp/sunstar_credentials.txt</code>), flipped to full platform, resynced from bugfixing canonical, migrated to <code>kg_lang_001</code>, Bedrock-only yaml from ibaset, enrichment default <code>bedrock-kimi-k2-5</code>, <code>page_size</code> 50, Sunstar org profile as default, NewsData key and Bluesky credentials copied from wileytest/bugfixing.</li>
+  <li>Per-group collection language and country shipped in canonical (<code>app/tasks/keyword_monitor.py</code>, <code>database_query_facade.py</code>, <code>database_models.py</code>, migration <code>kg_lang_001</code>) and on sunstar. <code>country</code> is only passed to collectors whose signature accepts it.</li>
+  <li>Semantic Scholar: field mappings for both research topics; 429 now retries with 2s/4s/8s backoff instead of returning nothing (on sunstar after the next restart). The API key application cannot be submitted by script (HubSpot form with captcha); it needs a browser.</li>
+  <li>Seven topics seeded through <code>save-topic</code> (groups 2–8) with the ontology above; providers, language, country, cadence and <code>social_platforms</code> set per group. Keywords are stored unquoted: TheNewsAPI treats a space as AND and quotes only narrow to exact phrases, so quoting would have cost coverage.</li>
+  <li>Five brands (Sunstar primary, Lion, Kao, Colgate-Palmolive, P&amp;G Oral-B) with scoped keywords and <code>setup-monitoring</code> topics (groups 9–12); newspaper excludes on Sunstar.</li>
+  <li>RSS: EFP news on the research topic, Colgate investor releases on its brand topic. The Wiley journal feeds are behind Cloudflare and were dropped; Sunstar, Lion, Kao and P&amp;G newsrooms publish no feed at the URLs tried.</li>
+  <li>First collection pass started on its own within a minute of seeding. Colgate's feed had 10 articles enriched on Bedrock within ten minutes (9 above the relevance gate), which confirms the enrichment path.</li>
+</ul>
+<p>Not done: the Scholar key (needs you), the Auspex/Consensus runs (need data first), the run-of-show rehearsal, and the Japanese/German enrichment check, which waits for the first TheNewsAPI pass on groups 3, 5 and 6.</p>
+<h3>First-pass numbers (31 August, 11:15 UK)</h3>
+<div class="tablewrap"><table><thead><tr><th>Group</th><th>Collected</th><th>Above the gate and enriched</th><th>Note</th></tr></thead><tbody>
+<tr><td>Research (Semantic Scholar + arXiv)</td><td>210</td><td>120</td><td>85 from the scheduled pass, 35 recovered by <code>reenrich_parse_failures.py</code>; 17 have no abstract and cannot be enriched; all 50 arXiv hits were noise. Scholar still unauthenticated.</td></tr>
+<tr><td>US</td><td>324</td><td>34</td><td>Firehose volume is the largest; the gate does the work.</td></tr>
+<tr><td>Japan</td><td>23</td><td>3</td><td>TheNewsAPI on <code>language=ja</code> works; the three approved are exactly on topic (periodontal bacteria and dementia, physicians' oral-health survey, oral care after the Kumamoto earthquake). One summary came back in Japanese, so the analysis prompt now asks for English output.</td></tr>
+<tr><td>Germany</td><td>2</td><td>2</td><td>FAZ, "how inflamed gums burden the whole body", 0.90. Two-word AND keywords were too narrow; broad single terms added.</td></tr>
+<tr><td>France</td><td>2</td><td>1</td><td>Same fix as Germany.</td></tr>
+<tr><td>Colgate newsroom RSS</td><td>10</td><td>10</td><td>Confirms enrichment on Bedrock.</td></tr>
+<tr><td>Sunstar brand</td><td>16</td><td>0 real</td><td>Noise only; no article about the company in 30 days.</td></tr>
+</tbody></table></div>
+<p>Also found and fixed: the keyword normaliser caps keywords at 30 characters (<code>MAX_KEYWORD_LENGTH</code>), which truncated German compounds and two research phrases; repaired by SQL. Groups 7–12 (regenerative, consumer, competitor brands) had not run when this was written; Japan, Germany and France are queued for a second pass with the widened keywords.</p>
+<h3>After every group's first pass (31 August, 12:00 UK)</h3>
+<ul>
+  <li>Regenerative Dentistry 269 collected / 29 enriched; Colgate 135 / 54 (feed plus news); P&amp;G Oral-B 55 / 17; Kao 94 / 4 (skincare, not oral); Lion 100 / 0; Sunstar 16 / 0 about the company.</li>
+  <li>Consumer Voice collected 1,021 posts (490 Bluesky, 481 xpoz across Twitter/Reddit/Instagram/TikTok, 50 Reddit RSS) and scored none: the social evaluator defaulted to <code>gemma3:4b</code>, which this Bedrock-only site does not serve. The group's model is now <code>nova-lite</code> (also <code>SOCIAL_EVAL_MODEL</code> in <code>.env</code>) and the group is requeued.</li>
+  <li>Lion, Kao and Sunstar are Japanese companies and their brand news is in Japanese, which is why the English brand groups found nothing usable. Added <code>&lt;brand&gt; - Brand Watch JP</code> groups (13–15) on TheNewsAPI/NewsData with <code>language=ja</code>, feeding the same brand topics, with Japanese brand and product keywords (サンスター, ライオン, 花王, システマ, クリニカ, ピュオーラ, オーラツー and so on).</li>
+  <li>Reddit's search RSS answers 429 to us at the moment; only the three subreddit feeds returned posts.</li>
+</ul>
+<h3>TheNewsAPI was searching titles only (found 12:10 UK, fixed)</h3>
+<p>The tenant setting <code>keyword_monitor_settings.search_fields</code> was <code>title,description</code> on every tenant, so the article body was never asked for; and the setting uses NewsAPI vocabulary, where the body is "content", a name TheNewsAPI drops silently (its fields are <code>title,description,keywords,main_text</code>). Measured over 30 days: 歯周病 8 results with the old value against 114 with the right fields, Parodontitis 4 against 23, santé bucco-dentaire 1 against 13. <code>app/collectors/thenewsapi_collector.py</code> now maps <code>content</code> to <code>main_text</code> and adds <code>keywords</code>. Fixed in canonical and propagated to wileytest and wbm the same day; sunstar's setting is now <code>title,description,content</code>. wileytest and wbm keep <code>title,description</code> until someone decides to widen it (more articles, more analysis cost). Every tenant that collects through TheNewsAPI has been searching titles and descriptions only.</p>
+<h3>With body search on (31 August, 12:50 UK)</h3>
+<div class="tablewrap"><table><thead><tr><th>Topic</th><th>Collected</th><th>Approved</th><th>Above the gate</th></tr></thead><tbody>
+<tr><td>Japan</td><td>131</td><td>9</td><td>15</td></tr>
+<tr><td>Germany</td><td>33</td><td>3</td><td>4</td></tr>
+<tr><td>France</td><td>15</td><td>2</td><td>3</td></tr>
+<tr><td>Consumer Voice</td><td>1,234 posts, all scored</td><td>—</td><td>226</td></tr>
+<tr><td>Sunstar (incl. JP group)</td><td>40</td><td>4</td><td>5</td></tr>
+<tr><td>Lion (incl. JP group)</td><td>133</td><td>4</td><td>5</td></tr>
+<tr><td>Kao (incl. JP group)</td><td>115</td><td>5</td><td>5</td></tr>
+</tbody></table></div>
+<p>Japan's TheNewsAPI pass returned 228 results across 13 keywords once the body was searched, against about 30 before. France's two approvals are both Futura-Sciences pieces on Alzheimer's and oral bacteria (0.90). The consumer set's relevant posts come mostly from Bluesky (109 of 226), then Instagram (43) and TikTok (38); Twitter contributes 7. The market topics are still thin for the run of show's 40-per-market floor: Japan is the only non-US market near a usable set, and Germany and France will be shown as what they are.</p>
+<h3>First analysis runs (31 August afternoon)</h3>
+<p>Consensus on the research topic (Sonnet 5, 5-year window, Sunstar profile, analyst persona) over 90 papers gave three categories: oral frailty as a validated, reversible geriatric syndrome (46 papers, 88% confidence, Japan leads the field), periodontitis and neurodegeneration as strong association but weak causation (21 papers, 72%; a failed gingipain drug trial and a null 15-year cohort against umbrella-review risk ratios of 1.5–1.65), and periodontitis and cardiovascular disease as converging mechanistic consensus (19 papers, 80%; shared NF-κB/NLRP3 inflammatory pathways, against a Mendelian randomisation study finding no causal link). Six key insights, including that only 2 of 90 papers touch policy or reimbursement. Export: <code>sunstar.aunoo.ai/exports/sunstar-research-consensus-2026-08-31.html</code>. Two earlier runs were truncated by a model-limit table bug, now fixed (see changes.md).</p>
+<p>Consensus on the US topic (Sonnet 5, 90-day window, 35 articles, analysis <code>fce3b699…</code>) gave four categories: gum bacteria as a cardiac risk pathway (11 articles, 88% confidence, five sources on one AHA-presented P. gingivalis / IL-1β mechanism), the oral microbiome–brain axis as emerging but preliminary (9, 72%), the awareness–action gap (3, 90%: P&amp;G's survey has 76% of Americans caring about oral health and 3% linking it to whole-body health), and fragmented metabolic and reproductive links (5, 60%). Set against the research consensus this is the demo's "narrative ahead of research" exhibit: US press treats the brain link as a consolidating story while the literature rates causation weak. Export: <code>sunstar.aunoo.ai/exports/sunstar-us-consensus-2026-08-31.html</code>.</p>
+<p>Consensus on the Japan topic (Sonnet 5, 90-day window, 13 articles, analysis <code>4224ee74…</code>) gave four categories: aspiration pneumonia and disaster oral care (4 articles, 88%, driven by the Kumamoto earthquake response), the oral microbiome–systemic link (3, 75%), consumer product innovation and premiumisation (5, 70%: MatsukiyoCocara×Kao, Clinica #1 in a repeat-purchase ranking), and oral frailty as an ageing priority (1 article, 65%). Japan's press frame is care delivery and ageing where the US frame is mechanisms and awareness — the market contrast the demo needs. Export: <code>sunstar.aunoo.ai/exports/sunstar-japan-consensus-2026-08-31.html</code>.</p>
+<p>Source file: <code>docs/SUNSTAR_ORAL_SYSTEMIC_HEALTH_SPEC.md</code> in the bugfixing tree.</p>
+</main>

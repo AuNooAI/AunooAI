@@ -19,6 +19,7 @@ this codebase.
 """
 
 import json
+import os
 import logging
 import re
 from calendar import monthrange
@@ -26,6 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
+from app.utils.timestamps import submission_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,12 @@ MIN_ITEMS_FOR_PROSE = 6
 # each, and the facts block says so when the true count is bigger.
 MAX_FACTS_PER_SECTION = 80
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+# Kimi K2.5 writes the briefing. The old default, gpt-5.4-mini, is a yaml
+# alias that lands on Bedrock Haiku 4.5 on every tenant; kimi beat Haiku on
+# the enrichment benchmark (07-20) at about half the price, and the project
+# rule is to avoid Haiku unless nothing cheaper does the job. Override per
+# tenant with MARKET_BRIEFING_MODEL.
+DEFAULT_MODEL = os.getenv("MARKET_BRIEFING_MODEL", "bedrock-kimi-k2-5")
 
 
 def month_bounds(year: int, month: int) -> Tuple[date, date, str]:
@@ -272,10 +279,14 @@ def _render_facts(facts: Dict[str, Any]) -> str:
             lines.append(f"- {e['vendor']} (founded {e.get('founded') or '?'})")
 
     if facts["headcount_movers"]:
-        lines.append("\nHEADCOUNT AGAINST THE IMPORTED BASELINE:")
+        # Two LinkedIn readings, each with its own date. The dates are given to
+        # the model because a +1 over two days and a +1 over four months are
+        # different facts and it cannot tell them apart otherwise.
+        lines.append("\nHEADCOUNT MOVEMENT (LinkedIn headcount on two dates):")
         for m in facts["headcount_movers"]:
-            lines.append(f"- {m['vendor']}: {m.get('was')} -> "
-                         f"{m.get('now_count')} ({m.get('pct')}%)")
+            lines.append(f"- {m['vendor']}: {m.get('previous')} on "
+                         f"{str(m.get('previous_at'))[:10]} -> {m.get('latest')} on "
+                         f"{str(m.get('latest_at'))[:10]} ({m.get('pct')}%)")
 
     if facts["hiring"]:
         top = ", ".join(f"{h['vendor']} {h['openings']}"
@@ -319,7 +330,11 @@ citation ID, each in the exact form [A3] or [C7] — a single capital letter
 followed by digits, nothing else inside the brackets. When a sentence you
 write is supported by one specific fact from either of those two sections,
 put its exact ID immediately after the sentence, copied verbatim from the
-list. Never invent an ID, never cite the same fact for an unrelated claim,
+list. The ID follows the sentence's full stop, never leads the sentence —
+the fact lines below start with their ID only so you can find it. Right:
+"Arambh Labs launched Armor Detect, a detection engineering agent. [A2]"
+Wrong: "[A2] Arambh Labs launched Armor Detect, a detection engineering
+agent." Never invent an ID, never cite the same fact for an unrelated claim,
 and never write a bracket for anything else — HEADCOUNT, OPEN JOB LISTINGS,
 NEW TO THE REGISTRY and every other section have no IDs and get no brackets
 at all, not even a descriptive one like [headcount data]. A sentence drawn
@@ -397,15 +412,26 @@ def quiet_briefing(facts: Dict[str, Any], period_label: str) -> str:
             "conclusion from, so this briefing records the count and stops.\n")
 
 
-_CITATION_RE = re.compile(r"\[([AC]\d+)\]")
+# One citation ID, used to pull the IDs back out of a bracket that holds
+# several.
+_CITE_ID_RE = re.compile(r"[AC]\d+")
+
+# A citation bracket: one ID, or several separated by commas. The prompt asks
+# for one ID per bracket, but a model that has two facts for a sentence writes
+# "[A5, A11]" anyway, and that used to fall through to _STRAY_BRACKET_RE and
+# take both references down with it (three brackets, eight valid IDs, in the
+# 2026-08-17 SOC automation weekly).
+_CITATION_GROUP = r"[AC]\d+(?:\s*,\s*[AC]\d+)*"
+_CITATION_RE = re.compile(r"\[\s*(" + _CITATION_GROUP + r")\s*\]")
 
 # A bracket the model wrote that is not a real citation ID — e.g.
 # "[headcount data]" instead of an [A3]/[C7] it was told those two sections
 # alone carry. The negative lookahead excludes anything shaped like a real
-# ID so this never touches a valid [A3]; the lookahead on "(" excludes a
-# markdown link, in case one is ever written even though this renderer
-# doesn't support that syntax.
-_STRAY_BRACKET_RE = re.compile(r"\[(?!\s*[AC]\d+\s*\])[^\[\]\n]{1,40}\](?!\()")
+# ID so this never touches a valid [A3] or [A5, A11]; the lookahead on "("
+# excludes a markdown link, in case one is ever written even though this
+# renderer doesn't support that syntax.
+_STRAY_BRACKET_RE = re.compile(
+    r"\[(?!\s*" + _CITATION_GROUP + r"\s*\])[^\[\]\n]{1,40}\](?!\()")
 
 
 def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
@@ -419,7 +445,8 @@ def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
     reader cannot make sense of.
     """
     index = facts.get("citation_index") or {}
-    tokens = _CITATION_RE.findall(content)
+    tokens = [cid for group in _CITATION_RE.findall(content)
+              for cid in _CITE_ID_RE.findall(group)]
     strays = _STRAY_BRACKET_RE.findall(content)
     if len(strays) >= 3 and len(strays) > len(tokens):
         return True
@@ -427,6 +454,54 @@ def _citation_garbage(content: str, facts: Dict[str, Any]) -> bool:
         return False
     bad = sum(1 for t in tokens if t not in index)
     return bad / len(tokens) > 0.5
+
+
+# One or more citation brackets at the start of a line, after any markdown
+# bullet or heading marker. Only the line start is unambiguous: mid-paragraph,
+# "X. [A3] Y." is the correct form (A3 cites X), so a bracket after a full
+# stop is never touched.
+_LEADING_CITES_RE = re.compile(
+    r"(?P<lead>^[ \t]*(?:[-*#>]+[ \t]+)?)"
+    r"(?P<cites>(?:\[\s*" + _CITATION_GROUP + r"\s*\][ \t]*)+)"
+    r"(?=\S)",
+    re.MULTILINE)
+# Where the sentence those brackets belong to ends: a terminator followed by
+# whitespace or the end of the line. A closing quote after the terminator
+# stays with the sentence.
+_SENTENCE_END_RE = re.compile(r"[.!?][\"'”’)]*(?=[ \t]|$)", re.MULTILINE)
+
+
+def move_leading_citations(content: str) -> str:
+    """Move a citation that leads its sentence to the end of that sentence.
+
+    The prompt asks for the ID after the sentence, and the fact list shows
+    each ID at the front of its line; Kimi copies the fact-list position
+    ("[A2] Arambh Labs launched…") often enough that the report reads as a
+    numbered list. Every ID still resolves either way, so this is a layout
+    fix, and it only moves a bracket when the sentence has a visible end on
+    the same line — a heading or a fragment is left alone. A bracket that
+    opens a sentence mid-paragraph is left where it is, because from the
+    text alone it is indistinguishable from one closing the sentence before.
+    """
+    out: List[str] = []
+    pos = 0
+    for m in _LEADING_CITES_RE.finditer(content):
+        if m.start() < pos:
+            continue
+        line_end = content.find("\n", m.end())
+        if line_end == -1:
+            line_end = len(content)
+        end = _SENTENCE_END_RE.search(content, m.end(), line_end)
+        if not end:
+            continue
+        ids = [f"[{cid}]" for cid in _CITE_ID_RE.findall(m.group("cites"))]
+        out.append(content[pos:m.start()])
+        out.append(m.group("lead"))
+        out.append(content[m.end():end.end()])
+        out.append(" " + " ".join(ids))
+        pos = end.end()
+    out.append(content[pos:])
+    return "".join(out)
 
 
 def resolve_citations(content: str, facts: Dict[str, Any]
@@ -445,23 +520,29 @@ def resolve_citations(content: str, facts: Dict[str, Any]
     dropped: List[Dict[str, Any]] = []
 
     def _replace(match: "re.Match") -> str:
-        cite_id = match.group(1)
-        if cite_id not in index:
-            logger.warning("dropped hallucinated citation %s", cite_id)
-            dropped.append({"kind": "citation",
-                            "detail": f"dropped hallucinated citation [{cite_id}]"})
+        cite_ids = _CITE_ID_RE.findall(match.group(1))
+        kept: List[str] = []
+        for cite_id in cite_ids:
+            if cite_id not in index:
+                logger.warning("dropped hallucinated citation %s", cite_id)
+                dropped.append({"check": "citation",
+                                "detail": f"dropped hallucinated citation [{cite_id}]"})
+                continue
+            kept.append(cite_id)
+            if cite_id not in seen:
+                seen.append(cite_id)
+                references.append({"cite_id": cite_id, **index[cite_id]})
+        # Every ID in the bracket was invented — drop the bracket with them.
+        if not kept:
             return ""
-        if cite_id not in seen:
-            seen.append(cite_id)
-            references.append({"cite_id": cite_id, **index[cite_id]})
-        return match.group(0)
+        return "[" + ", ".join(kept) + "]"
 
-    resolved = _CITATION_RE.sub(_replace, content)
+    resolved = _CITATION_RE.sub(_replace, move_leading_citations(content))
 
     def _strip_stray(match: "re.Match") -> str:
         token = match.group(0)
         logger.warning("dropped non-citation bracket %s", token)
-        dropped.append({"kind": "citation",
+        dropped.append({"check": "citation",
                         "detail": f"dropped non-citation bracket {token}"})
         return ""
 
@@ -571,20 +652,59 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
            "content": content, "uris": uris, "model": model,
            "generation": generation,
            "lint": json.dumps(lint, default=str)}).scalar()
+    # Back to draft means out of the feed until somebody approves this text.
+    _withdraw_from_feed(conn, market["id"], row)
     conn.commit()
     result["id"] = row
     result["stored"] = True
     return result
 
 
+KINDS = ("briefing", "analysis", "note")
+KIND_LABELS = {"briefing": "Briefing", "analysis": "Analysis", "note": "Note"}
+
+
 def listing(conn, market_id: int, limit: int = 24) -> List[Dict[str, Any]]:
     return [dict(r) for r in conn.execute(text("""
         SELECT id, period_label, period_start, period_end, title, status,
                generation, model_used, created_at, updated_at,
+               kind, author, published_at,
                ARRAY_LENGTH(article_uris, 1) AS sources
         FROM bw_market_briefings WHERE market_id = :m
-        ORDER BY period_start DESC LIMIT :lim
+        ORDER BY period_start DESC, id DESC LIMIT :lim
     """), {"m": market_id, "lim": limit}).mappings().all()]
+
+
+def create_piece(conn, market: Dict[str, Any], *, kind: str, title: str,
+                 content: str, author: Optional[str] = None,
+                 saved_by: Optional[str] = None) -> Dict[str, Any]:
+    """A piece a person wrote — an analysis or a note — as a draft.
+
+    Stored beside the briefings so it gets the same approval, revision and
+    feed handling. ``generation = 'written'`` says no model drafted it; the
+    period is the day it was written, and the period label carries the
+    kind and the moment so the (market, label) uniqueness holds.
+    """
+    if kind not in ("analysis", "note"):
+        raise ValueError(f"unknown kind: {kind}")
+    title = (title or "").strip()[:300]
+    content = (content or "").replace("\r\n", "\n").strip()
+    if not title or not content:
+        raise ValueError("A piece needs a title and its text")
+    now = datetime.now(timezone.utc)
+    label = f"{KIND_LABELS[kind]} · {now.strftime('%Y-%m-%d %H:%M:%S')}"
+    row_id = conn.execute(text("""
+        INSERT INTO bw_market_briefings
+            (market_id, period_start, period_end, period_label, title, facts,
+             report_content, article_uris, model_used, generation, lint,
+             kind, author)
+        VALUES (:m, :d, :d, :label, :t, '{}'::jsonb, :c, '{}'::text[], NULL,
+                'written', '[]'::jsonb, :k, :a)
+        RETURNING id
+    """), {"m": market["id"], "d": now.date(), "label": label, "t": title,
+           "c": content, "k": kind, "a": (author or saved_by or "").strip()[:120] or None}).scalar()
+    conn.commit()
+    return get(conn, market["id"], int(row_id))
 
 
 def get(conn, market_id: int, briefing_id: int) -> Optional[Dict[str, Any]]:
@@ -598,9 +718,406 @@ def get(conn, market_id: int, briefing_id: int) -> Optional[Dict[str, Any]]:
 def set_status(conn, market_id: int, briefing_id: int, status: str) -> bool:
     if status not in ("draft", "approved", "rejected"):
         raise ValueError(f"unknown status: {status}")
+    # The first approval is the publication; a later re-approval keeps it.
     updated = conn.execute(text("""
-        UPDATE bw_market_briefings SET status = :s, updated_at = NOW()
+        UPDATE bw_market_briefings
+           SET status = :s, updated_at = NOW(),
+               published_at = CASE WHEN :s = 'approved'
+                                   THEN COALESCE(published_at, NOW())
+                                   ELSE published_at END
         WHERE market_id = :m AND id = :i
     """), {"s": status, "m": market_id, "i": briefing_id}).rowcount
     conn.commit()
     return bool(updated)
+
+
+# ---------------------------------------------------------------------------
+# Editing by hand
+# ---------------------------------------------------------------------------
+#
+# The model writes the first draft; a person may rewrite it. The text that
+# was there before each save goes to ``bw_market_briefing_revisions``, so the
+# model's original and every edit survive and any of them can be restored.
+# An edited briefing is marked ``generation = 'edited'`` — a reader can then
+# tell a model's sentence from a person's — and if it is approved, its feed
+# item is refreshed so the feed summary follows the new text.
+
+def _snapshot(conn, briefing: Dict[str, Any], *, reason: str,
+              saved_by: Optional[str]) -> int:
+    return int(conn.execute(text("""
+        INSERT INTO bw_market_briefing_revisions
+            (briefing_id, market_id, title, report_content, generation, reason, saved_by)
+        VALUES (:b, :m, :t, :c, :g, :r, :by)
+        RETURNING id
+    """), {"b": briefing["id"], "m": briefing["market_id"], "t": briefing.get("title"),
+           "c": briefing.get("report_content") or "", "g": briefing.get("generation"),
+           "r": reason, "by": saved_by}).scalar())
+
+
+def save_edit(conn, market: Dict[str, Any], briefing_id: int, *, content: str,
+              title: Optional[str] = None, saved_by: Optional[str] = None,
+              reason: str = "edit", generation: str = "edited"
+              ) -> Optional[Dict[str, Any]]:
+    """Replace the briefing's text with a person's, keeping what was there.
+
+    Returns the updated briefing, or None if it does not exist. The lint is
+    rerun on the new text (advisory, never blocking); citations are left as
+    written, because a person editing is the reviewer.
+    """
+    briefing = get(conn, market["id"], briefing_id)
+    if not briefing:
+        return None
+    content = (content or "").replace("\r\n", "\n").strip()
+    if not content:
+        raise ValueError("The briefing text cannot be empty")
+    if content == (briefing.get("report_content") or "").strip() and \
+            (title is None or title == briefing.get("title")):
+        return briefing
+    _snapshot(conn, briefing, reason="before " + reason, saved_by=saved_by)
+    try:
+        from app.services.report_lint import lint_outbound
+        lint = lint_outbound(content, kind="html", context="briefing edit") or []
+    except Exception as exc:  # noqa: BLE001 — advisory
+        logger.debug("briefing edit lint failed: %s", exc)
+        lint = []
+    conn.execute(text("""
+        UPDATE bw_market_briefings
+           SET report_content = :c, title = COALESCE(:t, title),
+               generation = :g, lint = CAST(:l AS JSONB), updated_at = NOW()
+         WHERE market_id = :m AND id = :i
+    """), {"c": content, "t": (title or "").strip()[:300] or None,
+           # A person's own piece stays "written" after a person's edit.
+           "g": generation if generation in ("generated", "fallback", "edited", "written")
+                else ("written" if briefing.get("generation") == "written" else "edited"),
+           "l": json.dumps(lint), "m": market["id"], "i": briefing_id})
+    conn.commit()
+    if briefing.get("status") == "approved":
+        sync_feed_entry(conn, market, briefing_id)
+    return get(conn, market["id"], briefing_id)
+
+
+def revisions(conn, market_id: int, briefing_id: int) -> List[Dict[str, Any]]:
+    """Every previous text, newest first, without the text itself."""
+    return [dict(r) for r in conn.execute(text("""
+        SELECT id, title, generation, reason, saved_by, saved_at,
+               LENGTH(report_content) AS length
+          FROM bw_market_briefing_revisions
+         WHERE market_id = :m AND briefing_id = :b
+         ORDER BY saved_at DESC, id DESC
+    """), {"m": market_id, "b": briefing_id}).mappings().all()]
+
+
+def revision(conn, market_id: int, briefing_id: int, revision_id: int
+             ) -> Optional[Dict[str, Any]]:
+    row = conn.execute(text("""
+        SELECT * FROM bw_market_briefing_revisions
+         WHERE market_id = :m AND briefing_id = :b AND id = :r
+    """), {"m": market_id, "b": briefing_id, "r": revision_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def restore(conn, market: Dict[str, Any], briefing_id: int, revision_id: int,
+            saved_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Put an earlier text back. The current text is kept as a revision."""
+    rev = revision(conn, market["id"], briefing_id, revision_id)
+    if not rev:
+        return None
+    # Putting the model's own text back makes it the model's text again.
+    return save_edit(conn, market, briefing_id, content=rev["report_content"],
+                     title=rev.get("title"), saved_by=saved_by, reason="restore",
+                     generation=rev.get("generation") or "edited")
+
+
+# ---------------------------------------------------------------------------
+# The approved briefing as a news-feed item
+# ---------------------------------------------------------------------------
+#
+# The shared news feed is a query over ``articles``: anything with a category
+# and a sentiment inside the date range is a feed item. So an approved
+# briefing joins the feed by becoming one row there, pointing at its own
+# HTML page. Approval puts the row in; rejecting, or regenerating (which
+# returns the briefing to draft), takes it out again. The row is marked
+# ``article_origin = 'report'`` so any reader of ``articles`` that should not
+# treat a briefing as one more article can tell it apart.
+
+FEED_SOURCE = "Aunoo Market Monitor"
+FEED_CATEGORY = "Market Briefing"
+FEED_SENTIMENT = "Neutral"
+FEED_ORIGIN = "report"
+FEED_SUMMARY_LIMIT = 480
+
+
+def briefing_page_path(market_id: int, briefing_id: int, kind: str = "briefing") -> str:
+    if kind in ("analysis", "note"):
+        # Our own pieces are public on the front page, whoever opens them.
+        return f"/api/market-monitor/markets/{market_id}/report.html?view=v2&piece={briefing_id}"
+    return f"/api/market-monitor/markets/{market_id}/briefings/{briefing_id}/report.html"
+
+
+def briefing_page_url(market_id: int, briefing_id: int, kind: str = "briefing") -> str:
+    """The absolute URL the feed row carries as its ``uri``.
+
+    Absolute because the feed card opens it in a new tab and other readers
+    of ``articles`` take the host out of the URI as the source name.
+    """
+    base = (os.getenv("APP_URL") or "").rstrip("/")
+    return base + briefing_page_path(market_id, briefing_id, kind)
+
+
+_MD_HEADING_RE = re.compile(r"^\s*(#{1,6}\s|[-*_]{3,}\s*$|\*\*[^*]+\*\*\s*$|>\s)")
+
+
+def feed_summary(content: str, limit: int = FEED_SUMMARY_LIMIT) -> str:
+    """The first real paragraph of the briefing, citations removed.
+
+    The briefing opens with a byline, a bold title, a rule and a heading
+    before it says anything, so the first prose paragraph is the one worth
+    showing on a feed card. Cut on a sentence end where there is one.
+    """
+    for para in re.split(r"\n\s*\n", content or ""):
+        lines = [ln for ln in para.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        prose = [ln for ln in lines if not _MD_HEADING_RE.match(ln)
+                 and "|" not in ln]
+        if not prose:
+            continue
+        joined = " ".join(ln.strip() for ln in prose)
+        joined = _CITATION_RE.sub("", joined)
+        joined = re.sub(r"\s+([.,;:!?])", r"\1", joined)
+        joined = re.sub(r"\s{2,}", " ", joined).strip()
+        # A subtitle written as plain text — "Week of 17–23 August 2026:
+        # AI-SOC Market Briefing" — has no sentence end and is short. Skip it
+        # the way a marked heading is skipped.
+        if len(joined) < 120 and not re.search(r"[.!?]", joined):
+            continue
+        if len(joined) <= limit:
+            return joined
+        cut = joined[:limit]
+        end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+        return (cut[:end + 1] if end > limit // 3 else cut.rstrip() + "…")
+    return ""
+
+
+def market_topic(market: Dict[str, Any]) -> str:
+    """The topic name the market's own articles carry, so the briefing sits
+    under the same topic filter as the news it summarises."""
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    return ((cfg.get("collection") or {}).get("topic_name")
+            or market.get("name") or "")
+
+
+def feed_row(market: Dict[str, Any], briefing: Dict[str, Any],
+             approved_at: Optional[datetime] = None) -> Dict[str, Any]:
+    """The ``articles`` row for an approved briefing. Pure; no database."""
+    stamp = (approved_at or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    kind = briefing.get("kind") or "briefing"
+    return {
+        "uri": briefing_page_url(market["id"], briefing["id"], kind),
+        "title": briefing.get("title") or f"{market['name']} — {briefing.get('period_label', '')}",
+        "summary": feed_summary(briefing.get("report_content") or ""),
+        "news_source": FEED_SOURCE,
+        "publication_date": stamp,
+        "submission_date": submission_stamp(approved_at or stamp),
+        "category": FEED_CATEGORY,
+        "sentiment": FEED_SENTIMENT,
+        "topic": market_topic(market),
+        "tags": ", ".join(t for t in (f"market {kind}", market.get("name", "")) if t),
+        "analyzed": True,
+        "ingest_status": "approved",
+        "article_origin": FEED_ORIGIN,
+    }
+
+
+def _withdraw_from_feed(conn, market_id: int, briefing_id: int) -> int:
+    n = 0
+    for kind in KINDS:
+        n += conn.execute(text(
+            "DELETE FROM articles WHERE uri = :u AND article_origin = :o"
+        ), {"u": briefing_page_url(market_id, briefing_id, kind), "o": FEED_ORIGIN}).rowcount
+    return n
+
+
+def _publish_to_feed(conn, market: Dict[str, Any], briefing: Dict[str, Any]) -> None:
+    row = feed_row(market, briefing)
+    conn.execute(text("""
+        INSERT INTO articles
+            (uri, title, summary, news_source, publication_date, submission_date,
+             category, sentiment, topic, tags, analyzed, ingest_status, article_origin)
+        VALUES (:uri, :title, :summary, :news_source, :publication_date,
+                :submission_date, :category, :sentiment, :topic, :tags,
+                :analyzed, :ingest_status, :article_origin)
+        ON CONFLICT (uri) DO UPDATE SET
+            title = EXCLUDED.title, summary = EXCLUDED.summary,
+            publication_date = EXCLUDED.publication_date,
+            submission_date = EXCLUDED.submission_date,
+            category = EXCLUDED.category, sentiment = EXCLUDED.sentiment,
+            topic = EXCLUDED.topic, tags = EXCLUDED.tags,
+            analyzed = EXCLUDED.analyzed, ingest_status = EXCLUDED.ingest_status,
+            article_origin = EXCLUDED.article_origin
+    """), row)
+
+
+def sync_feed_entry(conn, market: Dict[str, Any], briefing_id: int,
+                    commit: bool = True) -> Optional[str]:
+    """Make the feed agree with the briefing's status.
+
+    Approved: the briefing has a row in ``articles``. Anything else: it does
+    not. Returns "published", "withdrawn", or None when the briefing does not
+    exist. Safe to call repeatedly.
+    """
+    briefing = get(conn, market["id"], briefing_id)
+    if not briefing:
+        return None
+    if briefing.get("status") == "approved":
+        _publish_to_feed(conn, market, briefing)
+        outcome = "published"
+    else:
+        _withdraw_from_feed(conn, market["id"], briefing_id)
+        outcome = "withdrawn"
+    if commit:
+        conn.commit()
+    return outcome
+
+
+# ---------------------------------------------------------------------------
+# The briefing as a page
+# ---------------------------------------------------------------------------
+
+def render_page(market: Dict[str, Any], briefing: Dict[str, Any]) -> str:
+    """The briefing as one self-contained HTML page."""
+    from app.services.html_report_common import esc, html_document
+
+    status = briefing.get("status") or "draft"
+    head = (f'<p class="eyebrow">{esc(market.get("name", ""))} · '
+            f'{esc(briefing.get("period_label", ""))} · {esc(status)}</p>')
+    return html_document(briefing.get("title") or market.get("name", "Briefing"),
+                         head + render_body(briefing))
+
+
+# ---------------------------------------------------------------------------
+# The approved briefing on the shared market report
+# ---------------------------------------------------------------------------
+#
+# The shared report (a public market, or a signed link) withholds most vendors
+# and refuses to serve a page that names one of them — it raises rather than
+# redacts (market_entitlements.assert_no_withheld). A briefing names every
+# vendor, so the shared view gets a card: the title, the period, and only the
+# summary sentences that name no withheld vendor. The text itself is for a
+# reader with a session.
+
+def approved_listing(conn, market_id: int, limit: int = 12,
+                     kind: str = "briefing") -> List[Dict[str, Any]]:
+    return [dict(r) for r in conn.execute(text("""
+        SELECT id, period_label, period_start, period_end, title, updated_at,
+               kind, author, published_at,
+               (facts->>'item_count')::int AS item_count
+        FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved' AND kind = :k
+        ORDER BY period_start DESC LIMIT :lim
+    """), {"m": market_id, "lim": limit, "k": kind}).mappings().all()]
+
+
+def latest_approved(conn, market_id: int, kind: str = "briefing") -> Optional[Dict[str, Any]]:
+    row = conn.execute(text("""
+        SELECT * FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved' AND kind = :k
+        ORDER BY period_start DESC LIMIT 1
+    """), {"m": market_id, "k": kind}).mappings().first()
+    return dict(row) if row else None
+
+
+def approved_pieces(conn, market_id: int, limit: int = 24) -> List[Dict[str, Any]]:
+    """Our own approved pieces — analysis and notes — newest published first,
+    with their text, for the front page."""
+    return [dict(r) for r in conn.execute(text("""
+        SELECT * FROM bw_market_briefings
+        WHERE market_id = :m AND status = 'approved' AND kind IN ('analysis', 'note')
+        ORDER BY published_at DESC NULLS LAST, id DESC LIMIT :lim
+    """), {"m": market_id, "lim": limit}).mappings().all()]
+
+
+def piece(conn, market_id: int, piece_id: int) -> Optional[Dict[str, Any]]:
+    """One approved piece by id, or None. A draft is never served."""
+    row = get(conn, market_id, piece_id)
+    if not row or row.get("status") != "approved" or row.get("kind") not in ("analysis", "note"):
+        return None
+    return row
+
+
+def provenance_line(piece_row: Dict[str, Any]) -> str:
+    """The byline. Every piece page carries the site's Article 50
+    disclosure at its foot (6 Sep 2026), so the byline no longer spells
+    out the model's part; ``generation`` stays on the row for the record."""
+    author = (piece_row.get("author") or "the Cyberfuturists").strip()
+    return f"By {author}"
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(])")
+
+
+def safe_sentences(summary: str, withheld: List[str]) -> str:
+    """The sentences of ``summary`` that name no withheld vendor.
+
+    Dropped whole, never redacted, the way the shared news river drops a
+    headline that names a withheld vendor. Matched on word boundaries, case
+    folded, the same test the page-level check applies afterwards.
+    """
+    if not withheld:
+        return summary
+    patterns = [re.compile(rf"(?<!\w){re.escape(n)}(?!\w)", re.IGNORECASE)
+                for n in withheld if n and n.strip()]
+    kept = [s for s in _SENTENCE_SPLIT_RE.split(summary or "")
+            if s.strip() and not any(p.search(s) for p in patterns)]
+    return " ".join(kept)
+
+
+def render_body(briefing: Dict[str, Any]) -> str:
+    """The briefing text as HTML: markdown rendered, each citation linked to
+    its source, and a References list of the IDs actually cited."""
+    import markdown as _markdown
+    from app.services.html_report_common import esc
+
+    facts = briefing.get("facts") or {}
+    if isinstance(facts, str):
+        try:
+            facts = json.loads(facts)
+        except ValueError:
+            facts = {}
+    index = facts.get("citation_index") or {}
+
+    body = _markdown.markdown(briefing.get("report_content") or "",
+                              extensions=["tables"])
+    seen: List[str] = []
+
+    def _link(match: "re.Match[str]") -> str:
+        parts = []
+        for cid in _CITE_ID_RE.findall(match.group(1)):
+            ref = index.get(cid)
+            if ref and cid not in seen:
+                seen.append(cid)
+            if ref and ref.get("uri"):
+                parts.append(f'<a href="{esc(ref["uri"])}" target="_blank" '
+                             f'rel="noreferrer">{cid}</a>')
+            else:
+                parts.append(cid)
+        return "[" + ", ".join(parts) + "]"
+
+    body = _CITATION_RE.sub(_link, body)
+    if not seen:
+        return body
+    items = []
+    for cid in seen:
+        ref = index[cid]
+        label = " — ".join(p for p in (ref.get("vendor"), ref.get("title")) if p)
+        uri = ref.get("uri") or ""
+        items.append(
+            f'<li><strong>{cid}</strong> {esc(label)}'
+            + (f' <a href="{esc(uri)}" target="_blank" rel="noreferrer">'
+               f'{esc(uri)}</a>' if uri else "") + "</li>")
+    return body + '<h2>References</h2><ol class="refs">' + "".join(items) + "</ol>"

@@ -639,9 +639,27 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
         raise RuntimeError("gpt-5.4 model not available for Three Horizons run.")
 
     started = _time.time()
-    raw_response = await ai_model.agenerate_response(
-        [{"role": "user", "content": formatted_prompt}]
+    # The wrapper's default max_tokens is 2000, which truncates a full
+    # three-horizons JSON payload mid-string ("response was not valid JSON"
+    # at ~8k chars). Raise the ceiling — but the two AIModel classes differ:
+    # the router-backed one forwards kwargs, the plain one only reads its
+    # own max_tokens attribute and rejects the kwarg outright.
+    import inspect as _inspect
+    _messages = [{"role": "user", "content": formatted_prompt}]
+    _params = _inspect.signature(ai_model.generate_response).parameters
+    _takes_kwargs = "max_tokens" in _params or any(
+        p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values()
     )
+    if _takes_kwargs:
+        raw_response = await ai_model.agenerate_response(_messages, max_tokens=16000)
+    else:
+        _prev = getattr(ai_model, "max_tokens", None)
+        ai_model.max_tokens = 16000
+        try:
+            raw_response = await ai_model.agenerate_response(_messages)
+        finally:
+            if _prev is not None:
+                ai_model.max_tokens = _prev
 
     # Parse JSON out of the response — strip fences if present.
     s = (raw_response or "").strip()

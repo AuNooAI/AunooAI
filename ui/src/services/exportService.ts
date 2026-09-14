@@ -1,7 +1,18 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+import { deployedModelsPhrase, getDeployedModelNames } from './aiDisclosureModels';
+
 export class ExportService {
+  // Models for a run's AI Act disclosure. The EOS and focus-group generators
+  // record the model that answered each stage in metadata.models; a run
+  // from before that, or a saved one, falls back to the site-wide list.
+  private static runModelsPhrase(metadata?: any): string {
+    const models = metadata?.models;
+    if (Array.isArray(models) && models.length) return models.filter(Boolean).join(', ');
+    return deployedModelsPhrase();
+  }
+
   /**
    * Export dashboard data as JSON
    */
@@ -40,7 +51,7 @@ export class ExportService {
     // AI Disclosure Section
     markdown += `## AI Technology Disclosure\n\n`;
     markdown += `During the preparation of this ${dashboardType}, the following AI technologies were used:\n\n`;
-    markdown += `- **AI Tools**: site-configured large language models, local DeBERTa embeddings\n`;
+    markdown += `- **AI Tools**: ${deployedModelsPhrase()}, local DeBERTa embeddings\n`;
     markdown += `- **Purpose**: ${this.getPurpose(dashboardType)}\n`;
     markdown += `- **Review Process**: All AI-generated content has been reviewed and validated.\n`;
     markdown += `- **Author Responsibility**: The content creator takes full responsibility for the accuracy and integrity of this analysis.\n\n`;
@@ -432,7 +443,7 @@ export class ExportService {
     // AI Disclosure
     checkPageBreak(30);
     addText('AI Technology Disclosure', 12, true);
-    addText('This analysis was generated using AI technologies (site-configured large language models, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.', 9, false, [100, 100, 100]);
+    addText(`This analysis was generated using AI technologies (${this.runModelsPhrase(metadata)}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
     y += 8;
 
     // Category colors
@@ -560,7 +571,7 @@ export class ExportService {
     }
 
     md += `## AI Technology Disclosure\n\n`;
-    md += `This analysis was generated using AI technologies (site-configured large language models, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `This analysis was generated using AI technologies (${this.runModelsPhrase(metadata)}, local DeBERTa embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.\n\n`;
     md += `---\n\n`;
 
     const categoryLabels: Record<string, string> = {
@@ -712,7 +723,7 @@ export class ExportService {
     // AI Disclosure
     checkPageBreak(30);
     addText('AI Technology Disclosure', 12, true);
-    addText('This analysis was generated using AI technologies (site-configured large language models, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.', 9, false, [100, 100, 100]);
+    addText(`This analysis was generated using AI technologies (${this.runModelsPhrase(result.metadata)}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.`, 9, false, [100, 100, 100]);
     y += 8;
 
     // Focus Group Summary
@@ -868,7 +879,7 @@ export class ExportService {
     }
 
     md += `## AI Technology Disclosure\n\n`;
-    md += `This analysis was generated using AI technologies (site-configured large language models, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `This analysis was generated using AI technologies (${this.runModelsPhrase(result.metadata)}, local DeBERTa embeddings) for audience persona development. All content should be reviewed and validated by domain experts.\n\n`;
     md += `---\n\n`;
 
     // Focus Group Summary
@@ -1128,7 +1139,7 @@ export class ExportService {
 
     // AI Disclosure
     md += `## AI Technology Disclosure\n\n`;
-    const modelInfo = model || briefing.model || 'AI';
+    const modelInfo = model || briefing.model || getDeployedModelNames() || 'AI';
     md += `This briefing was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
 
     // Executive Summary
@@ -1287,7 +1298,7 @@ export class ExportService {
 
     // AI Disclosure
     md += `## AI Technology Disclosure\n\n`;
-    const modelInfo = model || 'AI';
+    const modelInfo = model || getDeployedModelNames() || 'AI';
     md += `This report was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
 
     md += `## Incidents (${incidents.length})\n\n`;
@@ -1437,7 +1448,7 @@ export class ExportService {
    */
   static exportIncidentsStyledMarkdown(incidents: any[], topic?: string, model?: string): void {
     const dateStr = new Date().toISOString().split('T')[0];
-    const modelInfo = model || 'AI';
+    const modelInfo = model || getDeployedModelNames() || 'AI';
 
     let md = `# 🎯 Incident Report\n\n`;
     if (topic) md += `**Topic:** ${topic}\n\n`;
@@ -1566,7 +1577,7 @@ export class ExportService {
    */
   static exportIncidentsPDF(incidents: any[], topic?: string, model?: string): void {
     const dateStr = new Date().toISOString().split('T')[0];
-    const modelInfo = model || 'AI';
+    const modelInfo = model || getDeployedModelNames() || 'AI';
 
     // Build HTML similar to email template styling
     let html = `<!DOCTYPE html>
@@ -2048,7 +2059,7 @@ export class ExportService {
 
     // AI Disclosure
     md += `## AI Technology Disclosure\n\n`;
-    const modelInfo = model || 'AI';
+    const modelInfo = model || getDeployedModelNames() || 'AI';
     md += `This report was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
 
     md += `## Themes (${themes.length})\n\n`;
@@ -2883,7 +2894,7 @@ export class ExportService {
       const footerHtml = `
         <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center;">
           <p style="font-size: 10px; color: #9ca3af; margin: 0;">
-            AI Technology Disclosure: This analysis was generated using AI (site-configured large language models) for scenario planning and future horizons modeling.
+            AI Technology Disclosure: This analysis was generated using AI (${deployedModelsPhrase()}) for scenario planning and future horizons modeling.
           </p>
           <p style="font-size: 10px; color: #9ca3af; margin: 5px 0 0 0;">
             Generated by Aunoo AI

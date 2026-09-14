@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './ai-disclosure-footer.css';
+import { getDeployedModelNames, loadDeployedModelNames } from '../services/aiDisclosureModels';
 
 interface AIDisclosureFooterProps {
   dashboardName: string;
@@ -8,26 +9,16 @@ interface AIDisclosureFooterProps {
   purpose: string;
 }
 
-// This is a compliance disclosure (EU AI Act Art. 50): the model it names must
-// be one that actually runs on this deployment. When the caller can't pass the
-// model it used, we resolve the deployment's real model list once rather than
-// fall back to a hardcoded vendor name — the old 'GPT-4' default named a model
-// these sites do not serve.
-let cachedModelNames: string | null = null;
+// This is a compliance disclosure (EU AI Act Art. 50): the models it names
+// must be the ones that actually ran on this deployment. When the caller
+// can't pass the model it used, we show the deployment's real model list
+// from the usage ledger (see services/aiDisclosureModels.ts).
 function useDeployedModelNames(enabled: boolean): string | null {
-  const [names, setNames] = useState<string | null>(cachedModelNames);
+  const [names, setNames] = useState<string | null>(getDeployedModelNames());
   useEffect(() => {
-    if (!enabled || cachedModelNames) return;
-    fetch('/api/trend-convergence/models', { credentials: 'include' })
-      .then(r => (r.ok ? r.json() : []))
-      .then((models: Array<{ name?: string }>) => {
-        if (Array.isArray(models) && models.length > 0) {
-          cachedModelNames = models.slice(0, 4).map(m => m.name).filter(Boolean).join(', ');
-          setNames(cachedModelNames);
-        }
-      })
-      .catch(() => undefined);
-  }, [enabled]);
+    if (!enabled || names) return;
+    loadDeployedModelNames().then(n => { if (n) setNames(n); });
+  }, [enabled, names]);
   return names;
 }
 
@@ -40,7 +31,7 @@ export function AIDisclosureFooter({
   const deployedNames = useDeployedModelNames(!modelUsed);
   const modelText = modelUsed
     || deployedNames
-    || (aiTools && aiTools.length ? aiTools.join(', ') : 'site-configured models');
+    || (aiTools && aiTools.length ? aiTools.join(', ') : 'the large language models configured for this site');
   // Get user info from session (if available in window object from server-side rendering)
   const userName = (window as any).userSession?.username;
   const userEmail = (window as any).userSession?.email;

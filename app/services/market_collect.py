@@ -21,11 +21,30 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
+from app.utils.timestamps import submission_stamp
 
 logger = logging.getLogger(__name__)
 
 LINKEDIN_POST_SOURCE = "linkedin_company_post"
 VENDOR_WEB_SOURCE = "vendor_web"
+
+# Bright Data pay-as-you-go: $1.50 per 1,000 records delivered, billed on
+# success only, so a record returned as a provider error is not charged. This
+# is the provider's published rate rather than a local preference, which is why
+# it is a constant here and not an environment variable — if Bright Data
+# changes the rate, this line changes with it.
+PRICE_PER_1K_RECORDS_USD = 1.50
+
+# The sources whose records come from a paid provider. Defined here because
+# close_run is the one function every collector path reaches, so this is where
+# a record can be priced; app.routes.market_monitor_routes imports it rather
+# than keeping a second copy, so a new paid source cannot be added to one list
+# and silently missed by the other.
+PAID_SOURCES = frozenset({
+    "linkedin_company_post", "linkedin_company_profile",
+    "crunchbase_company", "linkedin_jobs",
+    "pitchbook_company", "zoominfo_company", "indeed_jobs",
+})
 
 # Without an entry here a record whose text matches no category keyword is
 # stored but attributed to nothing — and the Brand Watcher UI reads through
@@ -102,8 +121,25 @@ def outcome_status(received: int, stored: int, provider_errors: int = 0) -> str:
 
 def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0,
               skipped: int = 0, error: Optional[str] = None,
+              provider_errors: int = 0,
               cost_amount: Optional[float] = None,
               cost_currency: Optional[str] = None) -> None:
+    """Close a run and price it.
+
+    Spend is derived here rather than at the thirty-odd call sites, because
+    this is the one function every collector path reaches — the same reason the
+    entity hook below lives here. The price is applied from the run's own
+    ``source`` inside the UPDATE, so a free internal source keeps a NULL cost
+    and is distinguishable from a paid batch that happened to cost nothing.
+
+    ``provider_errors`` is what the batch was not charged for. Bright Data
+    bills on success, so a delivery of twenty records where all twenty came
+    back as proxy errors costs nothing, and pricing it as twenty records would
+    make the budget gate refuse work that was never paid for.
+
+    An explicit ``cost_amount`` still wins, for the day a provider returns a
+    real price with a job.
+    """
     # clock_timestamp(), not NOW(): NOW() is transaction-start time, so a run
     # opened and closed inside one transaction — which is every internal
     # source — would report zero latency forever.
@@ -111,14 +147,20 @@ def close_run(conn, run_id: int, *, status: str, received: int = 0, new: int = 0
         UPDATE bw_collection_runs
         SET status = :st, records_received = :rec, records_new = :new,
             records_skipped = :skip, error = :err,
-            cost_amount = :cost, cost_currency = :cur,
+            cost_amount = COALESCE(:cost, CASE WHEN source = ANY(:paid)
+                                               THEN :billable * :unit END),
+            cost_currency = COALESCE(:cur, CASE WHEN source = ANY(:paid)
+                                                THEN 'USD' END),
             completed_at = clock_timestamp(),
             latency_ms = GREATEST(0, EXTRACT(EPOCH FROM
                 (clock_timestamp() - started_at)) * 1000)
         WHERE id = :r
     """), {"st": status, "rec": received, "new": new, "skip": skipped,
            "err": (str(error)[:2000] if error else None), "cost": cost_amount,
-           "cur": cost_currency, "r": run_id})
+           "cur": cost_currency, "r": run_id,
+           "paid": list(PAID_SOURCES),
+           "billable": max(0, received - max(0, provider_errors)),
+           "unit": PRICE_PER_1K_RECORDS_USD / 1000.0})
 
     # Turn what this run collected into entity observations, links and
     # mentions. Every collector path reaches this function, so wiring it here
@@ -205,7 +247,7 @@ def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
         ON CONFLICT (uri) DO NOTHING
         RETURNING uri
     """), {"uri": uri, "title": (title or "")[:500], "summary": summary,
-           "ns": news_source, "pub": published_at or now_iso, "sub": now_iso,
+           "ns": news_source, "pub": published_at or now_iso, "sub": submission_stamp(now_iso),
            "topic": topic, "cat": category, "bsrc": bias_source,
            "meta": payload}).fetchone()
     if not row and payload:
@@ -390,9 +432,9 @@ def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
 def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Reach and shape for one post, for ``articles.social_meta``.
 
-    Only the fields worth keeping. The mapper also returns the full post body
-    and an image URL; the body is already the article summary and the image is
-    of no analytic use.
+    Only the fields worth keeping. The mapper also returns the full post body,
+    which is already the article summary, and the post's image, kept since
+    2026-08-29 so the front page can show it.
     """
     engagement = mapped.get("engagement")
     engagement = engagement if isinstance(engagement, dict) else {}
@@ -411,6 +453,7 @@ def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "comments": engagement.get("comments"),
         "shares": engagement.get("shares"),
         "followers": engagement.get("followers"),
+        "image_url": mapped.get("image_url"),
     }
     # A row of nothing but nulls is worse than no row — it reads as "measured,
     # and measured zero".
@@ -567,7 +610,13 @@ def keyword_for_vendor(display_name: str, qualifier: str = DEFAULT_QUALIFIER) ->
     if not name:
         return "", False
     if " " in name:
-        return name, False
+        # Quoted, so the firehose searches the words as an adjacent phrase.
+        # Bare, a multi-word name is an AND of its words anywhere in the
+        # document: "Mate Security" matched every article containing "mate"
+        # and "security" (166 in 30 days, none about the vendor), "Command
+        # Zero" matched Zelenskyy and Kim Jong Un. The collector passes a lone
+        # quoted phrase through intact (see NewsFirehoseCollector._normalize_query).
+        return f'"{name}"', False
     if len(name) >= MIN_STANDALONE_LENGTH and name.lower() not in _AMBIGUOUS_NAMES:
         return name, False
     return f"{name} {qualifier}", True
@@ -581,7 +630,7 @@ MAX_KEYWORD_CHARS = 30
 
 def check_term(term: str) -> Optional[str]:
     """Return what a term will actually be searched as, if it differs."""
-    t = (term or "").strip()
+    t = (term or "").strip().strip('"')
     if len(t) <= MAX_KEYWORD_CHARS:
         return None
     cut = t[:MAX_KEYWORD_CHARS]
@@ -672,6 +721,52 @@ def plan_market_keywords(conn, market_id: int,
     }
 
 
+def normalize_plan_keywords(keywords: List[str]) -> List[str]:
+    """Normalize planned keywords while keeping a quoted phrase quoted.
+
+    ``normalize_keyword`` strips double quotes as invalid characters, which
+    would silently turn the phrase search ``keyword_for_vendor`` asks for back
+    into the bare AND-of-words form. Normalize the text inside the quotes and
+    put them back.
+    """
+    from app.utils.keyword_normalizer import normalize_keyword
+    out: List[str] = []
+    for raw in keywords or []:
+        if not isinstance(raw, str):
+            continue
+        term = raw.strip()
+        quoted = len(term) >= 2 and term[0] == '"' and term[-1] == '"'
+        inner = normalize_keyword(term[1:-1] if quoted else term)
+        if not inner:
+            continue
+        kw = f'"{inner}"' if quoted else inner
+        if kw not in out:
+            out.append(kw)
+    return out
+
+
+def existing_collection_group(conn, market_id: int) -> Optional[Dict[str, Any]]:
+    """The keyword group a market's collection already runs through, by id.
+
+    Reads ``bw_markets.config.collection.group_id`` (written by
+    ``setup_market_collection``) and returns that group's id, name and topic,
+    or None when the market has never been set up or the group is gone.
+    """
+    gid = conn.execute(text(
+        "SELECT config->'collection'->>'group_id' FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar()
+    if not gid:
+        return None
+    try:
+        gid = int(gid)
+    except (TypeError, ValueError):
+        return None
+    row = conn.execute(text(
+        "SELECT id, name, topic FROM keyword_groups WHERE id = :g"),
+        {"g": gid}).mappings().fetchone()
+    return dict(row) if row else None
+
+
 def setup_market_collection(conn, db, market_id: int, market_name: str, *,
                             qualifier: str = DEFAULT_QUALIFIER,
                             vendor_names: str = DEFAULT_VENDOR_NAME_MODE,
@@ -684,9 +779,20 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     does it silently.
     """
     plan = plan_market_keywords(conn, market_id, qualifier, vendor_names)
-    group_name = f"{market_name} - Market Watch"
-    topic_name = f"Market Monitoring {market_name}"
+    # A market that already has a collection group is found by the group id
+    # stored on the market, never by name. Names drift: market 2 was renamed
+    # from "SOC Automation" to "AI in the SOC" after setup, and a re-run keyed
+    # on the new name created a second group, a second config.json topic and
+    # repointed config.collection at them (2026-09-03). The existing group's
+    # topic is kept for the same reason.
+    existing_group = existing_collection_group(conn, market_id)
+    if existing_group:
+        group_name, topic_name = existing_group["name"], existing_group["topic"]
+    else:
+        group_name = f"{market_name} - Market Watch"
+        topic_name = f"Market Monitoring {market_name}"
     plan.update({"group_name": group_name, "topic_name": topic_name,
+                 "existing_group_id": existing_group["id"] if existing_group else None,
                  "dry_run": dry_run})
     if not plan["keywords"]:
         # No terms means no collection. Creating an empty group would leave a
@@ -703,7 +809,7 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
     import os
 
     from app.database_query_facade import DatabaseQueryFacade
-    from app.routes.brand_watcher_routes import BW_CATEGORIES, normalize_keyword_list
+    from app.routes.brand_watcher_routes import BW_CATEGORIES
 
     # 1. Topic in config.json. This file is live, UI-edited state, so it is
     #    written atomically and only ever appended to.
@@ -744,21 +850,36 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
         topic_created = True
         logger.info("market %s: created config topic '%s'", market_id, topic_name)
 
-    # 2. Keyword group, replacing its keywords on a re-run so a vendor toggled
-    #    off stops being searched for.
+    # 2. Keyword group, synced to the plan by difference on a re-run: a vendor
+    #    toggled off stops being searched for, a newly funded one starts, and
+    #    every keyword that is still planned keeps its row. Deleting and
+    #    re-inserting the whole set gave every keyword a new id, which cut
+    #    keyword_article_matches.keyword_ids loose from the keyword text and
+    #    reset last_checked so the next cycle re-searched everything.
     facade = DatabaseQueryFacade(db, logger)
-    group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
     group_created = False
-    if group:
-        group_id = group[0]
-        facade.delete_group_keywords(group_id)
+    if existing_group:
+        group_id = existing_group["id"]
     else:
-        group_id = facade.create_group(group_name, topic_name)
-        group_created = True
+        group = facade.get_keyword_group_id_by_name_and_topic(group_name, topic_name)
+        if group:
+            group_id = group[0]
+        else:
+            group_id = facade.create_group(group_name, topic_name)
+            group_created = True
 
-    normalized = normalize_keyword_list(plan["keywords"])
-    for kw in normalized:
+    normalized = normalize_plan_keywords(plan["keywords"])
+    current = {row["keyword"]: row["id"]
+               for row in facade.get_keywords_for_group(group_id)}
+    added = [kw for kw in normalized if kw not in current]
+    removed = [kw for kw in current if kw not in normalized]
+    for kw in added:
         facade.add_keywords_to_group(group_id, kw)
+    for kw in removed:
+        facade.delete_keyword(current[kw])
+    logger.info("market %s: group %s keywords synced — %d added, %d removed, %d kept",
+                market_id, group_id, len(added), len(removed),
+                len(normalized) - len(added))
 
     conn.execute(text("""
         UPDATE bw_markets
@@ -774,7 +895,8 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
 
     plan.update({"group_id": group_id, "group_created": group_created,
                  "topic_created": topic_created,
-                 "keywords_written": len(normalized)})
+                 "keywords_written": len(normalized),
+                 "keywords_added": added, "keywords_removed": removed})
     return plan
 
 
@@ -987,15 +1109,20 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
     signal, kept apart only by ``source`` and ``provider_item_id``'s separate
     id namespace, so neither can collide with or double the other.
 
-    Attribution is by the employer name we searched for, read back from
-    ``discovery_input.posted_by`` the same way ``ingest_posts`` reads
-    ``discovery_input.url`` — the input we sent is the one fact we know is
-    right, unlike whatever field the provider chose to echo the company
-    under. Unverified against a real response: if ``discovery_input`` turns
-    out not to carry ``posted_by``, every record here becomes unmatched
-    rather than mis-attributed, which is the safe failure.
+    Attribution is the ``company_name`` Indeed reports, checked against the
+    vendor with ``employer_matches``. The previous plan read
+    ``discovery_input.posted_by``; the dataset sample shows ``discovery_input``
+    arriving as ``null``, so every record would have gone unmatched — the safe
+    failure that was documented, and still a collector returning nothing.
+
+    The check matters because ``keyword_search`` matches job titles as well as
+    company names, so a search for one vendor legitimately returns other
+    employers' listings. Anything whose reported employer does not contain every
+    identifying word of the vendor's name is dropped, and the count is logged
+    rather than left to look like an empty market.
     """
-    from app.services.brightdata_linkedin import map_indeed_job
+    from app.services.brightdata_linkedin import (employer_matches,
+                                                  map_indeed_job)
 
     name_to_brand = {
         name.split("(")[0].strip().lower(): brand_id
@@ -1006,7 +1133,20 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
         """), {"m": run["market_id"]}).fetchall()
     }
 
-    stored = unchanged = unmatched = 0
+    stored = unchanged = unmatched = expired = 0
+    # A record the provider could not fetch is not a listing we looked for and
+    # did not find. Without this the run closes as `succeeded` with nothing
+    # stored, which reads as "Indeed ran and this market has no jobs" — the
+    # measured-zero claim the whole metric contract exists to prevent.
+    #
+    # Not hypothetical: the first live control returned five records for
+    # Louisiana-Pacific and every one was `{"error": "Crawler error: ...too
+    # many requests", "error_code": "rate_limit"}`. ``ingest_jobs`` has counted
+    # these since the LinkedIn dataset did the same thing with `proxy` errors;
+    # this ingest was written without it.
+    provider_errors = sum(
+        1 for r in records
+        if isinstance(r, dict) and (r.get("error") or r.get("error_code")))
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -1014,10 +1154,27 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
         if not mapped:
             unmatched += 1
             continue
-        discovery = raw.get("discovery_input")
-        posted_by = ((discovery or {}).get("posted_by")
-                    if isinstance(discovery, dict) else None) or mapped.get("company")
-        brand_id = name_to_brand.get((posted_by or "").strip().lower())
+        # An expired listing is not an open role. Kept out rather than stored
+        # and filtered later, because the hiring counts read every stored
+        # job_posting row and would include it.
+        if mapped.get("is_expired"):
+            expired += 1
+            continue
+
+        # Attribution is the employer Indeed reports, checked against the
+        # vendor we searched for. `discovery_input` was the previous plan and
+        # the dataset sample shows it arriving as null, so nothing would have
+        # matched. `company_name` is the field that is populated.
+        #
+        # The check is not a formality: `keyword_search` matches job titles as
+        # well as companies, so a search for one vendor legitimately returns
+        # other employers' jobs.
+        reported = (mapped.get("company") or "").strip()
+        brand_id = None
+        for name, bid in name_to_brand.items():
+            if employer_matches(name, reported):
+                brand_id = bid
+                break
         if not brand_id:
             unmatched += 1
             continue
@@ -1029,7 +1186,15 @@ def ingest_indeed_jobs(conn, *, run: Dict[str, Any],
             stored += 1
         else:
             unchanged += 1
-    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
+    if unmatched:
+        logger.info("indeed: %d listing(s) belonged to another employer and "
+                    "were dropped", unmatched)
+    if provider_errors:
+        logger.info("indeed: %d of %d records were provider errors, so this run "
+                    "is not evidence that these vendors have no listings",
+                    provider_errors, len(records))
+    return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched,
+            "expired": expired, "provider_errors": provider_errors}
 
 
 def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:

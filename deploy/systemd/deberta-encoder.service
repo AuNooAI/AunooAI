@@ -1,0 +1,34 @@
+[Unit]
+Description=DeBERTa embedding encoder (768d) shared by every AunooAI site on :8001
+# Deliberately NOT part of newsfirehose.target: every customer site embeds
+# through this service, so it must survive the firehose stack being stopped,
+# migrated or removed. Own user, own tree, own venv, own model cache.
+After=network.target
+
+[Service]
+Type=simple
+User=deberta
+Group=deberta
+WorkingDirectory=/opt/deberta-encoder
+Environment="PATH=/opt/deberta-encoder/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/deberta-encoder"
+Environment="HF_HOME=/opt/deberta-encoder/.cache/huggingface"
+Environment="HF_HUB_OFFLINE=1"
+Environment="TRANSFORMERS_OFFLINE=1"
+Environment="DEBERTA_MODEL=microsoft/deberta-base"
+Environment="DEBERTA_DEVICE=auto"
+# --workers 1 is mandatory: each uvicorn worker would load its own copy of DeBERTa
+ExecStart=/opt/deberta-encoder/venv/bin/uvicorn ml.encoder_service:app --host 127.0.0.1 --port 8001 --workers 1 --log-level info
+TimeoutStartSec=120
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/deberta-encoder
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

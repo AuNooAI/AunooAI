@@ -1,3 +1,4 @@
+import asyncio
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
@@ -26,6 +27,9 @@ class SemanticScholarCollector(ArticleCollector):
             "Biotechnology": ["Biology", "Medicine"],
             "Climate Change": ["Environmental Science", "Geography"],
             "Neuroscience": ["Medicine", "Psychology", "Biology"],
+            # Oral-systemic health (Sunstar, 2026-08-31): dental and medical literature.
+            "Oral-Systemic Health Research": ["Medicine", "Biology"],
+            "Regenerative Dentistry": ["Medicine", "Biology", "Materials Science"],
         }
 
     async def search_articles(
@@ -113,7 +117,20 @@ class SemanticScholarCollector(ArticleCollector):
                 ) as response:
 
                     if response.status == 429:
-                        logger.warning("Semantic Scholar rate limit hit - consider adding API key")
+                        # Unauthenticated calls share one pool and 429 on the first
+                        # request from a busy host. Back off 2s/4s/8s before giving up;
+                        # the key application also promises exponential backoff.
+                        attempt = int(kwargs.get('_attempt', 0))
+                        if attempt < 3:
+                            delay = 2 ** (attempt + 1)
+                            logger.warning(f"Semantic Scholar rate limit hit - retrying in {delay}s (attempt {attempt + 1}/3)")
+                            await asyncio.sleep(delay)
+                            return await self.search_articles(
+                                query, topic, max_results=max_results, start_date=start_date,
+                                end_date=end_date, language=language, sort_by=sort_by,
+                                search_fields=search_fields, page=page, _attempt=attempt + 1,
+                            )
+                        logger.warning("Semantic Scholar rate limit hit after 3 retries - consider adding API key")
                         return []
 
                     if response.status == 400:

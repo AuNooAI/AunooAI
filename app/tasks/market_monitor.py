@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -50,6 +51,8 @@ SOURCE_POSTS = "linkedin_company_post"
 SOURCE_PROFILE = "linkedin_company_profile"
 SOURCE_PAGES = "vendor_web"
 SOURCE_DISCOVERY = "vendor_web_discovery"
+SOURCE_ATS_JOBS = "ats_jobs"
+SOURCE_ATS_DISCOVERY = "ats_discovery"
 SOURCE_CANDIDATES = "funding_discovery"
 SOURCE_CRUNCHBASE = mc.CRUNCHBASE_SOURCE
 SOURCE_JOBS = mc.JOBS_SOURCE
@@ -65,9 +68,15 @@ SOURCE_INDEED = mc.INDEED_SOURCE
 # Reads the article corpus we already hold. Calls no provider,
 # so it is not subject to the budget cap.
 SOURCE_CORPUS = "corpus_match"
+SOURCE_FOLLOW = "watchlist_posts"   # followed accounts' timelines, kept when they touch the market
 # Reads vendor posts we already collected and judges each one.
 # Costs a cheap model call per 20 posts, not a provider fetch.
 SOURCE_POST_REVIEW = "post_review"
+# Turns reviewed posts, profile readings, funding, page changes and job
+# postings into entity events, which the Findings view reads. Local, free;
+# gated by ENTITY_INTELLIGENCE_EVENTS_ENABLED. Until 31 August 2026 nothing
+# scheduled the extractors, so Findings froze on the backfill's last day.
+SOURCE_EVENTS = "entity_events"
 # Writes the previous month's briefing, once that month is over.
 SOURCE_BRIEFING = "monthly_briefing"
 
@@ -163,8 +172,10 @@ def cadence(source: str) -> timedelta:
         SOURCE_CRUNCHBASE: slow * 7,  # weekly — rounds do not close daily
         SOURCE_JOBS: slow * 3,        # twice weekly — the spec's hiring signal
         SOURCE_CANDIDATES: slow,      # daily — reads what we already collected
-        SOURCE_CORPUS: slow,          # daily — also free, also local
+        SOURCE_CORPUS: timedelta(hours=4),  # free and local; a daily read left the news river a day stale
+        SOURCE_FOLLOW: fast,          # followed accounts: a timeline read per account
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
+        SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
@@ -175,9 +186,18 @@ def cadence(source: str) -> timedelta:
 # ---------------------------------------------------------------------------
 
 def _last_success(conn, market_id: int, source: str) -> Optional[datetime]:
+    """When the market-wide sweep for this source last succeeded.
+
+    Market-wide only (``brand_id IS NULL``). A vendor's own "Fetch now" is a
+    run for the same source, and counting it here restarted the weekly clock
+    every time somebody read one vendor by hand: the Crunchbase sweep ran on
+    20 August and then never, because a single-vendor read landed inside
+    every following week, and 66 of 86 vendors were never read at all.
+    """
     return conn.execute(text("""
         SELECT MAX(started_at) FROM bw_collection_runs
         WHERE market_id = :m AND source = :s AND status = 'succeeded'
+          AND brand_id IS NULL
     """), {"m": market_id, "s": source}).scalar()
 
 
@@ -359,9 +379,129 @@ async def tick() -> Dict[str, Any]:
                 conn.rollback()
                 summary["errors"] += 1
                 logger.exception("market %s poll failed", market["id"])
+            try:
+                await _refresh_horizon(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s horizon refresh failed",
+                                 market["id"])
+            try:
+                await _refresh_topics(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s topics refresh failed",
+                                 market["id"])
+            try:
+                # The public Consensus and Three-Horizons pages read the
+                # newest stored run; one new run of each a month.
+                from app.services import market_foresight as mf
+                await mf.refresh(conn, dict(market), now)
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s foresight refresh failed",
+                                 market["id"])
     finally:
         conn.close()
     return summary
+
+
+# The front page renders the newest stored map (``market_horizon.latest``);
+# until 2 Sep 2026 nothing recomputed it except a person pressing the
+# dashboard button, so vendors' dots stood still while the readings under
+# them moved. One map a day is enough: the inputs move on daily cadences.
+HORIZON_MAX_AGE_HOURS = 24
+
+
+async def _refresh_horizon(conn, market: Dict[str, Any], now: datetime) -> None:
+    """Recompute and store the Market Maturity Map when the stored one is
+    a day old. The age check is one indexed SELECT per tick; the compute is
+    a long synchronous read, so it runs in a thread on its own connection
+    rather than blocking the event loop."""
+    last = conn.execute(text(
+        "SELECT MAX(computed_at) FROM bw_market_horizon WHERE market_id = :m"
+    ), {"m": market["id"]}).scalar()
+    conn.commit()
+    if last is not None and (now - last) < timedelta(hours=HORIZON_MAX_AGE_HOURS):
+        return
+
+    def _work() -> int:
+        from app.services import market_horizon as mh
+        own = get_database_instance()._temp_get_connection()
+        try:
+            result = mh.compute(own, market)
+            return mh.store(own, result)  # store() commits
+        finally:
+            own.close()
+
+    row_id = await asyncio.to_thread(_work)
+    logger.info("market %s: stored maturity map row %s (daily refresh)",
+                market["id"], row_id)
+
+
+# "Being discussed" and "Emerging" on the front page read the newest stored
+# run. One a day matches the corpus: matching lags publication by days, so a
+# run every tick would show the same groups with the newest one under-read.
+TOPICS_MAX_AGE_HOURS = 24
+# The tick runs about every 15 minutes. A naming call that fails must not be
+# retried 96 times a day, so a failed market waits before its next attempt.
+_TOPICS_RETRY_AFTER: Dict[int, datetime] = {}
+
+
+async def _refresh_topics(conn, market: Dict[str, Any], now: datetime) -> None:
+    """Gather the last 30 days' headlines, have the model group and name
+    them, and store the run when the stored one is a day old. The gather
+    runs in a thread on its own connection; the one model call is awaited
+    on the loop; the store is another short thread hop."""
+    from app.services import market_topics as mt
+
+    market_id = int(market["id"])
+    if _TOPICS_RETRY_AFTER.get(market_id, now) > now:
+        return
+    last = conn.execute(text(
+        "SELECT MAX(computed_at) FROM bw_market_topics WHERE market_id = :m"
+    ), {"m": market_id}).scalar()
+    conn.commit()
+    if last is not None and (now - last) < timedelta(hours=TOPICS_MAX_AGE_HOURS):
+        return
+
+    def _compute() -> Dict[str, Any]:
+        own = get_database_instance()._temp_get_connection()
+        try:
+            return mt.compute(own, market)
+        finally:
+            own.close()
+
+    result = await asyncio.to_thread(_compute)
+    if not result.get("items"):
+        logger.info("market %s: no topics stored (%s)", market_id,
+                    result.get("reason"))
+        _TOPICS_RETRY_AFTER[market_id] = now + timedelta(hours=TOPICS_MAX_AGE_HOURS)
+        return
+    try:
+        await mt.group(result, market["name"])
+    except Exception as exc:
+        logger.warning("market %s: topic grouping failed, previous run stands: %s",
+                       market_id, exc)
+        _TOPICS_RETRY_AFTER[market_id] = now + timedelta(hours=2)
+        return
+    mt.rank(result)
+
+    def _store() -> int:
+        own = get_database_instance()._temp_get_connection()
+        try:
+            return mt.store(own, result)
+        finally:
+            own.close()
+
+    row_id = await asyncio.to_thread(_store)
+    _TOPICS_RETRY_AFTER.pop(market_id, None)
+    logger.info("market %s: stored topics row %s (%d subjects over %d of %d "
+                "headlines, %d discussed, %d emerging)", market_id, row_id,
+                len(result["clusters"]), result.get("assigned", 0), result.get("n", 0),
+                len(result["being_discussed"]), len(result["emerging"]))
 
 
 async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
@@ -392,11 +532,34 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _discover_candidates(conn, market, now)
     runs += _match_corpus(conn, market, now)
     runs += await _review_posts(conn, market, now)
+    runs += _extract_events(conn, market, now)
+    runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
                               forced_run_id=manual.get((SOURCE_PAGES, None)))
+    # A vendor's own "Fetch now" for its website: the same sweep, scoped to
+    # that one vendor. Until this existed, a vendor-scoped vendor_web or
+    # vendor_web_discovery run was claimed and then failed by
+    # _fail_undispatched ("no collector dispatched"), so a vendor added
+    # between sweeps could not be read on demand (BlinkOps and NextSOC,
+    # runs 1537 and 1538, 9 September 2026).
+    for source, poller in ((SOURCE_DISCOVERY, _discover_feeds),
+                           (SOURCE_PAGES, _poll_pages)):
+        for brand_id, run_id in _vendor_claims(source):
+            scoped = [v for v in vendors if int(v["brand_id"]) == brand_id]
+            if not scoped:
+                mc.close_run(conn, run_id, status="failed",
+                             error="vendor is not collecting in this market")
+                conn.commit()
+                continue
+            runs += await poller(conn, market, scoped, now, forced_run_id=run_id)
+    # Free and unauthenticated, so outside the provider-budget gate below.
+    runs += await _discover_ats(conn, market, vendors, now,
+                                forced_run_id=manual.get((SOURCE_ATS_DISCOVERY, None)))
+    runs += await _poll_ats_jobs(conn, market, now,
+                                 forced_run_id=manual.get((SOURCE_ATS_JOBS, None)))
 
     from app.services.brightdata_linkedin import linkedin_enabled
 
@@ -551,6 +714,7 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
                 conn, run_id,
                 status=mc.outcome_status(len(records), result.get("stored", 0),
                                          result.get("provider_errors", 0)),
+                provider_errors=result.get("provider_errors", 0),
                 received=len(records),
                 new=result.get("stored", 0),
                 skipped=(result.get("unchanged", 0) + result.get("unmatched", 0)
@@ -568,6 +732,35 @@ async def _reconcile_open_jobs(conn, market: Dict[str, Any]) -> int:
 
 
 # ── New entrants ────────────────────────────────────────────────────────────
+
+async def _collect_followed(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Read the followed accounts' timelines and keep what touches the
+    market. One xpoz (or Bluesky) read per account; nothing when the follow
+    list is empty."""
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_FOLLOW, now) is None:
+        return 0
+    from app.services import market_follow as mf
+
+    if not mf.followed(conn, limit=1):
+        return 0
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_FOLLOW,
+                         provider="xpoz")
+    conn.commit()
+    try:
+        result = await asyncio.to_thread(mf.collect_followed, conn, market)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["fetched"], new=result["stored"],
+                     skipped=result["fetched"] - result["matched"],
+                     error=("; ".join(result["skipped"])[:500] or None))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s followed-accounts read failed: %s", market_id, exc)
+    return 1
+
 
 async def _write_briefing(conn, market: Dict[str, Any], now: datetime) -> int:
     """Write last month's briefing, once, after the month has ended.
@@ -662,6 +855,45 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
     return 1
 
 
+def _extract_events(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Run the entity-event extractors, which feed the Findings view.
+
+    Events are per vendor, not per market, so one pass covers every brand;
+    the run is recorded against the market whose cadence triggered it. The
+    extractors are idempotent (fingerprint upserts), so a second market
+    running the pass the same day costs time and creates nothing.
+    """
+    from app.services import entity_flags
+    if not entity_flags.events_enabled():
+        return 0
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_EVENTS, now) is None:
+        return 0
+    from app.services.entity_event_extractors import run_all
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_EVENTS, provider="local")
+    conn.commit()
+    try:
+        summary = run_all(conn)
+        errors = [k for k, v in summary["by_extractor"].items() if v.get("error")]
+        candidates = sum(int(v.get("candidates") or v.get("readings_compared")
+                             or v.get("pages_examined") or v.get("postings_read") or 0)
+                         for v in summary["by_extractor"].values())
+        mc.close_run(conn, run_id,
+                     status="partial" if errors else "succeeded",
+                     received=candidates, new=summary["events_created"],
+                     skipped=summary["events_merged"],
+                     error=(f"extractors failed: {', '.join(errors)}" if errors else None))
+        conn.commit()
+        logger.info("market %s entity events: %d created, %d merged",
+                    market_id, summary["events_created"], summary["events_merged"])
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s entity events failed: %s", market_id, exc)
+    return 1
+
+
 def _match_corpus(conn, market: Dict[str, Any], now: datetime) -> int:
     """Match the article corpus against the market's phrases.
 
@@ -739,10 +971,36 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                           now: datetime, forced_run_id: Optional[int] = None) -> int:
     """Record each vendor's RSS/Atom feeds and the pages worth watching."""
     from app.collectors import vendor_web_collector as vw
+    from app.services import entity_scheduler as sch
 
+    only: Optional[set] = None
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_DISCOVERY, now) is None:
-            return 0
+            # The sweep is monthly, but a vendor added between sweeps has no
+            # watched pages and no feed for up to four weeks ("Site changes:
+            # no monitored pages" on its vendor page, 31 August 2026). A
+            # collecting vendor never tried makes a run due now, and that run
+            # probes only those vendors, so the monthly cadence is untouched.
+            #
+            # "Never tried" is the scheduler's policy row, not the baseline
+            # stamp. The stamp version of this rule (31 August) looped: a
+            # vendor with no domain, or one cut off by the per-run cap, never
+            # got stamped, so every tick started another full sweep of the
+            # other 84 sites -- 18 runs in six hours on 1 September. The
+            # policy row is eligible only with a domain on file, and a failed
+            # probe backs it off, so neither case can fire this again.
+            fresh = [int(r[0]) for r in conn.execute(text("""
+                SELECT p.brand_id
+                FROM bw_entity_source_policies p
+                JOIN bw_market_brands mb
+                  ON mb.brand_id = p.brand_id AND mb.market_id = :m
+                WHERE p.source = :s AND p.enabled AND p.eligible
+                  AND p.last_attempt_at IS NULL AND p.consecutive_failures = 0
+                  AND mb.role = 'vendor' AND mb.collection_enabled
+            """), {"m": market["id"], "s": SOURCE_DISCOVERY}).fetchall()]
+            if not fresh or _in_flight(conn, market["id"], SOURCE_DISCOVERY):
+                return 0
+            only = set(fresh)
         run_id = mc.open_run(conn, market_id=market["id"],
                              source=SOURCE_DISCOVERY, provider=PROVIDER_INTERNAL)
     else:
@@ -766,6 +1024,21 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
     # one vendor instead of eighty-five.
     conn.commit()
 
+    # Never-probed vendors first, then the oldest probe, so the per-run cap
+    # paces a sweep across runs instead of dropping whoever sorts last. With
+    # the list in registry order and the cap at 85, the 86th and 87th vendors
+    # (Bricklayer AI and StrikeReady, added 31 August) were never reached.
+    stamped = {int(r[0]): r[1] for r in conn.execute(text("""
+        SELECT brand_id, baseline->>'web_discovered_at'
+        FROM bw_market_brands WHERE market_id = :m
+    """), {"m": market["id"]}).fetchall()}
+    conn.commit()
+    if only is not None:
+        vendors = [v for v in vendors if int(v["brand_id"]) in only]
+    vendors = sorted(vendors, key=lambda v: (
+        stamped.get(int(v["brand_id"])) is not None,
+        stamped.get(int(v["brand_id"])) or ""))
+
     found = failed = 0
     try:
         for vendor in vendors[: _max_vendors_per_run()]:
@@ -776,12 +1049,36 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
             """), {"b": vendor["brand_id"]}).scalar()
             if not domain:
                 continue
+
+            # The read above opened a transaction, and probing a site can take
+            # longer than this database's idle_in_transaction_session_timeout of
+            # 60 seconds. Awaiting the probe with it still open is what killed
+            # the backend mid-sweep: run 345 and run 675 both died on "SSL
+            # connection has been closed unexpectedly" at the first statement
+            # after the await. Release it before touching the network, the same
+            # way the ATS discovery sweep below does.
+            conn.commit()
             try:
                 sources = await vw.discover_sources(domain, probe_pages=True)
-            except Exception:
+            except Exception as probe_error:
                 failed += 1
                 logger.debug("feed discovery failed for %s", domain, exc_info=True)
+                # Backed off rather than left untouched. A policy that is
+                # neither advanced nor failed keeps next_due_at NULL, which
+                # reads as due forever, so a domain that always throws is
+                # re-probed on every pass and never backs off.
+                sch.record_failure(conn, SOURCE_DISCOVERY,
+                                   [vendor["brand_id"]], str(probe_error))
+                conn.commit()
                 continue
+            # Credited whatever the probe found, because the question this
+            # source answers is "have we looked at this vendor's site", and we
+            # have. Without it every policy row stayed at last_success_at NULL
+            # and the panel reported the source as never collected immediately
+            # after a run that swept the whole registry — the same gap the ATS
+            # discovery sweep above had.
+            sch.record_success(conn, SOURCE_DISCOVERY, [vendor["brand_id"]])
+
             # Register the feeds so the existing RSS collector polls them.
             # Recording them only in the baseline would leave a vendor's blog
             # "discovered" and never read.
@@ -824,11 +1121,258 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
     return 1
 
 
+# ── Hiring system (ATS) ─────────────────────────────────────────────────────
+#
+# LinkedIn was our only source of job listings and most of these companies do
+# not hire through it. See app/collectors/ats_collector for why the careers page
+# itself is not the answer either: the listings are fetched in the browser, so
+# they are not in the HTML we store.
+#
+# Both steps are free and unauthenticated, so neither sits behind the provider
+# budget gate.
+
+
+async def _discover_ats(conn, market: Dict[str, Any], vendors: List[dict],
+                        now: datetime,
+                        forced_run_id: Optional[int] = None) -> int:
+    """Record which hiring system each vendor uses, from its careers page."""
+    from app.collectors import ats_collector as ats
+    from app.services import entity_scheduler as sch_mod
+
+    if forced_run_id is None:
+        if _is_due(conn, market["id"], SOURCE_ATS_DISCOVERY, now) is None:
+            return 0
+        run_id = mc.open_run(conn, market_id=market["id"],
+                             source=SOURCE_ATS_DISCOVERY,
+                             provider=PROVIDER_INTERNAL)
+    else:
+        run_id = forced_run_id
+
+    # Committed before any fetching, and again per vendor. Awaiting HTTP inside
+    # an open transaction exposes the connection to the 60-second
+    # idle-in-transaction timeout on this database, which took out an earlier
+    # sweep after 452 seconds with nothing saved.
+    conn.commit()
+
+    found = unchanged = missing = 0
+    try:
+        for vendor in vendors[: _max_vendors_per_run()]:
+            pages = conn.execute(text("""
+                SELECT baseline->'web_pages' FROM bw_market_brands
+                WHERE market_id = :m AND brand_id = :b
+            """), {"m": market["id"], "b": vendor["brand_id"]}).scalar() or []
+            # A careers page if one was discovered, else the site root — the
+            # board is often linked from a nav bar.
+            candidates = [p["url"] for p in pages
+                          if isinstance(p, dict) and p.get("url")
+                          and re.search(r"career|job", p["url"], re.I)]
+            if not candidates:
+                domain = conn.execute(text("""
+                    SELECT normalized_value FROM bw_vendor_identifiers
+                    WHERE brand_id = :b AND kind = 'domain' AND valid_to IS NULL
+                    LIMIT 1
+                """), {"b": vendor["brand_id"]}).scalar()
+                if not domain:
+                    continue
+                candidates = [f"https://{domain}/careers"]
+
+            # Every read for this vendor is done; release the transaction
+            # before touching the network. The reads above open one, and this
+            # database kills a connection that sits idle in a transaction for
+            # 60 seconds — a slow careers page would otherwise take the whole
+            # sweep with it. The probe itself lives in the collector and holds
+            # no connection at all.
+            conn.commit()
+            board = await ats.discover_board(candidates[:3])
+
+            # Recorded whatever the outcome, because the question this source
+            # answers is "have we looked", and we have. Without it every
+            # discovery policy row stayed at last_success_at NULL and the panel
+            # reported the source as never collected straight after a
+            # successful run.
+            sch_mod.record_success(conn, SOURCE_ATS_DISCOVERY,
+                                   [vendor["brand_id"]])
+
+            if board is None:
+                # Not an error. Several of these companies publish no listings
+                # anywhere machine-readable, and recording that is the point.
+                missing += 1
+                conn.commit()
+                continue
+
+            existing = conn.execute(text("""
+                SELECT normalized_value FROM bw_vendor_identifiers
+                WHERE brand_id = :b AND kind = :k AND valid_to IS NULL
+                LIMIT 1
+            """), {"b": vendor["brand_id"],
+                   "k": ats.IDENTIFIER_KIND}).scalar()
+            if existing == board.key:
+                unchanged += 1
+                conn.commit()
+                continue
+
+            # A company that migrated systems gets its old board closed rather
+            # than deleted, so the listings collected through it keep a reason
+            # for existing.
+            if existing:
+                conn.execute(text("""
+                    UPDATE bw_vendor_identifiers SET valid_to = NOW()
+                    WHERE brand_id = :b AND kind = :k AND valid_to IS NULL
+                """), {"b": vendor["brand_id"], "k": ats.IDENTIFIER_KIND})
+            conn.execute(text("""
+                INSERT INTO bw_vendor_identifiers
+                    (brand_id, kind, normalized_value, display_value,
+                     provenance)
+                VALUES (:b, :k, :v, :d, CAST(:p AS JSONB))
+            """), {"b": vendor["brand_id"], "k": ats.IDENTIFIER_KIND,
+                   "v": board.key, "d": board.board_url,
+                   "p": json.dumps({"source": SOURCE_ATS_DISCOVERY,
+                                    "system": board.system})})
+            found += 1
+            conn.commit()
+
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=found + unchanged + missing, new=found,
+                     skipped=unchanged + missing)
+        conn.commit()
+        if found:
+            # Newly discovered boards have no policy row yet, so collection
+            # would not pick them up until the next seeding pass.
+            sch_mod.seed_policies(conn, ats.SOURCE_JOBS)
+            conn.commit()
+            logger.info("market %s: discovered %d hiring board(s)",
+                        market["id"], found)
+    except Exception as e:                                        # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id,
+                     status="partial" if found else "failed",
+                     new=found, skipped=missing, error=str(e))
+        conn.commit()
+        logger.warning("ats discovery stopped after %d vendor(s): %s", found, e)
+    return 1
+
+
+async def _poll_ats_jobs(conn, market: Dict[str, Any], now: datetime,
+                         forced_run_id: Optional[int] = None) -> int:
+    """Job listings from each vendor's own hiring system."""
+    from app.collectors import ats_collector as ats
+    from app.services import entity_scheduler as sch
+
+    if forced_run_id is None:
+        if _is_due(conn, market["id"], SOURCE_ATS_JOBS, now) is None:
+            return 0
+        run_id = mc.open_run(conn, market_id=market["id"],
+                             source=SOURCE_ATS_JOBS,
+                             provider=PROVIDER_INTERNAL)
+    else:
+        run_id = forced_run_id
+
+    boards = [dict(r) for r in conn.execute(text("""
+        SELECT mb.brand_id, b.display_name, i.normalized_value AS board
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        JOIN bw_vendor_identifiers i ON i.brand_id = mb.brand_id
+             AND i.kind = :k AND i.valid_to IS NULL
+        WHERE mb.market_id = :m AND mb.collection_enabled
+          AND mb.role <> 'excluded'
+        ORDER BY mb.sort_order
+    """), {"m": market["id"], "k": ats.IDENTIFIER_KIND}).mappings().all()]
+
+    # Recorded on the run so the read path can tell which vendors this run
+    # covered — that is what makes "absent from the last two runs" a claim
+    # about a vendor rather than about the market.
+    covered = [b["brand_id"] for b in boards]
+    conn.execute(text("""
+        UPDATE bw_collection_runs SET requested_brand_ids = :ids WHERE id = :r
+    """), {"ids": covered, "r": run_id})
+    conn.commit()
+
+    if not boards:
+        mc.close_run(conn, run_id, status="succeeded")
+        conn.commit()
+        return 1
+
+    received = new = failed = 0
+    failed_ids: List[int] = []
+    # Which listings this run actually saw.
+    #
+    # It cannot be derived from the snapshots afterwards: store_snapshot skips
+    # a row whose content has not changed, so an unchanged listing keeps the
+    # collection_run_id of the *first* run that saw it. Run 450 read all 97 of
+    # these listings and stored none, and every one then read as though it had
+    # not been seen since run 433 — the same "unchanged payload writes no row"
+    # trap that made the profile collector look broken, one level down.
+    #
+    # Recorded on the run instead, in a jsonb column that already exists.
+    seen_items: List[str] = []
+    try:
+        for row in boards:
+            board = ats.parse_board(row["board"])
+            if board is None:
+                failed += 1
+                failed_ids.append(row["brand_id"])
+                continue
+            try:
+                postings = await ats.fetch_jobs(board)
+            except ats.AtsError as exc:
+                failed += 1
+                failed_ids.append(row["brand_id"])
+                logger.info("ats jobs: %s (%s) — %s", row["display_name"],
+                            board.key, exc)
+                conn.commit()
+                continue
+
+            for posting in postings:
+                received += 1
+                seen_items.append(posting["posting_id"])
+                payload = dict(posting)
+                payload.setdefault("company", row["display_name"])
+                payload["company_id"] = row["brand_id"]
+                if mc.store_snapshot(
+                        conn, market_id=market["id"],
+                        brand_id=row["brand_id"], source=SOURCE_ATS_JOBS,
+                        snapshot_type="job_posting",
+                        provider_item_id=posting["posting_id"],
+                        data=payload, published_at=posting.get("posted_date"),
+                        run_id=run_id):
+                    new += 1
+            # Per vendor, for the idle-in-transaction reason above.
+            sch.record_success(conn, ats.SOURCE_JOBS, [row["brand_id"]])
+            conn.commit()
+
+        conn.execute(text("""
+            UPDATE bw_collection_runs
+               SET metrics = metrics || CAST(:m AS JSONB)
+             WHERE id = :r
+        """), {"m": json.dumps({"seen_item_ids": seen_items}), "r": run_id})
+        if failed_ids:
+            sch.record_failure(conn, ats.SOURCE_JOBS, failed_ids,
+                               error="hiring board unreadable")
+        mc.close_run(conn, run_id,
+                     status="partial" if failed and received else
+                            ("failed" if failed and not received else "succeeded"),
+                     received=received, new=new, skipped=received - new,
+                     error=(f"{failed} board(s) unreadable" if failed else None))
+        conn.commit()
+        logger.info("market %s: ats jobs — %d listing(s) from %d board(s), "
+                    "%d new, %d unreadable", market["id"], received,
+                    len(boards) - failed, new, failed)
+    except Exception as e:                                        # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id,
+                     status="partial" if received else "failed",
+                     received=received, new=new, error=str(e))
+        conn.commit()
+        logger.warning("ats jobs stopped after %d listing(s): %s", received, e)
+    return 1
+
+
 # ── Page state ──────────────────────────────────────────────────────────────
 
 async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                       now: datetime, forced_run_id: Optional[int] = None) -> int:
     from app.collectors import vendor_web_collector as vw
+    from app.services import entity_scheduler as sch
 
     if forced_run_id is None:
         if _is_due(conn, market["id"], SOURCE_PAGES, now) is None:
@@ -840,10 +1384,10 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
     else:
         run_id = forced_run_id
 
-    # Committed before fetching, and again after each vendor — same reason as
-    # _discover_feeds: awaiting HTTP inside an open transaction exposes the
-    # connection to the 60-second idle-in-transaction timeout, and a single
-    # transaction across the sweep loses every vendor when it trips.
+    # Committed before fetching, and again before every page fetch — same
+    # reason as _discover_feeds: awaiting HTTP inside an open transaction
+    # exposes the connection to the 60-second idle-in-transaction timeout, and
+    # a single transaction across the sweep loses every vendor when it trips.
     conn.commit()
 
     fetched = changed = unchanged = errors = 0
@@ -853,6 +1397,7 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                 SELECT baseline->'web_pages' FROM bw_market_brands
                 WHERE market_id = :m AND brand_id = :b
             """), {"m": market["id"], "b": vendor["brand_id"]}).scalar() or []
+            polled = vendor_errors = 0
             for page in pages:
                 if not isinstance(page, dict) or not page.get("url"):
                     continue
@@ -864,6 +1409,12 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     ORDER BY observed_at DESC LIMIT 1
                 """), {"b": vendor["brand_id"], "u": url}).first()
                 prior_data = (prior[0] if prior else None) or {}
+                # Both reads for this page are done. The only commit in this
+                # loop used to sit inside the "changed materially" branch
+                # below, so a vendor whose pages were all unchanged — the
+                # common case — held one transaction open across every fetch
+                # and tripped the 60-second idle-in-transaction timeout.
+                conn.commit()
                 result = await vw.fetch_page(
                     url, etag=prior_data.get("etag"),
                     last_modified=prior_data.get("last_modified"),
@@ -872,7 +1423,9 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                 fetched += 1
                 if result.error:
                     errors += 1
+                    vendor_errors += 1
                     continue
+                polled += 1
                 if not result.changed:
                     unchanged += 1
                     continue
@@ -894,12 +1447,28 @@ async def _poll_pages(conn, market: Dict[str, Any], vendors: List[dict],
                     observed_at=result.fetched_at, run_id=run_id,
                 )
                 changed += 1
-                # Per page, not per vendor: the fetch below is awaited inside
-                # this loop, so a vendor with several slow pages would hold the
-                # transaction open across all of them and hit the same 60-second
-                # idle-in-transaction timeout the outer commit was added for.
                 conn.commit()
                 await asyncio.sleep(0.3)  # courtesy spacing on one host
+
+            # Credited on having read the vendor's pages, not on having found
+            # a change in them. A snapshot is only written when a page changes
+            # materially, and reconcile_from_history reads snapshots, so a
+            # vendor with a stable website was indistinguishable from one never
+            # fetched: nineteen vendors were credited here while sixty-four
+            # read as unmeasured after a sweep that fetched all of them.
+            if polled:
+                sch.record_success(conn, SOURCE_PAGES, [vendor["brand_id"]])
+                conn.commit()
+            elif vendor_errors:
+                # Every page for this vendor failed. Backed off rather than
+                # left untouched, so a host that is always down stops taking a
+                # slot on every pass.
+                sch.record_failure(conn, SOURCE_PAGES, [vendor["brand_id"]],
+                                   "all discovered pages failed to fetch")
+                conn.commit()
+            # A vendor with no discovered pages is neither credited nor failed.
+            # There is nothing to read for it, and saying we measured it would
+            # hide that feed discovery found it no pages.
         mc.close_run(conn, run_id, status="succeeded", received=fetched,
                      new=changed, skipped=unchanged + errors)
         conn.commit()
@@ -944,6 +1513,34 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                     market["id"], source, exc)
         return 0
 
+    # Crunchbase is the one paid source whose identifier can be derived instead
+    # of entered, so deriving it is identifier maintenance and not collection.
+    # It has to happen before every gate below, because all of them return
+    # early: this used to sit after the claim, where a pass with nothing due
+    # returns at the `not claimed_brand_ids` guard, and a pass outside the
+    # weekly cadence returns at `_is_due`. A vendor added to the registry could
+    # therefore never get a URL, never become eligible, and never be claimed —
+    # a deadlock rather than a delay. 44 of this market's 84 vendors sat that
+    # way. Seeding is a local slug guess against the vendor's own name: no
+    # provider call, no cost, and a no-op once every vendor has one.
+    if source == SOURCE_CRUNCHBASE:
+        try:
+            seeded = mc.seed_crunchbase_urls(conn, market["id"])
+            if seeded.get("seeded"):
+                # A URL only makes a vendor collectable once its policy row
+                # agrees, and claim_due reads the policy. Same reason the ATS
+                # sweep re-seeds after discovering a hiring board.
+                sch.seed_policies(conn, source)
+                logger.info("market %s: seeded %d Crunchbase URL(s)",
+                            market["id"], seeded["seeded"])
+            conn.commit()
+        except Exception:                                       # noqa: BLE001
+            # Preparation, not the work. A fault here must not stop the batch
+            # for the vendors that already have a URL.
+            conn.rollback()
+            logger.exception("market %s: could not seed Crunchbase URLs",
+                             market["id"])
+
     if forced_run_id is None:
         if _is_due(conn, market["id"], source, now) is None:
             return 0
@@ -966,8 +1563,7 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
 
     companies: list = []
     if source == SOURCE_CRUNCHBASE:
-        mc.seed_crunchbase_urls(conn, market["id"])
-        conn.commit()
+        # Seeded above, before the gates.
         url_map = mc.crunchbase_url_map(conn, market["id"])
         urls = ([u for u, bid in url_map.items() if bid == forced_brand_id]
                 if forced_brand_id is not None else list(url_map.keys()))
@@ -987,7 +1583,30 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
               AND (:bid IS NULL OR mb.brand_id = :bid)
             ORDER BY mb.sort_order
         """), {"m": market["id"], "bid": forced_brand_id}).fetchall()
-        companies = [{"employer": r[0].split("(")[0].strip()} for r in rows]
+        # `location` is a required Indeed input with no "anywhere" value, so
+        # each search needs one. The vendor's own LinkedIn headquarters is the
+        # best answer we hold — 70 of 82 vendors have one — and the country
+        # comes from the same reading. Falling back to the United States is a
+        # guess and is the reason a miss here reads as "no listings" rather
+        # than "wrong place"; the employer check downstream stops it becoming
+        # somebody else's jobs either way.
+        companies = []
+        for row in rows:
+            employer = row[0].split("(")[0].strip()
+            profile = conn.execute(text("""
+                SELECT data->>'headquarters' AS hq, data->>'country' AS country
+                  FROM bw_vendor_snapshots
+                 WHERE brand_id = (SELECT id FROM bw_brands WHERE display_name = :n)
+                   AND snapshot_type = 'profile'
+                 ORDER BY observed_at DESC LIMIT 1
+            """), {"n": row[0]}).mappings().first()
+            hq = (profile or {}).get("hq")
+            country = ((profile or {}).get("country") or "US").split(",")[0].strip()
+            companies.append({
+                "employer": employer,
+                "location": hq or "United States",
+                "country": country or "US",
+            })
         if forced_brand_id is None:
             companies = companies[: _max_vendors_per_run()]
         urls = [c["employer"] for c in companies]
@@ -1233,10 +1852,44 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _close_stranded_runs(conn) -> int:
+    """Fail the in-process runs a restart killed, so their sources can run.
+
+    A run in ``running`` with no provider ``job_id`` is an in-process sweep
+    (site checks, discovery, corpus match, post review); the process is the
+    only thing that could finish it, and this is a new process. Twice on
+    31 August 2026 such a row sat for days and ``_in_flight`` blocked its
+    source the whole time. A running row *with* a ``job_id`` is a Bright
+    Data batch: the provider still has it and the callback can still land,
+    so those stay open. Scheduler claims held by the dead sweep release
+    themselves after CLAIM_TIMEOUT (two hours).
+    """
+    rows = conn.execute(text("""
+        UPDATE bw_collection_runs
+           SET status = 'failed', completed_at = NOW(),
+               error = 'found running at startup with no provider job; the '
+                       'process that ran it is gone (closed by the monitor)'
+         WHERE status = 'running' AND job_id IS NULL
+        RETURNING id, source
+    """)).fetchall()
+    conn.commit()
+    for run_id, source in rows:
+        logger.warning("closed stranded run %s (%s) at startup", run_id, source)
+    return len(rows)
+
+
 async def run_market_monitor():
     """Background task registered by the module registry."""
     logger.info("Market Monitor background task started")
     _background_task_status["running"] = True
+    try:
+        conn = get_database_instance()._temp_get_connection()
+        try:
+            _close_stranded_runs(conn)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 — cleanup must never keep the monitor down
+        logger.exception("stranded-run cleanup failed; continuing")
     while True:
         try:
             if _enabled():

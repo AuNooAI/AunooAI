@@ -1,0 +1,98 @@
+{
+  "topic": "Market Monitoring SOC Automation",
+  "display_name": "AI in the SOC",
+  "description": "Tracks the shift from manual security operations to AI-powered autonomous threat detection and response, with focus on vendor consolidation, mid-market democratization, and the emergence of multi-agent orchestration platforms.",
+  "source_run_id": "624b5db6-15ea-4cbb-b569-e5651188f3f2",
+  "deck_scenarios": {
+    "analyst_burnout_legacy_costs": {
+      "deck_scenario_name": "Manual SOC Operations Hit Breaking Point",
+      "horizon": "h1",
+      "consensus_pct": 85,
+      "primary_signal": "Tier 1 analysts triage thousands of daily alerts manually while legacy SIEM platforms (Splunk, IBM QRadar) consume budgets without reducing workload; playbook-based automation fails to adapt to novel threats requiring constant maintenance cycles.",
+      "minority_view": "Mature SOC teams with optimized playbooks and sufficient staffing can maintain effective manual operations through process discipline.",
+      "decision_fork": {
+        "favorable": "If security leadership secures budget for AI SOC platforms: reduce analyst burnout, cut SIEM costs 30-50%, accelerate threat response from hours to minutes.",
+        "adverse": "If organizations defer AI investment: persistent alert fatigue drives analyst turnover, missed threats escalate, total cost of ownership for legacy SIEM continues climbing."
+      },
+      "action_windows": {
+        "0_6_months": "Quantify current alert volume, analyst hours per investigation, and SIEM infrastructure costs",
+        "6_18_months": "Pilot AI triage platforms (Torq, Dropzone AI, Prophet Security) on subset of alert streams"
+      }
+    },
+    "ai_soc_vendor_emergence": {
+      "deck_scenario_name": "Autonomous Triage Platforms Achieve Market Validation",
+      "horizon": "h1",
+      "consensus_pct": 75,
+      "primary_signal": "Torq, Dropzone AI, and Prophet Security deploy LLM agents that autonomously investigate alerts; early adopters report 40-60% analyst workload reduction; Cribl acquires Radiant Security and CardinalOps in consolidation wave signaling category maturation.",
+      "minority_view": "AI triage platforms remain immature with high false positive rates, requiring extensive human oversight that negates efficiency gains.",
+      "decision_fork": {
+        "favorable": "If enterprises adopt validated AI SOC platforms: compress incident response timelines, reallocate analysts to threat hunting, capture institutional learning through AI feedback loops.",
+        "adverse": "If organizations select immature vendors or delay adoption: competitors gain security posture advantage, talent gaps widen as skilled analysts gravitate to AI-enabled SOCs."
+      },
+      "action_windows": {
+        "0_6_months": "Evaluate vendor maturity using AI SOC capability models; assess policy governance requirements",
+        "6_18_months": "Deploy autonomous triage for high-volume alert categories; establish human-in-the-loop workflows for critical incidents"
+      }
+    },
+    "multi_agent_orchestration": {
+      "deck_scenario_name": "Multi-Agent Systems Enable Parallel Security Operations",
+      "horizon": "h1_h2",
+      "consensus_pct": 65,
+      "primary_signal": "CrowdStrike Falcon IQ orchestrates specialized AI agents across endpoint, identity, cloud, network, and data domains conducting parallel investigations; platforms integrate real-time threat intelligence (partnerships between automation vendors and intel providers) to deliver decision-ready insights reducing false positives.",
+      "minority_view": "Multi-agent coordination introduces complexity and integration risk that outweighs speed benefits for most enterprises.",
+      "decision_fork": {
+        "favorable": "If security architecture evolves to AI control planes: achieve machine-speed threat neutralization across unified security ecosystem, operate faster than human attackers.",
+        "adverse": "If organizations maintain siloed security tools: miss cross-domain attack patterns, fail to leverage coordinated agent intelligence, remain vulnerable to sophisticated adversaries."
+      },
+      "action_windows": {
+        "0_6_months": "Map current security tool landscape and identify integration points for agent orchestration",
+        "6_18_months": "Pilot multi-agent investigations for complex incidents spanning multiple security domains"
+      }
+    },
+    "mid_market_democratization": {
+      "deck_scenario_name": "Mid-Market Gains Enterprise-Grade Autonomous SOC",
+      "horizon": "h1_h2",
+      "consensus_pct": 70,
+      "primary_signal": "Purpose-built autonomous platforms (targeting 50-5,000 employee orgs) deliver 24/7 monitoring without dedicated analyst teams, handling incident containment and response end-to-end with daily plain-language reports; mid-market achieves security postures previously exclusive to large enterprises.",
+      "minority_view": "Mid-market organizations lack security maturity to operationalize autonomous platforms, creating false sense of protection without underlying capability.",
+      "decision_fork": {
+        "favorable": "If mid-market adopts autonomous SOC platforms: close protection gap exploited by attackers, level playing field against well-defended enterprises.",
+        "adverse": "If mid-market remains under-defended: attackers increasingly target vulnerable segment, breach costs disproportionately impact smaller organizations lacking incident response resources."
+      },
+      "action_windows": {
+        "0_6_months": "Assess feasibility of autonomous SOC for organizations lacking 24/7 analyst coverage",
+        "6_18_months": "Deploy turnkey autonomous platforms with minimal security team overhead for mid-market segment"
+      }
+    },
+    "institutional_learning_market_scale": {
+      "deck_scenario_name": "Self-Improving AI SOC Drives $47B Market",
+      "horizon": "h2_h3",
+      "consensus_pct": 60,
+      "primary_signal": "AI SOC platforms evolve into self-improving systems capturing organizational knowledge from every analyst correction, eliminating fragmented data and static playbook limitations; market reaches $47.07 billion by 2031 at 21.1% CAGR as enterprise budgets shift from manual operations to autonomous defense.",
+      "minority_view": "Market projections overestimate adoption speed; regulatory and liability concerns slow institutional learning system deployment in risk-averse enterprises.",
+      "decision_fork": {
+        "favorable": "If organizations embrace institutional learning AI: accumulate years of threat intelligence faster than competitors, achieve security efficiency impossible with human-only operations.",
+        "adverse": "If enterprises limit AI learning due to governance concerns: forgo compounding knowledge advantage, remain dependent on external threat intelligence unable to capture institutional context."
+      },
+      "action_windows": {
+        "0_6_months": "Establish data governance and AI policy frameworks for autonomous learning systems",
+        "6_18_months": "Implement feedback loops capturing analyst corrections to train institutional AI models"
+      }
+    }
+  },
+  "scenario_title_to_deck_key": {
+    "Manual Alert Triage Overwhelms Tier 1 SOC Analysts": "analyst_burnout_legacy_costs",
+    "Legacy SIEM Platforms Dominate but Struggle with Cost": "analyst_burnout_legacy_costs",
+    "Playbook-Based Security Automation Shows Limitations": "analyst_burnout_legacy_costs",
+    "Mid-Market Organizations Lack Enterprise-Grade SOC Capabilities": "mid_market_democratization",
+    "AI SOC Platforms Emerge with Autonomous Triage Capabilities": "ai_soc_vendor_emergence",
+    "Consolidation Wave Reshapes AI SOC Vendor Landscape": "ai_soc_vendor_emergence",
+    "Multi-Agent Orchestration Enables Parallel SOC Investigations": "multi_agent_orchestration",
+    "Policy-Driven AI Governance Becomes SOC Deployment Requirement": "ai_soc_vendor_emergence",
+    "Threat Intelligence Integration Powers Decision-Ready SOC Automation": "multi_agent_orchestration",
+    "Autonomous SOC Operations Become Standard for Mid-Market": "mid_market_democratization",
+    "AI Control Planes Orchestrate Enterprise Security Ecosystems": "multi_agent_orchestration",
+    "Institutional Learning Systems Replace Static Security Playbooks": "institutional_learning_market_scale",
+    "AI SOC Market Reaches $47 Billion with 21% CAGR": "institutional_learning_market_scale"
+  }
+}

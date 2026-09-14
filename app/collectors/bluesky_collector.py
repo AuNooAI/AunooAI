@@ -249,8 +249,10 @@ class BlueskyCollector(ArticleCollector):
                             }
                             for img in post.record.embed.images
                         ]
-                        thumb = _image_url(post.author.did,
-                                           post.record.embed.images[0])
+                        # An image embed can carry an empty images list;
+                        # indexing it dropped the whole post.
+                        images = post.record.embed.images or []
+                        thumb = _image_url(post.author.did, images[0]) if images else None
                         if thumb:
                             article['social_meta']['thumbnail'] = thumb
                     

@@ -1214,6 +1214,40 @@ async def run_brand_watcher_monitor():
                         await sweep_unevaluated_social(db)
                     except Exception as e:
                         logger.error(f"Social eval sweep error: {e}")
+                    # The Social tab reads per-vendor mentions once the entity
+                    # layer's mention_read flag is on. Until now nothing linked
+                    # posts from a "<vendor> - Social" group to their vendor,
+                    # and nothing ever called the mention scorer, so every
+                    # mention stayed pending and the tab was empty. Both steps
+                    # are bounded and idempotent; the layer's flags gate them.
+                    try:
+                        from app.services import entity_flags
+                        _social_layer = entity_flags.enabled() and entity_flags.social_enabled()
+                    except ImportError:
+                        _social_layer = False
+                    if _social_layer:
+                        try:
+                            from app.services import entity_ingest
+                            from app.services.social_eval_service import evaluate_mentions_for_group
+
+                            def _link_pending():
+                                conn = db.facade.connection
+                                try:
+                                    res = entity_ingest.process_pending(conn, snapshot_limit=0)
+                                    conn.commit()
+                                    return res
+                                finally:
+                                    conn.close()
+
+                            link_res = await asyncio.to_thread(_link_pending)
+                            score_res = await evaluate_mentions_for_group(db)
+                            logger.info(
+                                "Entity social sweep: examined %s posts, %s new mentions; "
+                                "scored %s of %s pending mentions",
+                                link_res.get('articles'), link_res.get('mentions'),
+                                score_res.get('evaluated'), score_res.get('candidates'))
+                        except Exception as e:
+                            logger.error(f"Entity social sweep error: {e}")
 
             # Official/scholarly sources every ~5 cycles; the per-(brand, source)
             # 24h cursor inside makes a no-op cycle one SELECT.

@@ -11,13 +11,15 @@ import {
   CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip,
   XAxis, YAxis,
 } from 'recharts';
-import {
+import { AtSign,
   AlertTriangle, ArrowLeft, Briefcase, Check, ExternalLink, FileText, Globe,
   Linkedin, Loader2, Plus, RefreshCw, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 import {
   getVendorDetail, setVendorIdentifier, startRun, type VendorDetail,
 } from '../../services/marketMonitorApi';
+import { MarketVendorHorizonControls } from './MarketVendorHorizonControls';
+import { MarketVendorBenchmark } from './MarketVendorBenchmark';
 import { MarketVendorProvenance } from './MarketVendorProvenance';
 
 /** Everything Bright Data can pull for one vendor on demand. A source with
@@ -39,6 +41,8 @@ const SEVERITY_TONE: Record<string, string> = {
 
 const KIND_ICON: Record<string, typeof Globe> = {
   website_url: Globe, domain: Globe,
+  // Recorded from Top voices when a profiled account reads as the vendor's own.
+  social_account: AtSign,
   linkedin_company_url: Linkedin, crunchbase_url: FileText,
   pitchbook_url: FileText, zoominfo_url: FileText,
 };
@@ -170,7 +174,14 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">{v.display_name}</h2>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">{v.display_name}
+            <span className="ml-3 text-xs font-normal text-slate-500 dark:text-gray-400">Download{' '}
+              {(['md', 'csv', 'pdf'] as const).map((f, i) => (
+                <span key={f}>{i > 0 && ' · '}<a className="underline hover:text-slate-800 dark:hover:text-gray-200"
+                  href={`/api/market-monitor/markets/${marketId}/vendors/${brandId}/export?fmt=${f}`}>{f.toUpperCase()}</a></span>
+              ))}
+            </span>
+          </h2>
           <p className="text-sm text-slate-600 mt-0.5 dark:text-gray-400">
             {[tax.sub_category, base.hq_country,
               base.founded_year ? `founded ${base.founded_year}` : null]
@@ -234,6 +245,16 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
         brandId={brandId}
         baseline={v.baseline as unknown as Record<string, any>}
       />
+
+      {/* Where this vendor sits in its market. Below the resolved profile
+          because it only means anything once the reader knows what the
+          numbers being compared are. */}
+      <MarketVendorBenchmark marketId={marketId} brandId={brandId} />
+
+      {/* The analyst's hand on the Market Horizon: per-input weights,
+          status (acquired, closed) and a note, all printed beside the vendor
+          on the map so nothing is adjusted silently. */}
+      <MarketVendorHorizonControls marketId={marketId} brandId={brandId} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Headcount: LinkedIn readings only, workbook as a reference line. */}
@@ -338,7 +359,7 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
             {cb.acquired_by && (
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500 dark:text-gray-400">Acquired by</dt>
-                <dd className="text-slate-800 dark:text-gray-100">{cb.acquired_by}</dd>
+                <dd className="text-slate-800 dark:text-gray-100">{typeof cb.acquired_by === 'string' ? cb.acquired_by : (cb.acquired_by as any)?.acquirer ?? ''}</dd>
               </div>
             )}
           </dl>

@@ -11,6 +11,9 @@ _2026-08-26 · Market Monitor — vendor table, coverage figures, hiring, downlo
 - A company's staff count can no longer be filled in from a size band, so no vendor can appear with a made-up headcount.
 - Provider data now arrives when it is sent rather than ten minutes later.
 - Top Voices now tells you who a handle belongs to, and separates people who post regularly from single posts that travelled.
+- Third-party mentions of a vendor now show per vendor, split by where they came from — news, Twitter, Bluesky, Reddit, employee reviews.
+- Event cards say what happened. A partnership card now names the partner.
+- The line explaining where an event came from describes the evidence instead of implying doubt.
 
 ## Why it matters
 
@@ -32,6 +35,12 @@ Who feels it: anyone comparing vendors on how much they say. Also anyone quoting
 
 **Hiring data had been switched off by mistake.** The job-listing collector was paused in error nine days ago, citing a provider error that had already been fixed on the same day it appeared. Because a paused source is simply silent, nothing on screen distinguished "we are not collecting this" from "there is nothing to report". It is collecting again, and the number of tracked job postings nearly tripled in one run.
 
+**Third-party discussion of a vendor was being worked out and then discarded.** The platform already identifies which vendor a news article or practitioner post is talking about, and keeps it separated by source — news, Twitter, Bluesky, Reddit, employee reviews. The Market Monitor screens never read any of it. So a vendor's page could show its own posts in full while showing almost nothing of what other people said about it.
+
+Vendors with any third-party mention went from a handful to 12, and the number of mentions counted from 22 to 50 — with each one now labelled by where it came from rather than lumped together. No new collection was needed; this was all already gathered.
+
+Who feels it: anyone asking "is anyone actually talking about this vendor?", which is most of the reason to watch a market at all.
+
 **"Top voices" was mostly single posts, and the handles were strangers.** The list ranked accounts by how much engagement they got, which meant one post that travelled outranked an account posting week after week. In this market that is not a small distortion: of 87 accounts discussing it, 81 posted exactly once, and the only account posting repeatedly — nine times — had no engagement at all, so it ranked last.
 
 Two changes. The list now separates **consistent voices** (accounts posting at least three times, ranked by how much they say) from **breakout posts** (a single post that did numbers, which is a real thing and worth seeing, just not a voice). Single-post entries are marked as such so nobody mistakes one for a regular commentator. For this market that is one consistent voice and 86 breakout posts.
@@ -39,6 +48,16 @@ Two changes. The list now separates **consistent voices** (accounts posting at l
 And every handle now links to its account profile under brand monitoring — the bio, follower count, topics, sentiment and watchlist state that were already being kept one screen away and never connected. Profiles are still built only when you ask for one, so nothing is generated in bulk.
 
 Who feels it: an analyst deciding whose opinion to follow, and anyone who wants to know who a handle actually is. It also makes profiling worth doing — one account here is worth a profile, rather than eighty-seven.
+
+**Event cards described the wrong thing.** A card read "Andesite: Security operations are being asked to move at machine speed", tagged as a partnership. It *was* a real partnership — with Booz Allen Hamilton — but the card took the opening line of the announcement post as its headline, so the partner was never named. Vendor posts open with a hook and state their news a few sentences in, so the first line is almost never the news.
+
+Cards now take their headline from the sentence that states what happened. Of 192 events, 92 were retitled; the rest kept their existing headline because no sentence clearly stated the news, which is deliberate — a guessed headline is worse than a dull one.
+
+**And the line under the headline read as doubt.** It said "the vendor says so; not yet corroborated". That mixes a fact with an insinuation: the company announcing its own partnership is a fact about where we heard it, while "not yet corroborated" sounds like we doubt the partnership is real. We don't. It also promised a follow-up that never comes — nothing goes looking for confirmation, so a permanent state was worded as a temporary one.
+
+It now reads "announced by the vendor, no independent source", and is no longer flagged as a warning. A company announcing its own news is how you normally learn about it. The warning tone is kept for events with no recorded source at all.
+
+Who feels it: anyone scanning a vendor's timeline. Before, every self-announced event carried a caution colour and a headline that hid the news.
 
 **Provider data was arriving late, every single time.** Every batch we bought was being refused on delivery and then fetched a second time ten minutes later by a fallback. Customers never saw an error, because the fallback worked — but every figure was up to ten minutes staler than it needed to be, and we were paying to fetch the same records twice. Deliveries now land on arrival.
 
@@ -53,6 +72,7 @@ Who feels it: an analyst deciding whose opinion to follow, and anyone who wants 
 - Post counts now separate what a company published from what it reshared. Reshares are reported on their own rather than counted as the company's own output.
 - Top Voices separates accounts that post regularly from single posts that got attention, and marks single-post entries as such.
 - Each voice links to its account profile under brand monitoring. Profiles are still built on request, not in bulk.
+- Third-party mentions of a vendor are now counted per vendor and split by source: news, Twitter, Bluesky, Reddit and employee reviews.
 
 ## Demo / walkthrough
 

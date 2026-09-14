@@ -704,7 +704,7 @@ async def add_incident(
     }
 
 
-@router.delete("/{briefing_id}/incidents/{incident_name}")
+@router.delete("/{briefing_id}/incidents/{incident_name:path}")
 async def remove_incident(
     briefing_id: int,
     incident_name: str,
@@ -812,7 +812,7 @@ async def add_emerging_topic(
     }
 
 
-@router.delete("/{briefing_id}/emerging-topics/{topic_name}")
+@router.delete("/{briefing_id}/emerging-topics/{topic_name:path}")
 async def remove_emerging_topic(
     briefing_id: int,
     topic_name: str,

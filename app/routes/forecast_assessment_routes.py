@@ -1305,7 +1305,7 @@ async def export_bundle_pptx(
     # that refuses to ship until a human approves.
     suffix = "_updates" if updates_only else ""
     fname = (
-        f"wiley_forecast_{cadence}{suffix}_"
+        f"forecast_bundle_{cadence}{suffix}_"
         + period_label.replace(" ", "_").lower()
         + ".pptx"
     )
@@ -1351,7 +1351,7 @@ async def export_bundle_markdown(
 
     suffix = "_updates" if updates_only else ""
     fname = (
-        f"wiley_forecast_{cadence}{suffix}_"
+        f"forecast_bundle_{cadence}{suffix}_"
         + period_label.replace(" ", "_").lower()
         + ".md"
     )
@@ -1388,7 +1388,7 @@ async def export_bundle_html(
 
     suffix = "_updates" if updates_only else ""
     fname = (
-        f"wiley_foresight_{cadence}{suffix}_"
+        f"foresight_bundle_{cadence}{suffix}_"
         + period_label.replace(" ", "_").lower()
         + ".html"
     )
@@ -1422,7 +1422,7 @@ async def export_bundle_docx(
 
     suffix = "_updates" if updates_only else ""
     fname = (
-        f"wiley_forecast_{cadence}{suffix}_"
+        f"forecast_bundle_{cadence}{suffix}_"
         + period_label.replace(" ", "_").lower()
         + ".docx"
     )

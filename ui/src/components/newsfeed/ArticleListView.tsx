@@ -4,6 +4,7 @@
  * Features: filters, compact mode, multi-select, bulk actions, time grouping
  */
 
+import { OriginalTitle } from './OriginalTitle';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Loader2,
@@ -1239,6 +1240,7 @@ function ArticleListItem({
         <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 mb-1.5 pr-8">
           {article.title}
         </h4>
+        <OriginalTitle article={article} className="mb-1.5 pr-8" />
 
         {/* Summary (truncated) - hidden in compact mode */}
         {!compactMode && article.summary && (

@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from app.dependencies import get_research, get_analytics, get_report  # Add at top of file
 import logging
 import traceback
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import asyncio
 import markdown
 import json
@@ -73,6 +73,7 @@ from app.routes.auspex_routes import router as auspex_router
 from app.routes.saved_dashboard_routes import router as saved_dashboard_router
 # Removed newsletter routes - no longer needed
 from app.routes.dataset_routes import router as dataset_router
+from app.utils.timestamps import submission_stamp
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
 from app.routes.websocket_routes import router as websocket_router
@@ -154,7 +155,14 @@ class ArticleData(BaseModel):
     tags: List[str]  # This ensures tags is always a list
     driver_type: str
     driver_type_explanation: str
-    submission_date: str = Field(default_factory=lambda: datetime.now().isoformat())
+    submission_date: str = Field(default_factory=submission_stamp)
+
+    @field_validator("submission_date", mode="before")
+    @classmethod
+    def _stamp_submission_date(cls, v):
+        # The browser sends toISOString() (UTC, "Z"); the stored shape is
+        # the database's own. See app/utils/timestamps.py.
+        return submission_stamp(v)
     topic: str
 
 class AddModelRequest(BaseModel):

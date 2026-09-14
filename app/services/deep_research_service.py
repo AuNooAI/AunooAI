@@ -700,9 +700,32 @@ Respond with valid JSON matching the expected schema."""
             result_text = response.choices[0].message.content
             result = extract_json_response(result_text)
 
-            state.research_objectives = result.get("research_objectives", [])
+            # Bedrock deployments drop response_format, so the planner can come
+            # back as a bare array (of objectives) instead of the object schema.
+            if isinstance(result, list):
+                result = {"research_objectives": result}
+            if not isinstance(result, dict):
+                raise json.JSONDecodeError(
+                    "planning response was not a JSON object", result_text or "", 0
+                )
+
+            state.research_objectives = [
+                o if isinstance(o, dict)
+                else {"id": f"obj_{i+1}", "objective": str(o), "priority": "high"}
+                for i, o in enumerate(result.get("research_objectives", []))
+            ]
             state.search_queries = result.get("search_queries", [])
             state.report_outline = result.get("report_outline", {})
+
+            if not state.search_queries:
+                state.search_queries = [
+                    {
+                        "objective_id": o.get("id") or f"obj_{i+1}",
+                        "query": o.get("objective") or state.query,
+                        "search_type": "both",
+                    }
+                    for i, o in enumerate(state.research_objectives[:5])
+                ] or [{"objective_id": "obj_1", "query": state.query, "search_type": "both"}]
 
             logger.info(f"Planning complete: {len(state.research_objectives)} objectives, {len(state.search_queries)} queries")
 
@@ -1973,6 +1996,16 @@ Format inline citations as: [Article Title](URL)
         # Post-process to add source attribution if not already present
         state.final_report = self._add_source_attribution(raw_report, article_refs, state)
 
+        # Strip AI tells section by section (same detector-driven pass the
+        # Wiley bundle prose gets; gated by WILEY_HUMANIZE). Never blocks the
+        # report on failure.
+        yield {
+            "status": "humanizing",
+            "progress": 0.95,
+            "message": "Removing AI tells from the draft"
+        }
+        state.final_report = await self._humanize_report(state.final_report)
+
         # Add chart if include_charts is enabled
         if config.include_charts and state.raw_results:
             chart_marker = self._generate_chart_for_report(state.raw_results, state.topic)
@@ -1991,6 +2024,79 @@ Format inline citations as: [Article Title](URL)
             "report_length": len(state.final_report),
             "sources_used": state.sources_used
         }
+
+    async def _humanize_report(self, report: str) -> str:
+        """Run the humanize-mcp detector/rewrite pass over the report's prose.
+
+        The shared ``humanize_text`` caps rewrites at 4k tokens, so the report
+        is processed heading section by heading section, in paragraph chunks.
+        Guards: the References section, chart markers, short fragments and any
+        chunk whose rewrite loses citation links are left untouched. Any
+        failure returns the report unchanged.
+        """
+        try:
+            from app.services.wiley_humanizer import humanize_enabled, humanize_text
+        except Exception:
+            return report
+        if not humanize_enabled() or not report or not report.strip():
+            return report
+
+        import re as _re
+        try:
+            parts = _re.split(r"(?m)^(#{1,4} .*)$", report)
+            out: List[str] = []
+            heading = ""
+            total_before = total_after = 0
+            for part in parts:
+                if _re.match(r"^#{1,4} ", part or ""):
+                    heading = part
+                    out.append(part)
+                    continue
+                if not part or not part.strip():
+                    out.append(part)
+                    continue
+                if _re.search(r"references|methodology", heading, _re.I):
+                    out.append(part)
+                    continue
+
+                # Paragraph chunks of up to ~5k chars per rewrite call.
+                paragraphs = part.split("\n\n")
+                chunks: List[List[str]] = [[]]
+                size = 0
+                for p in paragraphs:
+                    if size + len(p) > 5000 and chunks[-1]:
+                        chunks.append([])
+                        size = 0
+                    chunks[-1].append(p)
+                    size += len(p)
+
+                rebuilt: List[str] = []
+                for chunk in chunks:
+                    text = "\n\n".join(chunk)
+                    if len(text.strip()) < 300 or "CHART_DATA" in text:
+                        rebuilt.append(text)
+                        continue
+                    r = await humanize_text(text)
+                    candidate = r.get("text") or text
+                    # A rewrite that drops citation links is worse than tells.
+                    if r.get("changed") and candidate.count("](") < text.count("]("):
+                        candidate = text
+                    elif r.get("changed"):
+                        # humanize_text strips its result; restore the chunk's
+                        # own margins or headings glue onto adjacent prose.
+                        lead = text[:len(text) - len(text.lstrip())]
+                        trail = text[len(text.rstrip()):]
+                        candidate = lead + candidate.strip() + trail
+                        total_before += r.get("tells_before", 0)
+                        total_after += r.get("tells_after", 0)
+                    rebuilt.append(candidate)
+                out.append("\n\n".join(rebuilt))
+            if total_before:
+                logger.info(f"Humanized research report: {total_before} → {total_after} AI tells")
+            return "".join(out)
+        except Exception as e:
+            logger.warning(f"Report humanize pass failed, keeping original: {e}")
+            return report
 
     def _add_source_attribution(self, report: str, article_refs: List[Dict], state: ResearchState) -> str:
         """

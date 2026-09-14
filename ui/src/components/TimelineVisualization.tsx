@@ -44,8 +44,11 @@ const TimelineVisualization: React.FC<TimelineVisualizationProps> = ({
     return ((year - TIMELINE_START) / TIMELINE_SPAN) * 100;
   };
 
-  const consensusStart = calculatePosition(timelineConsensus.consensus_window.start_year);
-  const consensusEnd = calculatePosition(timelineConsensus.consensus_window.end_year);
+  // A truncated LLM response can leave the timeline section or its window out;
+  // fall back to the full span rather than crashing the Consensus tab.
+  const consensusWindow = timelineConsensus?.consensus_window || { start_year: TIMELINE_START, end_year: TIMELINE_END, label: '' };
+  const consensusStart = calculatePosition(consensusWindow.start_year);
+  const consensusEnd = calculatePosition(consensusWindow.end_year);
   const consensusWidth = consensusEnd - consensusStart;
 
   // Get first outlier of each type for simplified view

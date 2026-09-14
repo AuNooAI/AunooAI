@@ -58,6 +58,11 @@
                 <i class="fas fa-users"></i> Users
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="mcp-tab" data-bs-toggle="tab" data-bs-target="#mcp" type="button" role="tab">
+                <i class="fas fa-link"></i> Connectors
+            </button>
+        </li>
     </ul>
 
     <!-- Tab content -->
@@ -658,6 +663,109 @@
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
                         <strong>Shared Workspace:</strong> All users have access to view and manage all topics and content.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connectors (MCP) Tab -->
+        <div class="tab-pane fade" id="mcp" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Connectors</h2>
+                    <p class="text-muted mb-4">
+                        Use this site from Claude, ChatGPT, Cursor or any other assistant that speaks the
+                        Model Context Protocol (MCP). Everything below acts as <strong id="mcp-username"></strong>.
+                    </p>
+
+                    <h3>Connect</h3>
+                    <div class="mb-2">
+                        <label class="form-label">Server URL</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="mcp-url" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="mcpCopy('mcp-url')"><i class="fas fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <p class="text-muted"><small>
+                        <strong>claude.ai / ChatGPT:</strong> add a custom connector with this URL and leave the client fields
+                        empty. A browser tab opens this site's login, then an Allow screen. No key needed.
+                        <strong>Claude Code, Cursor, Claude Desktop:</strong> create a key below and use one of the snippets.
+                    </small></p>
+                    <div class="accordion mb-4" id="mcp-snippets">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#mcp-snip-cc">Claude Code</button></h2>
+                            <div id="mcp-snip-cc" class="accordion-collapse collapse" data-bs-parent="#mcp-snippets"><div class="accordion-body">
+                                <pre class="mb-1" style="white-space:pre-wrap"><code id="mcp-snippet-claude_code"></code></pre>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="mcpCopy('mcp-snippet-claude_code')"><i class="fas fa-copy"></i> Copy</button>
+                            </div></div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#mcp-snip-cursor">Cursor (mcp.json)</button></h2>
+                            <div id="mcp-snip-cursor" class="accordion-collapse collapse" data-bs-parent="#mcp-snippets"><div class="accordion-body">
+                                <pre class="mb-1"><code id="mcp-snippet-cursor"></code></pre>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="mcpCopy('mcp-snippet-cursor')"><i class="fas fa-copy"></i> Copy</button>
+                            </div></div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#mcp-snip-cd">Claude Desktop (claude_desktop_config.json)</button></h2>
+                            <div id="mcp-snip-cd" class="accordion-collapse collapse" data-bs-parent="#mcp-snippets"><div class="accordion-body">
+                                <pre class="mb-1"><code id="mcp-snippet-claude_desktop"></code></pre>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="mcpCopy('mcp-snippet-claude_desktop')"><i class="fas fa-copy"></i> Copy</button>
+                            </div></div>
+                        </div>
+                    </div>
+
+                    <h3>My keys</h3>
+                    <p class="text-muted"><small>A key signs requests as you. It is shown once when created. Revoke it here if a laptop or config file leaks.</small></p>
+                    <form id="mcp-mint-form" class="row g-2 align-items-end mb-3">
+                        <div class="col-sm-6">
+                            <label for="mcp-key-name" class="form-label">Name</label>
+                            <input type="text" id="mcp-key-name" class="form-control" placeholder="e.g. claude-code on my laptop" required>
+                        </div>
+                        <div class="col-sm-3">
+                            <label for="mcp-key-days" class="form-label">Expires in (days)</label>
+                            <input type="number" id="mcp-key-days" class="form-control" value="90" min="1" max="3650">
+                        </div>
+                        <div class="col-sm-3">
+                            <button type="submit" class="btn btn-primary w-100"><i class="fas fa-key"></i> Create key</button>
+                        </div>
+                    </form>
+                    <div id="mcp-new-key" class="alert alert-success" style="display:none">
+                        <strong>Copy this key now.</strong> It will not be shown again.
+                        <div class="input-group mt-2">
+                            <input type="text" class="form-control font-monospace" id="mcp-new-key-value" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="mcpCopy('mcp-new-key-value')"><i class="fas fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <div id="mcp-keys-list" class="mb-4"></div>
+
+                    <h3>Connected apps</h3>
+                    <p class="text-muted"><small>Assistants you authorised through the Allow screen. Disconnecting stops them within an hour.</small></p>
+                    <div id="mcp-connections-list" class="mb-4"></div>
+
+                    <div id="mcp-admin" style="display:none">
+                        <h3>All keys <span class="badge bg-primary">admin</span></h3>
+                        <div id="mcp-admin-keys" class="mb-4"></div>
+                        <h3>Recent calls <span class="badge bg-primary">admin</span></h3>
+                        <div id="mcp-admin-calls" class="mb-4"></div>
+                    </div>
+                </div>
+
+                <div class="right-panel">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>What a connected assistant can do:</strong>
+                        <ul class="mb-0 mt-2" id="mcp-tools-list"></ul>
+                    </div>
+                    <div class="alert alert-secondary">
+                        <i class="fas fa-book"></i>
+                        <strong>Playbooks (prompts):</strong>
+                        <span id="mcp-prompts-list"></span>
+                    </div>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-shield-alt"></i>
+                        <strong>Access follows your account.</strong> Keys and connected apps see what you see and stop working
+                        when your account is deactivated. Every call is logged.
                     </div>
                 </div>
             </div>
@@ -3796,5 +3904,116 @@
     border-color: var(--colors-accent-3) var(--colors-accent-3) var(--colors-white);
 }
 </style>
+
+<script>
+// ─── Connectors (MCP) tab ────────────────────────────────────────────────────
+(function () {
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const fmt = (iso) => iso ? new Date(iso).toLocaleString() : '-';
+    let loaded = false;
+
+    window.mcpCopy = async function (id) {
+        const el = document.getElementById(id);
+        const text = el.value !== undefined ? el.value : el.textContent;
+        try { await navigator.clipboard.writeText(text); } catch (e) { el.select && el.select(); }
+    };
+
+    async function getJSON(url, opts) {
+        const r = await fetch(url, opts);
+        if (r.status === 403) return null;
+        if (!r.ok) throw new Error(`${url}: ${r.status}`);
+        return r.status === 204 ? {} : r.json();
+    }
+
+    async function loadInstall() {
+        const info = await getJSON('/api/mcp/me/install');
+        document.getElementById('mcp-username').textContent = info.username;
+        document.getElementById('mcp-url').value = info.mcp_url;
+        for (const k of ['claude_code', 'cursor', 'claude_desktop']) {
+            document.getElementById('mcp-snippet-' + k).textContent = info.snippets[k];
+        }
+        document.getElementById('mcp-tools-list').innerHTML = info.tools.map(t => `<li><code>${esc(t)}</code></li>`).join('');
+        document.getElementById('mcp-prompts-list').innerHTML = info.prompts.map(p => `<code>${esc(p)}</code>`).join(', ');
+    }
+
+    async function loadKeys() {
+        const rows = await getJSON('/api/mcp/me/keys');
+        const box = document.getElementById('mcp-keys-list');
+        const active = rows.filter(r => r.is_active);
+        if (!active.length) { box.innerHTML = '<p class="text-muted">No active keys.</p>'; return; }
+        box.innerHTML = `<table class="table table-sm"><thead><tr><th>Name</th><th>Prefix</th><th>Created</th><th>Expires</th><th>Last used</th><th></th></tr></thead><tbody>` +
+            active.map(r => `<tr><td>${esc(r.name)}</td><td><code>${esc(r.key_prefix)}…</code></td><td>${fmt(r.created_at)}</td><td>${fmt(r.expires_at)}</td><td>${fmt(r.last_used_at)}</td>
+                <td class="text-end"><button class="btn btn-sm btn-outline-danger" data-revoke="${r.id}">Revoke</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('Revoke this key? Anything using it stops immediately.')) return;
+            await getJSON('/api/mcp/me/keys/' + b.dataset.revoke, { method: 'DELETE' });
+            loadKeys(); loadAdmin();
+        }));
+    }
+
+    async function loadConnections() {
+        const rows = await getJSON('/api/mcp/me/connections');
+        const box = document.getElementById('mcp-connections-list');
+        if (!rows.length) { box.innerHTML = '<p class="text-muted">No connected apps.</p>'; return; }
+        box.innerHTML = `<table class="table table-sm"><thead><tr><th>App</th><th>Connected</th><th>Last used</th><th>Renews until</th><th></th></tr></thead><tbody>` +
+            rows.map(r => `<tr><td>${esc(r.client_name)}</td><td>${fmt(r.connected_at)}</td><td>${fmt(r.last_used_at)}</td><td>${fmt(r.expires_at)}</td>
+                <td class="text-end"><button class="btn btn-sm btn-outline-danger" data-disconnect="${esc(r.client_id)}">Disconnect</button></td></tr>`).join('') + '</tbody></table>';
+        box.querySelectorAll('[data-disconnect]').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('Disconnect this app? It will have to ask for access again.')) return;
+            await getJSON('/api/mcp/me/connections/' + encodeURIComponent(b.dataset.disconnect), { method: 'DELETE' });
+            loadConnections();
+        }));
+    }
+
+    async function loadAdmin() {
+        const keys = await getJSON('/api/mcp-keys');
+        if (keys === null) return;  // not an admin
+        document.getElementById('mcp-admin').style.display = 'block';
+        const kb = document.getElementById('mcp-admin-keys');
+        kb.innerHTML = keys.length ? `<table class="table table-sm"><thead><tr><th>#</th><th>User</th><th>Name</th><th>Prefix</th><th>Active</th><th>Expires</th><th>Last used</th><th></th></tr></thead><tbody>` +
+            keys.map(r => `<tr><td>${r.id}</td><td>${esc(r.username)}</td><td>${esc(r.name)}</td><td><code>${esc(r.key_prefix)}</code></td><td>${r.is_active ? 'yes' : 'no'}</td><td>${fmt(r.expires_at)}</td><td>${fmt(r.last_used_at)}</td>
+                <td class="text-end">${r.is_active ? `<button class="btn btn-sm btn-outline-danger" data-admin-revoke="${r.id}">Revoke</button>` : ''}</td></tr>`).join('') + '</tbody></table>'
+            : '<p class="text-muted">No keys on this site.</p>';
+        kb.querySelectorAll('[data-admin-revoke]').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('Revoke key #' + b.dataset.adminRevoke + '?')) return;
+            await getJSON('/api/mcp-keys/' + b.dataset.adminRevoke, { method: 'DELETE' });
+            loadKeys(); loadAdmin();
+        }));
+        const calls = await getJSON('/api/mcp-keys/calls?limit=50');
+        const cb = document.getElementById('mcp-admin-calls');
+        cb.innerHTML = calls.length ? `<div style="max-height:320px;overflow:auto"><table class="table table-sm"><thead><tr><th>When</th><th>User</th><th>Via</th><th>Tool</th><th>Status</th><th>ms</th></tr></thead><tbody>` +
+            calls.map(r => `<tr><td>${fmt(r.created_at)}</td><td>${esc(r.username)}</td><td>${esc(r.auth_kind)}</td><td><code>${esc(r.tool_name)}</code></td><td>${esc(r.status)}</td><td>${r.duration_ms ?? ''}</td></tr>`).join('') + '</tbody></table></div>'
+            : '<p class="text-muted">No calls yet.</p>';
+    }
+
+    async function loadAll() {
+        try { await Promise.all([loadInstall(), loadKeys(), loadConnections(), loadAdmin()]); }
+        catch (e) { console.error('[Connectors]', e); }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const tab = document.getElementById('mcp-tab');
+        if (!tab) return;
+        tab.addEventListener('shown.bs.tab', function () { if (!loaded) { loaded = true; loadAll(); } });
+        if (location.hash === '#mcp') { new bootstrap.Tab(tab).show(); }
+
+        document.getElementById('mcp-mint-form').addEventListener('submit', async function (ev) {
+            ev.preventDefault();
+            const name = document.getElementById('mcp-key-name').value.trim();
+            const days = parseInt(document.getElementById('mcp-key-days').value, 10) || null;
+            try {
+                const row = await getJSON('/api/mcp/me/keys', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, expires_days: days }),
+                });
+                document.getElementById('mcp-new-key-value').value = row.plaintext;
+                document.getElementById('mcp-new-key').style.display = 'block';
+                document.getElementById('mcp-key-name').value = '';
+                loadKeys(); loadAdmin();
+            } catch (e) { alert('Could not create the key: ' + e.message); }
+        });
+    });
+})();
+</script>
 {% endblock %}
 

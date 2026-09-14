@@ -13,6 +13,7 @@ Creates rich psychographic profiles (15-20 attributes) that can be annotated, ed
 
 import asyncio
 import json
+import re
 import logging
 import uuid
 from datetime import datetime
@@ -22,7 +23,8 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, parse_stage_reply
+from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
 
@@ -156,6 +158,24 @@ class FGState:
     })
     errors: List[str] = field(default_factory=list)
 
+    # Stage -> raw id of the model that answered, e.g.
+    # "us.anthropic.claude-haiku-4-5-20251001-v1:0". Read from the litellm
+    # response, so it is the model that ran, not the alias that was asked
+    # for. Feeds the run metadata and the AI Act disclosure on exports.
+    models_used: Dict[str, str] = field(default_factory=dict)
+
+    def record_model(self, stage: str, requested: str, response: Any) -> None:
+        try:
+            self.models_used[stage] = response_model_id(response, requested)
+        except Exception:
+            self.models_used[stage] = str(requested or '')
+
+    def disclosure_models(self) -> Dict[str, Any]:
+        return {
+            "models_used": dict(self.models_used),
+            "models": model_labels(self.models_used.values()),
+        }
+
     def update_progress(self, stage: str, progress: float):
         self.stage_progress[stage] = min(1.0, max(0.0, progress))
         self.current_stage = FGStage(stage)
@@ -209,11 +229,14 @@ class FGConfig:
     profiling_temp: float = 0.5
     synthesis_temp: float = 0.5
 
-    # Timeouts (seconds)
-    discovery_timeout: int = 90
-    clustering_timeout: int = 90
-    profiling_timeout: int = 120
-    synthesis_timeout: int = 90
+    # Timeouts (seconds). Sized for the Bedrock models writing up to the
+    # stage's max_tokens: Kimi K2.5 took 74 s to write 60 mentions and
+    # timed out at the old 90 s on the next run. A timeout here throws the
+    # whole stage away, so it must sit well above the slow case.
+    discovery_timeout: int = 300
+    clustering_timeout: int = 180
+    profiling_timeout: int = 300
+    synthesis_timeout: int = 180
 
 
 class FocusGroupService:
@@ -372,6 +395,9 @@ class FocusGroupService:
                     "mentions_found": len(state.stakeholder_mentions),
                     "personas_generated": len(state.personas),
                     "generated_at": datetime.now().isoformat(),
+                    **state.disclosure_models(),
+                    # Stage warnings: cut replies, salvaged items, flagged names.
+                    "warnings": list(state.errors),
                     "config": {
                         "max_personas": config.max_personas,
                         "min_evidence_threshold": config.min_evidence_threshold
@@ -405,18 +431,35 @@ class FocusGroupService:
         """Extract relevant context from articles for prompts."""
         context_parts = []
         for i, article in enumerate(articles[:30]):  # Limit to avoid token overflow
-            enrichment = article.get('enrichment', {})
+            # The route's fetcher returns the analysis fields as flat columns
+            # (sentiment, category, driver_type, ...) and never sets an
+            # 'enrichment' dict, so read both shapes; before this every
+            # article went in as neutral / unknown / no categories.
+            enrichment = article.get('enrichment') or {}
+            if not isinstance(enrichment, dict):
+                enrichment = {}
+            def _field(*names, default=''):
+                for n in names:
+                    v = enrichment.get(n)
+                    if v in (None, '', []):
+                        v = article.get(n)
+                    if v not in (None, '', []):
+                        return v
+                return default
+            categories = _field('categories', 'category', default=[])
+            if isinstance(categories, str):
+                categories = [categories]
             context_parts.append({
                 "index": i,
                 "title": article.get('title', '')[:200],
                 "summary": article.get('summary', '')[:300],
                 "source": article.get('source', ''),
                 "uri": article.get('uri', ''),
-                "sentiment": enrichment.get('sentiment', 'neutral'),
-                "political_bias": enrichment.get('political_bias', 'unknown'),
-                "categories": enrichment.get('categories', [])[:3],
-                "driver_type": enrichment.get('driver_type', ''),
-                "factuality": enrichment.get('factuality', '')
+                "sentiment": _field('sentiment', default='neutral'),
+                "political_bias": _field('political_bias', 'bias', default='unknown'),
+                "categories": list(categories)[:3],
+                "driver_type": _field('driver_type'),
+                "factuality": _field('factuality', 'factual_reporting')
             })
         return json.dumps(context_parts, indent=2)
 
@@ -432,6 +475,11 @@ class FocusGroupService:
 
         model = agent_config.get('model', config.discovery_model)
         temperature = agent_config.get('temperature', config.discovery_temp)
+        # Output cap. 12000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 4000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 12000)
 
         article_context = self._extract_article_context(state.raw_articles)
 
@@ -478,7 +526,7 @@ Return JSON with:
     }}
 }}
 
-Extract ALL stakeholder mentions you find - we will cluster them in the next stage."""
+Extract the stakeholder mentions you find, most prominent first, up to 60 - we will cluster them in the next stage. Keep "context" to one sentence."""
 
         try:
             response = await litellm.acompletion(
@@ -488,11 +536,13 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=4000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
+            state.record_model("discovery", model, response)
+            result = parse_stage_reply(response, "stakeholder_mentions", stage="discovery",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.stakeholder_mentions = result.get("stakeholder_mentions", [])
 
         except Exception as e:
@@ -535,6 +585,11 @@ Extract ALL stakeholder mentions you find - we will cluster them in the next sta
 
         model = agent_config.get('model', config.clustering_model)
         temperature = agent_config.get('temperature', config.clustering_temp)
+        # Output cap. 8000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 8000)
 
         prompt = f"""Group these stakeholder mentions into DISTINCT PERSONA ARCHETYPES for "{state.topic}".
 
@@ -592,11 +647,13 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=3000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
+            state.record_model("clustering", model, response)
+            result = parse_stage_reply(response, "persona_clusters", stage="clustering",
+                                       errors=state.errors, max_tokens=max_tokens)
             # Filter to only clusters meeting threshold
             clusters = result.get("persona_clusters", [])
             state.persona_clusters = [
@@ -626,6 +683,11 @@ Remember: DISCOVER personas from evidence, don't INVENT them."""
 
         model = agent_config.get('model', config.profiling_model)
         temperature = agent_config.get('temperature', config.profiling_temp)
+        # Output cap. 12000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 6000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 12000)
 
         article_context = self._extract_article_context(state.raw_articles[:15])
 
@@ -637,10 +699,10 @@ ARTICLE CONTEXT:
 ARCHETYPES TO PROFILE:
 {json.dumps(state.persona_clusters, indent=2)}
 
-For each archetype, create a detailed persona with:
+Create exactly ONE persona per archetype: {len(state.persona_clusters)} personas in total, no more. Each persona must carry the "cluster_id" of its archetype. For each, include:
 
 IDENTITY (4 attributes):
-- name: A representative fictional name
+- name: An invented name. NEVER the name of a real person: not anyone named or quoted in the articles, not a known researcher, executive or public figure in this field. A persona is a composite, and naming a real person misattributes views to them.
 - archetype: The archetype label
 - role_title: A typical job title
 - sector: Primary industry/sector
@@ -717,7 +779,7 @@ Return JSON with:
     ]
 }}
 
-Make profiles DISTINCT and based on article evidence. Each persona should feel like a real individual."""
+Make profiles DISTINCT and based on article evidence. Each persona should feel like a real individual, but every name must be invented; do not reuse any personal name that appears in the articles."""
 
         yield {"status": "generating", "progress": 0.3}
 
@@ -729,12 +791,21 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=6000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
+            state.record_model("profiling", model, response)
+            result = parse_stage_reply(response, "personas", stage="profiling",
+                                       errors=state.errors, max_tokens=max_tokens)
             raw_personas = result.get("personas", [])
+
+            # One persona per archetype, at most max_personas in total. The
+            # prompt says so, but Kimi returned 8 for 3 archetypes; the first
+            # persona for each archetype wins, in archetype order, and any
+            # persona that names no known archetype fills remaining slots.
+            raw_personas = self._cap_personas(raw_personas, state.persona_clusters, config.max_personas)
+            self._flag_real_names(raw_personas, state)
 
             yield {"status": "processing", "progress": 0.7}
 
@@ -794,6 +865,49 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
             logger.error(f"Profiling stage failed: {e}")
             yield {"status": "error", "progress": 0.9, "error": str(e)}
 
+    @staticmethod
+    def _flag_real_names(raw_personas: List[Dict], state: "FGState") -> None:
+        """Warn when a persona carries the surname of someone the articles
+        name. The prompt forbids it, but Kimi named a Regenerative Dentistry
+        persona after the field's best-known researcher twice in a row. The
+        check is a surname match against titles, summaries and the
+        discovery stage's quoted references; it flags, it does not rename,
+        because an automatic rename would need a second model call."""
+        haystack = " ".join(
+            [str(a.get("title", "")) + " " + str(a.get("summary", "")) for a in state.raw_articles]
+            + [str(m.get("specific_reference", "")) + " " + str(m.get("context", "")) for m in state.stakeholder_mentions]
+        )
+        for raw in raw_personas:
+            name = str(raw.get("name") or "").strip()
+            parts = [p for p in re.split(r"[\s\-]+", name) if len(p) > 3 and p[0].isupper() and p.rstrip(".").lower() not in ("dr", "prof", "mrs", "miss")]
+            surname = parts[-1] if parts else ""
+            if surname and re.search(r"\b" + re.escape(surname) + r"\b", haystack):
+                msg = f"profiling: persona '{name}' shares a surname with someone named in the source articles; personas must be fictional"
+                logger.warning(msg)
+                state.errors.append(msg)
+                raw["name_flagged"] = True
+
+    @staticmethod
+    def _cap_personas(raw_personas: List[Dict], clusters: List[Dict], max_personas: int) -> List[Dict]:
+        """Keep one persona per archetype, in archetype order, capped at max_personas."""
+        limit = max(1, int(max_personas or 1))
+        cluster_order = [c.get("cluster_id") for c in clusters if c.get("cluster_id")]
+        by_cluster: Dict[str, Dict] = {}
+        unassigned: List[Dict] = []
+        for raw in raw_personas:
+            cid = raw.get("cluster_id")
+            if cid in cluster_order:
+                by_cluster.setdefault(cid, raw)
+            else:
+                unassigned.append(raw)
+        kept = [by_cluster[cid] for cid in cluster_order if cid in by_cluster]
+        kept.extend(unassigned)
+        if len(raw_personas) > len(kept[:limit]):
+            logger.warning(
+                f"Profiling returned {len(raw_personas)} personas for {len(cluster_order)} archetypes "
+                f"(max_personas={limit}); keeping {len(kept[:limit])}")
+        return kept[:limit]
+
     async def _run_synthesis(self, state: FGState, config: FGConfig):
         """
         Stage 4: Synthesis
@@ -806,6 +920,11 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
 
         model = agent_config.get('model', config.synthesis_model)
         temperature = agent_config.get('temperature', config.synthesis_temp)
+        # Output cap. 6000 is the floor this stage needs on the Bedrock
+        # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
+        # was cut and the run continued on nothing). The agent file can
+        # raise it, not lower it.
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 6000)
 
         personas_json = [p.to_dict() for p in state.personas]
 
@@ -865,11 +984,13 @@ Be specific about how the personas' characteristics would lead to these dynamics
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=3000,
+                max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
 
-            result = extract_json_response(response.choices[0].message.content)
+            state.record_model("synthesis", model, response)
+            result = parse_stage_reply(response, "focus_group_summary", stage="synthesis",
+                                       errors=state.errors, max_tokens=max_tokens)
             state.focus_group_summary = result.get("focus_group_summary", "")
             state.interaction_dynamics = result.get("interaction_dynamics", {})
 

@@ -52,13 +52,30 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
   const [brands, setBrands] = useState<BWPerceptionBrand[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Brand toggles: null = all on (default); once touched, an explicit set of visible ids
+  // Brand toggles: null = the default set (primary brand plus the top N by
+  // volume); once touched, an explicit set of visible ids. Overlaying every
+  // brand on a tenant with dozens of them makes the radar unreadable.
   const [visibleIds, setVisibleIds] = useState<Set<number> | null>(null);
+  const [topN, setTopN] = useState<number>(5);
 
-  const isVisible = (id: number) => visibleIds === null || visibleIds.has(id);
+  const volumeOf = (b: BWPerceptionBrand) =>
+    (['media', 'social', 'community', 'investor'] as const).reduce((sum, k) => sum + (b.dimensions[k]?.n || 0), 0)
+    + (b.dimensions.employee?.reviews_n || 0);
+  const defaultIds = (): Set<number> => {
+    const ranked = [...brands].sort((a, b) => volumeOf(b) - volumeOf(a) || a.display_name.localeCompare(b.display_name));
+    // N is the number of brands shown, full stop. The primary brand is always
+    // one of them; it does not come on top of N.
+    const ids = new Set<number>(brands.filter(b => b.is_primary).map(b => b.brand_id));
+    for (const b of ranked) {
+      if (ids.size >= topN) break;
+      ids.add(b.brand_id);
+    }
+    return ids;
+  };
+  const isVisible = (id: number) => (visibleIds ?? defaultIds()).has(id);
   const toggleBrand = (id: number) => {
     setVisibleIds(prev => {
-      const next = new Set(prev === null ? brands.map(b => b.brand_id) : prev);
+      const next = new Set(prev === null ? defaultIds() : prev);
       if (next.has(id)) {
         if (next.size > 1) next.delete(id); // keep at least one brand visible
       } else {
@@ -78,6 +95,9 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [daysBack]);
+
+  // A new window or a new N goes back to the default set
+  useEffect(() => { setVisibleIds(null); }, [daysBack, topN]);
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>;
@@ -117,8 +137,25 @@ export function BrandWatcherPerception({ daysBack }: { daysBack: number }) {
         </div>
       </div>
 
-      {/* Brand toggles */}
+      {/* Brand toggles: default = primary + top N by volume, click to add or remove */}
       <div className="flex flex-wrap items-center gap-2">
+        <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mr-1"
+          title="The brands with the most scored items in this window; the primary brand is always one of them. Click any brand to add or remove it.">
+          Show top
+          <select
+            value={topN}
+            onChange={e => setTopN(Number(e.target.value))}
+            className="px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs"
+          >
+            {[3, 5, 8, 10, brands.length].filter((n, i, arr) => n <= brands.length && arr.indexOf(n) === i).map(n => (
+              <option key={n} value={n}>{n === brands.length ? `all (${n})` : n}</option>
+            ))}
+          </select>
+          by volume
+          {visibleIds !== null && (
+            <button onClick={() => setVisibleIds(null)} className="ml-1 underline hover:text-gray-700 dark:hover:text-gray-200">reset</button>
+          )}
+        </label>
         {brands.map((b, i) => {
           const on = isVisible(b.brand_id);
           return (

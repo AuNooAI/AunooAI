@@ -6,6 +6,7 @@ from app.database import Database, get_database_instance
 from app.ai_models import LiteLLMModel, get_available_models  # Added for LLM access
 from app.security.session import verify_session
 from pydantic import BaseModel
+from sqlalchemy import text as sql_text
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import logging
@@ -139,6 +140,7 @@ class ArticleInsightsRequest(BaseModel):
     end_date: Optional[str] = None
     days_limit: int = 7
     force_regenerate: bool = False
+    cache_only: bool = False  # read cache (any recency), NEVER run the LLM — page-load path
     model: str = "gpt-5.4-mini"
     system_prompt: Optional[str] = None  # Custom system prompt
     user_prompt: Optional[str] = None  # Custom user prompt
@@ -890,23 +892,17 @@ async def get_article_insights(
     custom_system_prompt = request.system_prompt
     custom_user_prompt = request.user_prompt
     try:
-        # Check cache first
+        # Check cache first. The cache row is keyed on topic + date window
+        # (cache_key doubles as the article_uri anchor). It used to be anchored
+        # on the newest article in the window, so every new article in a topic
+        # with steady social ingest moved the anchor and forced a regeneration
+        # on nearly every visit (sunstar, 2026-09-03). New articles now roll
+        # into the next day's window instead; force_regenerate still bypasses.
         cache_key = f"article_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
         
-        # Get representative article for cache anchoring
-        temp_response = await get_topic_articles(
-            topic_name=topic_name,
-            page=1,
-            per_page=1,
-            start_date=start_date,
-            end_date=end_date,
-            db=db
-        )
-        
-        if temp_response.items and not force_regenerate:
-            cache_uri = temp_response.items[0].uri
+        if not force_regenerate:
             cached = db.get_article_analysis_cache(
-                article_uri=cache_uri,
+                article_uri=cache_key,
                 analysis_type=f"article_insights_{topic_name}",
                 model_used="dashboard_api"
             )
@@ -916,7 +912,24 @@ async def get_article_insights(
                 cached_themes = json.loads(cached["content"])
                 # Convert back to Pydantic models for response_model compatibility
                 return [ThemeWithArticlesSchema(**theme) for theme in cached_themes]
-        
+
+        # cache_only = the page-load path. Opening the Narratives view must never
+        # block on LLM generation (a cold day-key used to cost ~15-25s PER TOPIC,
+        # minutes of spinner). Serve the newest cached run for this topic whatever
+        # window it was generated for, or 404 so the UI shows "press Generate".
+        if request.cache_only:
+            row = db.facade._fetchone_with_rollback(sql_text("""
+                SELECT content FROM article_analysis_cache
+                WHERE analysis_type = :at AND model_used = 'dashboard_api'
+                ORDER BY generated_at DESC LIMIT 1
+            """), {"at": f"article_insights_{topic_name}"},
+                operation_name="article insights cache_only lookup")
+            if row and row[0]:
+                logger.info(f"Cache-only: serving latest stored insights for {topic_name}")
+                return [ThemeWithArticlesSchema(**theme) for theme in json.loads(row[0])]
+            raise HTTPException(status_code=404,
+                                detail=f"No cached narratives for '{topic_name}' yet. Use Generate to build them.")
+
         if force_regenerate:
             logger.info(f"Force regenerating article insights for {topic_name} (bypassing cache)")
         
@@ -1177,7 +1190,7 @@ async def get_article_insights(
         # Cache the results for future requests
         try:
             if articles and final_themed_insights:
-                cache_uri = articles[0].uri
+                cache_uri = cache_key  # topic + date window, not the newest article
                 # Convert Pydantic models to dict for JSON serialization
                 cache_content = json.dumps([theme.dict() for theme in final_themed_insights], ensure_ascii=False, default=str)
                 cache_metadata = {

@@ -117,7 +117,22 @@ class TheNewsAPICollector(ArticleCollector):
                 # and malforms the param. Normalise to a list first.
                 if isinstance(search_fields, str):
                     search_fields = [f.strip() for f in search_fields.split(",") if f.strip()]
-                params["search_fields"] = ",".join(search_fields)
+                # The tenant setting uses NewsAPI's vocabulary (title, description,
+                # content). TheNewsAPI knows title, description, keywords, main_text;
+                # an unknown name is silently dropped and the article body is never
+                # searched, which cut Japanese/German/French results 5-14x
+                # (2026-08-31: 歯周病 8 vs 114, Parodontitis 4 vs 23).
+                _map = {"title": "title", "description": "description",
+                        "content": "main_text", "main_text": "main_text", "keywords": "keywords"}
+                mapped = []
+                for f in search_fields:
+                    m = _map.get(f.lower())
+                    if m and m not in mapped:
+                        mapped.append(m)
+                if "main_text" in mapped and "keywords" not in mapped:
+                    mapped.append("keywords")
+                if mapped:
+                    params["search_fields"] = ",".join(mapped)
 
             logger.debug(f"TheNewsAPI search params: {params}")
 

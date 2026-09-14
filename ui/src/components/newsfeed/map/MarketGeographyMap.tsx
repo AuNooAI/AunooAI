@@ -43,7 +43,17 @@ if (typeof document !== 'undefined'
 
 const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
-  + 'contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  + 'contributors';
+
+// CARTO's basemaps started requiring an API key and stamp "API KEY REQUIRED"
+// across every tile without one, which is what this map showed. OpenStreetMap's
+// own tiles need no key. They have no dark variant, so dark mode inverts the
+// tile pane in CSS — the markers sit in a separate pane and keep their colour.
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const DARK_TILE_CSS = `
+    .market-map-dark .leaflet-tile-pane {
+      filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9);
+    }`;
 
 export function MarketGeographyMap({ marketId }: { marketId: number }) {
   const { resolvedTheme } = useTheme();
@@ -87,9 +97,6 @@ export function MarketGeographyMap({ marketId }: { marketId: number }) {
       dark:text-gray-400">No vendor has a resolved country yet.</p></Shell>;
   }
 
-  const tileUrl = dark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
   return (
     <Shell>
@@ -123,8 +130,10 @@ export function MarketGeographyMap({ marketId }: { marketId: number }) {
             container and Leaflet renders a grey band across the top. */}
         <MapContainer center={[25, 5]} zoom={2} minZoom={2} zoomSnap={0.5}
                       scrollWheelZoom={false} worldCopyJump
+                      className={dark ? 'market-map-dark' : undefined}
                       style={{ height: '100%', width: '100%' }}>
-          <TileLayer url={tileUrl} attribution={ATTRIBUTION} />
+          {dark && <style>{DARK_TILE_CSS}</style>}
+          <TileLayer url={TILE_URL} attribution={ATTRIBUTION} />
           {rows.map((row) => {
             const at = centroid(row.country);
             if (!at) return null;

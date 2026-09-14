@@ -3,8 +3,9 @@ Email sharing routes for sending content via email.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List, Union
+import re
 
 
 def get_base_url(http_request: Request) -> str:
@@ -138,6 +139,54 @@ def _backfill_missing_sources(articles: Optional[List["ArticleRef"]]) -> None:
         logger.warning(f"share: source backfill failed: {e}")
 
 
+def _flatten_to_text(v, sep="; "):
+    """Flatten an object, list, or scalar into one string."""
+    if v is None or isinstance(v, str):
+        return v
+    if isinstance(v, dict):
+        return sep.join(f"{k}: {val}" for k, val in v.items())
+    if isinstance(v, (list, tuple)):
+        return sep.join(_flatten_to_text(item, ", ") for item in v)
+    return str(v)
+
+
+def _coerce_to_text(v):
+    """Coerce a field the email renders as text.
+
+    Incidents are written by an LLM, so a field documented as a string
+    sometimes arrives as an object (timeline = {"announced": "2026-06-17"})
+    or a number. Flatten it rather than reject the whole share with a 422.
+    """
+    return _flatten_to_text(v)
+
+
+def _coerce_to_str_list(v):
+    """Coerce a field the email renders as bullets into a list of strings."""
+    if v is None or (isinstance(v, list) and all(isinstance(i, str) for i in v)):
+        return v
+    if isinstance(v, str):
+        parts = [p.strip() for p in re.split(r"[;\n]", v) if p.strip()]
+        return parts or None
+    if isinstance(v, dict):
+        return [f"{k}: {val}" for k, val in v.items()] or None
+    if isinstance(v, (list, tuple)):
+        return [_flatten_to_text(item, ", ") for item in v] or None
+    return [str(v)]
+
+
+def _coerce_text_or_list(v):
+    """Coerce a field the email renders as bullets when it is a list.
+
+    Keeps a list of strings as a list so the bullets survive; anything else
+    becomes a single string.
+    """
+    if v is None or isinstance(v, str):
+        return v
+    if isinstance(v, (list, tuple)):
+        return [_flatten_to_text(item, ", ") for item in v] or None
+    return _flatten_to_text(v)
+
+
 class ArticleRef(BaseModel):
     """Article reference for incident sharing."""
     title: Optional[str] = None
@@ -174,6 +223,16 @@ class ShareIncidentRequest(BaseModel):
     articles: Optional[List[ArticleRef]] = None
     analyst_notes: Optional[List[AnalystNoteRef]] = None
 
+    _coerce_text = field_validator(
+        'incident_name', 'incident_type', 'significance', 'description', 'topic',
+        'strategic_relevance', 'plausibility', 'source_quality',
+        'credibility_summary', 'first_seen', 'last_seen',
+        mode='before')(_coerce_to_text)
+    _coerce_entities = field_validator(
+        'entities', mode='before')(_coerce_to_str_list)
+    _coerce_bulleted = field_validator(
+        'timeline', 'investigation_leads', mode='before')(_coerce_text_or_list)
+
 
 class IncidentData(BaseModel):
     """Single incident data for bulk share."""
@@ -187,6 +246,12 @@ class IncidentData(BaseModel):
     source_quality: Optional[str] = None
     articles: Optional[List[ArticleRef]] = None
     analyst_notes: Optional[List[AnalystNoteRef]] = None
+
+    _coerce_text = field_validator(
+        'incident_name', 'incident_type', 'significance', 'description',
+        'strategic_relevance', 'plausibility', 'source_quality',
+        mode='before')(_coerce_to_text)
+    _coerce_lists = field_validator('entities', mode='before')(_coerce_to_str_list)
 
 
 class ShareIncidentsRequest(BaseModel):

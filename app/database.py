@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from urllib.parse import unquote_plus
 import threading
+from app.utils.timestamps import submission_stamp
 
 
 # PostgreSQL compatibility wrapper for SQLite-style database access
@@ -2156,7 +2157,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 stmt = insert(t_raw_articles).values(
                     uri=uri,
                     raw_markdown=raw_markdown,
-                    submission_date=current_time,
+                    submission_date=submission_stamp(current_time),
                     last_updated=current_time,
                     topic=topic
                 )
@@ -3049,7 +3050,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                     topic=topic_name,
                     title='Topic Created',
                     uri='initial',
-                    submission_date=datetime.now()
+                    submission_date=submission_stamp()
                 ).on_conflict_do_nothing()
             else:
                 # SQLite: Use INSERT OR IGNORE (handled in SQLAlchemy)
@@ -3057,7 +3058,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                     topic=topic_name,
                     title='Topic Created',
                     uri='initial',
-                    submission_date=datetime.now()
+                    submission_date=submission_stamp()
                 )
 
             conn.execute(stmt)

@@ -14,7 +14,8 @@ artifact generation, so metadata setters swallow their own errors.
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+import re
+from typing import Any, Dict, Iterable, List, Optional
 
 # --- Canonical wording -------------------------------------------------------
 AI_DISCLOSURE_SHORT = "Contains AI-generated content."
@@ -102,3 +103,58 @@ def docx_set_marker(doc: Any) -> None:
         cp.keywords = (kw + "; " if kw else "") + "ai-generated"
     except Exception:  # never let a marker break document generation
         pass
+
+
+# ---------------------------------------------------------------------------
+# Model names for disclosures
+# ---------------------------------------------------------------------------
+# A litellm response reports the model under its raw Bedrock id, e.g.
+# "us.anthropic.claude-haiku-4-5-20251001-v1:0". The usage ledger stores the
+# same. Neither is fit for a compliance notice, so every disclosure surface
+# maps through here.
+_MODEL_LABELS = [
+    (re.compile(r'claude-sonnet-4-5'), 'Claude Sonnet 4.5'),
+    (re.compile(r'claude-sonnet-5'),   'Claude Sonnet 5'),
+    (re.compile(r'claude-opus-5'),     'Claude Opus 5'),
+    (re.compile(r'claude-haiku-4-5'),  'Claude Haiku 4.5'),
+    (re.compile(r'nova-pro'),          'Nova Pro'),
+    (re.compile(r'nova-lite'),         'Nova Lite'),
+    (re.compile(r'nova-micro'),        'Nova Micro'),
+    (re.compile(r'kimi-k2[.-]5'),      'Kimi K2.5'),
+    (re.compile(r'kimi-k2'),           'Kimi K2'),
+    (re.compile(r'gpt-5\.4-mini'),    'GPT-5.4 mini'),
+    (re.compile(r'gpt-5\.4'),         'GPT-5.4'),
+    (re.compile(r'gpt-5\.5-mini'),    'GPT-5.5 mini'),
+    (re.compile(r'gpt-5\.5'),         'GPT-5.5'),
+]
+
+
+def model_label(raw_id: Optional[str]) -> str:
+    """Human label for a raw model id ("moonshotai.kimi-k2.5" -> "Kimi K2.5")."""
+    low = (raw_id or '').lower()
+    for pat, label in _MODEL_LABELS:
+        if pat.search(low):
+            return label
+    # Unknown id: drop the provider path, region prefix and version suffix so
+    # it at least reads as a model name rather than an ARN fragment.
+    core = (raw_id or '').split('/')[-1]
+    core = re.sub(r'^(us|eu|global|apac)\.', '', core)
+    core = re.sub(r'-v\d+:\d+$', '', core)
+    return core
+
+
+def model_labels(raw_ids: Iterable[Optional[str]]) -> List[str]:
+    """Distinct labels, first-seen order, empty ids skipped."""
+    out: List[str] = []
+    for rid in raw_ids:
+        label = model_label(rid)
+        if label and label not in out:
+            out.append(label)
+    return out
+
+
+def response_model_id(response: Any, requested: Optional[str] = None) -> str:
+    """The model a litellm response actually came from, falling back to the
+    id that was requested. Mirrors what the usage ledger records."""
+    rid = getattr(response, 'model', None) if response is not None else None
+    return str(rid) if rid else str(requested or '')

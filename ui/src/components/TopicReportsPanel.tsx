@@ -266,7 +266,7 @@ export function TopicReportsPanel() {
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Topic Reports</h2>
           <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-            On-demand long-form Wiley-style report decks. Pick one or more
+            On-demand long-form report decks. Pick one or more
             topics, set a period label, generate. Same multi-agent pipeline
             as the quarterly bundle — cached per (topics, period).
           </p>

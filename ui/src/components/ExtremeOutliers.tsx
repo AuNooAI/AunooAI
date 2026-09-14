@@ -593,7 +593,9 @@ export function ExtremeOutliers({
           metadata: result?.metadata,
           articles_used: articles?.length || 0,
           article_uris: articles?.map(a => a.uri).filter(Boolean),
-          model_used: 'gpt-5.4',
+          // The generator records the models that answered each stage; the
+          // server prefers metadata.models over this field anyway.
+          model_used: result?.metadata?.models?.join(', ') || undefined,
           time_horizon: timeHorizon,
           scenario_count: scenarios.length
         })

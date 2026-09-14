@@ -287,13 +287,17 @@ _dedicated_bw_cache = {"block": None, "at": 0.0}
 
 
 def _dedicated_bw_block() -> str:
-    """Brand-focus block for dedicated Brand Watcher tenants (cached 10 min).
+    """Topic-map block for tenants with brand or market coverage (cached 10 min).
 
-    Names the tenant's actual brands and monitoring topics so Auspex scopes
-    its research to brand data and steers off-topic requests back."""
+    Names the tenant's actual brands and the real topic strings so Auspex
+    scopes its research to where the data is. On a dedicated Brand Watcher
+    tenant it also steers off-topic requests back; on a tenant with brand or
+    market topics but no dedicated flag it still maps the topics, because a
+    vendor question answered from the market topic alone misses the vendor's
+    own coverage (8 Sep 2026: a Dropzone/ExaForce battle card was answered
+    "no coverage of either vendor" while 157 articles sat under their
+    "<name> - Brand Watch" topics)."""
     from app.core.modules import is_dedicated_bw
-    if not is_dedicated_bw():
-        return ""
     import time as _time
     now = _time.time()
     if _dedicated_bw_cache["block"] is not None and now - _dedicated_bw_cache["at"] < 600:
@@ -305,17 +309,39 @@ def _dedicated_bw_block() -> str:
             "SELECT display_name, is_primary FROM bw_brands WHERE enabled = true "
             "ORDER BY is_primary DESC, display_name", [])
         names = [f"{r['display_name']} (primary)" if r['is_primary'] else r['display_name'] for r in rows]
-        topics = ", ".join(f'"Brand Monitoring {r["display_name"]}"' for r in rows)
+        # The real topic strings, not a guessed naming scheme. This block once
+        # said 'Brand Monitoring {name}' for every brand while the collection
+        # writes '{name} - Brand Watch', so Auspex searched near-empty topics
+        # and reported vendors with 80 stored articles as having no coverage.
+        topic_rows = db.fetch_all(
+            "SELECT DISTINCT topic FROM articles WHERE topic LIKE '% - Brand Watch' "
+            "OR topic LIKE 'Brand Monitoring %' OR topic LIKE 'Market Monitoring %' "
+            "ORDER BY topic", [])
+        topics = ", ".join(f'"{r["topic"]}"' for r in topic_rows)
     except Exception:
         names, topics = [], ""
-    block = f"""
+    if not topics and not is_dedicated_bw():
+        # Nothing to map and no dedicated posture to enforce.
+        _dedicated_bw_cache["block"] = ""
+        _dedicated_bw_cache["at"] = now
+        return ""
+    scope_lines = f"""- When searching the database, these are the coverage topics (per-company coverage lives under the "<company> - Brand Watch" topics; market-wide coverage under the "Market Monitoring" ones): {topics or 'topics ending in "- Brand Watch" or starting with "Brand Monitoring" or "Market Monitoring"'}.
+- A question about a specific company must search that company's own brand topic, not only a market topic. Before saying a company has no coverage, search its name across all topics — coverage of a vendor usually lives in its brand topic, not the market's."""
+    if is_dedicated_bw():
+        block = f"""
 
 ## Dedicated Brand Monitoring Workspace
 This tenant is a dedicated brand monitoring workspace. Brands under watch: {', '.join(names) or 'see the Brand Watcher tab'}.
 - Focus every answer on brand perception, reputation, risk, coverage and competitive positioning for these brands.
-- When searching the database, scope searches to the brand monitoring topics: {topics or 'topics starting with "Brand Monitoring"'}.
-- Do not use articles from other topics — this workspace's users only work with brand data.
+{scope_lines}
 - If asked about unrelated subjects, answer briefly if trivial, then steer back to what this workspace covers: brand and competitor intelligence.
+"""
+    else:
+        block = f"""
+
+## Coverage Topics in This Workspace
+Companies tracked here: {', '.join(names) or 'see the Brand Watcher tab'}.
+{scope_lines}
 """
     _dedicated_bw_cache["block"] = block
     _dedicated_bw_cache["at"] = now
@@ -904,6 +930,26 @@ class QueryRouter:
         'last 365 days': 365, 'past year': 365, 'last year': 365,
     }
 
+    # Words that carry no subject. A temporal query whose remaining words are
+    # all in here ("what are the latest trends?") really is a "what's new"
+    # question and gets the date-window fetch. Anything left over is a
+    # subject ("recent Wiley Glassdoor reviews") and must be searched for.
+    _SUBJECT_STOPWORDS = {
+        'a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'for', 'to', 'at', 'by',
+        'with', 'from', 'about', 'me', 'my', 'our', 'us', 'you', 'your', 'i', 'we',
+        'is', 'are', 'was', 'were', 'be', 'been', 'has', 'have', 'had', 'do', 'does',
+        'did', 'can', 'could', 'would', 'should', 'will', 'what', 'which', 'who',
+        'how', 'why', 'when', 'where', 'there', 'this', 'that', 'these', 'those',
+        'any', 'some', 'all', 'please', 'give', 'show', 'tell', 'get', 'list',
+        'find', 'summarise', 'summarize', 'summary', 'overview', 'brief', 'briefing',
+        'update', 'updates', 'news', 'article', 'articles', 'coverage', 'story',
+        'stories', 'report', 'reports', 'happening', 'going', 'new', 'newest',
+        'recently', 'currently', 'current', 'today', 'now', 'week', 'weeks',
+        'month', 'months', 'year', 'years', 'day', 'days', 'past', 'last', 'so',
+        'far', 'time', 'top', 'key', 'main', 'major', 'notable', 'anything',
+        'something', 'things', 'see', 'seen', 'know', 'up', 'more', 'most',
+    }
+
     # Minimum articles per topic for cross-topic allocation
     MIN_PER_TOPIC = 10
 
@@ -962,6 +1008,28 @@ class QueryRouter:
         if re.search(person_pattern, query):
             return True
         return False
+
+    def has_explicit_time_period(self, query: str) -> bool:
+        """True when the query names a window ("last 30 days"), not just "recent"."""
+        query_lower = query.lower()
+        return any(pattern in query_lower for pattern in self.TIME_PATTERNS)
+
+    def _subject_terms(self, query: str) -> List[str]:
+        """Words in the query that name a subject, after time words are removed.
+
+        "overview recent reviews" -> ['reviews']; "latest trends" -> [].
+        """
+        q = (query or "").lower()
+        for pattern in self.TIME_PATTERNS:
+            q = q.replace(pattern, " ")
+        for keyword in self.TEMPORAL_KEYWORDS:
+            q = re.sub(rf"(?<!\w){re.escape(keyword)}(?!\w)", " ", q)
+        terms = []
+        for tok in re.findall(r"[a-z0-9][a-z0-9'&./-]*", q):
+            tok = tok.strip("'.&/-")
+            if len(tok) >= 3 and tok not in self._SUBJECT_STOPWORDS and not tok.isdigit():
+                terms.append(tok)
+        return terms
 
     def extract_time_period(self, query: str) -> int:
         """Extract time period in days from query. Default is 7 days."""
@@ -1029,26 +1097,107 @@ class QueryRouter:
         self.logger.info(f"QueryRouter: type={query_type}, cross_topic={is_cross_topic}, query='{query[:50]}...'")
 
         if query_type == 'temporal_analysis':
-            # Use newsletter-style SQL fetch for trend queries
-            return await self._temporal_fetch(query, effective_topic, limit)
+            # Subject search ranked by recency, or the newsletter-style date
+            # fetch when the query has no subject of its own.
+            result = await self._temporal_fetch(query, effective_topic, limit, citation_limit)
 
         elif is_cross_topic and query_type in ('semantic_search', 'comprehensive'):
             # Parallel per-topic vector searches for cross-topic semantic queries
-            return await self._cross_topic_semantic_search(query, limit, citation_limit)
+            result = await self._cross_topic_semantic_search(query, limit, citation_limit)
 
         elif query_type == 'entity_focused':
             # Use existing entity search logic (keyword + vector hybrid)
-            return await self._entity_search(query, effective_topic, limit)
+            result = await self._entity_search(query, effective_topic, limit)
 
         else:
             # Single-topic semantic search with optional query expansion
-            return await self._smart_vector_search(query, effective_topic, limit, citation_limit)
+            result = await self._smart_vector_search(query, effective_topic, limit, citation_limit)
 
-    async def _temporal_fetch(self, query: str, topic: str, limit: int) -> Dict:
-        """Fetch articles by date range (newsletter-style) for temporal queries."""
+        # Whatever branch ran: a chat is usually bound to one topic, and a
+        # tracked company's coverage lives under its own brand topic. When
+        # the query names a tracked brand the results never mention, pull
+        # that brand's articles by name across all topics. Applied here and
+        # not only in _entity_search because the classifier is loose — the
+        # Dropzone/ExaForce battle-card query classified 'comprehensive'.
+        if effective_topic is not None:
+            try:
+                extra = self._named_brand_fallback(
+                    query, result.get('articles') or [], limit)
+            except Exception:  # noqa: BLE001 — never break search
+                self.logger.exception("named-brand fallback failed")
+                extra = []
+            if extra:
+                seen = {a.get('uri') for a in result.get('articles') or []}
+                merged = [a for a in extra if a.get('uri') not in seen]
+                merged += result.get('articles') or []
+                result['articles'] = merged[:max(limit, len(extra))]
+                result['search_method'] = (
+                    f"{result.get('search_method', '')}+named_brand_keyword")
+                result.setdefault('metadata', {})['named_brand_articles'] = len(extra)
+        else:
+            # Cross-topic search returns the best match from every topic, so
+            # a question about one tracked brand comes back padded with its
+            # competitors' coverage and the answer merges them (11 Sep 2026:
+            # "did Wiley's Glassdoor rating drop?" was answered from 31
+            # reviews, of which 11 were Wiley's and the rest Elsevier's,
+            # Pearson's and SAGE's). Keep only articles that name the brand,
+            # or sit in its own topic.
+            try:
+                result = await self._scope_to_named_brands(query, result, limit)
+            except Exception:  # noqa: BLE001 — never break search
+                self.logger.exception("named-brand scoping failed")
+        return result
+
+    async def _temporal_fetch(self, query: str, topic: str, limit: int,
+                              citation_limit: Optional[int] = None) -> Dict:
+        """Articles for a query with a time word in it.
+
+        A time word used to switch off search altogether: "recent" made the
+        router return a date-window sample of everything, so "overview
+        recent reviews" came back as 218 unrelated articles and none of the
+        Glassdoor reviews the user was asking about (11 Sep 2026). Now, when
+        the query names a subject, the subject is searched for and the hits
+        are ordered newest first; an explicit window ("last 30 days") is
+        applied as a cut-off. The date-window fetch is kept for queries with
+        no subject ("what's new this week?") and as the fallback when the
+        subject search finds nothing.
+        """
         days_back = self.extract_time_period(query)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
+        explicit_window = self.has_explicit_time_period(query)
+        subject = self._subject_terms(query)
+
+        if subject:
+            self.logger.info(f"Temporal query has a subject {subject}; searching it, newest first")
+            if topic is None:
+                found = await self._cross_topic_semantic_search(query, limit, citation_limit)
+            else:
+                found = await self._smart_vector_search(query, topic, limit, citation_limit)
+            articles = list(found.get('articles') or [])
+            if explicit_window:
+                cutoff = start_date.strftime('%Y-%m-%d')
+                before = len(articles)
+                articles = [a for a in articles
+                            if not (a.get('publication_date') or '')
+                            or str(a.get('publication_date'))[:10] >= cutoff]
+                self.logger.info(f"Explicit window {days_back}d: {before} -> {len(articles)} articles")
+            if articles:
+                articles.sort(key=lambda a: str(a.get('publication_date') or ''), reverse=True)
+                metadata = dict(found.get('metadata') or {})
+                metadata.update({
+                    'query_type': 'temporal_analysis',
+                    'subject_terms': subject,
+                    'days_back': days_back if explicit_window else None,
+                    'topic': topic or 'All Topics',
+                    'total_found': len(articles),
+                })
+                return {
+                    'articles': articles[:limit],
+                    'search_method': f"{found.get('search_method', 'vector')}+recency",
+                    'metadata': metadata,
+                }
+            self.logger.info(f"Subject search for {subject} found nothing; falling back to date fetch")
 
         self.logger.info(f"Temporal fetch: {days_back} days, topic={topic}")
 
@@ -1240,9 +1389,134 @@ class QueryRouter:
 
     async def _entity_search(self, query: str, topic: str, limit: int) -> Dict:
         """Search for entity-focused queries using keyword + vector hybrid."""
-        # For now, delegate to smart vector search
-        # The existing entity detection in _original_chat_database_logic handles this
+        # The named-brand fallback runs in route() for every branch,
+        # including this one.
         return await self._smart_vector_search(query, topic, limit)
+
+    _GENERIC_NAME_WORDS = {"security", "labs", "cyber", "tech", "data", "cloud",
+                           "group", "systems", "networks", "software", "solutions"}
+
+    @staticmethod
+    def _brand_re(token: str):
+        # "wiley", "wiley's" and "wileys" all name Wiley.
+        return re.compile(rf"(?<!\w){re.escape(token)}(?:'s|s)?(?!\w)")
+
+    def _named_brand_tokens(self, query: str) -> List[tuple]:
+        """(display_name, match token) for every tracked brand the query names."""
+        q = (query or "").lower()
+        if not q:
+            return []
+        try:
+            rows = self.db.fetch_all(
+                "SELECT display_name FROM bw_brands WHERE enabled = true", []) or []
+        except Exception:  # noqa: BLE001 — tenants without Brand Watcher
+            return []
+        named = []
+        for r in rows:
+            name = (r["display_name"] or "").strip()
+            tokens = [t for t in re.split(r"[^a-z0-9]+", name.lower())
+                      if len(t) >= 4 and t not in self._GENERIC_NAME_WORDS]
+            token = tokens[0] if tokens else name.lower()
+            if token and self._brand_re(token).search(q):
+                named.append((name, token))
+        return named
+
+    async def _scope_to_named_brands(self, query: str, result: Dict, limit: int) -> Dict:
+        """Keep cross-topic results to the brands the query names, and fill from their topics.
+
+        Drops articles that neither name a queried brand nor sit in one of
+        its topics. The per-topic allocation of a cross-topic search gives a
+        brand's own topics only a few slots each, so the survivors are then
+        topped up from those topics directly.
+        """
+        named = self._named_brand_tokens(query)
+        if not named:
+            return result
+        articles = result.get('articles') or []
+        patterns = [self._brand_re(token) for _, token in named]
+
+        def names_brand(a: Dict) -> bool:
+            hay = f"{a.get('topic') or ''} {a.get('title') or ''} {a.get('summary') or ''}".lower()
+            return any(p.search(hay) for p in patterns)
+
+        kept = [a for a in articles if names_brand(a)]
+        dropped = len(articles) - len(kept)
+
+        # Top up from the brands' own topics ("Wiley - Brand Watch",
+        # "Brand Monitoring Wiley") when the allocation left room.
+        added = 0
+        if len(kept) < limit:
+            try:
+                topics_data = self.db.facade.get_topics_with_article_counts() or {}
+            except Exception:  # noqa: BLE001
+                topics_data = {}
+            brand_topics = [t for t in topics_data
+                            if any(p.search(t.lower()) for p in patterns)]
+            if brand_topics:
+                seen = {a.get('uri') for a in kept}
+                per_topic = max(5, (limit - len(kept)) // len(brand_topics))
+                results = await asyncio.gather(
+                    *[self._vector_search_topic(query, t, per_topic) for t in brand_topics],
+                    return_exceptions=True)
+                for r in results:
+                    if isinstance(r, Exception):
+                        continue
+                    for a in r.get('articles') or []:
+                        if a.get('uri') and a.get('uri') not in seen:
+                            seen.add(a.get('uri'))
+                            kept.append(a)
+                            added += 1
+                if '+recency' in (result.get('search_method') or ''):
+                    kept.sort(key=lambda a: str(a.get('publication_date') or ''), reverse=True)
+                kept = kept[:max(limit, len(articles))]
+
+        if not kept or (not dropped and not added):
+            return result
+        self.logger.info("named-brand scoping for %s: %d -> %d articles (%d dropped, %d added from brand topics)",
+                         [n for n, _ in named], len(articles), len(kept), dropped, added)
+        result['articles'] = kept
+        result['search_method'] = f"{result.get('search_method', '')}+brand_scoped"
+        result.setdefault('metadata', {})['brand_scoped'] = {
+            'brands': [n for n, _ in named], 'before': len(articles),
+            'after': len(kept), 'dropped': dropped, 'added_from_brand_topics': added}
+        return result
+
+    def _named_brand_fallback(self, query: str, articles: List[Dict], limit: int) -> List[Dict]:
+        """Articles naming a tracked brand that the topic-scoped search missed."""
+        named = self._named_brand_tokens(query)
+        if not named:
+            return []
+        have = " ".join(f"{a.get('title') or ''} {a.get('summary') or ''}"
+                        for a in articles).lower()
+        out: List[Dict] = []
+        per_brand = max(5, limit // (2 * len(named)))
+        for name, token in named:
+            if self._brand_re(token).search(have):
+                continue  # the scoped search already surfaced this brand
+            found = self.db.fetch_all(
+                "SELECT uri, title, summary, category, sentiment, "
+                "publication_date, news_source, topic FROM articles "
+                "WHERE (title ILIKE ? OR summary ILIKE ?) "
+                "AND COALESCE(ingest_status, '') <> 'rejected' "
+                "ORDER BY COALESCE(publication_date, submission_date) DESC "
+                "LIMIT ?",
+                [f"%{token}%", f"%{token}%", per_brand]) or []
+            for f in found:
+                out.append({
+                    "uri": f.get("uri", ""), "url": f.get("uri", ""),
+                    "title": f.get("title") or "Unknown Title",
+                    "summary": f.get("summary") or "",
+                    "category": f.get("category") or "Uncategorized",
+                    "sentiment": f.get("sentiment") or "Neutral",
+                    "future_signal": "None", "time_to_impact": "Unknown",
+                    "publication_date": f.get("publication_date") or "",
+                    "news_source": f.get("news_source") or "Unknown",
+                    "topic": f.get("topic") or "Unknown",
+                    "similarity_score": 1.0,
+                })
+            self.logger.info("named-brand fallback: %s -> %d articles by name",
+                             name, len(found))
+        return out
 
     async def _smart_vector_search(self, query: str, topic: str, limit: int,
                                    citation_limit: Optional[int] = None) -> Dict:
@@ -1947,8 +2221,15 @@ class AuspexService:
 
                 # Only use additional tools if plugin didn't produce a final response
                 if not plugin_final_response:
+                    # The retriever only ever saw the current message, so a
+                    # follow-up like "overview recent reviews" searched for
+                    # exactly that and lost the Wiley/Glassdoor subject of
+                    # the turn before (11 Sep 2026). Resolve it against the
+                    # conversation first; the model still gets the user's
+                    # own words.
+                    search_message = await self._resolve_followup_query(message, conversation[:-1])
                     # Use standard tools to gather information with citation limit
-                    tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit, sampling_strategy)
+                    tool_results = await self._use_mcp_tools(search_message, chat_id, limit, tools_config, article_detail_limit, sampling_strategy)
                     if tool_results:
                         # Add tool results as assistant context to avoid overriding system instructions
                         llm_messages.insert(len(llm_messages) - 1, {
@@ -2091,12 +2372,18 @@ class AuspexService:
             # Support both new schema (column) and old schema (metadata.profile_id)
             profile_id = chat.get('profile_id') or ((chat.get('metadata') or {}).get('profile_id'))
             
-            # Get organizational profile context if available
+            # Get organizational profile context: the chat's profile, else the
+            # tenant's default profile (the chat UI has no profile picker).
             profile_context = ""
-            if profile_id:
+            if True:
                 try:
                     from app.database_query_facade import DatabaseQueryFacade
-                    profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    if profile_id:
+                        profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    else:
+                        profile_row = DatabaseQueryFacade(self.db, logger).get_default_organisational_profile()
+                        if profile_row:
+                            logger.info(f"Auspex chat {chat_id}: no profile on chat; using default profile {profile_row['id']} ({profile_row['name']})")
                     if profile_row:
                         import json
                         profile = {
@@ -2634,6 +2921,70 @@ PRIORITIZE insights relevant to these concerns and tailor analysis to this organ
                 ]
             })
         return tools
+
+    _FOLLOWUP_MAX_CHARS = 300
+
+    @staticmethod
+    def _strip_machine_blocks(text: str) -> str:
+        """Remove stats/chart comment blocks from an assistant turn."""
+        return re.sub(r"<!--.*?-->", " ", text or "", flags=re.DOTALL)
+
+    async def _resolve_followup_query(self, message: str, prior_turns: List[Dict]) -> str:
+        """Turn a short follow-up into a standalone search query using the chat so far.
+
+        Only short messages in a chat with earlier user turns are rewritten.
+        The rewrite is used for retrieval only; the user's own words still go
+        to the model. Any failure returns the message unchanged.
+        """
+        if not prior_turns or not message or len(message) > self._FOLLOWUP_MAX_CHARS:
+            return message
+        earlier_user = [t for t in prior_turns if t.get('role') == 'user' and t.get('content')]
+        if not earlier_user:
+            return message
+
+        transcript = []
+        for turn in prior_turns[-6:]:
+            role = turn.get('role')
+            text = self._strip_machine_blocks(turn.get('content') or '').strip()
+            if not text:
+                continue
+            if role == 'user':
+                transcript.append(f"User: {text[:400]}")
+            elif role == 'assistant':
+                transcript.append(f"Assistant: {text[:600]}")
+        if not transcript:
+            return message
+
+        prompt = f"""Rewrite the user's latest message as a standalone search query for a news article database.
+
+Conversation so far:
+{chr(10).join(transcript)}
+
+Latest message: "{message}"
+
+Rules:
+- Keep every company, product, person, place and subject the latest message refers to, including ones it only implies from the conversation (e.g. "overview recent reviews" after a question about Wiley's Glassdoor rating becomes "recent Wiley Glassdoor employee reviews").
+- Keep any time words the user used ("recent", "last 30 days").
+- Do not add subjects the user did not ask about.
+- If the latest message already stands on its own, return it unchanged.
+- Reply with the query only, no quotes, no explanation."""
+
+        try:
+            ai_model = get_ai_model('gpt-5.4-mini')
+            raw = await asyncio.to_thread(ai_model.generate_response, [
+                {"role": "system", "content": "You rewrite follow-up messages into standalone search queries. Reply with the query only."},
+                {"role": "user", "content": prompt},
+            ])
+            rewritten = (raw or "").strip().strip('"\'').strip()
+            rewritten = rewritten.splitlines()[0].strip() if rewritten else ""
+        except Exception as e:  # noqa: BLE001 — retrieval must not fail on the rewrite
+            logger.warning(f"Follow-up query rewrite failed: {e}")
+            return message
+
+        if not rewritten or len(rewritten) > self._FOLLOWUP_MAX_CHARS or rewritten.lower() == message.lower():
+            return message
+        logger.info(f"Follow-up query resolved: '{message}' -> '{rewritten}'")
+        return rewritten
 
     async def _extract_search_query(self, message: str) -> str:
         """Extract the actual search query from a complex message that may contain both instructions and search intent.
@@ -4088,6 +4439,17 @@ Article Details (First {detail_limit}):
             "claude-4-opus": 200000,
             "claude-4-sonnet": 200000,
             "claude-4-haiku": 200000,
+            # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
+            # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
+            "claude-sonnet-5": 200000,
+            "claude-opus-5": 200000,
+            "claude-sonnet-4-5": 200000,
+            "claude-haiku-4-5": 200000,
+            "bedrock-claude-sonnet": 200000,
+            "bedrock-claude-haiku": 200000,
+            "nova-pro": 300000,
+            "nova-lite": 300000,
+            "bedrock-kimi-k2-5": 256000,
             "gemini-pro": 32768,
             "gemini-1.5-pro": 2097152,
             "llama-2-70b": 4096,
@@ -4143,6 +4505,18 @@ Article Details (First {detail_limit}):
             "claude-4-opus": 8192,
             "claude-4-sonnet": 8192,
             "claude-4-haiku": 8192,
+            # Bedrock aliases (2026-08-31). Sonnet 4.5 / Sonnet 5 / Opus 5 / Haiku 4.5 allow
+            # 64k output on Bedrock (capped below); Nova stops at ~5k; Kimi K2.5 at 16k. Without
+            # these the 4096 default cut a 13-category consensus off after two categories.
+            "claude-sonnet-5": 64000,
+            "claude-opus-5": 64000,
+            "claude-sonnet-4-5": 64000,
+            "claude-haiku-4-5": 64000,
+            "bedrock-claude-sonnet": 64000,
+            "bedrock-claude-haiku": 64000,
+            "nova-pro": 5000,
+            "nova-lite": 5000,
+            "bedrock-kimi-k2-5": 16000,
             "gemini-pro": 8192,
             "gemini-1.5-pro": 8192,
             "llama-2-70b": 2048,

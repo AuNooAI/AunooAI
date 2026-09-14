@@ -30,7 +30,9 @@ import {
   BarChart3,
   CalendarDays,
   LineChart,
+  Compass,
 } from 'lucide-react';
+import { WorkspaceOverview } from '../components/WorkspaceOverview';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
 import { useResearchAgents } from '../hooks/useResearchAgents';
@@ -135,6 +137,11 @@ const DEFAULT_VISIBLE_SECTIONS: VisibleSections = {
 export function NewsFeedPage() {
   console.log('[NewsFeedPage] Component rendering');
 
+  // Analysis modules. Resolved first: the feed hook below only fetches the
+  // news river and briefing once this site is known NOT to be a dedicated
+  // Brand Watcher tenant (dedicatedMode === false).
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
+
   // Articles hook
   const {
     articles,
@@ -158,7 +165,7 @@ export function NewsFeedPage() {
     unstarArticle,
     clearError,
     starredArticles,
-  } = useNewsFeed();
+  } = useNewsFeed(dedicatedMode === false);
 
   // Narrative Explorer hook (Highlights & Narratives)
   const {
@@ -209,15 +216,13 @@ export function NewsFeedPage() {
     setDismissedPodcasts(prev => new Set(prev).add(index));
   };
 
-  // Analysis modules
-  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule, dedicatedMode } = useModules();
 
   // UI State
-  type ExploreTab = 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
-  const EXPLORE_TABS: ExploreTab[] = ['feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
+  type ExploreTab = 'overview' | 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
+  const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
-  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'agents', 'timeline'];
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'market_monitor', 'agents', 'timeline'];
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
     try {
       const saved = localStorage.getItem('explore_last_tab');
@@ -231,7 +236,7 @@ export function NewsFeedPage() {
   useEffect(() => {
     try { localStorage.setItem('explore_last_tab', currentTab); } catch { /* ignore */ }
   }, [currentTab]);
-  // Dedicated Brand Watcher tenants only expose the Brand Watcher + Agents tabs.
+  // Dedicated Brand Watcher tenants only expose the tabs in DEDICATED_TABS (Market Monitor included, since a brand tenant can use it for LinkedIn and owned-site collection).
   useEffect(() => {
     if (dedicatedMode && !DEDICATED_TABS.includes(currentTab)) setCurrentTab('brand_watcher');
   }, [dedicatedMode, currentTab]);
@@ -505,7 +510,7 @@ export function NewsFeedPage() {
     try {
       const fullArticle = await getArticleByUri(article.uri);
       if (fullArticle) {
-        setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
+        setSelectedArticle(hasBWData ? ({ ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } as NewsArticle) : fullArticle);
       } else {
         // The by-uri fetch can miss (alert-payload/syndicated URLs) — keep every
         // field the caller passed rather than degrading to an "Unknown" stub.
@@ -837,7 +842,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
+              {{ overview: 'Overview', feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch', brand_watcher: 'Brand Watcher', threat_intel: 'Threat Intelligence', timeline: 'Timeline' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -884,6 +889,15 @@ export function NewsFeedPage() {
 
         {/* Tab Navigation */}
         <div className="explore-tab-navigation">
+          {dedicatedMode === false && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('overview')}
+          >
+            <Compass className="w-4 h-4" />
+            Overview
+          </button>
+          )}
           {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'feed' ? 'active' : ''}`}
@@ -1247,6 +1261,9 @@ export function NewsFeedPage() {
             )}
 
             {/* Research Agents Tab Content */}
+            {/* Workspace Overview Tab Content */}
+            {currentTab === 'overview' && <WorkspaceOverview />}
+
             {currentTab === 'agents' && (
               <ResearchAgentsSection
                 agents={researchAgents}
@@ -1318,7 +1335,7 @@ export function NewsFeedPage() {
             {/* Market Monitor Tab Content */}
             {currentTab === 'market_monitor' && isModuleEnabled('market_monitor') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-slate-500" /></div>}>
-                <MarketMonitorTab />
+                <MarketMonitorTab onFeedChanged={fetchArticles} />
               </Suspense>
             )}
 

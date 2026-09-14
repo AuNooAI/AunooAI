@@ -7,6 +7,7 @@ to global defaults.
 
 import logging
 import asyncio
+import inspect
 import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
@@ -87,6 +88,7 @@ class KeywordMonitor:
         self.db = db
         self.collector = None  # Legacy single collector (deprecated)
         self.collectors = {}  # Dictionary of collectors {provider_name: collector_instance}
+        self.country = None  # per-group country filter (ISO 3166-1 alpha-2); set in _check_group
         self.active_providers = []  # List of active provider names
         self.last_collector_init_attempt = None
         # Initialize auto-ingest service if available
@@ -305,6 +307,17 @@ class KeywordMonitor:
             else:
                 logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
 
+            # Only collectors that take a country filter get one (NewsData does;
+            # TheNewsAPI, the firehose and the social collectors do not accept the
+            # keyword and would raise TypeError).
+            extra = {}
+            if self.country:
+                try:
+                    sig = inspect.signature(collector.search_articles).parameters
+                    if 'country' in sig:
+                        extra['country'] = self.country
+                except (TypeError, ValueError):
+                    pass
             articles = await asyncio.wait_for(
                 collector.search_articles(
                     query=search_term,
@@ -313,7 +326,8 @@ class KeywordMonitor:
                     start_date=start_date,
                     search_fields=self.search_fields,
                     language=self.language,
-                    sort_by=self.sort_by
+                    sort_by=self.sort_by,
+                    **extra
                 ),
                 timeout=SEARCH_TIMEOUT_SECONDS
             )
@@ -395,6 +409,28 @@ class KeywordMonitor:
                     logger.info(f"Using group {group_id} relevance threshold {threshold}")
             except Exception as e:
                 logger.warning(f"Could not read group {group_id} relevance threshold: {e}")
+
+        # Same story for the group's language, country and date window. The
+        # scheduler (check_single_group) sets them before calling us; /check-now
+        # did not, so a German group searched TheNewsAPI in English and got
+        # nothing (Swiss elections build, 2026-09-08). Apply them here for a
+        # manual single-group run and put them back at the end.
+        _manual_group_ctx = None
+        if group_id is not None and not getattr(self, '_group_context_applied', False):
+            if group_row is None:
+                try:
+                    group_row = self.db.facade.get_keyword_group_with_settings(group_id)
+                except Exception as e:
+                    logger.warning(f"Could not read group {group_id} settings: {e}")
+            if group_row:
+                _manual_group_ctx = (self.language, self.country, self.search_date_range)
+                self.language = (group_row.get('language') or self.language or 'en').strip().lower()
+                self.country = (group_row.get('country') or '').strip().lower() or None
+                if group_row.get('search_date_range'):
+                    self.search_date_range = group_row['search_date_range']
+                logger.info(
+                    f"Manual run for group {group_id}: language={self.language}, "
+                    f"country={self.country}, date_range={self.search_date_range}d")
         new_articles_count = 0
         processed_keywords = 0
 
@@ -697,7 +733,10 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking keywords: {str(e)}", exc_info=True)
             return {"success": False, "error": str(e), "new_articles": new_articles_count}
-        
+        finally:
+            if _manual_group_ctx is not None:
+                self.language, self.country, self.search_date_range = _manual_group_ctx
+
         # Final safety net - this should never be reached, but just in case
         logger.error("check_keywords reached end without returning - this should not happen!")
         return {"success": False, "error": "Unexpected end of method", "new_articles": new_articles_count}
@@ -981,6 +1020,8 @@ class KeywordMonitor:
                     'news_source': article.get('source', ''),
                     'publication_date': article.get('published_date', ''),
                     'summary': article.get('summary', ''),
+                    'original_title': article.get('original_title'),      # set by the first insert when
+                    'original_summary': article.get('original_summary'),  # the row was not English
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
                     'social_meta': article.get('social_meta'),  # Preserve social media/engagement (xpoz)
@@ -1100,6 +1141,10 @@ class KeywordMonitor:
             'search_date_range': group.get('search_date_range') or self.search_date_range,
             'providers': group.get('providers'),
             'social_platforms': group.get('social_platforms'),
+            # Per-group collection language/country. NULL falls back to the tenant
+            # setting (language) or no filter (country) in _check_group.
+            'language': group.get('language'),
+            'country': group.get('country'),
             'auto_ingest_enabled': group.get('auto_ingest_enabled'),
             'min_relevance_threshold': group.get('min_relevance_threshold'),
             'quality_control_enabled': group.get('quality_control_enabled'),
@@ -1156,6 +1201,16 @@ class KeywordMonitor:
         original_search_date_range = self.search_date_range
         self.search_date_range = effective['search_date_range']
 
+        # Collection language/country for this group. The tenant-wide setting is
+        # the fallback, so a group with NULL behaves exactly as before. Without
+        # this, a Japanese or German topic asks TheNewsAPI/NewsData for English
+        # articles and gets nothing back (Sunstar build, 2026-08-31).
+        original_language = self.language
+        original_country = self.country
+        self.language = (effective.get('language') or original_language or 'en').strip().lower()
+        self.country = (effective.get('country') or '').strip().lower() or None
+        self._group_context_applied = True  # tells check_keywords not to redo this
+
         # Store per-group relevance threshold override (used by auto_ingest_pipeline)
         self._group_relevance_threshold = effective.get('min_relevance_threshold')
 
@@ -1210,6 +1265,9 @@ class KeywordMonitor:
             # Restore original collectors and settings
             self.collectors = original_collectors
             self.search_date_range = original_search_date_range
+            self.language = original_language
+            self.country = original_country
+            self._group_context_applied = False
             self._group_relevance_threshold = None
             self._social_only_group = False
 
