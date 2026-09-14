@@ -140,6 +140,9 @@ def main() -> int:
         WHERE {social_src_sql('news_source')}
           AND category IS NOT NULL
           AND original_summary IS NULL
+          -- only rows that still carry the analyzer's précis; a restored
+          -- English post keeps original_summary NULL and must not be re-fetched
+          AND summary ~ '^(A |An |The |This )?(Twitter|Reddit|Instagram|TikTok|Bluesky|social media|user|post|X user|Japanese|German|French)'
         ORDER BY publication_date DESC
         {'LIMIT ' + str(args.limit) if args.limit else ''}
     """
@@ -206,6 +209,41 @@ def main() -> int:
         translated += 1 if article.get("original_summary") else 0
     print(f"{'would restore' if args.dry_run else 'restored'}: {restored} (translated: {translated}); "
           f"not found on platform: {len(rows) - restored}")
+
+    # Second pass: posts that were translated at insert (original_summary kept)
+    # and then rewritten by the analyzer. The original is still in the row, so
+    # no platform call is needed: translate it again and put the text back.
+    # Selected by the précis shape of the summary, so a genuine post whose text
+    # happens to match is merely re-translated from its own original.
+    rows2 = db.facade._execute_with_rollback(text(f"""
+        SELECT uri, news_source, social_meta, title, original_summary
+        FROM articles
+        WHERE {social_src_sql('news_source')}
+          AND category IS NOT NULL
+          AND original_summary IS NOT NULL
+          AND summary ~ '^(A |An |The |This )?(Twitter|Reddit|Instagram|TikTok|Bluesky|social media|user|post|X user|Japanese|German|French)'
+        {'LIMIT ' + str(args.limit) if args.limit else ''}
+    """)).fetchall()
+    print(f"second pass (rewritten after translation): {len(rows2)}")
+    fixed = 0
+    for uri, news_source, meta, old_title, original in rows2:
+        meta = _as_dict(meta)
+        platform = _platform_of(news_source, meta) or ""
+        handle = (meta.get("author") or "") if platform == "bluesky" else None
+        article = {"title": _social_title(platform, handle, original), "summary": original}
+        english_fields(article)
+        if not article.get("original_summary"):
+            # The translator judged the original English; the post is its own text.
+            article["original_summary"] = None
+        if args.dry_run:
+            print(f"- {uri}\n    now: {article['summary'][:110]!r}")
+        else:
+            db.facade._execute_with_rollback(text(
+                "UPDATE articles SET title = :t, summary = :s, original_title = :ot, original_summary = :os WHERE uri = :u"
+            ), {"t": article["title"], "s": article["summary"], "ot": article.get("original_title"),
+                "os": article.get("original_summary"), "u": uri})
+        fixed += 1
+    print(f"{'would fix' if args.dry_run else 'fixed'} from stored original: {fixed}")
     return 0
 
 

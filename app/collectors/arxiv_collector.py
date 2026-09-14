@@ -45,6 +45,14 @@ class ArxivCollector(ArticleCollector):
     ) -> List[Dict]:
         """Search ArXiv articles."""
         try:
+            # A blank keyword must never reach arXiv: with no term the query
+            # degenerates to the date filter alone, which asks for the entire
+            # catalog and pages through it 100 records at a time.
+            if not query or not query.strip():
+                logger.warning("Skipping arXiv search: empty query for topic %r", topic)
+                return []
+            query = query.strip()
+
             # Convert string dates to timezone-aware datetime objects and adjust future dates
             now = datetime.now(timezone.utc)
             
@@ -99,6 +107,15 @@ class ArxivCollector(ArticleCollector):
                         field_queries.append(f"{field_mapping[field]}:{query}")
                 if field_queries:
                     search_query_parts.append(f"({' OR '.join(field_queries)})")
+                else:
+                    # search_fields can carry another collector's field names
+                    # (e.g. Semantic Scholar's ['Medicine', 'Biology']); none
+                    # map to arXiv prefixes, and dropping the keyword here is
+                    # what produced date-only full-catalog queries.
+                    logger.warning(
+                        "arXiv: no usable search_fields in %r, falling back to all:%s",
+                        search_fields, query)
+                    search_query_parts.append(f"all:{query}")
             else:
                 search_query_parts.append(f"all:{query}")
 
