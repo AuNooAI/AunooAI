@@ -76,6 +76,8 @@ GROUND RULES (these override everything below):
 - A GAAP net loss must be stated whenever it appears in the source, even when adjusted figures are positive.
 - When sources disagree (one says "beat", another says "miss"), say that they disagree and give both. Never pick one side silently.
 - Never write "beat", "miss", "exceeded expectations", or "momentum" unless the source states the comparison basis (the consensus figure and whether it is adjusted).
+- Dates: "Published" is the day the source ran the piece, not the day the event happened. Date an event only by what the text says. If the text gives no event date, write "reported on <published date>". A study, guideline or report is dated by its own release, which is often months or years before the article that mentions it; never present the article's date as its release date.
+- Entities: name only organisations the text names. Do not add the organisation this briefing is for, or its competitors, to an item that does not mention them.
 """
 
 
@@ -260,7 +262,7 @@ class DailyReportService:
 ARTICLE:
 Title: {article.get('title', 'Untitled')}
 Source: {article.get('source', 'Unknown')}
-Date: {article.get('publication_date', 'Unknown')}
+Published: {article.get('publication_date', 'Unknown')} (the source's date; the event it reports may be older)
 Topic: {article.get('topic', 'General')}
 
 Summary:
@@ -411,6 +413,7 @@ Return JSON:
             articles_text += f"""
 Article {i}: {article.get('title', 'Untitled')}
 Source: {article.get('source', 'Unknown')} | Topic: {article.get('topic', 'General')}
+Published: {article.get('publication_date') or 'unknown'}
 Summary: {(article.get('summary') or 'N/A')[:600]}
 Key Insight: {analysis.get('key_insight', 'N/A')}
 Strategic Relevance: {analysis.get('strategic_relevance', 'N/A')}
@@ -426,6 +429,7 @@ Risk/Opportunity: {analysis.get('risk_opportunity', 'mixed')}
 Incident {i}: {incident.get('name', 'Untitled')}
 Type: {incident.get('type', 'Unknown')} | Significance: {incident.get('significance', 'Unknown')}
 Topic: {incident.get('topic', 'General')}
+Timeline: {incident.get('timeline') or 'unknown'}
 Description: {(incident.get('summary') or incident.get('description') or 'N/A')[:600]}
 Key Insight: {analysis.get('key_insight', 'N/A')}
 Strategic Relevance: {analysis.get('strategic_relevance', 'N/A')}
@@ -469,6 +473,7 @@ STRICT REQUIREMENTS:
    - NO generic openings like "The [X] landscape is rapidly evolving" or "In today's environment"
    - Each sentence must contain specific information from the articles/incidents
    - Reference actual entities, dates, or metrics mentioned in the source material
+   - Dates: 'Published' is the day the source ran the piece, not the day the event happened. Date an event only by what the text says; if it states no event date, write "reported on <Published date>". A study, guideline or report is dated by its own release, which is often months or years before the article.
    - End with a specific, actionable implication
 
 2. CROSS-ITEM THEMES (2-4 themes):

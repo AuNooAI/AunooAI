@@ -28,6 +28,66 @@ two price spans after restart. No checkout was exercised.
 bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
 calls in the previous five minutes.
 
+## 2026-09-14 — Daily briefing: events are dated by what the text says, not by when we collected it
+
+### Goal
+Oliver asked whether the Sunstar "Daily Briefing — 2026-09-14" was factually
+correct. Three of its dated claims were wrong in the same way: "Research from
+Hiroshima University published September 10" was a Kenvue press release of
+9 September about a paper published in May; "Japan released its first
+integrated elderly care guideline on September 10" was a 2024 guideline
+surfacing in a book column on 11 September; and the emerging-topic timelines
+carried the collection date of each article as if it were the event date,
+padded with unrelated items.
+
+### Cause
+Every prompt in the pipeline handed the model a line called `Date:` that held
+the article's publication (collection) date and never said what it was. The
+synthesis prompt gave no dates at all, so the model took them from incident
+descriptions or invented them. Nothing told any stage that a study, guideline
+or report has its own release date.
+
+### What changed
+- `app/services/daily_report_service.py` (desk-briefing finalize): the shared
+  GROUND RULES now say "Published" is the day the source ran the piece, that an
+  event is dated only by what the text says, that "reported on <date>" is the
+  fallback, and that studies and guidelines are dated by their own release.
+  Article and incident blocks in the analysis and synthesis prompts carry
+  `Published:` / `Timeline:` lines instead of a bare `Date:`. A second rule
+  stops the model adding the briefing's own organisation or its competitors
+  to items that do not mention them (Sunstar, Lion and the health ministry
+  had been attached to the guideline item).
+- `app/routes/vector_routes.py` (incident detection and the single-article
+  classifier): `Published:` label; `timeline` is now defined as
+  `{event_date, published}` with the same rule; `related_entities` limited to
+  names in the cited articles. The `/incident-config/defaults` template
+  carries the same wording so custom prompts start from it.
+- `app/services/emerging_topics/deep_analyzer.py`: timeline entries are
+  developments about this topic only, dated by the event, with "reported
+  <date>" when only the article date is known; no padding from unrelated
+  articles.
+- `app/services/daily_briefing_compose_service.py`: the curator's candidate
+  field is `published`, not `date`.
+
+### Verification
+Re-ran the synthesis stage on the stored Sunstar briefing (8 articles, 7
+incidents, bedrock-kimi-k2-5) in-process. The Hiroshima item is now undated
+("A Hiroshima University study reported that…") instead of "published
+September 10", and the guideline no longer appears with a release date.
+Incident and emerging-topic text stored before today keeps its old dates
+until those stages run again.
+
+### Not changed
+The Executive Briefing feature (`executive_briefing_service.py`) has its own
+`Date:` prompts and was not touched. Syndicated copies of one Reuters report
+are still described as "multiple sources"; that is a separate rule.
+
+### Propagation
+sunstar, wiley and wileytest were behind canonical on these four files with no
+tenant-specific edits, so the canonical files were copied whole. bugfixing,
+sunstar, wiley and wileytest restarted at 11:26; the wileytest restart cut an
+automated-ingest batch, which restarted itself at 11:27.
+
 ## 2026-09-14 — Brand Watcher: every News-side card now counts the same articles as the list
 
 ### Goal

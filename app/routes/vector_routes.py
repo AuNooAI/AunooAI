@@ -1937,7 +1937,7 @@ async def analyze_incidents(
                     f"Article {i+1}:\n"
                     f"Title: {a['title']}\n"
                     f"Source: {a['news_source']}\n"
-                    f"Date: {a['publication_date']}\n"
+                    f"Published: {a['publication_date']}\n"
                     f"Category: {a['category']} | Sentiment: {a['sentiment']}\n"
                     f"Credibility: factual_reporting={_norm(a.get('factual_reporting')) or 'unknown'}, "
                     f"mbfc={_norm(a.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(a.get('bias')) or 'unknown'}\n"
@@ -2195,12 +2195,12 @@ Required fields for each item:
 - name: concise, factual headline (what happened)
 - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
 - subtype: from the allowed list for the chosen type
-- description: FACTUAL summary of what happened/is happening - include who, what, when, where. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where. "When" is the event date the articles state; if they state none, write "reported on <Published date>". "Published" is the day the source ran the piece, not the day the event happened; a study, guideline or report is dated by its own release, which may be months or years earlier. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
 - article_uris
-- timeline
+- timeline: {"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}
 - significance: low | medium | high (reduce if credibility concerns exist)
 - investigation_leads
-- related_entities
+- related_entities: only names that appear in the cited articles; never add the organization this analysis is for, or its competitors, to an item that does not mention them
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low
 - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
@@ -6711,10 +6711,10 @@ Required fields for each item:
 - subtype: from the allowed list for the chosen type
 - description
 - article_uris
-- timeline
+- timeline: {"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}
 - significance: low | medium | high (reduce if credibility concerns exist)
 - investigation_leads
-- related_entities
+- related_entities: only names that appear in the cited articles; never add the organization this analysis is for, or its competitors, to an item that does not mention them
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low
 - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
@@ -6944,7 +6944,7 @@ Analyze the article and suggest appropriate classification. Return a single JSON
 - significance: low | medium | high
 - description: FACTUAL summary of what happened/is happening - include who, what, when, where
 - entities: array of named entities mentioned (companies, people, products)
-- timeline: string describing when this happened/is happening
+- timeline: when this happened as the article states it; if the article gives no event date, write "reported <publication date>" — the publication date is not the event date
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low (based on credibility indicators)
 - investigation_leads: array of suggested follow-up questions or areas to investigate

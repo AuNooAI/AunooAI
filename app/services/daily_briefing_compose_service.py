@@ -326,7 +326,7 @@ def _compact_article(a: Dict[str, Any], id_: str) -> Dict[str, Any]:
         "id": id_,
         "title": a.get("title"),
         "source": a.get("news_source"),
-        "date": a.get("publication_date"),
+        "published": a.get("publication_date"),
         "topics": a.get("_topics") or ([a["_topic"]] if a.get("_topic") else []),
         "prerank_score": round(float(a.get("_score") or 0.0), 3),
         "topic_alignment": _round(a.get("topic_alignment_score")),

@@ -39,7 +39,7 @@ Provide comprehensive analysis as valid JSON (no markdown):
   }},
   "events": {{
     "trigger_event": "What specific event or announcement started/drives this topic",
-    "timeline": ["Chronological list of key developments mentioned in articles"],
+    "timeline": ["Chronological developments about THIS topic only, each dated by when it happened as the article states it; write 'reported <date>' when only the article's date is known"],
     "current_status": "Where things stand now based on most recent articles"
   }},
   "general_implications": {{
@@ -68,7 +68,7 @@ Provide comprehensive analysis as valid JSON (no markdown):
 Requirements:
 - Be SPECIFIC - use actual names, dates, numbers from articles
 - For actors, only list those actually mentioned in the articles
-- For timeline, include approximate dates if mentioned
+- For timeline, use the event dates the articles state. 'Published' on each article is when the source ran it, not when the event happened; write 'reported <date>' when that is all you have. Leave out articles that are not about this topic — never pad the timeline with unrelated items.
 - If information is not available in articles, say "Not mentioned"
 - For organization_implications, tailor analysis to the organizational context if provided
 - CRITICAL: key_takeaway must describe WHAT HAPPENED or what is developing - do NOT include organizational mission statements, calls to action, or phrases like "demanding rigorous analysis" or "requiring strategic response". Keep organizational framing strictly in organization_implications.
@@ -286,7 +286,7 @@ class DeepAnalyzer:
 
             formatted.append(
                 f"Article {i}: {title}\n"
-                f"Source: {source} | Date: {date}\n"
+                f"Source: {source} | Published: {date}\n"
                 f"Summary: {summary}\n"
             )
 
