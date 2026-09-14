@@ -71,9 +71,18 @@ function PostRow({ p }: { p: BWVoicePost }) {
           </a>
         </div>
         <p className="text-sm text-gray-800 dark:text-gray-100 mt-0.5 line-clamp-4 whitespace-pre-wrap break-words" title={p.text}>{p.text}</p>
-        {p.author_role_reason && (
+        {p.author_role_source === 'account_profile' ? (
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 italic">
+            Role from the account profile{p.account_market_role ? ` (${p.account_market_role.replace(/_/g, ' ')}` + (p.account_org ? `, ${p.account_org}` : '') + ')' : ''}
+            {p.post_role && p.post_role !== p.author_role ? `; this post alone read as ${p.post_role}` : ''}
+          </p>
+        ) : p.author_role_source === 'account_posts' ? (
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 italic">
+            Role from this account's other posts{p.post_role && p.post_role !== p.author_role ? `; this post alone read as ${p.post_role}` : ''}
+          </p>
+        ) : p.author_role_reason ? (
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 italic">Why this role: {p.author_role_reason}</p>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -226,7 +235,7 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
         </div>
         <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500 inline-flex items-start gap-1">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-          <span>The role is read from the post itself by the social evaluation model: first-person use of the service reads as a patient or customer, prescribing or referring as a clinician, a reporter or outlet as press, the company's own promotion as brand voice. Glassdoor reviews count as employees. Where the text gives no clue the post stays unidentified rather than guessed. The brand's own LinkedIn and website posts are not included.</span>
+          <span>The role is read from the post itself by the social evaluation model: first-person use of the service reads as a patient or customer, prescribing or referring as a clinician, a reporter or outlet as press, the company's own promotion as brand voice. Glassdoor reviews count as employees. Where the text gives no clue the post stays unidentified rather than guessed. An account profiled under Market Monitor Top voices or the Accounts tab carries its profile role onto all its posts, and an account whose other posts keep reading the same way is taken as that. The brand's own LinkedIn and website posts are not included.</span>
         </p>
       </div>
 

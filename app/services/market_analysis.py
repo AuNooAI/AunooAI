@@ -1391,6 +1391,29 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
     for v in voices:
         v["vendor_tag"] = _vendor_tag(v, tracked)
 
+    # Which audience each account belongs to, for the accounts nobody has
+    # profiled: the social evaluation names the author's role on every
+    # on-brand post, and an account whose posts keep reading the same way
+    # (patient, clinician, journalist ...) is that thing. A profiled account
+    # answers from its profile instead. Absent when neither can say.
+    if voices:
+        try:
+            from app.services.audience_voices import ROLE_LABELS, account_audiences
+            aud = account_audiences(conn, {(str(v["platform"]).lower(),
+                                            str(v["author"]).lower()) for v in voices})
+            for v in voices:
+                hit = aud.get((str(v["platform"]).lower(), str(v["author"]).lower()))
+                v["audience"] = ({
+                    "role": hit["role"],
+                    "label": ROLE_LABELS.get(hit["role"], {}).get("label", hit["role"]),
+                    "source": hit["source"],
+                    "n": hit.get("n"),
+                } if hit else None)
+        except Exception as exc:  # noqa: BLE001 - the list stands without it
+            logger.debug("top_voices: audience lookup failed: %s", exc)
+            for v in voices:
+                v.setdefault("audience", None)
+
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
     # driving which conversation, and about whom.

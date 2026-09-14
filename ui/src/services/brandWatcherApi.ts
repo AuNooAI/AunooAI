@@ -257,6 +257,8 @@ export interface BWSocialPost {
   // the social evaluation step; null on posts scored before roles existed.
   author_role?: string | null;
   author_role_reason?: string | null;
+  post_role?: string | null;
+  author_role_source?: 'post' | 'account_profile' | 'account_posts';
 }
 
 export interface BWSocialResponse {
@@ -655,6 +657,14 @@ export interface BWVoicePost {
   engagement: number;
   author_role: string;
   author_role_reason: string | null;
+  /** The reading of this post alone, before the account overrode it. */
+  post_role?: string;
+  /** post = from this post's text; account_profile = the Top voices / Accounts
+   *  profile of the author; account_posts = the majority of the author's other
+   *  classified posts. */
+  author_role_source?: 'post' | 'account_profile' | 'account_posts';
+  account_market_role?: string;
+  account_org?: string;
 }
 
 export interface BWVoiceRole {

@@ -2,6 +2,40 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Voices ties into account profiles; hidden on the Wiley sites
+
+### Two directions between Voices and Market Monitor Top voices
+Top voices ranks accounts and, when someone profiles one, records its part in the market
+(`social_accounts.metadata.market_role`: vendor, vendor staff, practitioner, analyst or press,
+reseller, promoter or bot, unrelated). Voices classifies posts. They never met.
+
+**Account beats post.** `audience_voices.account_audiences` gives each (platform, handle) an
+audience role from the account: the profile's market role mapped onto the audience list
+(vendor and reseller and promoter → brand voice, vendor staff → employee, analyst or press →
+press, practitioner → clinician on a health site and industry professional elsewhere), else a
+majority vote over every classified post by that account (at least two posts, 60 % agreeing,
+unknown never votes). `apply_account_roles` overrides the one-post reading on all three social
+reads (Voices, the per-mention Social feed, the topic Social feed) and keeps the post's own
+reading as `post_role` with `author_role_source` saying which won. On oviva 20 of 42 Oviva posts
+now carry an account-level role; both profiled German GPs read as clinicians on every post.
+
+**Posts give Top voices a free role.** `market_analysis.top_voices` adds `audience` per
+account from the same function, so an unprofiled handle whose posts keep reading as patient or
+clinician shows that in the Role column (italic, with a hover note to profile it for a stronger
+reading). Profiled roles still win.
+
+### Hidden on wiley and wileytest
+Oliver: Wiley did not ask for the view and would need different personas. `BW_VOICES_ENABLED=0`
+in both `.env` files (backups `.env.bak-voices-*`); `/api/modules` now returns `features`
+(`bw_voices`), the Brand Watcher tab list drops Voices when it is false and a remembered
+Voices tab snaps back to the dashboard; the two endpoints answer 404. Columns and code stay so
+the switch is one line when a Wiley persona list exists.
+
+### Propagation
+oviva (market_analysis patched in place: its copy is behind canonical on the review_verdict
+gate), wiley and wileytest (routes patched in place, their file predates the per-mention read),
+bugfixing. All restarted with no live background tasks.
+
 ## 2026-09-14 — Brand Watcher "Voices": what clinicians say next to what patients say
 
 ### Goal

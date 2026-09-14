@@ -16,6 +16,7 @@ import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
 import { BrandWatcherPerception } from './BrandWatcherPerception';
 import { BrandWatcherVoices } from './BrandWatcherVoices';
+import { useModules } from '../../hooks/useModules';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
@@ -223,6 +224,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } catch { return 'dashboard'; }
   });
   useEffect(() => { try { localStorage.setItem('bw_active_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
+  // Per-site switch for the Voices sub-tab (BW_VOICES_ENABLED). Hidden on sites
+  // whose audience list does not fit yet; a remembered 'voices' tab snaps back.
+  const { features: siteFeatures } = useModules();
+  const voicesEnabled = siteFeatures?.bw_voices !== false;
+  useEffect(() => { if (!voicesEnabled && activeTab === 'voices') setActiveTab('dashboard'); }, [voicesEnabled, activeTab]);
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
   // Each social lane picks its own network + is filtered/sorted independently (lane A / lane B).
@@ -2627,7 +2633,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'workforce' as SubTab, label: 'Workforce', icon: Briefcase },
           { id: 'incidents' as SubTab, label: 'Incidents', icon: ShieldAlert },
           { id: 'help' as SubTab, label: 'Help', icon: HelpCircle },
-        ]).map(tab => (
+        ]).filter(tab => tab.id !== 'voices' || voicesEnabled).map(tab => (
           <button
             key={tab.id}
             title={({
@@ -5378,7 +5384,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* Voices: what each audience (patients, clinicians, customers ...) says */}
-      {activeTab === 'voices' && (
+      {activeTab === 'voices' && voicesEnabled && (
         <BrandWatcherVoices brands={brands} daysBack={config.daysBack} />
       )}
 

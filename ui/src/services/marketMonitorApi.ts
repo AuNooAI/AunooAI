@@ -1869,6 +1869,10 @@ export interface Voice {
    *  the list, tagged. */
   vendor_tag: { label: string; org: string | null; brand_id: number | null;
                 tracked: boolean; linked: boolean; source: string } | null;
+  /** Which audience the account belongs to (patient, clinician, customer,
+   *  journalist ...): from its profile role when profiled, else the majority
+   *  of its posts as read by the social evaluation. Null when neither can say. */
+  audience: { role: string; label: string; source: 'account_profile' | 'account_posts'; n: number | null } | null;
   sample_of_one: boolean;
 }
 

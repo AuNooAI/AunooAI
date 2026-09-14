@@ -38,7 +38,16 @@ function roleOf(v: Voice): string {
   if (v.vendor_tag) return v.vendor_tag.label;
   const r = v.account?.role;
   if (r) return ROLE_LABEL[r] ?? r;
+  // No profile: what the account's own posts say it is, when they agree.
+  if (v.audience?.source === 'account_posts') return v.audience.label.toLowerCase();
   return v.account?.profiled ? 'not read' : 'not profiled';
+}
+
+function roleTitle(v: Voice): string | undefined {
+  if (v.vendor_tag || v.account?.role) return undefined;
+  if (v.audience?.source === 'account_posts')
+    return `Read from ${v.audience.n ?? 'their'} classified post(s) by this account; profile it for a stronger reading.`;
+  return undefined;
 }
 
 /** A vendor's own account, or their staff, kept on the list and marked. */
@@ -387,7 +396,10 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                   { key: 'role', label: 'Role', groupable: true,
                     value: roleOf,
                     render: v => (
-                      <span className={v.vendor_tag ? 'text-amber-800 dark:text-amber-300' : 'text-slate-600 dark:text-gray-300'}>
+                      <span title={roleTitle(v)}
+                        className={v.vendor_tag ? 'text-amber-800 dark:text-amber-300'
+                          : (!v.account?.role && v.audience?.source === 'account_posts') ? 'text-slate-500 dark:text-gray-400 italic'
+                          : 'text-slate-600 dark:text-gray-300'}>
                         {roleOf(v)}
                       </span>
                     ) },

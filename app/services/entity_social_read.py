@@ -167,6 +167,19 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
 
     posts = [_post(row) for row in rows]
 
+    # Account beats post: a profiled account's role, or the majority of the
+    # account's other classified posts, overrides the one-post reading.
+    try:
+        from app.services.audience_voices import apply_account_roles
+        for p in posts:
+            meta = p.get('social_meta') or {}
+            p['_author'] = meta.get('author') if isinstance(meta, dict) else None
+        apply_account_roles(conn, posts, author_key='_author')
+        for p in posts:
+            p.pop('_author', None)
+    except Exception as e:  # noqa: BLE001 - the feed stands without the override
+        logger.debug('social_feed: account role override failed: %s', e)
+
     if keyword:
         wanted = keyword.strip().lower()
         posts = [p for p in posts

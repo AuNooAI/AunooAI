@@ -1566,6 +1566,18 @@ async def get_social_posts(
         for p in posts:
             p["review_status"] = st_map.get(p["uri"])
 
+        # Account beats post: a profiled account's role, or the majority of the
+        # account's other classified posts, overrides the one-post reading.
+        try:
+            from app.services.audience_voices import apply_account_roles
+            for p in posts:
+                p["_author"] = (p.get("social_meta") or {}).get("author")
+            apply_account_roles(conn, posts, author_key="_author")
+            for p in posts:
+                p.pop("_author", None)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"bw/social: account role override failed: {e}")
+
         # Optional filter: only posts triggered by a specific keyword (case-insensitive).
         if keyword:
             kw_lc = keyword.strip().lower()
@@ -6304,6 +6316,11 @@ async def get_perception_dimensions(
         conn.close()
 
 
+def _voices_enabled() -> bool:
+    """Per-site switch. Off where the audience list does not fit the customer yet."""
+    return os.getenv("BW_VOICES_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 def _voices_mention_read() -> bool:
     """Per-mention read when Entity Intelligence ships on this tree; topic read otherwise."""
     try:
@@ -6342,6 +6359,8 @@ async def get_voices(
     model verdict. `focus` names the pair the view opens on (clinicians vs
     patients on a health tenant)."""
     from app.services import audience_voices
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
@@ -6372,6 +6391,8 @@ async def get_voices_digest(
     verbatim quotes, plus a 60-word summary. Cached per post set for six
     hours, so the model runs again only when the posts change."""
     from app.services import audience_voices
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:

@@ -33,6 +33,9 @@ export function getCachedDedicatedMode(): boolean | null {
 export function useModules() {
   const [modules, setModules] = useState<ModuleInfo[] | null>(null);
   const [dedicatedMode, setDedicatedMode] = useState<boolean | null>(getCachedDedicatedMode);
+  // Per-site switches for views inside a module (e.g. bw_voices). null = not
+  // known yet; a view stays visible until the backend says otherwise.
+  const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
 
   const applyDedicated = (dm: boolean) => {
     setDedicatedMode(dm);
@@ -48,6 +51,7 @@ export function useModules() {
       .then(data => {
         setModules(data.modules);
         applyDedicated(Boolean(data.dedicated_mode));
+        setFeatures(data.features ?? null);
       })
       .catch(err => {
         console.warn('Failed to fetch modules, showing all tabs:', err);
@@ -76,6 +80,7 @@ export function useModules() {
       const data = await res.json();
       setModules(data.modules);
       applyDedicated(Boolean(data.dedicated_mode));
+      setFeatures(data.features ?? null);
     } catch (err) {
       console.error('Failed to toggle module:', err);
       // Refetch to get actual state
@@ -83,5 +88,5 @@ export function useModules() {
     }
   }, [fetchModules]);
 
-  return { modules, isEnabled, toggleModule, dedicatedMode };
+  return { modules, isEnabled, toggleModule, dedicatedMode, features };
 }

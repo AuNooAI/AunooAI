@@ -106,6 +106,142 @@ def _meta(raw) -> Dict[str, Any]:
     return {}
 
 
+# ---------------------------------------------------------------------------
+# Account-level roles: the profile beats the post, the post history beats
+# one post
+# ---------------------------------------------------------------------------
+
+# Market Monitor's Top voices profiles an ACCOUNT and records its part in the
+# market (social_accounts.metadata.market_role). That reading comes from the
+# bio plus a sample of posts, so it is stronger evidence than the text of one
+# post. Its list is vendor-shaped; this maps it onto the audience list.
+# ``practitioner`` is "works in the field or is a customer" — a clinician on a
+# health tenant, an industry professional elsewhere.
+MARKET_ROLE_MAP = {
+    "vendor": "brand",
+    "vendor_staff": "employee",
+    "practitioner": None,          # resolved by the health flag below
+    "analyst_or_press": "journalist",
+    "reseller": "brand",
+    "promoter_or_bot": "brand",
+    "unrelated": None,             # says nothing about who they are; keep the post's reading
+}
+HEALTH_ROLES = {"patient", "clinician", "caregiver"}
+_VOTE_MIN_POSTS = 2
+_VOTE_MIN_SHARE = 0.6
+
+
+def _author_key(platform: Optional[str], author: Optional[str]) -> Optional[tuple]:
+    if not platform or not author:
+        return None
+    return (str(platform).lower(), str(author).strip().lstrip("@").lower())
+
+
+def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple, Dict[str, Any]]:
+    """Audience role per (platform, handle) from the account, not the post.
+
+    Two sources, in order of strength: the market profile's role when the
+    account was profiled, else a majority vote over every post of theirs
+    the social evaluation has classified (at least two posts, at least 60 %
+    agreeing, ``unknown`` never votes). Returns only the accounts where one
+    of the two gave an answer.
+
+    ``health`` decides what a profiled practitioner is; None = decide from
+    the votes themselves (any patient/clinician/caregiver reading means a
+    health tenant).
+    """
+    keys = sorted({k for k in pairs if k})
+    if not keys:
+        return {}
+    plats = [k[0] for k in keys]
+    handles = [k[1] for k in keys]
+
+    votes: Dict[tuple, Dict[str, int]] = {}
+    for plat, author, role, n in conn.execute(text("""
+        SELECT LOWER(COALESCE(a.social_meta->>'platform', SPLIT_PART(a.news_source, ':', 2))),
+               LOWER(a.social_meta->>'author'), a.author_role, COUNT(*)
+          FROM articles a
+         WHERE a.author_role IS NOT NULL AND a.author_role <> 'unknown'
+           AND a.social_meta->>'author' IS NOT NULL
+           AND (LOWER(COALESCE(a.social_meta->>'platform', SPLIT_PART(a.news_source, ':', 2))),
+                LOWER(a.social_meta->>'author'))
+               IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+         GROUP BY 1, 2, 3
+    """), {"plats": plats, "handles": handles}).fetchall():
+        votes.setdefault((plat, author), {})[role] = int(n)
+
+    if health is None:
+        health = any(r in HEALTH_ROLES for v in votes.values() for r in v)
+
+    out: Dict[tuple, Dict[str, Any]] = {}
+    try:
+        profiled = conn.execute(text("""
+            SELECT LOWER(platform), handle_canonical, metadata->>'market_role',
+                   metadata->>'market_org'
+              FROM social_accounts
+             WHERE metadata->>'market_role' IS NOT NULL
+               AND (LOWER(platform), handle_canonical)
+                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+        """), {"plats": plats, "handles": handles}).fetchall()
+    except Exception as e:  # noqa: BLE001 - social_accounts may predate metadata
+        logger.debug("account_audiences: profile lookup failed: %s", e)
+        profiled = []
+    for plat, handle, market_role, org in profiled:
+        mapped = MARKET_ROLE_MAP.get(market_role)
+        if market_role == "practitioner":
+            mapped = "clinician" if health else "professional"
+        if mapped:
+            out[(plat, handle)] = {"role": mapped, "source": "account_profile",
+                                   "market_role": market_role, "org": org, "n": None}
+
+    for key, dist in votes.items():
+        if key in out:
+            continue
+        total = sum(dist.values())
+        role, n = max(dist.items(), key=lambda kv: kv[1])
+        if total >= _VOTE_MIN_POSTS and n / total >= _VOTE_MIN_SHARE:
+            out[key] = {"role": role, "source": "account_posts", "market_role": None,
+                        "org": None, "n": total}
+    return out
+
+
+def apply_account_roles(conn, posts: List[Dict[str, Any]], *,
+                        platform_key: str = "platform", author_key: str = "author",
+                        role_key: str = "author_role") -> int:
+    """Override post-level roles with account-level ones in place.
+
+    Each post keeps its own reading in ``post_role`` and says where the final
+    role came from in ``author_role_source`` (post, account_profile,
+    account_posts). Glassdoor rows (employee by construction) and posts with
+    no author are left alone. Returns how many posts changed.
+    """
+    pairs = {}
+    for p in posts:
+        if p.get(role_key) == "employee" and (p.get(platform_key) == "glassdoor"):
+            continue
+        k = _author_key(p.get(platform_key), p.get(author_key))
+        if k:
+            pairs[id(p)] = k
+    health = any(p.get(role_key) in HEALTH_ROLES for p in posts) or None
+    resolved = account_audiences(conn, set(pairs.values()), health=health) if pairs else {}
+    changed = 0
+    for p in posts:
+        p.setdefault("post_role", p.get(role_key))
+        p.setdefault("author_role_source", "post")
+        hit = resolved.get(pairs.get(id(p)))
+        if not hit:
+            continue
+        if hit["role"] != p.get(role_key):
+            changed += 1
+        p[role_key] = hit["role"]
+        p["author_role_source"] = hit["source"]
+        if hit.get("market_role"):
+            p["account_market_role"] = hit["market_role"]
+        if hit.get("org"):
+            p["account_org"] = hit["org"]
+    return changed
+
+
 def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
           mention_read: bool, min_relevance: float) -> List[Dict[str, Any]]:
     sd, ed = _window(days_back)
@@ -171,6 +307,9 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
             "author_role": role,
             "author_role_reason": r["author_role_reason"],
         })
+    # A profiled account, or an account whose other posts all read the same
+    # way, outranks the reading of one post.
+    apply_account_roles(conn, out)
     return out
 
 
