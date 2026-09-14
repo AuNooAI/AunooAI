@@ -2,6 +2,32 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — aisocnews.com analyst call raised to $400 / $700
+
+### Goal
+The paid 30 or 60 minute analyst call on aisocnews.com was $250 / $450. That priced an
+ex-Gartner opinion at freelance-consultant rates ($175–400 an hour on 2026 rate cards) while the
+buyers most likely to book, vendors and investors, pay expert networks $750–1,500 an hour for
+the same call. Oliver chose $400 / $700. Commit `0b242780`.
+
+### Amounts and Stripe
+**`app/services/market_inquiry.py`** `OPTIONS[..]["cents"]` is now 40000 and 70000; the
+checkout page, the stored inquiry row and both confirmation mails read from it.
+**`scripts/seed_stripe_inquiry.py`** now archives a price whose amount differs and creates a
+new one with `transfer_lookup_key`, since Stripe prices are immutable; before it reported any
+matching lookup key as OK. Live run created `price_1UFUem…THZCevOE` ($400) and
+`price_1UFUen…bRHbwrGA` ($700), archived the two September-6 prices, and the ids went into
+`.env` (backup `.env.bak-inqprice-*`). The `market_inquiries` table held only the two expired
+test sessions from 6 September, so no buyer was affected.
+
+### Verification
+`https://aisocnews.com/api/market-monitor/markets/2/inquiry` renders `$400` and `$700` in the
+two price spans after restart. No checkout was exercised.
+
+### Propagation
+bugfixing (market 2) only; this feature exists on no other tenant. Restarted with zero LLM
+calls in the previous five minutes.
+
 ## 2026-09-14 — Brand Watcher: every News-side card now counts the same articles as the list
 
 ### Goal
