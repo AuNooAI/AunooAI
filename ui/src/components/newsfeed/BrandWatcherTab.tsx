@@ -9,12 +9,13 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight, ChevronLeft,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Mail, Image, FileDown, Copy, Check, Printer, Search, Bell,
-  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle, Flag,
+  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle, Flag, MessagesSquare,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
 import { BrandWatcherPerception } from './BrandWatcherPerception';
+import { BrandWatcherVoices } from './BrandWatcherVoices';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
@@ -196,8 +197,8 @@ interface BrandWatcherTabProps {
                     relatedArticles?: any[]) => void;
 }
 
-type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
-const BW_SUB_TABS: SubTab[] = ['dashboard', 'overview', 'analysis', 'perception', 'comparison', 'insights', 'articles', 'social', 'accounts', 'workforce', 'incidents', 'help'];
+type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'voices' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
+const BW_SUB_TABS: SubTab[] = ['dashboard', 'overview', 'analysis', 'perception', 'voices', 'comparison', 'insights', 'articles', 'social', 'accounts', 'workforce', 'incidents', 'help'];
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -615,6 +616,25 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     instagram: 'Instagram', tiktok: 'TikTok', social: 'Other',
   };
   const PLATFORM_ORDER = ['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok', 'social'];
+  // Who wrote the post (articles.author_role). Same taxonomy as the Voices tab.
+  const ROLE_CHIP_LABEL: Record<string, string> = {
+    patient: 'patient', clinician: 'clinician', caregiver: 'caregiver', customer: 'customer',
+    academic: 'academic', professional: 'professional', employee: 'employee',
+    journalist: 'press', investor: 'investor', brand: 'brand voice',
+  };
+  const ROLE_CHIP_CLASS: Record<string, string> = {
+    patient: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    clinician: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    caregiver: 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300',
+    customer: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    academic: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300',
+    professional: 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300',
+    employee: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
+    journalist: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
+    investor: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+    brand: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    other: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  };
   const platColor = (p: string) => PLATFORM_COLORS[p] || PLATFORM_COLORS.social;
   const platLabel = (p: string) => PLATFORM_LABELS[p] || p;
   const fmtCount = (n?: number | null) => n == null ? null : (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
@@ -1006,6 +1026,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 );
               })()}
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
+              {p.author_role && p.author_role !== 'unknown' && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${ROLE_CHIP_CLASS[p.author_role] || ROLE_CHIP_CLASS.other}`}
+                  title={p.author_role_reason ? `${ROLE_CHIP_LABEL[p.author_role] || p.author_role}: ${p.author_role_reason}` : (ROLE_CHIP_LABEL[p.author_role] || p.author_role)}>
+                  {ROLE_CHIP_LABEL[p.author_role] || p.author_role}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => { setIncAttach({ kind: 'article', ref: p.uri, label: cleanSocialText(socialBodyOf(p)).slice(0, 120) || p.uri, brandId: brands.find(b => b.display_name === socialBrandOf(p))?.id ?? null }); loadIncidents(); }}
@@ -2592,6 +2618,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'dashboard' as SubTab, label: 'Dashboard', icon: Sparkles },
           { id: 'analysis' as SubTab, label: 'Brand Analysis', icon: TrendingUp },
           { id: 'perception' as SubTab, label: 'Perception', icon: Eye },
+          { id: 'voices' as SubTab, label: 'Voices', icon: MessagesSquare },
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
@@ -5348,6 +5375,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* Perception dimensions view */}
       {activeTab === 'perception' && (
         <BrandWatcherPerception daysBack={config.daysBack} />
+      )}
+
+      {/* Voices: what each audience (patients, clinicians, customers ...) says */}
+      {activeTab === 'voices' && (
+        <BrandWatcherVoices brands={brands} daysBack={config.daysBack} />
       )}
 
       {(activeTab === 'comparison' || exportingReport) && (

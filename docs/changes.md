@@ -2,6 +2,62 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-14 — Brand Watcher "Voices": what clinicians say next to what patients say
+
+### Goal
+Oviva asked for a view that shows what doctors think of them separately from what patients
+think. The Social tab already scored every post for relevance and sentiment, but nothing said
+who was speaking, so a GP complaining about prescribing pressure and a patient logging a lost
+kilo were one number.
+
+### What changed
+**Every on-brand social post now carries the author's role.** The social evaluation call that
+scores relevance and sentiment (`app/services/social_eval_service.py`) also returns
+`author_role` from a fixed list (patient, caregiver, clinician, customer, academic,
+professional, employee, journalist, investor, brand, unknown) plus a one-line reason. It is the
+same model call, so new posts cost nothing extra. The role is a property of the post, not of the
+(post, brand) pair, so it lives on `articles.author_role` / `articles.author_role_reason`
+(migration `voice_001`, branched off `art_text_001` like the last customer-site migration;
+canonical merges it in `mm_028`). Both social read paths (per-mention and topic) return it and
+roll it up as `by_role`; Glassdoor rows count as employees without a model verdict.
+
+**New Voices sub-tab** in Brand Watcher (`ui/src/components/newsfeed/BrandWatcherVoices.tsx`):
+role tiles ranked by volume with a sentiment split and net score, then two audiences side by
+side. Each side shows counts, a model digest of the themes with verbatim quotes and a 60-word
+summary, and the posts themselves with the reason the model gave for the role. The backend
+suggests the opening pair: clinician vs patient when both exist, otherwise professional or
+academic vs customer, otherwise the two largest. Brand voice, unknown and unclassified are
+never in the pair. The Social tab cards also show the role as a chip.
+
+**Endpoints** in `app/routes/brand_watcher_routes.py`: `GET /api/brand-watcher/voices`
+(brand_id, days_back, min_relevance) and `GET /api/brand-watcher/voices/digest` (role, ...).
+The digest uses the tenant's default enrichment model (`keyword_monitor_settings`,
+overridable with `VOICES_DIGEST_MODEL`) and is cached per post set for six hours in
+`app/services/audience_voices.py`, so the model only runs again when the posts change.
+
+**Backfill** `scripts/backfill_author_roles.py`: one role-only call per on-brand post that has no
+role yet (`--apply`; `--redo` reclassifies after a prompt or model change; `--brand` scopes it).
+Candidates come from both the article score and the per-mention score.
+
+### Model choice on oviva
+nova-lite, oviva's social evaluation model, read the German GP thread on X as patients: "Oviva
+is regularly prescribed for us", "incite the patients against us", "I'm supposed to keep
+prescribing! What a rip-off" all came back as patient or journalist even after the role rules
+were tightened. bedrock-kimi-k2-5 got all of them as clinician, so oviva's `SOCIAL_EVAL_MODEL`
+is now `bedrock-kimi-k2-5` (backup `.env.bak-socialeval-*`). Volume is a few posts a day, so
+the cost difference is nil. The wiley tenants keep their own models.
+
+Result on oviva after the kimi backfill (Brand Monitoring Oviva, 180 days): 22 patient,
+7 clinician, 7 brand voice, 3 customer, 3 unknown, 1 caregiver. Clinicians are net negative
+(prescribing pressure, weak evidence, cost per quarter); patients are mixed (weight-loss wins
+against medication delays, insensitive advice and eligibility confusion).
+
+### Propagation
+Backend, migration and built UI on oviva, wiley and wileytest; backfill run on oviva only
+(130 posts, kimi). wileytest has ~4,800 on-brand social posts in 180 days that are not
+classified; run the backfill there when wanted (its model is bedrock-claude-haiku; pass
+`--model` to use something cheaper). No live background jobs on any of the three at restart.
+
 ## 2026-09-14 — aisocnews.com analyst call raised to $400 / $700
 
 ### Goal

@@ -30,6 +30,40 @@ _CALL_TIMEOUT_S = 90  # hard cap per model call; wedged provider sockets must no
 from app.services.social_sources import SOCIAL_SOURCES, is_social_source  # noqa: F401
 _MAX_CONCURRENT = 6  # cap parallel model calls
 
+# Who wrote the post. A brand hears its audiences apart only if each post
+# says who is speaking: a GP prescribing a programme is not a patient on it,
+# and neither is the company's own account. Generic on purpose, so the same
+# list serves a health provider (patient / clinician), a publisher
+# (customer / academic / professional) and a security vendor (customer /
+# professional). "unknown" is the honest default when the text gives no clue.
+AUTHOR_ROLES = (
+    "patient",       # uses or has been referred to a health service or treatment
+    "caregiver",     # family member or carer speaking for a patient
+    "clinician",     # doctor, GP, nurse, dietitian, pharmacist, therapist, other health professional
+    "customer",      # end user or buyer of a non-health product/service, incl. prospective
+    "academic",      # researcher, lecturer, scientist speaking as such
+    "professional",  # works in the brand's industry but not for the brand (analyst, librarian, consultant, commissioner)
+    "employee",      # works or worked for the brand
+    "journalist",    # press, media outlet account, newsletter author
+    "investor",      # shareholder, analyst covering the stock, VC
+    "brand",         # the company itself, an affiliate, reseller or paid promotion
+    "unknown",
+)
+
+_ROLE_GUIDE = (
+    "Judge the role from what the post says and how the author speaks. If the BRAND CONTEXT "
+    "describes a health, medical, care or treatment service, anyone using it, on it, referred "
+    "to it, prescribed it, or logging their own progress with it is a patient, never a "
+    "customer; customer is for non-health products and services only. Anyone who prescribes, "
+    "refers, treats, or speaks as a doctor, GP, nurse, dietitian, pharmacist or therapist is a "
+    "clinician, including when they say 'we' or 'us' about patients or about being asked to "
+    "prescribe. A relative or carer describing someone else's care is a caregiver. An outlet "
+    "or reporter is a journalist. Only the company's own account, its staff speaking for it, "
+    "affiliates or paid promotion count as brand; a person's own progress log that names the "
+    "brand is not the brand. When nothing in the text shows who is speaking, answer unknown "
+    "rather than guessing. "
+)
+
 _SYSTEM = (
     "You are a precise brand-monitoring classifier. For each social media post you are "
     "given a BRAND/TOPIC and the post text. Decide (1) how relevant the post is to that "
@@ -52,8 +86,11 @@ _SYSTEM = (
     "product name containing the brand, @handle, #hashtag, or stock ticker — relevance must "
     "not exceed 0.3, no matter how close the subject matter is to the brand's industry "
     "(e.g. a complaint about ebooks or textbooks that names a different company or none).\n"
+    "(3) Also name WHO is speaking. Pick author_role from this list only: "
+    + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE +
     'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
-    '"positive"|"neutral"|"negative"}. No prose.'
+    '"positive"|"neutral"|"negative", "author_role": <one of the roles>, '
+    '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
 )
 
 
@@ -122,7 +159,27 @@ def _parse_eval(content: str) -> Optional[Dict]:
     sent = str(obj.get("sentiment", "")).strip().lower()
     if sent not in ("positive", "neutral", "negative"):
         sent = "neutral"
-    return {"relevance": rel, "sentiment": sent}
+    out = {"relevance": rel, "sentiment": sent}
+    out.update(_parse_role(obj))
+    return out
+
+
+def _parse_role(obj: Dict) -> Dict:
+    """author_role + reason from a parsed model object; unknown when absent or off-list."""
+    role = str(obj.get("author_role") or "").strip().lower().replace(" ", "_")
+    if role not in AUTHOR_ROLES:
+        role = "unknown"
+    reason = str(obj.get("author_role_reason") or "").strip()[:200]
+    return {"author_role": role, "author_role_reason": reason or None}
+
+
+_ROLE_SYSTEM = (
+    "You are a brand-monitoring classifier. You are given a BRAND and a social media post "
+    "about it. Say WHO wrote the post. Pick author_role from this list only: "
+    + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE +
+    'Respond with ONLY a JSON object: {"author_role": <one of the roles>, '
+    '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
+)
 
 
 def _parse_verify(content: str) -> Optional[Dict]:
@@ -236,6 +293,58 @@ class SocialEvalService:
             logger.debug(f"SocialEval supervisor call failed: {e}")
             return None
 
+    async def _role_one(self, brand_topic: str, title: str, body: str,
+                        brand_context: str = "") -> Optional[Dict]:
+        model = self._get_model()
+        if not model:
+            return None
+        text = f"{title}\n{body}".strip()[:1500]
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
+        messages = [
+            {"role": "system", "content": _ROLE_SYSTEM},
+            {"role": "user", "content": f"BRAND: {brand_topic}{ctx}\n\nPOST:\n{text}"},
+        ]
+        try:
+            from fastapi.concurrency import run_in_threadpool
+            content = await asyncio.wait_for(
+                run_in_threadpool(model.generate_response, messages), timeout=_CALL_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            logger.warning(f"SocialEval role call timed out after {_CALL_TIMEOUT_S}s")
+            return None
+        except Exception as e:
+            logger.debug(f"SocialEval role call failed: {e}")
+            return None
+        m = re.search(r"\{[\s\S]*\}", content or "")
+        if not m:
+            return None
+        try:
+            return _parse_role(json.loads(m.group()))
+        except json.JSONDecodeError:
+            return None
+
+    async def classify_roles(self, posts: List[Dict], brand_topic: str,
+                             brand_context: str = "") -> List[Dict]:
+        """Author role only, for posts that were scored before roles existed.
+
+        Same taxonomy as the combined call; returns [{uri, author_role,
+        author_role_reason}] for the posts the model answered.
+        """
+        if not posts or not self._get_model():
+            return []
+        sem = asyncio.Semaphore(_MAX_CONCURRENT)
+        results: List[Dict] = []
+
+        async def _run(p):
+            async with sem:
+                r = await self._role_one(brand_topic, p.get("title") or "",
+                                         p.get("summary") or p.get("content") or "",
+                                         brand_context=brand_context)
+                if r:
+                    results.append({"uri": p.get("uri") or p.get("url"), **r})
+
+        await asyncio.gather(*[_run(p) for p in posts], return_exceptions=True)
+        return results
+
     async def evaluate_posts(self, posts: List[Dict], brand_topic: str,
                              brand_context: str = "") -> List[Dict]:
         """Evaluate a batch of post dicts (need 'uri','title','summary'/'content').
@@ -318,9 +427,11 @@ class SocialEvalService:
         for s in scored:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
-                    sentiment = :sent, ingest_status = 'social_evaluated', analyzed = true
+                    sentiment = :sent, ingest_status = 'social_evaluated', analyzed = true,
+                    author_role = :role, author_role_reason = :role_why
                 WHERE uri = :uri
-            """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"]})
+            """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"],
+                   "role": s.get("author_role"), "role_why": s.get("author_role_reason")})
         db.facade.connection.commit()
         logger.info(f"SocialEval: scored {len(scored)}/{len(posts)} {brand_topic!r} posts via {self.model_name}"
                     + (f" ({excluded_zeroed} zeroed by exclude terms)" if excluded_zeroed else ""))
@@ -372,7 +483,8 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         SELECT m.id, m.brand_id, m.article_uri, b.display_name,
                a.title, a.summary,
                (SELECT count(*) FROM bw_entity_mentions o
-                 WHERE o.article_uri = m.article_uri) AS entities_on_article
+                 WHERE o.article_uri = m.article_uri) AS entities_on_article,
+               COALESCE(b.description, '') AS brand_context
           FROM bw_entity_mentions m
           JOIN bw_brands b ON b.id = m.brand_id
           JOIN articles a ON a.uri = m.article_uri
@@ -386,12 +498,14 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
     conn = db.facade.connection
     evaluated = 0
     for (mention_id, mention_brand, uri, display_name, title, summary,
-         entities_on_article) in rows:
+         entities_on_article, brand_context) in rows:
         # One post, one company, one verdict — the brand name is the subject
         # of the question rather than the topic the post was collected under.
+        # The brand description rides along so the model can tell a patient
+        # from a customer and a look-alike company from the real one.
         scored = await service.evaluate_posts(
             [{"uri": uri, "title": title, "summary": summary, "author": ""}],
-            display_name)
+            display_name, brand_context=brand_context)
         if not scored:
             continue
         verdict = scored[0]
@@ -404,6 +518,15 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
             version=entity_content.MATCHER_VERSION,
             status='accepted')
         evaluated += 1
+
+        # Who wrote the post does not depend on which company is asked about,
+        # so the role goes on the article row for every mention.
+        if verdict.get("author_role"):
+            db.facade._execute_with_rollback(text("""
+                UPDATE articles SET author_role = :role, author_role_reason = :why
+                 WHERE uri = :uri
+            """), {"role": verdict["author_role"],
+                   "why": verdict.get("author_role_reason"), "uri": uri})
 
         # Only unambiguous posts may write the shared article columns.
         if entity_flags.dual_write() and int(entities_on_article) == 1:

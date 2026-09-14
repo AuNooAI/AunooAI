@@ -145,6 +145,7 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                m.evaluated_at, m.mention_type,
                a.title, a.summary, a.news_source, a.publication_date, a.topic,
                a.social_meta, a.original_summary, a.original_title,
+               a.author_role, a.author_role_reason,
                b.display_name,
                t.term AS matched_term,
                sa.handle AS author_handle,
@@ -201,6 +202,12 @@ def _post(row) -> Dict[str, Any]:
                      if row['relevance'] is not None else None,
         'sentiment': row['sentiment'],
         'stance': row['stance'],
+        # Who wrote it: patient, clinician, customer, journalist ... (see
+        # social_eval_service.AUTHOR_ROLES). Glassdoor is an employee channel
+        # by construction, so it needs no model verdict.
+        'author_role': ('employee' if row['channel'] == 'employee'
+                        else row['author_role']),
+        'author_role_reason': row['author_role_reason'],
         # An operator needs to see at a glance whether this is the company
         # talking or somebody else.
         'is_owned': owned,
@@ -230,6 +237,7 @@ def _rollup(posts: List[Dict[str, Any]], days_back: int, min_relevance: float,
     platforms = Counter(p['platform'] for p in posts)
     channels = Counter(p['channel'] for p in posts)
     keywords = Counter(k for p in posts for k in p['matched_keywords'])
+    roles = Counter((p.get('author_role') or 'unclassified') for p in external)
 
     notes: List[str] = []
     if not external:
@@ -255,6 +263,7 @@ def _rollup(posts: List[Dict[str, Any]], days_back: int, min_relevance: float,
         # New, and the reason for the change: these three were impossible to
         # separate when the score lived on the article row.
         'by_channel': dict(channels),
+        'by_role': dict(roles.most_common()),
         'external_total': len(external),
         'owned_total': len(owned),
         'unevaluated_total': unevaluated,
@@ -270,7 +279,8 @@ def _empty(days_back: int, min_relevance: float, include_unevaluated: bool,
         'window_days': days_back, 'min_relevance': min_relevance,
         'include_unevaluated': include_unevaluated, 'keyword': keyword,
         'total': 0, 'evaluated': 0, 'by_platform': {}, 'by_sentiment': {},
-        'by_keyword': {}, 'posts': [], 'by_channel': {}, 'external_total': 0,
+        'by_keyword': {}, 'posts': [], 'by_channel': {}, 'by_role': {},
+        'external_total': 0,
         'owned_total': 0, 'unevaluated_total': 0, 'sentiment_denominator': 0,
         'coverage_notes': [why], 'read_path': 'entity_mentions',
     }

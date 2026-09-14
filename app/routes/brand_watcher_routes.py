@@ -1485,7 +1485,8 @@ async def get_social_posts(
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
                    a.topic_alignment_score, a.sentiment, a.topic, a.social_meta,
-                   a.original_summary, a.original_title
+                   a.original_summary, a.original_title,
+                   a.author_role, a.author_role_reason
             FROM articles a
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
@@ -1516,6 +1517,10 @@ async def get_social_posts(
                             else (json.loads(r[8]) if r[8] else None)),
             # The post as written when it was not English; summary is then the translation.
             "original_summary": r[9], "original_title": r[10],
+            # Who wrote it (patient, clinician, customer ...); Glassdoor is
+            # an employee channel by construction.
+            "author_role": "employee" if r[3] == "Glassdoor" else r[11],
+            "author_role_reason": r[12],
         } for r in rows]
 
         # Attach the brand keyword(s) that triggered each post so the UI can show a
@@ -1571,6 +1576,7 @@ async def get_social_posts(
         sent_counts = Counter((p["sentiment"] or "Unrated") for p in posts)
         plat_counts = Counter(p["platform"] for p in posts)
         kw_counts = Counter(k for p in posts for k in p["matched_keywords"])
+        role_counts = Counter((p.get("author_role") or "unclassified") for p in posts)
         evaluated = sum(1 for p in posts if p["relevance"] is not None)
         return {
             "window_days": days_back,
@@ -1582,6 +1588,7 @@ async def get_social_posts(
             "by_platform": dict(plat_counts),
             "by_sentiment": dict(sent_counts),
             "by_keyword": dict(kw_counts.most_common()),
+            "by_role": dict(role_counts.most_common()),
             "posts": posts,
         }
     except Exception as e:
@@ -6292,6 +6299,91 @@ async def get_perception_dimensions(
         return {"days_back": days_back, "brands": out}
     except Exception as e:
         logger.error(f"Error building perception dimensions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+def _voices_mention_read() -> bool:
+    """Per-mention read when Entity Intelligence ships on this tree; topic read otherwise."""
+    try:
+        from app.services import entity_flags as _ef
+        return _ef.mention_read()
+    except ImportError:
+        return False
+
+
+def _voices_brand(conn, brand_id: Optional[int]) -> tuple:
+    """(id, display_name) for the requested brand, or the primary brand."""
+    if brand_id is not None:
+        row = conn.execute(text(
+            "SELECT id, display_name FROM bw_brands WHERE id = :b"), {"b": brand_id}).fetchone()
+    else:
+        row = conn.execute(text(
+            "SELECT id, display_name FROM bw_brands WHERE enabled = true "
+            "ORDER BY is_primary DESC, display_name LIMIT 1")).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return int(row[0]), row[1]
+
+
+@router.get("/voices")
+@bw_cached
+async def get_voices(
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    days_back: int = Query(90, ge=1, le=730),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    session=Depends(verify_session),
+):
+    """What each audience says about a brand: posts grouped by who wrote them
+    (patient, clinician, customer, employee, journalist ...) with a sentiment
+    split per audience. The role comes from the social evaluation step and
+    lives on the article row; Glassdoor reviews count as employees without a
+    model verdict. `focus` names the pair the view opens on (clinicians vs
+    patients on a health tenant)."""
+    from app.services import audience_voices
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, name = _voices_brand(conn, brand_id)
+        return await _bw_asyncio.to_thread(
+            audience_voices.voices, conn, brand_id=bid, display_name=name,
+            days_back=days_back, mention_read=_voices_mention_read(),
+            min_relevance=min_relevance)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"brand-watcher/voices error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/voices/digest")
+@bw_cached
+async def get_voices_digest(
+    role: str = Query(..., description="One audience role, e.g. patient or clinician"),
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    days_back: int = Query(90, ge=1, le=730),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    session=Depends(verify_session),
+):
+    """A model reads one audience's posts and reports the themes, each with
+    verbatim quotes, plus a 60-word summary. Cached per post set for six
+    hours, so the model runs again only when the posts change."""
+    from app.services import audience_voices
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, name = _voices_brand(conn, brand_id)
+        return await audience_voices.digest(
+            conn, brand_id=bid, display_name=name, role=role.strip().lower(),
+            days_back=days_back, mention_read=_voices_mention_read(),
+            min_relevance=min_relevance)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"brand-watcher/voices/digest error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

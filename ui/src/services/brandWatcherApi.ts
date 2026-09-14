@@ -253,6 +253,10 @@ export interface BWSocialPost {
   matched_keywords?: string[];
   social_meta?: BWSocialMeta | null;
   review_status?: string | null;
+  // Who wrote it (patient, clinician, customer, employee, journalist ...), from
+  // the social evaluation step; null on posts scored before roles existed.
+  author_role?: string | null;
+  author_role_reason?: string | null;
 }
 
 export interface BWSocialResponse {
@@ -265,6 +269,7 @@ export interface BWSocialResponse {
   by_platform: Record<string, number>;
   by_sentiment: Record<string, number>;
   by_keyword?: Record<string, number>;
+  by_role?: Record<string, number>;
   posts: BWSocialPost[];
 }
 
@@ -635,6 +640,78 @@ export interface BWPerceptionBrand {
   color: string | null;
   is_primary: boolean;
   dimensions: Record<'media' | 'social' | 'community' | 'employee' | 'investor', BWPerceptionDimension>;
+}
+
+// ---- Voices: what each audience says about a brand ----
+export interface BWVoicePost {
+  uri: string;
+  title: string | null;
+  text: string;
+  platform: string;
+  publication_date: string | null;
+  sentiment: 'positive' | 'neutral' | 'negative' | null;
+  relevance: number | null;
+  author: string | null;
+  engagement: number;
+  author_role: string;
+  author_role_reason: string | null;
+}
+
+export interface BWVoiceRole {
+  role: string;
+  label: string;
+  hint: string;
+  n: number;
+  positive: number;
+  neutral: number;
+  negative: number;
+  net: number | null;
+  by_platform: Record<string, number>;
+  posts: BWVoicePost[];
+}
+
+export interface BWVoicesResponse {
+  brand_id: number;
+  brand: string;
+  days_back: number;
+  min_relevance: number;
+  total: number;
+  classified: number;
+  focus: string[];          // the pair to open on, e.g. ['clinician', 'patient']
+  roles: BWVoiceRole[];     // ranked by volume
+  coverage_notes: string[];
+  read_path: string;
+}
+
+export interface BWVoicesDigest {
+  brand_id: number;
+  brand: string;
+  role: string;
+  label: string;
+  days_back: number;
+  post_count: number;
+  summary: string | null;
+  themes: Array<{ theme: string; sentiment: string; post_count: number; quotes: string[] }>;
+  note?: string;
+  model?: string;
+  generated_at?: string;
+  cached?: boolean;
+}
+
+export async function getVoices(brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4): Promise<BWVoicesResponse> {
+  const q = new URLSearchParams({ days_back: String(daysBack), min_relevance: String(minRelevance) });
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch voices: ${res.status}`);
+  return res.json();
+}
+
+export async function getVoicesDigest(role: string, brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4): Promise<BWVoicesDigest> {
+  const q = new URLSearchParams({ role, days_back: String(daysBack), min_relevance: String(minRelevance) });
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices/digest?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch voices digest: ${res.status}`);
+  return res.json();
 }
 
 export async function getPerception(daysBack: number = 90): Promise<{ days_back: number; brands: BWPerceptionBrand[] }> {
