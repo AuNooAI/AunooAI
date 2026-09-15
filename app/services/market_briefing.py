@@ -52,6 +52,25 @@ MAX_FACTS_PER_SECTION = 80
 DEFAULT_MODEL = os.getenv("MARKET_BRIEFING_MODEL", "bedrock-kimi-k2-5")
 
 
+# Internal news_source codes carry our collection plumbing ("xpoz:twitter" is
+# the paid social corpus). Those codenames must never appear on a reader-facing
+# page, so every source rendered into briefing text goes through this map to a
+# public platform name; an unrecognised "prefix:tail" is shown as its tail, not
+# the prefix, so the codename still cannot leak.
+_PLATFORM_LABELS = {"twitter": "X", "x": "X", "bluesky": "Bluesky", "bsky": "Bluesky",
+                    "reddit": "Reddit", "linkedin": "LinkedIn", "mastodon": "Mastodon",
+                    "instagram": "Instagram", "tiktok": "TikTok", "youtube": "YouTube"}
+
+
+def source_label(source: Optional[str]) -> str:
+    """Reader-facing name for an internal news_source ('xpoz:twitter' -> 'X')."""
+    s = (source or "").strip()
+    slug = s.lower().split(":")[-1]
+    if slug in _PLATFORM_LABELS:
+        return _PLATFORM_LABELS[slug]
+    return s.split(":")[-1] if ":" in s else s
+
+
 def month_bounds(year: int, month: int) -> Tuple[date, date, str]:
     """``(first, last, 'YYYY-MM')`` for a calendar month."""
     last = monthrange(year, month)[1]
@@ -215,7 +234,7 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
     for i, c in enumerate(coverage, 1):
         c["cite_id"] = f"C{i}"
         citation_index[c["cite_id"]] = {
-            "uri": c["uri"], "title": c["title"], "source": c.get("news_source")}
+            "uri": c["uri"], "title": c["title"], "source": source_label(c.get("news_source"))}
 
     return {
         "market": market["name"],
@@ -271,7 +290,7 @@ def _render_facts(facts: Dict[str, Any]) -> str:
         for c in facts["coverage"]:
             date_part = (c.get("publication_date") or "")[:10]
             lines.append(f"- [{c.get('cite_id')}] [{date_part}] "
-                         f"{c.get('news_source') or 'unknown'}: {c['title']}")
+                         f"{source_label(c.get('news_source')) or 'unknown'}: {c['title']}")
 
     if facts["new_entrants"]:
         lines.append("\nNEW TO THE REGISTRY THIS PERIOD:")
@@ -386,7 +405,7 @@ def fallback_briefing(facts: Dict[str, Any], period_label: str) -> str:
         out.append(f"## Third-party coverage ({total})")
         out.append("")
         for c in facts["coverage"]:
-            out.append(f"- {c['title']} — {c.get('news_source') or 'unknown'}")
+            out.append(f"- {c['title']} — {source_label(c.get('news_source')) or 'unknown'}")
         out.append("")
 
     if facts["open_questions"]:

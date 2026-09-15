@@ -602,6 +602,9 @@ def _coverage(coverage: Optional[Dict[str, Any]]) -> str:
 
 
 def _coverage_row(a: Dict[str, Any], *, kind: Optional[str] = None) -> str:
+    # Never print the raw news_source: an internal code like "xpoz:twitter"
+    # must not reach a reader. source_label maps it to a public platform name.
+    from app.services.market_briefing import source_label
     cluster = a.get("cluster")
     extra = (f' <span class="mm-kind">+{cluster["size"] - 1} more like this</span>'
              if cluster and cluster.get("size", 1) > 1 else "")
@@ -609,7 +612,7 @@ def _coverage_row(a: Dict[str, Any], *, kind: Optional[str] = None) -> str:
     headline = a.get("title") or a["uri"]
     return (f'<tr><td>{badge}<a href="{esc(a["uri"])}">'
             f'{esc(headline)}</a>{extra}'
-            f'<div class="mm-src">{esc(a.get("news_source") or "")}'
+            f'<div class="mm-src">{esc(source_label(a.get("news_source")))}'
             f' · {esc((a.get("published") or "")[:10])}</div></td></tr>')
 
 
