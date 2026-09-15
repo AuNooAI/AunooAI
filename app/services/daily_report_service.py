@@ -290,7 +290,9 @@ def _preflight_findings(synthesis_result: Dict, articles: List[Dict], incidents:
                          "published dates only",
                          f"Write 'reported on' that date, or drop the date.", sent, "date")
             # Figures: every number with two or more digits, or a unit, must appear in a source.
-            for n in _numbers_in(sent):
+            # Dates are checked above; drop them first so the day in "September 12, 2026"
+            # is not read as a figure (wileytest 15 Sep 2026: held on that alone, twice).
+            for n in _numbers_in(_DATE_WORDS.sub(" ", _DATE_ISO.sub(" ", sent))):
                 if re.fullmatch(r"(19|20)\d\d", n):
                     continue  # years are handled as dates
                 if n not in source_numbers and n.rstrip("0").rstrip(".") not in source_numbers:
