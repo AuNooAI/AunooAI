@@ -2167,6 +2167,20 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, config.daysBack, selectedBrand]);
 
+  // Load the saved report when the page opens on Insights/Analysis (the tab is
+  // remembered across reloads) or when the brand changes there. Tab clicks
+  // fetch it in handleTabChange, but a reload never goes through that path, so
+  // a persisted report showed as "Not generated yet" (sunstar, 15 Sep 2026).
+  useEffect(() => {
+    if (activeTab !== 'analysis' && activeTab !== 'insights') return;
+    if (!primarySelectedId || narrativeChecked === primarySelectedId) return;
+    setLoadingNarrative(true);
+    getLatestNarrative(primarySelectedId)
+      .then(n => { setNarrative(n); setNarrativeChecked(primarySelectedId); })
+      .catch(console.error)
+      .finally(() => setLoadingNarrative(false));
+  }, [activeTab, primarySelectedId, narrativeChecked]);
+
   // Brand Analysis / Insights must never be report-less: when the latest-
   // narrative fetch has resolved and the server truly has none for this brand,
   // generate one automatically (persisted server-side, so this happens once

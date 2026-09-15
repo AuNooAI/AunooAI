@@ -2269,6 +2269,24 @@ Output a pure JSON array only."""
                 logger.error(f"Failed to parse incident tracking response: {je}")
                 return {"incidents": [], "error": "Failed to parse LLM response"}
 
+        # The prompt asks for timeline as {"event_date", "published"} so the model
+        # dates the event by what the articles say. Every reader of an incident
+        # (cards, saved incidents, briefings) expects timeline as a date string,
+        # so flatten it here: the event date when the articles state one, else
+        # "reported <published>". The two parts stay on the item as fields.
+        for inc in incidents:
+            if not isinstance(inc, dict):
+                continue
+            tl = inc.get("timeline")
+            if isinstance(tl, dict):
+                event_date = (tl.get("event_date") or "").strip() if isinstance(tl.get("event_date"), str) else ""
+                published = (tl.get("published") or "").strip() if isinstance(tl.get("published"), str) else ""
+                if event_date.lower() in ("null", "none", "unknown"):
+                    event_date = ""
+                inc["event_date"] = event_date or None
+                inc["published"] = published or None
+                inc["timeline"] = event_date or (f"reported {published}" if published else "")
+
         # --- Credibility post-processing and safeguards ---
         # Build URI -> credibility map from fetched articles
         def _norm_str(val):
