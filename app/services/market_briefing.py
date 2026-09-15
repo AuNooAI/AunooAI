@@ -605,7 +605,18 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
         prompt = build_prompt(facts, period_label)
         try:
             from app.database import get_database_instance
-            persona = _org_persona_report_prefix(get_database_instance())
+            # The market picks its reader profile (config.foresight.profile_id);
+            # frame the briefing for that org, not the tenant's default profile
+            # (a cloned tenant's default is often a leftover from the source).
+            cfg = market.get("config") or {}
+            if isinstance(cfg, str):
+                try:
+                    cfg = json.loads(cfg)
+                except Exception:  # noqa: BLE001
+                    cfg = {}
+            profile_id = ((cfg.get("foresight") or {}).get("profile_id"))
+            persona = _org_persona_report_prefix(get_database_instance(),
+                                                 profile_id=profile_id)
         except Exception:  # noqa: BLE001 — a briefing without the persona is
             persona = ""    # still a briefing
         messages = [
@@ -650,7 +661,13 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
     if not store:
         return result
 
-    row = conn.execute(text("""
+    # The model call above can outlast the caller's connection idle timeout,
+    # dropping it so this INSERT failed with "SSL connection has been closed
+    # unexpectedly" — a generation the user never got back. Store on a fresh
+    # connection taken after the model call, not one held open across it.
+    from app.database import get_database_instance as _gdi
+    store_conn = _gdi()._temp_get_connection()
+    row = store_conn.execute(text("""
         INSERT INTO bw_market_briefings
             (market_id, period_start, period_end, period_label, title, facts,
              report_content, article_uris, model_used, generation, lint)
@@ -672,8 +689,9 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
            "generation": generation,
            "lint": json.dumps(lint, default=str)}).scalar()
     # Back to draft means out of the feed until somebody approves this text.
-    _withdraw_from_feed(conn, market["id"], row)
-    conn.commit()
+    _withdraw_from_feed(store_conn, market["id"], row)
+    store_conn.commit()
+    store_conn.close()
     result["id"] = row
     result["stored"] = True
     return result

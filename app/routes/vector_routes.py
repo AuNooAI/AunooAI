@@ -4022,24 +4022,32 @@ _SIGNAL_REPORT_SYSTEM_BASE = (
 )
 
 
-def _org_persona_report_prefix(db) -> str:
-    """Persona framing for signal-report generation, from the tenant's default org profile.
+def _org_persona_report_prefix(db, profile_id=None) -> str:
+    """Persona framing for report generation, from a reader org profile.
 
     Returns a system-prompt suffix that names the reader organization so recommendations
     are scoped to that org's remit (e.g. a scientific publisher's editorial/portfolio moves).
-    Empty string if no profile is configured or on any error (report still generates, just
-    with the generic reader-scoping constraint from _SIGNAL_REPORT_SYSTEM_BASE).
+    ``profile_id`` names a specific profile — a market stores its choice in
+    ``config.foresight.profile_id`` — and it wins over the tenant default. Without it,
+    fall back to the tenant's default profile. Empty string if no profile is configured
+    or on any error (report still generates, just with the generic reader-scoping
+    constraint from _SIGNAL_REPORT_SYSTEM_BASE).
     """
     try:
         from app.database_query_facade import DatabaseQueryFacade
         import json as _json
         profiles = DatabaseQueryFacade(db, logger).get_organisational_profiles() or []
-        # NOTE: seed data flags several profiles is_default=true, so pick deterministically
-        # by lowest id (the tenant's primary/first-seeded profile) rather than trusting the
-        # ambiguous flag or the name-sorted facade order.
         by_id = sorted(profiles, key=lambda p: p.get('id') or 1_000_000)
-        defaults = [p for p in by_id if p.get('is_default')]
-        prof = (defaults or by_id or [None])[0]
+        prof = None
+        # An explicit choice wins over the default flag. On a cloned tenant the
+        # is_default profile is often a leftover from the source tenant (here,
+        # "Wiley Scientific Publisher"), which is how a cybersecurity market
+        # briefing ended up framed for an academic publisher.
+        if profile_id is not None:
+            prof = next((p for p in by_id if p.get('id') == profile_id), None)
+        if prof is None:
+            defaults = [p for p in by_id if p.get('is_default')]
+            prof = (defaults or by_id or [None])[0]
         if not prof:
             return ""
 
