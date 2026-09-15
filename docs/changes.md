@@ -2,6 +2,48 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-15 — Market Monitor front page: the lead rotates, and active voices lead the influencers card
+
+### Goal
+The operator noticed the front page of aisocnews.com looked frozen: the same "Top development"
+card (Mars Security, 8 Sep) had led for a week, and the "Influence and Influencers" card opened
+on a run of accounts marked "quiet this period". Both are the same underlying thing — a quiet
+week in the market — showing through two surfaces. The ask was to make the page move on its own
+and to lead the voices card with whoever actually posted.
+
+### Change: rotate the lead through the top recent developments (`app/services/market_report_html.py`)
+The lead was the single highest-ranked development from the last 7 days, so on a quiet week it
+sat on one story until that story aged out. It now rotates daily through the top 5 recent
+developments (`_V2_LEAD_ROTATION = 5`) in `_v2_sections`: the pick is `rotation[day % len]`,
+keyed on the UTC ordinal date, so it is stable within a day and rolls over at midnight. Per-request
+random picking was rejected because the page is rebuilt on every request and would flicker on
+refresh. The fallback is unchanged — when nothing is fresh it drops to the best older story, and
+when only one recent story exists the pool is one item and nothing rotates. The card label
+changed from "Top development" to "Featured development" so it stays honest when a rotated #2–#5
+is showing.
+
+### Change: sort active voices to the top of the influencers card (`app/services/market_report_html.py`)
+`_v2_voices_card` listed every tracked voice in reach order and looked up each one's post count
+for the period. On a quiet week that opened the card on ten "quiet this period" rows. The rows
+are now stably sorted so voices with at least one post this period lead, and the rest keep their
+reach order behind them. The subline changed to "Voices who posted this period first, then the
+rest we follow and track, by reach." No account is hidden; the full tracked roster still renders.
+
+### Verification
+Against the live database (`market 2`, 30 days) there are 33 fresh developments in the 7-day
+window and 5 non-hiring items in the rotation pool: Mars Security (8 Sep, launch), Cantina
+(14 Sep), 7ai (9 Sep), Backline AI (8 Sep), Anvilogic (10 Sep, expansion). After the service
+restart the live public page (`/api/market-monitor/markets/2/report.html?view=v2&days=30`) shows
+"Featured development · Product expansion — Anvilogic is now listed in Claude's Connectors
+Directory" as today's lead, zero occurrences of "Top development", and the influencers card
+leading with Dr. Anton Chuvakin (2 posts) and OpsMatters (1 post) ahead of the quiet accounts.
+OpsMatters had been buried in the reach-ordered tail and was not visible before.
+
+### Propagation
+bugfixing only. Market Monitor and this front page run nowhere else, so there is nothing to copy
+to wiley/wileytest. The change is committed in the canonical tree and already live after the
+`bugfixing.aunoo.ai.service` restart.
+
 ## 2026-09-14 — Market Monitor: the practitioner-voices section only shows on-topic posts
 
 ### Goal

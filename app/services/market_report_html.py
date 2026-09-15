@@ -3636,6 +3636,13 @@ _V2_PIECE_LEAD_DAYS = 3
 # rather than an empty slot: small markets won't have many large signal
 # events (user, same day).
 _V2_LEAD_MAX_AGE_DAYS = 7
+# Rotate the lead through the strongest few recent developments instead of
+# pinning the single top one, so a quiet market doesn't show the same story
+# for a week (user, 15 Sep 2026). The pick is keyed on the UTC date, so it is
+# stable within a day and rolls over at midnight — a per-request random pick
+# would flicker, because the page is rebuilt on every request. On a market
+# with only one recent story the pool is one item, so nothing rotates.
+_V2_LEAD_ROTATION = 5
 _PIECES_SLOT = "<!--mm-pieces-slot-->"
 _V2_HIGHLIGHTS = 3
 #: Vendors named on the sidebar map, and on the most-active list.
@@ -3688,14 +3695,18 @@ def _v2_sections(developments: List[Dict[str, Any]],
                   - timedelta(days=_V2_LEAD_MAX_AGE_DAYS)).strftime("%Y-%m-%d")
         # Rank order, but only among developments young enough to lead; an
         # undated development cannot show it is fresh, so it cannot lead.
+        # Among the fresh, rotate daily through the top few (rank order) so
+        # the lead changes over a quiet week instead of pinning one story.
+        # Fall back to the best older story when nothing recent qualifies.
         fresh = [d for d in developments if str(d.get("date") or "") >= cutoff]
+        day = datetime.now(timezone.utc).toordinal()
         for pool in (fresh, developments):
-            lead = next((d for d in pool
-                         if d.get("event_type") not in _V2_HIRING_TYPES), None)
-            if lead is None and pool:
-                lead = pool[0]
-            if lead is not None:
-                break
+            if not pool:
+                continue
+            rotation = [d for d in pool
+                        if d.get("event_type") not in _V2_HIRING_TYPES][:_V2_LEAD_ROTATION]
+            lead = rotation[day % len(rotation)] if rotation else pool[0]
+            break
     buckets: Dict[str, List[Dict[str, Any]]] = {k: [] for k in V2_SECTIONS}
     for d in developments:
         if d is lead:
@@ -3931,7 +3942,7 @@ def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
     out = [f'<article class="n-story v2-lead-story{" n-story-img" if image else ""}" '
            f'id="{_dev_anchor(dev)}" style="--story:{colour}">',
            (f'<img class="n-thumb v2-lead-img" src="{esc(image)}" alt="">' if image else ""),
-           f'<div class="n-story-tag">Top development · {esc(_v2_tag(dev))}</div>',
+           f'<div class="n-story-tag">Featured development · {esc(_v2_tag(dev))}</div>',
            f'<h2>{esc(dev.get("headline") or "")}</h2>']
     summary = _summary_unless_duplicate(dev)
     if summary:
@@ -4139,6 +4150,17 @@ def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
     for v in (tv or {}).get("voices") or []:
         period[(str(v.get("platform") or "").lower(), str(v.get("author") or "").lower())] = v
 
+    def _posts_for(r: Dict[str, Any]) -> int:
+        v = period.get((str(r.get("platform") or "").lower(),
+                        str(r.get("handle") or "").lower()))
+        return int((v or {}).get("posts") or 0)
+
+    # Voices who posted this period lead the card; the rest keep their reach
+    # order behind them, so a quiet week doesn't open on a wall of "quiet
+    # this period" (user, 15 Sep 2026). Stable sort, so the followed-first,
+    # then-by-reach order the query returns survives within each group.
+    rows = sorted(rows, key=lambda r: _posts_for(r) == 0)
+
     def row_html(r: Dict[str, Any]) -> str:
         handle = f'@{esc(str(r["handle"]))}'
         if r.get("profile_url"):
@@ -4164,8 +4186,8 @@ def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
 
     shown = rows[:_V2_VOICES_SHOWN]
     rest = rows[_V2_VOICES_SHOWN:]
-    out = ['<p class="v2-subline">Accounts we follow first, then practitioners and analysts '
-           'we have profiled, by reach.</p>', "".join(row_html(r) for r in shown)]
+    out = ['<p class="v2-subline">Voices who posted this period first, then the rest we '
+           'follow and track, by reach.</p>', "".join(row_html(r) for r in shown)]
     if rest:
         more = "".join(row_html(r) for r in rest)
         out.append(_teaser_open("The rest of the voices we track") + more + _TEASER_END
