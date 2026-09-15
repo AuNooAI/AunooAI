@@ -1606,7 +1606,10 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     # different facts about a name that has gone from the map.
     listed = horizon.get("acquired") or []
     pivoted = [a for a in listed if a.get("status") == "pivoted"]
-    acquired = [a for a in listed if a.get("status") != "pivoted"]
+    # Oldest acquisition first, so the earliest exit in the market reads at the
+    # front of the line (user, 15 Sep 2026). Undated entries go last.
+    acquired = sorted((a for a in listed if a.get("status") != "pivoted"),
+                      key=lambda a: (a.get("status_date") is None, a.get("status_date") or ""))
     innovating = [r for r in rated if r.get("innovating")]
 
     def fold(summary: str, inner: str) -> str:

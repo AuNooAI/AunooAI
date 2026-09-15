@@ -2,6 +2,28 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-15 — Market Monitor: sort the Maturity Map's Acquired list oldest-first
+
+### Goal
+The Wirespeed acquisition (Coalition, 6 Nov 2025) is the earliest exit recorded in this market,
+but the Acquired list rendered in an arbitrary order — Wirespeed came out last, not first — so
+"the first in this space to be acquired" did not read at a glance.
+
+### Change: order the Acquired list by date (`app/services/market_report_html.py`)
+`_horizon_section` rendered the stored `acquired` array in its stored order (effectively
+brand-id order). It now sorts that list by `status_date` ascending, with undated entries last, so
+the earliest acquisition leads the line. Pivoted vendors are unaffected. This is display order
+only; the stored map is unchanged.
+
+### Verification
+Rebuilt the Analyst View after restart (`?view=report`): the Acquired line now reads
+"Wirespeed — by Coalition, 2025-11-06; Kenzo Security — by Rapid7, 2026-03-26; Radiant Security —
+by Cribl (AI technology assets), 2026-08-19; Redblock" — oldest first, Redblock (no date) last.
+
+### Propagation
+bugfixing only. Live after the `bugfixing.aunoo.ai.service` restart. Market Monitor runs nowhere
+else.
+
 ## 2026-09-15 — Market Monitor: analyst feeds switched back on, Futurum added (ops/config, DB-only)
 
 ### Goal
