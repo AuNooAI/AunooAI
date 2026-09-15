@@ -3089,6 +3089,12 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .n-jump a:hover, .mm-v2 .n-jump a[aria-current="page"] { background:var(--accent-tint-30);
   color:var(--accent-text-active); }
 .mm-v2 .n-jump-page { border:0; color:var(--text-on-dark); }
+/* Labels the section strip so it doesn't read as a second copy of the page
+   menu above it, which is what the two grey link rows looked like on a phone
+   (user, 15 Sep 2026). A heading, not a link: muted, uppercase, no hover. */
+.mm-v2 .n-jump-label { color:var(--text-muted); font-size:var(--fs-meta); font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase; padding-left:0; padding-right:var(--s-2);
+  min-height:32px; }
 .mm-v2 .n-top .n-market { display:none; }
 /* ---- masthead */
 .mm-v2 .v2-mast, .mm-v2 div.n-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap;
@@ -4748,7 +4754,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>",
                        '<div class="mm-news mm-v2">',
                        '<div class="n-top">' + _brand_line()
-                       + f'<nav class="n-jump" aria-label="Sections">{jump}</nav>'
+                       + '<nav class="n-jump" aria-label="Sections">'
+                       '<span class="n-jump-label">Sections</span>' + jump + '</nav>'
                        f'<nav class="n-pages" aria-label="Pages">{pages}{_theme_toggle()}</nav>'
                        f'<span class="n-market">{esc(market["name"])}</span></div>']
     horizon_html = ""

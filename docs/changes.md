@@ -2,6 +2,31 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-15 — Market Monitor front page: label the section strip so it isn't mistaken for a second menu
+
+### Goal
+On a phone the top of aisocnews.com showed two rows of grey text links, one over the other, that
+read as the same menu printed twice. The operator flagged it. The rows are actually two different
+things — the site/utility bar (Analyst View, News river, Submit news, Schedule an inquiry…) and
+the strip of the report's own sections (Analysis, Market moves, Hiring…) — but they share the
+same link styling and are separated only by a hairline, so the difference did not come across.
+
+### Fix: a heading on the section strip (`app/services/market_report_html.py`)
+Added a non-link `Sections` label at the start of the `n-jump` nav in `build_market_report_v2`,
+and styled `.mm-v2 .n-jump-label` as a heading rather than a link: muted, uppercase, letter-
+spaced, no hover. The V2 stylesheet already reserved a `.n-jump-label` slot; nothing had emitted
+one. The section links themselves are unchanged — they still route to each section's own page.
+The label renders on desktop too, where it is equally clarifying and sits inline at the start of
+that row. No React build: this page is server-rendered HTML.
+
+### Verification
+Rebuilt the mobile view at 390px after the service restart (Playwright screenshot). The lower
+strip now leads with "SECTIONS" in muted uppercase, visibly distinct from the utility bar above;
+the two rows no longer read as duplicates.
+
+### Propagation
+bugfixing only. Live after the `bugfixing.aunoo.ai.service` restart.
+
 ## 2026-09-15 — Market Monitor front page: the lead rotates, and active voices lead the influencers card
 
 ### Goal
