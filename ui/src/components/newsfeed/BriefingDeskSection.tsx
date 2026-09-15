@@ -1759,7 +1759,7 @@ function BriefingDetailPanel({
                 {briefing.metadata && (
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Generated with {briefing.model_used || getDeployedModelNames() || 'AI'} on {formatDate(briefing.finalized_at)}
+                      Generated with {briefing.model_used || getDeployedModelNames() || 'AI'}{briefing.finalized_at ? ` on ${formatDate(briefing.finalized_at)}` : ', held as a draft'}
                     </p>
                     {review && <ReviewNote review={review} />}
                   </div>
@@ -2000,9 +2000,11 @@ function ReviewNote({ review }: { review: BriefingReview }) {
   let label: string;
   if (review.status === 'review_failed') label = `Reviewer did not run${review.error ? ` (${review.error})` : ''}`;
   else if (review.override) label = `Finalized over ${errors} reviewer error${errors === 1 ? '' : 's'} by ${review.override.by}${review.override.note ? `: ${review.override.note}` : ''}`;
+  else if (errors) label = `Held by the reviewer: ${errors} error${errors === 1 ? '' : 's'}${warnings ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`;
   else if (warnings) label = `Reviewed: ${warnings} warning${warnings === 1 ? '' : 's'}, no errors`;
   else label = 'Reviewed: no findings';
-  const tone = review.override || review.status === 'review_failed' ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400';
+  const tone = review.override || review.status === 'review_failed' ? 'text-amber-600 dark:text-amber-400'
+    : errors ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
   return (
     <div className="mt-1">
       <button onClick={() => review.findings.length && setOpen(v => !v)} className={`text-xs ${tone} ${review.findings.length ? 'underline' : ''}`}>

@@ -581,6 +581,11 @@ class DailyReportService:
             # only ever saw a held draft, because the first pass keeps turning
             # "reported on" into "released on" (sunstar, 14 Sep 2026).
             repair_rounds: List[Dict] = []
+            # The writer can make a draft worse (wileytest 15 Sep 2026: 2 errors,
+            # then 1, then 4). Keep the round with the fewest errors, not the last.
+            best_synthesis, best_review = synthesis_result, review
+            best_errors = review.get("summary", {}).get("errors", 0)
+            best_round = 0
             while (review.get("status") == "revision_requested"
                    and len(repair_rounds) < config.max_repair_rounds):
                 round_no = len(repair_rounds) + 1
@@ -627,10 +632,17 @@ class DailyReportService:
                 errors_after = review.get("summary", {}).get("errors", 0)
                 repair_rounds.append({"round": round_no, "errors_before": errors_before,
                                       "errors_after": errors_after, "status": review.get("status")})
+                if review.get("status") != "review_failed" and errors_after < best_errors:
+                    best_synthesis, best_review, best_errors, best_round = synthesis_result, review, errors_after, round_no
                 yield {"stage": "repair", "status": "completed", "progress": 1.0,
                        "round": round_no, "errors_before": errors_before, "errors_after": errors_after,
                        "review_status": review.get("status")}
+            if review.get("status") == "revision_requested" and review is not best_review:
+                logger.info("Briefing repair: keeping round %d (%d errors) over the last round (%d errors) for '%s'",
+                            best_round, best_errors, review.get("summary", {}).get("errors", 0), briefing_name)
+                synthesis_result, review = best_synthesis, best_review
             review["repair_rounds"] = repair_rounds
+            review["repair_kept_round"] = best_round if repair_rounds else None
 
             # Final result
             yield {
