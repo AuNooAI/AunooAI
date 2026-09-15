@@ -2,6 +2,64 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-15 — Market Monitor: analyst feeds switched back on, Futurum added (ops/config, DB-only)
+
+### Goal
+The operator asked whether the "Research firms" section on aisocnews.com was still updating.
+Half of it had stopped.
+
+### Finding
+The section has two halves. The vendor-citation half — "firm named a vendor in report X" —
+recomputes live on every page load from the corpus, and the corpus is healthy (433 items
+attached to market 2 in the last 7 days). Running the detector (`app/services/market_research.py`
+`cite()`) over the whole corpus returned 16 qualifying citations, newest dated 8 Sep; nothing
+newer qualifies because the recent Gartner mentions this week are statistics and quotes, which
+`cite()` rejects by design. So that half is current, not stuck.
+
+The other half — the analyst firms' own blog posts — was dead. Both feed rows in `rss_feeds`,
+Forrester (id 41) and KuppingerCole (id 42), were `is_active = false` with `last_checked_at`
+stuck at 2026-08-29. Every forrester.com / kuppingercole.com item in the corpus was from that one
+29 Aug pull. Root cause: the `analyst_feeds` list under `bw_markets.config` for market 2 was
+empty — the seed step that persists it (a PUT to `/analyst-feeds`) was never saved — so a later
+`sync_feeds` run saw the rows as no longer listed and switched them off.
+
+### Fix: persist the feed list and reactivate (DB rows + market config)
+Called the existing endpoint `PUT /api/market-monitor/markets/2/analyst-feeds` (in
+`app/routes/market_monitor_routes.py`, unchanged) with a minted admin cookie. It writes
+`config->'analyst_feeds'` and runs `mres.sync_feeds`, which sets `is_active = true` on the listed
+rows. Sent three feeds: Forrester, KuppingerCole, and Futurum (new). Result:
+`{"added": 1, "deactivated": 0, "feeds": 3}`. All three rows now `is_active = true`
+(Forrester 41, KuppingerCole 42, Futurum 67) under topic "Market Monitoring SOC Automation", and
+`config->'analyst_feeds'` holds 3 entries, so a future sync will not switch them off.
+
+### Feeds tested but not added
+Reachability was tested from this host with a browser user-agent before adding anything, per the
+no-trial-and-error rule. **Gartner** returns 403 even following redirects (`blogs.gartner.com`
+→ `gartner.com/en/insights` → 403); it blocks this server, so a feed would never poll, and
+Gartner keeps arriving through vendor citations. **GigaOm** answers 200 but its newest post is
+dated 13 June 2025 — a dead feed. Neither was added.
+
+### Verification
+Triggered a targeted poll by calling `RSSFeedMonitor.fetch_feed` on the three rows: Forrester
+kept 0 new, KuppingerCole kept 13 new, Futurum kept 0. Ran `_match_corpus` for market 2
+afterwards: 0 of the new items attached. The 13 KuppingerCole posts are about identity, passkeys,
+supply-chain and delegated permissions — general security, not the AI SOC market — so they did
+not clear the relevance gate. Futurum's batch is mostly AI-chip and enterprise-tech coverage,
+also off-topic. So the section shows no new items yet; the pipeline is live again and on-topic
+firm posts will attach on their own from here.
+
+### Propagation
+Uncommittable / local-only. The feed rows and the `analyst_feeds` config live only in this
+tenant's `test` database, not in git. Market Monitor runs only on bugfixing (market 2 /
+aisocnews.com), so there is nothing to copy to other tenants, and a tenant cloned from canonical
+would not have these rows. This changelog entry is the only durable record of the change. The
+endpoint that made it (`PUT /analyst-feeds`) is already in the tree and needs no deploy.
+
+### Lessons
+When adding an analyst feed, always PUT it through `/analyst-feeds` so the list is saved to
+`bw_markets.config`. A feed row created without that config entry is treated as unlisted by the
+next `sync_feeds` and switched off — which is exactly how these two went dead on 29 Aug.
+
 ## 2026-09-15 — Market Monitor front page: label the section strip so it isn't mistaken for a second menu
 
 ### Goal
