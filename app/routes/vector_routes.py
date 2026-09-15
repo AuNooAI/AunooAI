@@ -2197,7 +2197,7 @@ Required fields for each item:
 - subtype: from the allowed list for the chosen type
 - description: FACTUAL summary of what happened/is happening - include who, what, when, where. "When" is the event date the articles state; if they state none, write "reported on <Published date>". "Published" is the day the source ran the piece, not the day the event happened; a study, guideline or report is dated by its own release, which may be months or years earlier. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
 - article_uris
-- timeline: {"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}
+- timeline: {{"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}}
 - significance: low | medium | high (reduce if credibility concerns exist)
 - investigation_leads
 - related_entities: only names that appear in the cited articles; never add the organization this analysis is for, or its competitors, to an item that does not mention them
