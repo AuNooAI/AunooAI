@@ -293,6 +293,52 @@ def title_similarity(a: Any, b: Any) -> float:
     return len(shorter & longer) / len(shorter)
 
 
+#: Labels (incident names, emerging-topic labels) are 4-8 tokens, so the
+#: title threshold of 0.85 would need near-identical wording. Two labels for
+#: the same development share the actors and the noun ("Anthropic AI Extinction
+#: Warning and Congressional Response" / "Anthropic AI Extinction Warnings and
+#: Regulatory Push") and differ in the framing words.
+LABEL_SIMILARITY_THRESHOLD = 0.6
+MIN_SHARED_LABEL_TOKENS = 3
+
+
+def _stem(token: str) -> str:
+    """Just enough stemming to make 'warnings' meet 'warning'."""
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 4 and token.endswith("es") and not token.endswith("ses"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def label_tokens(label: Any) -> frozenset:
+    return frozenset(_stem(t) for t in _title_tokens(label))
+
+
+def label_similarity(a: Any, b: Any) -> float:
+    """Containment of the shorter label's stemmed tokens in the longer, 0..1.
+
+    Returns 0.0 unless at least ``MIN_SHARED_LABEL_TOKENS`` tokens are shared,
+    so two short labels cannot match on a brand name and "AI" alone.
+    """
+    ta, tb = label_tokens(a), label_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    shared = ta & tb
+    if len(shared) < MIN_SHARED_LABEL_TOKENS:
+        return 0.0
+    return len(shared) / min(len(ta), len(tb))
+
+
+def labels_match(a: Any, b: Any, threshold: float = LABEL_SIMILARITY_THRESHOLD) -> bool:
+    na, nb = normalize_title(a), normalize_title(b)
+    if not na or not nb:
+        return False
+    return na == nb or label_similarity(a, b) >= threshold
+
+
 # --------------------------------------------------------------------------
 # Scoring
 # --------------------------------------------------------------------------
@@ -515,6 +561,7 @@ def build_shortlist(
     limit: int,
     topic_order: Optional[Sequence[str]] = None,
     max_per_source: int = MAX_PER_SOURCE,
+    priority: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Fill ``limit`` shortlist slots fairly across topics. Returns (shortlist, stats).
 
@@ -523,6 +570,15 @@ def build_shortlist(
     global sort let one busy topic take every slot. A candidate that would
     breach the per-source cap is *deferred*, not dropped, and a later pass
     spends any unfilled capacity on the deferred candidates in rank order.
+
+    ``priority`` maps a topic to a number of slots it is given before the
+    round-robin starts. With eighteen topics and thirty slots the round-robin
+    gives each topic one or two, which is right for a watch-list topic and
+    wrong for the organization's own brand: the curator saw a Wiley journal
+    paper and a week-old earnings transcript and never the analyst downgrade.
+    The priority slots are still subject to the source cap and are counted in
+    ``per_topic``. A priority topic's slots are its whole share: it sits out
+    the round-robin, so the reservation cannot become reservation plus a turn.
     """
     topics = list(topic_order or ranked_by_topic.keys())
     cursors = {t: 0 for t in topics}
@@ -530,7 +586,8 @@ def build_shortlist(
     chosen_ids: set = set()
     per_source: Dict[str, int] = {}
     deferred: List[Dict[str, Any]] = []
-    stats = {"per_topic": {t: 0 for t in topics}, "deferred_for_source": 0, "second_pass": 0}
+    stats = {"per_topic": {t: 0 for t in topics}, "deferred_for_source": 0,
+             "second_pass": 0, "priority": {}}
 
     def identity(row: Dict[str, Any]) -> str:
         return row.get("_norm_uri") or str(row.get("uri") or id(row))
@@ -542,11 +599,31 @@ def build_shortlist(
         if topic:
             stats["per_topic"][topic] = stats["per_topic"].get(topic, 0) + 1
 
+    # Pass 0 — reserved slots for priority topics (the organization's own brand).
+    for topic, slots in (priority or {}).items():
+        if topic not in cursors:
+            continue
+        rows = ranked_by_topic.get(topic) or []
+        taken = 0
+        while taken < slots and len(chosen) < limit and cursors[topic] < len(rows):
+            row = rows[cursors[topic]]
+            cursors[topic] += 1
+            if identity(row) in chosen_ids:
+                continue
+            if per_source.get(_source_of(row), 0) >= max_per_source:
+                deferred.append(row)
+                stats["deferred_for_source"] += 1
+                continue
+            take(row, topic)
+            taken += 1
+        stats["priority"][topic] = taken
+
     # Pass 1 — one candidate per topic per round, respecting the source cap.
+    round_robin = [t for t in topics if t not in (priority or {})]
     progress = True
     while len(chosen) < limit and progress:
         progress = False
-        for topic in topics:
+        for topic in round_robin:
             if len(chosen) >= limit:
                 break
             rows = ranked_by_topic.get(topic) or []
@@ -576,6 +653,42 @@ def build_shortlist(
 
     stats["selected"] = len(chosen)
     return chosen, stats
+
+
+def balance_across_groups(
+    ranked_by_group: Dict[str, List[Any]],
+    *,
+    limit: int,
+    group_order: Optional[Sequence[str]] = None,
+) -> Tuple[List[Any], Dict[str, int]]:
+    """Round-robin ``limit`` items across groups, each group already ranked.
+
+    The plain per-item cap that preceded this took the first N items in group
+    order, so with fifteen slots and two busy groups at the front of the list
+    the other sixteen groups were never shown to the curator at all. Every
+    group with material gets its best item before any group gets a second.
+    Returns (items, per_group counts).
+    """
+    groups = list(group_order or ranked_by_group.keys())
+    for g in ranked_by_group:
+        if g not in groups:
+            groups.append(g)
+    cursors = {g: 0 for g in groups}
+    chosen: List[Any] = []
+    per_group = {g: 0 for g in groups}
+    progress = True
+    while len(chosen) < limit and progress:
+        progress = False
+        for g in groups:
+            if len(chosen) >= limit:
+                break
+            rows = ranked_by_group.get(g) or []
+            if cursors[g] < len(rows):
+                chosen.append(rows[cursors[g]])
+                cursors[g] += 1
+                per_group[g] += 1
+                progress = True
+    return chosen, per_group
 
 
 def backfill(

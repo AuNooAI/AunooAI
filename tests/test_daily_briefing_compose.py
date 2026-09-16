@@ -107,6 +107,13 @@ class FakeFacade:
         self.staged_emerging.append(payload)
         return True
 
+    # Title lookup for the incident-vs-article story match; tests that need it
+    # populate ``titles_by_uri``.
+    titles_by_uri: Dict[str, str] = {}
+
+    def get_articles_by_uris(self, uris):
+        return [{"uri": u, "title": self.titles_by_uri[u]} for u in uris if u in self.titles_by_uri]
+
 
 class FakeDB:
     def __init__(self, facade):
@@ -117,13 +124,19 @@ class FakeDB:
 
 
 class FakeEmergingTopic:
-    def __init__(self, label, confidence):
+    def __init__(self, label, confidence, topic=None, composite=None, uris=None):
         self.label = label
         self.confidence = confidence
+        self.topic = topic
+        self.composite = composite
+        self.article_uris = list(uris or [])
 
     def to_dict(self):
-        return {"topic_label": self.label, "confidence_score": self.confidence,
-                "why_emerging": "because", "topic_filter": "t"}
+        d = {"topic_label": self.label, "confidence_score": self.confidence,
+             "why_emerging": "because", "topic_filter": self.topic or "t"}
+        if self.composite is not None:
+            d["trend_score"] = {"composite": self.composite}
+        return d
 
 
 def install_stubs(monkeypatch, *, emerging=None, incidents=None, curate=None,
@@ -152,7 +165,8 @@ def install_stubs(monkeypatch, *, emerging=None, incidents=None, curate=None,
             if emerging_calls is not None:
                 emerging_calls.append({"topic": topic_filter, "min_confidence": min_confidence,
                                        "days_back": days_back})
-            return [t for t in (emerging or []) if t.confidence >= min_confidence]
+            return [t for t in (emerging or [])
+                    if t.confidence >= min_confidence and t.topic in (None, topic_filter)]
 
     import app.services.emerging_topics as et
     monkeypatch.setattr(et, "EmergingTopicsService", FakeService)
@@ -269,7 +283,7 @@ class TestCuratorPayload:
         compose(FakeDB(facade), ["T"], run_detection=False)
 
         candidate = seen["articles"][0]
-        for field in ("id", "title", "source", "date", "topics", "prerank_score",
+        for field in ("id", "title", "source", "published", "topics", "prerank_score",
                       "topic_alignment", "keyword_relevance", "quality",
                       "analysis_confidence", "credibility", "summary"):
             assert field in candidate, f"curator payload is missing {field}"
@@ -506,3 +520,135 @@ class TestFailureHandling:
 
         assert ([a["uri"] for a in facade_stream.staged_articles]
                 == [a["uri"] for a in facade_direct.staged_articles])
+
+
+# --------------------------------------------------------------------------
+# Repeats across days, balance across topics, own-brand exposure
+# --------------------------------------------------------------------------
+
+def _capture_payload(seen):
+    def capture(payload):
+        seen.update(payload)
+        return {"articles": [], "incidents": [], "emerging_topics": []}
+    return capture
+
+
+class TestRepeatsAndBalance:
+    def test_the_emerging_pool_is_balanced_across_topics_before_the_cap(self, loop, monkeypatch):
+        """Two busy topics used to fill all fifteen slots in topic order and the
+        third topic's emerging topics were never shown to the curator."""
+        seen: Dict[str, Any] = {}
+        emerging = ([FakeEmergingTopic(f"Alpha{i} launches product{i} in market{i}", 0.9,
+                                       topic="A", composite=90 - i) for i in range(20)]
+                    + [FakeEmergingTopic(f"Beta{i} acquires target{i} for sum{i}", 0.9,
+                                         topic="B", composite=80 - i) for i in range(20)]
+                    + [FakeEmergingTopic("Gamma regulator fines widget maker", 0.9,
+                                         topic="C", composite=10)])
+        facade = FakeFacade({"A": [article("a")], "B": [article("b")], "C": [article("c")]})
+        install_stubs(monkeypatch, curate=_capture_payload(seen), emerging=emerging)
+        compose(FakeDB(facade), ["A", "B", "C"], run_detection=False)
+
+        shown = seen["candidate_emerging_topics"]
+        assert len(shown) == svc.LLM_EMERGING_CONTEXT
+        assert {t["topic"] for t in shown} == {"A", "B", "C"}
+        assert shown[0]["name"].startswith("Alpha0 ")
+        assert shown[1]["name"].startswith("Beta0 ")
+        assert shown[2]["name"] == "Gamma regulator fines widget maker"
+
+    def test_a_relabelled_emerging_topic_from_a_recent_briefing_is_skipped(self, loop, monkeypatch):
+        seen: Dict[str, Any] = {}
+        facade = FakeFacade({"T": [article("a")]})
+        install_stubs(monkeypatch, curate=_capture_payload(seen), emerging=[
+            FakeEmergingTopic("Anthropic AI Extinction Warnings and Regulatory Push", 0.9),
+            FakeEmergingTopic("Google DeepMind AlphaGenome Atlas Launch", 0.9),
+        ])
+        monkeypatch.setattr(svc, "_recently_shared_items", lambda db, days: {
+            "article_uris": set(), "incidents": set(),
+            "emerging": {"anthropic ai extinction warning and congressional response"},
+            "emerging_labels": ["Anthropic AI Extinction Warning and Congressional Response"],
+        })
+        compose(FakeDB(facade), ["T"], run_detection=False)
+        assert [t["name"] for t in seen["candidate_emerging_topics"]] == [
+            "Google DeepMind AlphaGenome Atlas Launch"]
+
+    def test_two_labels_for_one_development_reach_the_curator_once(self, loop, monkeypatch):
+        seen: Dict[str, Any] = {}
+        facade = FakeFacade({"T": [article("a")]})
+        install_stubs(monkeypatch, curate=_capture_payload(seen), emerging=[
+            FakeEmergingTopic("Anthropic Researcher Resignations Over AI Safety", 0.9, composite=60),
+            FakeEmergingTopic("Anthropic AI Safety Researcher Exodus", 0.9, composite=85),
+            FakeEmergingTopic("OpenAI Navier-Stokes Solution Controversy", 0.9, composite=70),
+        ])
+        compose(FakeDB(facade), ["T"], run_detection=False)
+        names = [t["name"] for t in seen["candidate_emerging_topics"]]
+        assert names == ["Anthropic AI Safety Researcher Exodus",
+                         "OpenAI Navier-Stokes Solution Controversy"]
+
+    def test_an_incident_citing_an_already_shared_article_is_skipped(self, loop, monkeypatch):
+        seen: Dict[str, Any] = {}
+        facade = FakeFacade({"T": [article("a")]})
+        incidents = [
+            {"name": "Google pay-per-value AI licensing for publishers", "significance": "high",
+             "article_uris": ["https://www.digiday.com/google-ai-licensing?utm_source=x"]},
+            {"name": "Elsevier and LG AI Research partner on chemistry images", "significance": "high",
+             "article_uris": ["https://www.webwire.com/ViewPressRel.asp?aId=360524"]},
+        ]
+        install_stubs(monkeypatch, curate=_capture_payload(seen), incidents=incidents)
+        monkeypatch.setattr(svc, "_recently_shared_items", lambda db, days: {
+            "article_uris": set(), "incidents": {"google launches pay-per-use ai licensing"},
+            "emerging": set(),
+            "incident_labels": ["Google launches pay-per-use AI licensing"],
+            "incident_uris": {svc.normalize_uri("https://digiday.com/google-ai-licensing")},
+        })
+        compose(FakeDB(facade), ["T"], run_detection=False)
+        assert [i["name"] for i in seen["candidate_incidents"]] == [
+            "Elsevier and LG AI Research partner on chemistry images"]
+
+    def test_the_own_brand_topic_gets_reserved_shortlist_slots(self, loop, monkeypatch):
+        seen: Dict[str, Any] = {}
+        corpus = {f"Watch {i}": [article(f"w{i}-{j}", align=0.9, source=f"w{i}{j}.com") for j in range(6)]
+                  for i in range(14)}
+        corpus["Brand Monitoring Wiley"] = [
+            article(f"wiley{j}", align=0.7 + j * 0.01, source=f"wiley{j}.com") for j in range(6)]
+        corpus["Brand Monitoring Elsevier"] = [
+            article(f"elsevier{j}", align=0.9, source=f"els{j}.com") for j in range(6)]
+        topics = list(corpus.keys())
+        install_stubs(monkeypatch, curate=_capture_payload(seen))
+        monkeypatch.setattr(svc, "_get_default_org_profile",
+                            lambda db: {"name": "Wiley Scientific Publisher"})
+        compose(FakeDB(FakeFacade(corpus)), topics, run_detection=False)
+
+        per_topic: Dict[str, int] = {}
+        for c in seen["candidate_articles"]:
+            for t in c["topics"]:
+                per_topic[t] = per_topic.get(t, 0) + 1
+        assert per_topic["Brand Monitoring Wiley"] >= svc.OWN_BRAND_SHORTLIST_SLOTS
+        assert per_topic["Brand Monitoring Elsevier"] <= 2
+        assert len(seen["candidate_articles"]) == svc.LLM_ARTICLE_CONTEXT
+
+    def test_a_generic_profile_word_does_not_claim_a_competitor_topic(self):
+        topics = ["Brand Monitoring Wiley", "Brand Monitoring Elsevier", "Scientific Publishers"]
+        assert svc._own_brand_topics(topics, {"name": "Wiley Scientific Publisher"}) == [
+            "Brand Monitoring Wiley"]
+        assert svc._own_brand_topics(topics, {"name": "Scientific Publishing Group"}) == []
+        assert svc._own_brand_topics(topics, None) == []
+
+    def test_an_article_that_retells_a_selected_incidents_source_is_dropped(self, loop, monkeypatch):
+        """The incident cites the webwire copy of a press release; the article
+        pool holds the prnewswire copy. Same story, different URI."""
+        title = "Elsevier and LG AI Research unlock more chemistry hidden in scientific images"
+        facade = FakeFacade({"T": [article("https://prnewswire.com/elsevier-lg", title=title)]
+                             + [article(f"https://other.com/{i}", align=0.8) for i in range(9)]})
+        facade.titles_by_uri = {"https://www.webwire.com/ViewPressRel.asp?aId=360524": title}
+        incidents = [{"name": "Elsevier and LG AI Research partner on chemistry image analysis",
+                      "significance": "high",
+                      "article_uris": ["https://www.webwire.com/ViewPressRel.asp?aId=360524"]}]
+        picks = {"articles": [{"id": "a0", "reason": "r"}],
+                 "incidents": [{"id": "i0", "reason": "r"}], "emerging_topics": []}
+        install_stubs(monkeypatch, curate=lambda p: picks, incidents=incidents)
+        compose(FakeDB(facade), ["T"], run_detection=False)
+
+        uris = [a["uri"] for a in facade.staged_articles]
+        assert "https://prnewswire.com/elsevier-lg" not in uris
+        assert len(uris) == svc.TARGET_ARTICLES
+        assert [i["name"] for i in facade.staged_incidents] == [incidents[0]["name"]]
