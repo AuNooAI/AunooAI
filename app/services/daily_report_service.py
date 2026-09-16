@@ -452,7 +452,8 @@ class DailyReportService:
         incidents: List[Dict],
         model: str = "gpt-5.4",
         organizational_profile: str = None,
-        persona: str = None
+        persona: str = None,
+        timeline_context: str = None,
     ) -> AsyncGenerator[Dict, None]:
         """
         Generate AI synthesis for a desk briefing.
@@ -462,8 +463,11 @@ class DailyReportService:
             articles: List of curated article dicts
             incidents: List of curated incident dicts
             model: AI model to use
-            organizational_profile: Organization name/type for tailored context
+            organizational_profile: Organization name, or the full profile block
+                (name, concerns, priorities, competitors) — multi-line is fine
             persona: Role/persona for tailored recommendations
+            timeline_context: the tenant's auto-maintained timeline for the
+                briefing's topics, as background (not evidence)
 
         Yields:
             Progress updates and final synthesis
@@ -540,7 +544,8 @@ class DailyReportService:
                     incidents=analyzed_incidents,
                     config=config,
                     organizational_profile=organizational_profile,
-                    persona=persona
+                    persona=persona,
+                    timeline_context=timeline_context,
                 ),
                 timeout=config.synthesis_timeout
             )
@@ -971,7 +976,8 @@ Return JSON:
         incidents: List[Dict],
         config: DRConfig,
         organizational_profile: str = None,
-        persona: str = None
+        persona: str = None,
+        timeline_context: str = None,
     ) -> Dict:
         """Generate synthesis from analyzed articles and incidents."""
         agent_prompt = self._load_agent_prompt("dr_synthesis_agent")
@@ -1016,7 +1022,11 @@ Risk/Opportunity: {analysis.get('risk_opportunity', 'mixed')}
         if organizational_profile or persona:
             context_section = "\nORGANIZATIONAL CONTEXT:\n"
             if organizational_profile:
-                context_section += f"Organization: {organizational_profile}\n"
+                # Either a bare name or the full profile block from the route.
+                if "\n" in organizational_profile:
+                    context_section += f"{organizational_profile}\n"
+                else:
+                    context_section += f"Organization: {organizational_profile}\n"
             if persona:
                 context_section += f"Target Audience/Role: {persona}\n"
             context_section += """
@@ -1028,12 +1038,21 @@ CRITICAL FRAMING REQUIREMENTS:
 - Use language like "Option to consider:", "Potential path:", "Decision point:" rather than commands
 """
 
+        background_section = ""
+        if timeline_context and timeline_context.strip():
+            background_section = f"""
+BACKGROUND — state of play already known (the tenant's auto-maintained timeline). Use it to say whether an item is new or a continuation, and to avoid presenting an ongoing story as breaking news. It is background, not evidence: every fact in the briefing must still come from the ARTICLES and INCIDENTS below.
+--- BEGIN BACKGROUND ---
+{timeline_context.strip()}
+--- END BACKGROUND ---
+"""
+
         prompt = f"""Synthesize an executive briefing from these curated articles and incidents.
 {FACT_RULES}
 Before writing, check the items below for conflicting claims about the same fact (for example one item reporting an earnings beat and another a miss). If you find one, the briefing summary must name the conflict.
 
 BRIEFING NAME: {briefing_name}
-{context_section}
+{context_section}{background_section}
 ARTICLES ({len(articles)} items):
 {articles_text if articles_text else "No articles included."}
 

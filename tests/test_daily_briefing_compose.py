@@ -148,6 +148,7 @@ def install_stubs(monkeypatch, *, emerging=None, incidents=None, curate=None,
     monkeypatch.setattr(svc, "_fewshot_examples", lambda db, k=5: {"articles": [], "incidents": [], "emerging": []})
     monkeypatch.setattr(svc, "_recently_shared_items",
                         lambda db, days: {"article_uris": set(), "incidents": set(), "emerging": set()})
+    monkeypatch.setattr(svc, "_timeline_background", lambda db, topics: "")
 
     async def fake_detect(topics, days_back, model, profile_id=None):
         return list(incidents or [])
@@ -173,7 +174,13 @@ def install_stubs(monkeypatch, *, emerging=None, incidents=None, curate=None,
     monkeypatch.setattr(et, "EmergingTopicsConfig", lambda **kw: None)
 
     async def fake_curate(payload, fewshot, model, profile_ctx=""):
-        return curate(payload) if callable(curate) else curate
+        if not callable(curate):
+            return curate
+        # A two-argument capture also sees the editorial context (few-shot,
+        # recently covered, timeline background) the curator is given.
+        if len(inspect.signature(curate).parameters) >= 2:
+            return curate(payload, fewshot)
+        return curate(payload)
     monkeypatch.setattr(svc, "_curate", fake_curate)
 
 
@@ -652,3 +659,82 @@ class TestRepeatsAndBalance:
         assert "https://prnewswire.com/elsevier-lg" not in uris
         assert len(uris) == svc.TARGET_ARTICLES
         assert [i["name"] for i in facade.staged_incidents] == [incidents[0]["name"]]
+
+
+# --------------------------------------------------------------------------
+# Model selection and background context
+# --------------------------------------------------------------------------
+
+class TestModelAndBackground:
+    def test_the_pinned_model_is_the_default(self, loop, monkeypatch):
+        seen = {}
+
+        async def fake_curate(payload, fewshot, model, profile_ctx=""):
+            seen["model"] = model
+            return {"articles": [], "incidents": [], "emerging_topics": []}
+
+        facade = FakeFacade({"T": [article("a")]})
+        install_stubs(monkeypatch)
+        monkeypatch.setattr(svc, "_curate", fake_curate)
+        monkeypatch.setattr(svc, "_get_pinned_briefing_model", lambda db: "bedrock-kimi-k2-5")
+        compose(FakeDB(facade), ["T"], run_detection=False, model="claude-sonnet-4-5")
+        assert seen["model"] == "bedrock-kimi-k2-5"
+
+    def test_an_explicit_page_selection_beats_the_pin(self, loop, monkeypatch):
+        seen = {}
+
+        async def fake_curate(payload, fewshot, model, profile_ctx=""):
+            seen["model"] = model
+            return {"articles": [], "incidents": [], "emerging_topics": []}
+
+        async def fake_detect(topics, days_back, model, profile_id=None):
+            seen["detect_model"] = model
+            return []
+
+        facade = FakeFacade({"T": [article("a")]})
+        install_stubs(monkeypatch)
+        monkeypatch.setattr(svc, "_curate", fake_curate)
+        monkeypatch.setattr(svc, "_detect_incidents", fake_detect)
+        monkeypatch.setattr(svc, "_get_pinned_briefing_model", lambda db: "bedrock-kimi-k2-5")
+        compose(FakeDB(facade), ["T"], run_detection=False, model="claude-sonnet-4-5",
+                honor_model=True)
+        assert seen["model"] == "claude-sonnet-4-5"
+        assert seen["detect_model"] == "claude-sonnet-4-5"
+
+    def test_the_route_honours_the_model_only_when_the_page_sends_one(self):
+        from app.routes.daily_reports_routes import AutoComposeRequest, _compose_kwargs
+        assert _compose_kwargs(AutoComposeRequest())["honor_model"] is False
+        assert _compose_kwargs(AutoComposeRequest(model="claude-sonnet-4-5"))["honor_model"] is True
+
+    def test_the_timeline_background_reaches_the_curator(self, loop, monkeypatch):
+        seen: Dict[str, Any] = {}
+
+        def capture(payload, fewshot):
+            seen["fewshot"] = fewshot
+            return {"articles": [], "incidents": [], "emerging_topics": []}
+
+        facade = FakeFacade({"T": [article("a")]})
+        install_stubs(monkeypatch, curate=capture)
+        monkeypatch.setattr(svc, "_timeline_background",
+                            lambda db, topics: "[TIMELINE: T]\n- [2026-09-15] Ongoing story (seen 4×)")
+        compose(FakeDB(facade), ["T"], run_detection=False)
+        assert "Ongoing story" in seen["fewshot"]["timeline_background"]
+
+    def test_a_tenant_without_a_timeline_gives_empty_background(self):
+        class NoTimelineDB:
+            def _temp_get_connection(self):
+                raise RuntimeError("relation timeline_events does not exist")
+        assert svc._timeline_background(NoTimelineDB(), ["T"]) == ""
+        assert svc._timeline_background(FakeDB(FakeFacade({})), []) == ""
+
+    def test_timeline_blocks_are_compressed_not_sliced(self):
+        block = ("[STATE: T] (trend: up)\n" + "First sentence of state. " * 40 + "\n[END STATE]\n"
+                 "[TIMELINE: T]\n- [Week 2026-09-07] Long rollup: " + "x" * 400 + "\n"
+                 "- [2026-09-15] Daily line kept whole (seen 4×)\n[END TIMELINE]")
+        out = svc._compress_timeline_block(block)
+        lines = out.splitlines()
+        assert lines[0] == "[STATE: T] (trend: up)"
+        assert len(lines[1]) <= svc.TIMELINE_STATE_CHARS and lines[1].endswith(".")
+        assert lines[4].startswith("- [Week 2026-09-07]") and lines[4].endswith("…")
+        assert "- [2026-09-15] Daily line kept whole (seen 4×)" in lines
+        assert lines[-1] == "[END TIMELINE]"

@@ -313,7 +313,42 @@ def _compose_kwargs(request: "AutoComposeRequest") -> dict:
         "run_detection": request.run_detection,
         "model": request.model,
         "history_days": request.history_days,
+        # The page's model selector wins when it is sent; the tenant's pinned
+        # briefing model is the default for callers that send none.
+        "honor_model": "model" in request.model_fields_set,
     }
+
+
+def _resolve_org_profile(db, name: Optional[str]) -> Optional[dict]:
+    """The profile the page named, else the tenant default. Never raises."""
+    from app.services.daily_briefing_compose_service import _get_default_org_profile
+    if name:
+        from sqlalchemy import text
+        try:
+            conn = db._temp_get_connection()
+            try:
+                row = conn.execute(text("""
+                    SELECT id, name, industry, organization_type, key_concerns,
+                           strategic_priorities, competitive_landscape, regulatory_environment,
+                           custom_context, region, monitored_brands
+                    FROM organizational_profiles WHERE name = :name LIMIT 1
+                """), {"name": name}).mappings().first()
+            finally:
+                conn.close()
+            if row:
+                d = dict(row)
+                for f in ("key_concerns", "strategic_priorities", "competitive_landscape",
+                          "regulatory_environment", "monitored_brands"):
+                    v = d.get(f)
+                    if isinstance(v, str):
+                        try:
+                            d[f] = json.loads(v)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                return d
+        except Exception as e:
+            logger.warning(f"[finalize] profile '{name}' lookup failed: {e}")
+    return _get_default_org_profile(db)
 
 
 @router.post("/auto-compose")
@@ -871,11 +906,22 @@ async def finalize_briefing(
     if briefing.get("status") == "finalized":
         raise HTTPException(400, "Briefing is already finalized")
 
-    # Pin the synthesis model server-side so the finalized briefing (and the
-    # model_used byline) is tenant-consistent, independent of the browser model
-    # dropdown. Falls back to the client-passed model when unset.
-    from app.services.daily_briefing_compose_service import _get_pinned_briefing_model
-    effective_model = _get_pinned_briefing_model(db) or request.model
+    # The page's model selector wins when it is sent. The tenant's pinned
+    # briefing model (emerging_topics_settings.model) is the default for callers
+    # that send none, so a scripted finalize stays tenant-consistent.
+    from app.services.daily_briefing_compose_service import (
+        _get_pinned_briefing_model, _get_default_org_profile, _profile_context,
+        _timeline_background)
+    if "model" in request.model_fields_set:
+        effective_model = request.model
+    else:
+        effective_model = _get_pinned_briefing_model(db) or request.model
+
+    # The synthesis used to get only the profile's NAME; concerns, priorities
+    # and competitors never reached it. Resolve the named profile (or the
+    # tenant default) and pass the same block the curator sees.
+    profile_row = _resolve_org_profile(db, request.organizational_profile)
+    profile_block = _profile_context(profile_row) or request.organizational_profile
 
     articles = briefing.get("articles", [])
     incidents = briefing.get("incidents", [])
@@ -931,13 +977,19 @@ async def finalize_briefing(
     async def stream_finalize():
         service = get_daily_report_service()
         try:
+            briefing_topics = []
+            for item in list(articles) + list(incidents):
+                t = item.get("topic")
+                if t and t not in briefing_topics:
+                    briefing_topics.append(t)
             async for update in service.generate_synthesis(
                 briefing_name=briefing.get("name"),
                 articles=articles,
                 incidents=incidents,
                 model=effective_model,
-                organizational_profile=request.organizational_profile,
-                persona=request.persona
+                organizational_profile=profile_block,
+                persona=request.persona,
+                timeline_context=_timeline_background(db, briefing_topics),
             ):
                 if update.get("stage") == "complete":
                     # The reviewer's verdict decides whether this is a finalize

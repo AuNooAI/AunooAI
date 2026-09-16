@@ -222,7 +222,9 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     try {
       const final = await streamComposeDailyBriefing(
         selectedTopics.length ? selectedTopics : undefined,
-        undefined,
+        // The page's model selector applies to compose too; when nothing is
+        // selected the server uses the tenant's pinned briefing model.
+        model ? { model } : undefined,
         (evt) => {
           // Keep one line per stage; replace the stage's line as it progresses
           setComposeLog((prev) => {
