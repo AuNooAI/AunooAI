@@ -2,6 +2,141 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-16 — Market Monitor Social panel: a vendor's name inside a discount code, and five other things that are not practitioners talking
+
+### Goal
+The public site's Social panel led with a Bluesky advert: *"🔥 One scan. One
+Fun-Pass. Free & Unlimited Fun. Use code: 7AI-N5AI to unlock the latest drop.
+Link in bio."* Chasing it showed the panel was six for six — not one of the
+six posts on the front page was a practitioner saying anything.
+
+### Fix — a vendor name inside a reference code is not a mention
+The advert reached the market corpus through the vendor-name scan
+(`bw_market_articles.method = 'vendor_name'`), which matched **7ai** inside the
+discount code `7AI-N5AI` and wrote a `market_name_match` category for brand
+112. Nothing upstream was wrong: the name is real, and `\b7ai\b` genuinely
+matches, because the hyphen ends a word. The context rule that would normally
+demand the market's vocabulary alongside a name was skipped, correctly, by
+`_distinctive()` — a name with a digit in it needs no context, which is what
+rescued a practitioner thanking 7AI for a sponsorship back in the September 8
+pass.
+
+So the give-away is not the name and not the boundary; it is the token the
+name sits in. **`app/services/market_corpus.py`** gains `_CODEISH` and
+`_without_codes()` beside the existing `_URLISH`/`_without_urls()`, and
+`_matchable()` composes the two for the one call site in
+`attribute_vendors()`. A token counts as a code when two or more runs are
+joined by `-`, `_` or `/` **and each run mixes letters with digits**.
+`7AI-N5AI` and `SOC2-X1` go; `7AI-backed` and `Strike48-powered` stay, because
+their second run is an ordinary word. Checked against every vendor term in
+every market in this database: no registered name is itself erased.
+
+### Fix — five classes of post that are not practitioner discussion
+`is_noise()` in **`app/services/market_assessment.py`** already rejected job
+hunting, course completions, freelance adverts, market-size SEO and event
+promotion. Five more, each one measured against 90 days of this market's
+social corpus (587 posts) before it was added:
+
+- **Consumer promotion** — "link in bio", "use code", "DM me", "giveaway",
+  "airdrop". Catches the advert a second time, independently of the name fix.
+- **Somebody asking which job to take** — "recently graduated", "job offer",
+  "which offer", "should I take". Deliberately narrow. `any advice` on its own
+  also matches a practitioner asking how to evaluate AI SOC tools, which is
+  precisely the post the panel exists for, so it is not in the list.
+- **Feed robots restating headlines** — "the latest update for". Seven posts
+  in 90 days, all from `opsmatters.com`, none of them anybody's words.
+- **Share-price chatter** — "stocks to buy/watch", "price target", "market
+  recap", "earnings call".
+- **Sales approaches** — "message us", "book a demo", "talk to our team". One
+  Microsoft Copilot campaign line ran from three different handles.
+
+Two more gates read the record rather than the words, because the words did
+not carry the signal:
+
+- **`record_is_noise(record)`** is new, and the corpus paths now call it
+  instead of `is_noise()`. It rejects any Reddit post from a subreddit that is
+  about getting a job rather than doing one (`_CAREER_SUBREDDITS`, ten named
+  subs). "20yo in cybersecurity — which path could lead to a
+  location-independent career?" hits no text rule; `r/SecurityCareerAdvice`
+  settles it. `r/FreeITCourses` and `r/learnwithcodelivly` are deliberately
+  **not** on the list — the first reposts real vendor news and the second
+  carries practitioners writing up their own lab builds.
+- **Two different tickers** in one post is somebody comparing shares. Counted
+  as a set, so `$CRWD` in a title and again in the body still reads as one
+  ticker: that is how a stock-tracking account tags a vendor's own launch, and
+  that launch is a development like any other.
+
+### Fix — one voice and one line of copy per slot on the panel
+Even with the junk gone, the panel repeated itself: two `opsmatters` posts,
+one person's duplicate Reddit post, and one syndicated sentence from two
+handles held four of six slots. **`app/services/market_report_html.py`** gains
+`_spread_voices()`, used only for the front page's six-item Social slice. It
+takes the first post from each account and each distinct body before allowing
+any repeat. Nothing is discarded — a repeat drops to the back of the queue and
+still fills a slot when there are not enough distinct voices, and the
+section's own page lists every post in date order as before. `_same_words()`
+keys on the post's **body**, not the title, because a social title is
+`@handle: <the post>` and two handles running one line key differently on the
+title.
+
+### Data repair
+Two articles carried a 7ai attribution that only the code bug produced: the
+advert, and `@robprocks.com`'s "Whaddya mean 6-7AI was a meme stock". An audit
+that re-ran the name scan under both the old and new rules over every
+`market_name_match` row in every market found these two and nothing else. Both
+are now `review_verdict = 'excluded'` on `bw_market_articles` with a reason,
+and their `bw_article_categories` and `bw_entity_mentions` rows for brand 112
+are deleted (2 rows each).
+
+### Verification
+`pytest tests/test_market_assessment.py tests/test_market_corpus_names.py
+tests/test_market_report_v2.py` — 99 passed, 2 failed. Both failures
+(`test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view`,
+`test_named_customer_is_a_customer_and_unnamed_is_a_case_study`) fail
+identically on a stashed tree, so they pre-date this work and are untouched by
+it. 16 new tests, each pinned to the post that caused the rule, including two
+that assert the rules do **not** fire: a practitioner asking how to evaluate
+AI SOC tools, and a vendor launch tagged with a single ticker.
+
+The panel before and after, fetched from `127.0.0.1:10004` and restarted
+between:
+
+| | before | after |
+|---|---|---|
+| distinct accounts in six slots | 3 | 6 |
+| adverts, career questions, feed-bot reposts, stock picks | 6 | 0 |
+
+The new bottom of the panel is `@Tech_Tonio`: *"SOC Automation lab Part 2
+Update: Wazuh, DFIR-IRIS, and n8n are up and actually talking to each other"* —
+which is what the panel is for.
+
+Rejection rate over the 90-day window: 22 of 587 posts, and each one was read
+before its rule was kept.
+
+### Propagation
+Market Monitor exists in four trees. bugfixing (canonical, serves
+aisocnews.com) has the change and is restarted. oviva runs one market with
+`MARKET_MONITORING_ENABLED=true`; all three files were patched surgically —
+its copies are 113 to 1,320 lines adrift, so a wholesale copy was not an
+option — smoke-tested and restarted clean. sunstar has the files but no
+markets and monitoring off, so it was patched for consistency and **not**
+restarted. wiley and wileytest do not have Market Monitor at all. Backups
+written as `*.bak-socialfp-<stamp>` beside each patched file.
+
+oviva and sunstar were also missing the September 8 URL fix
+(`_URLISH`/`_without_urls`), which went along with this one.
+
+### Lessons
+A word-boundary match can be correct and still wrong. `\b7ai\b` inside
+`7AI-N5AI` is a true boundary; what disqualifies it is the shape of the
+surrounding token, which no boundary rule can see. When a name match looks
+defensible and the result is obviously junk, inspect the token, not the
+regex.
+
+When one false positive is reported, count the rest of the panel before
+fixing it. The reported advert was one of six bad items in six slots, and
+fixing only the advert would have left the panel looking exactly as wrong.
+
 ## 2026-09-15 — Market Monitor: sort the Maturity Map's Acquired list oldest-first
 
 ### Goal
