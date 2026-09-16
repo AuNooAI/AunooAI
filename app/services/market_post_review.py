@@ -112,7 +112,15 @@ If you give kind "event" or "opinion", the verdict cannot be "signal".
 
 A hire is signal only when the post says someone has joined or been appointed.
 A customer is signal only when the customer is named or the deal is described.
-A launch is signal only when a specific product or capability is now available.
+A launch is signal only when the post announces that a specific, named product
+or capability is now available, shipped or released, and kind "launch" is only
+for that. A post that argues a point, explains what the product does in general,
+comments on a threat, breach or vulnerability, marks an anniversary, or points
+to a webinar, podcast, interview, playbook or newsletter is not a launch: its
+kind is "opinion" (or "research" for a finding, "event" for the webinar).
+Naming the product is not enough — the post has to say something new has shipped
+or is now available. When in doubt between "launch" and "opinion", choose
+"opinion".
 
 For kind "customer" only, also give a "customer" object (the kind stays
 "customer"; the values below are not kinds):
