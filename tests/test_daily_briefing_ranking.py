@@ -455,3 +455,26 @@ class TestPriorityAndLabels:
         chosen, per_group = balance_across_groups(groups, limit=3, group_order=["a", "b", "c"])
         assert chosen == ["a0", "b0", "a1"]
         assert per_group == {"a": 2, "b": 1, "c": 0}
+
+
+class TestBackfillTopicCap:
+    def _rows(self, spec):
+        rows = []
+        for topic, items in spec.items():
+            rows.extend(annotate_candidates(items, topic=topic, now=NOW))
+        return rows
+
+    def test_backfill_prefers_a_less_covered_topic_over_a_third_of_the_same(self):
+        selected = self._rows({"quantum": [article("q1", align=0.9, source="a.com"),
+                                            article("q2", align=0.9, source="b.com")]})
+        pool = self._rows({"quantum": [article("q3", align=0.95, source="c.com")],
+                           "patents": [article("p1", align=0.7, source="d.com")]})
+        added = backfill(selected, pool, target=3, topics=[f"t{i}" for i in range(18)])
+        assert [r["uri"] for r in added] == ["p1"]
+
+    def test_a_saturated_topic_still_fills_when_nothing_else_is_left(self):
+        selected = self._rows({"quantum": [article("q1", align=0.9, source="a.com"),
+                                            article("q2", align=0.9, source="b.com")]})
+        pool = self._rows({"quantum": [article("q3", align=0.95, source="c.com")]})
+        added = backfill(selected, pool, target=3, topics=[f"t{i}" for i in range(18)])
+        assert [r["uri"] for r in added] == ["q3"]

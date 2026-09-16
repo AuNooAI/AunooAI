@@ -506,6 +506,51 @@ def _timeline_background(db, topics: List[str],
     return "\n\n".join(blocks)
 
 
+#: Tokens too common to count as the "second shared token" that confirms an
+#: article is about a selected incident's lead entity.
+_GENERIC_STORY_TOKENS = frozenset("ai new company startup firm us uk 2026".split())
+
+
+def _incident_entity_keys(selected_incidents: List[Dict[str, Any]]) -> List[Tuple[str, frozenset]]:
+    """(normalized lead entity, stemmed name tokens) for each selected incident.
+
+    The lead entity is the first named entity; the tokens are the incident
+    name's, minus the entity's own, so a match needs the entity AND one more
+    substantive word in common ("TypeSafe AI" + "model"), not the entity alone
+    ("OpenAI" appears in every AI story).
+    """
+    from app.services.daily_briefing_ranking import label_tokens
+    out: List[Tuple[str, frozenset]] = []
+    for inc in selected_incidents:
+        ents = inc.get("related_entities") or inc.get("entities") or []
+        if isinstance(ents, str):
+            ents = [ents]
+        lead = next((e for e in ents if isinstance(e, str) and e.strip()), None)
+        if not lead:
+            continue
+        ent_norm = normalize_title(lead)
+        if len(ent_norm) < 4:
+            continue
+        name_tokens = label_tokens(inc.get("name") or inc.get("title") or "") - label_tokens(lead)
+        out.append((ent_norm, frozenset(t for t in name_tokens if t not in _GENERIC_STORY_TOKENS)))
+    return out
+
+
+def _about_incident_entity(row: Dict[str, Any], entity_keys: List[Tuple[str, frozenset]]) -> bool:
+    """Is this article the same development as a selected incident, judged by
+    its lead entity plus one more shared substantive word?"""
+    from app.services.daily_briefing_ranking import label_tokens
+    title = row.get("title") or ""
+    norm = f" {normalize_title(title)} "
+    if not norm.strip():
+        return False
+    toks = label_tokens(title)
+    for ent_norm, name_tokens in entity_keys:
+        if f" {ent_norm} " in norm and (toks & name_tokens):
+            return True
+    return False
+
+
 def _incident_story_keys(selected_incidents: List[Dict[str, Any]], facade
                          ) -> Tuple[set, List[str]]:
     """Normalized URIs and titles of every article the selected incidents cite.
@@ -1167,15 +1212,21 @@ async def compose_daily_briefing_stream(
         # it. Drop the standalone article; the incident is the richer presentation.
         # Same story, not just same URI: the incident may cite the webwire copy
         # of a press release while the article pool holds the prnewswire copy.
-        sel_inc_uris, sel_inc_titles = _incident_story_keys(
-            [inc_by_id.get(p.get("id")) or {} for p in selection["incidents"]], facade)
+        sel_incidents = [inc_by_id.get(p.get("id")) or {} for p in selection["incidents"]]
+        sel_inc_uris, sel_inc_titles = _incident_story_keys(sel_incidents, facade)
+        # A launch article and a funding incident about the same startup are
+        # one development. Neither URIs nor titles connect them; the lead
+        # entity plus a shared substantive word does.
+        sel_inc_entities = _incident_entity_keys(sel_incidents)
         dropped_dup = 0
-        if sel_inc_uris:
+        if sel_inc_uris or sel_inc_entities:
+            def _redundant(row):
+                return (_covered_by_incident(row, sel_inc_uris, sel_inc_titles)
+                        or _about_incident_entity(row, sel_inc_entities))
             before = len(selection["articles"])
             selection["articles"] = [
                 p for p in selection["articles"]
-                if not _covered_by_incident(art_by_id.get(p.get("id")) or {},
-                                            sel_inc_uris, sel_inc_titles)]
+                if not _redundant(art_by_id.get(p.get("id")) or {})]
             dropped_dup = before - len(selection["articles"])
 
         # Backfill to target from the best remaining ranked candidates. The
@@ -1185,7 +1236,8 @@ async def compose_daily_briefing_stream(
         extra_rows = rank_backfill(
             selected_rows,
             [r for r in ranked_pool
-             if not _covered_by_incident(r, sel_inc_uris, sel_inc_titles)],
+             if not (_covered_by_incident(r, sel_inc_uris, sel_inc_titles)
+                     or _about_incident_entity(r, sel_inc_entities))],
             target=TARGET_ARTICLES,
             topics=topics,
         )

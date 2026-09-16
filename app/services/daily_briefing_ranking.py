@@ -691,6 +691,13 @@ def balance_across_groups(
     return chosen, per_group
 
 
+#: Backfill will not add a third article for a topic that already has two
+#: when any other topic still has a candidate. With eighteen topics the
+#: coverage pass does not run, and the plain "next best score" gave one
+#: briefing three quantum-computing articles out of eight.
+MAX_PER_TOPIC_BACKFILL = 2
+
+
 def backfill(
     selected: Sequence[Dict[str, Any]],
     pool: Sequence[Dict[str, Any]],
@@ -699,6 +706,7 @@ def backfill(
     topics: Optional[Sequence[str]] = None,
     max_per_source: int = MAX_PER_SOURCE,
     override_gap: float = SOURCE_CAP_OVERRIDE_GAP,
+    max_per_topic: int = MAX_PER_TOPIC_BACKFILL,
 ) -> List[Dict[str, Any]]:
     """Best remaining candidates to bring ``selected`` up to ``target``.
 
@@ -711,13 +719,29 @@ def backfill(
     under-cap candidate is worse than the best over-cap one by more than
     ``override_gap``, the cap yields. Diversity is there to stop one outlet
     dominating a briefing, not to justify swapping a strong story for a weak one.
+
+    Topic diversity is enforced the same way without an escape: a candidate
+    whose every topic already holds ``max_per_topic`` picks waits behind any
+    candidate from a less-covered topic, and is used only when nothing else
+    is left.
     """
     chosen_ids = {r.get("_norm_uri") or str(r.get("uri")) for r in selected}
     per_source: Dict[str, int] = {}
+    per_topic: Dict[str, int] = {}
     covered: set = set()
     for r in selected:
         per_source[_source_of(r)] = per_source.get(_source_of(r), 0) + 1
         covered.update(r.get("_topics") or [])
+        for t in (r.get("_topics") or []):
+            per_topic[t] = per_topic.get(t, 0) + 1
+
+    def saturated(r: Dict[str, Any]) -> bool:
+        ts = r.get("_topics") or []
+        return bool(ts) and all(per_topic.get(t, 0) >= max_per_topic for t in ts)
+
+    def count_topics(r: Dict[str, Any]) -> None:
+        for t in (r.get("_topics") or []):
+            per_topic[t] = per_topic.get(t, 0) + 1
 
     remaining = [r for r in rank(pool)
                  if (r.get("_norm_uri") or str(r.get("uri"))) not in chosen_ids]
@@ -734,17 +758,20 @@ def backfill(
             added.append(best)
             per_source[_source_of(best)] = per_source.get(_source_of(best), 0) + 1
             covered.update(best.get("_topics") or [])
+            count_topics(best)
 
     while len(selected) + len(added) < target and remaining:
-        under = next((r for r in remaining if per_source.get(_source_of(r), 0) < max_per_source), None)
-        over = remaining[0] if remaining[0] is not under else None
+        eligible = [r for r in remaining if not saturated(r)] or list(remaining)
+        under = next((r for r in eligible if per_source.get(_source_of(r), 0) < max_per_source), None)
+        over = eligible[0] if eligible[0] is not under else None
         pick = under
         if under is None:
-            pick = remaining[0]
+            pick = eligible[0]
         elif over is not None and float(over.get("_score") or 0.0) - float(under.get("_score") or 0.0) > override_gap:
             pick = over
         remaining.remove(pick)
         added.append(pick)
         per_source[_source_of(pick)] = per_source.get(_source_of(pick), 0) + 1
+        count_topics(pick)
 
     return added

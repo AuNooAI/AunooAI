@@ -738,3 +738,34 @@ class TestModelAndBackground:
         assert lines[4].startswith("- [Week 2026-09-07]") and lines[4].endswith("…")
         assert "- [2026-09-15] Daily line kept whole (seen 4×)" in lines
         assert lines[-1] == "[END TIMELINE]"
+
+
+class TestEntityDedup:
+    def test_a_launch_article_yields_to_the_same_startups_funding_incident(self, loop, monkeypatch):
+        title = ('TypeSafe AI debuts Jev, a model using "Reinforcement Learning for Calibrated '
+                 'Decisions" to produce typed probabilistic decisions')
+        facade = FakeFacade({"T": [article("https://techmeme.com/p1", title=title)]
+                             + [article(f"https://other.com/{i}", align=0.8) for i in range(9)]})
+        incidents = [{"name": "TypeSafe AI raises $40 million seed for probability-estimate AI models",
+                      "significance": "medium", "related_entities": ["TypeSafe AI", "Diogo Almeida"],
+                      "article_uris": ["https://techmeme.com/p51"]}]
+        picks = {"articles": [{"id": "a0", "reason": "r"}],
+                 "incidents": [{"id": "i0", "reason": "r"}], "emerging_topics": []}
+        install_stubs(monkeypatch, curate=lambda p: picks, incidents=incidents)
+        compose(FakeDB(facade), ["T"], run_detection=False)
+        uris = [a["uri"] for a in facade.staged_articles]
+        assert "https://techmeme.com/p1" not in uris
+        assert len(uris) == svc.TARGET_ARTICLES
+
+    def test_the_entity_alone_is_not_enough(self):
+        keys = svc._incident_entity_keys([
+            {"name": "OpenAI seeks $1.2 trillion valuation in pre-IPO private funding",
+             "entities": ["OpenAI"]}])
+        assert keys and keys[0][0] == "openai"
+        other = article("x", title="OpenAI backs binding UK AI regulation including external safety evaluators")
+        same = article("y", title="OpenAI in talks for private funding round at $1.2 trillion valuation")
+        assert not svc._about_incident_entity(other, keys)
+        assert svc._about_incident_entity(same, keys)
+
+    def test_incidents_without_entities_are_ignored(self):
+        assert svc._incident_entity_keys([{"name": "x", "entities": None}, {"name": "y"}]) == []
