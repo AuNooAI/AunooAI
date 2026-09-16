@@ -324,3 +324,30 @@ def test_the_other_ai_soc_and_the_other_xdr_stay_out():
     assert any(p.search(chip) for p in patterns)
     assert any(p.search(display) for p in patterns)
     assert not any(p.search(coverage) for p in patterns)
+
+
+def test_a_vendor_name_inside_a_promo_code_is_not_a_mention():
+    # "Use code: 7AI-N5AI to unlock the latest drop" was attributed to 7ai
+    # and led the public site's Social panel (16 Sep 2026). The name is real
+    # and the hyphen is a real word boundary, so only the shape of the token
+    # it sits in tells the two apart.
+    from app.services.market_corpus import _matchable
+
+    spam = ("\U0001f525 One scan. One Fun-Pass. Free & Unlimited Fun "
+            "Use code: 7AI-N5AI to unlock the latest drop")
+    assert "7ai" not in _matchable(spam).lower()
+    # An ordinary hyphenated phrase keeps the name: the second run has to mix
+    # letters and digits too before the token reads as a code.
+    for prose in ("7AI-backed startup raises a Series A",
+                  "Strike48-powered detection shipped today",
+                  "7ai announced a partnership with Secure.com"):
+        assert _matchable(prose) == prose
+
+
+def test_no_vendor_name_in_the_registry_reads_as_a_code():
+    """The code rule must never erase a name it is meant to protect."""
+    from app.services.market_corpus import _without_codes
+
+    for name in ("7ai", "Strike48", "Secure.com", "Andesite", "Joon",
+                 "Cantina security", "Variance security", "Alpha Level"):
+        assert _without_codes(name) == name

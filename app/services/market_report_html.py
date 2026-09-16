@@ -3675,6 +3675,52 @@ def _v2_tag(dev: Dict[str, Any]) -> str:
     return dev.get("event_type_label") or ""
 
 
+def _same_words(row: Dict[str, Any]) -> str:
+    """One post's text as a key for "we have already shown this".
+
+    The post's own words, not the title the extractor built: a social title
+    is "@handle: <the post>", so two accounts running one line of campaign
+    copy key differently on the title and identically on the body.
+    """
+    body = (row.get("summary") or "").strip() or re.sub(
+        r"^@[^:\s]+:\s*", "", row.get("title") or "")
+    return re.sub(r"\W+", " ", body).strip().lower()[:300]
+
+
+def _spread_voices(rows: List[Dict[str, Any]], cap: int) -> List[Dict[str, Any]]:
+    """The first ``cap`` posts, each a different account saying a different
+    thing before anything repeats.
+
+    "What practitioners are saying" is a poor headline for the same account
+    six times. On 16 September 2026 one feed robot held two of the six front
+    -page slots and one person's duplicate post held two more, so the panel
+    showed three voices where it had room for six. The same words from
+    different accounts are the other half of it: a partner campaign runs one
+    line from several handles, and a practitioner cross-posts the same note
+    to X and Bluesky.
+
+    Nothing is discarded. A repeat drops to the back of the queue and still
+    fills a slot when there are not enough distinct voices to go round, and
+    the section's own page lists every post in date order as before.
+    """
+    seen_authors: set = set()
+    seen_words: set = set()
+    first: List[Dict[str, Any]] = []
+    rest: List[Dict[str, Any]] = []
+    for row in rows:
+        author = ((row.get("social_meta") or {}).get("author") or "").strip().lower()
+        words = _same_words(row)
+        if (author and author in seen_authors) or (words and words in seen_words):
+            rest.append(row)
+            continue
+        if author:
+            seen_authors.add(author)
+        if words:
+            seen_words.add(words)
+        first.append(row)
+    return (first + rest)[:cap]
+
+
 def _v2_is_voice(row: Dict[str, Any]) -> bool:
     """A vendor post that is opinion or research rather than an
     announcement. Practitioner discussion arrives separately, already
@@ -4875,7 +4921,10 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             items = buckets[key]
             if key == "analysis" and not items:
                 continue   # nothing of ours to show: no empty section (user, 29 Aug)
-            shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
+            if key == "social":
+                shown = _spread_voices(items, _V2_CAPS[key])
+            else:
+                shown = items[:_V2_CAPS[key]] if key in _V2_CAPS else items
             count = len(items) + (len(parts["highlights"]) if key == "social" else 0)
             inner = section_inner(key, shown, total=sum(
                 1 for d in items if d.get("event_type") == "significant_hiring"))

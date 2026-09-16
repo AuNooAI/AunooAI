@@ -585,3 +585,85 @@ def test_a_sentence_with_a_promotional_tell_is_dropped():
     text = ("The company shipped single sign-on for all plans. "
             "This game-changing capability revolutionizes enterprise access.")
     assert ma.plain_summary(text) == "The company shipped single sign-on for all plans."
+
+
+def test_consumer_promotion_is_noise():
+    """A Bluesky post selling a "Fun-Pass" reached the public Social panel by
+    matching a vendor's name inside its discount code (16 Sep 2026). Two
+    gates now stop it; this is the one that reads the words."""
+    from app.services.market_assessment import is_noise
+
+    assert is_noise("One scan. One Fun-Pass. Use code: 7AI-N5AI to unlock "
+                    "the latest drop. Link in bio to tap in.")
+    assert is_noise("Huge giveaway, DM me for the promo code")
+
+
+def test_a_question_about_your_own_career_is_noise():
+    from app.services.market_assessment import is_noise, record_is_noise
+
+    assert is_noise("Help please. I recently graduated in cybersecurity and "
+                    "I have two government job offers.")
+    # The subreddit carries it where the wording does not.
+    assert record_is_noise({
+        "title": "20yo in cybersecurity — which path could lead to a "
+                 "location-independent career?",
+        "summary": "I'm 20 and from Brazil.",
+        "social_meta": {"platform": "reddit", "subreddit": "SecurityCareerAdvice"}})
+
+
+def test_a_practitioner_asking_how_to_evaluate_tools_is_not_noise():
+    """The career rules are the shapes of a question about one's own job. A
+    practitioner asking the panel's own question must survive them."""
+    from app.services.market_assessment import is_noise, record_is_noise
+
+    real = ("What's the best way to evaluate AI SOC solutions in 2026? Our "
+            "alert backlog and investigation times have both crept up, and "
+            "we're weighing three vendors. Any advice welcome.")
+    assert not is_noise(real)
+    assert not record_is_noise({"title": real, "summary": "",
+                                "social_meta": {"subreddit": "AskNetsec"}})
+    assert not record_is_noise({
+        "title": "Wrote a 3-part SOC Analyst series (Triage, Hunting, "
+                 "Detection Engineering)", "summary": "",
+        "social_meta": {"subreddit": "learnwithcodelivly"}})
+
+
+def test_a_feed_robot_restating_headlines_is_noise():
+    from app.services.market_assessment import is_noise
+
+    assert is_noise('The latest update for #Corelight includes "The '
+                    'defensible AI-SOC: Redefining SOC modernization"')
+
+
+def test_share_price_chatter_is_noise():
+    from app.services.market_assessment import is_noise
+
+    assert is_noise("AI Security Stocks - Cybersecurity stocks to help "
+                    "improve AI security. $FTNT $PANW")
+    assert not is_noise("7ai raised $130M, the largest cybersecurity "
+                        "Series A on record")
+
+
+def test_a_sales_approach_is_noise():
+    from app.services.market_assessment import is_noise
+
+    assert is_noise("Fragmented security tools impact visibility. Message us "
+                    "to talk about how Copilot agents unify alerts.")
+    assert is_noise("Book a demo to see the agentic SOC in action")
+    assert not is_noise("We swapped our SIEM for a streaming pipeline and "
+                        "alert volume fell by half")
+
+
+def test_two_tickers_is_share_price_talk_and_one_is_a_tag():
+    """A stock-tracking account tags a vendor's announcement with the
+    vendor's ticker, and that announcement is still a development. Two
+    different tickers in one post is somebody comparing shares."""
+    from app.services.market_assessment import is_noise
+
+    assert is_noise("$CSCO Cisco is bringing Splunk AI on-prem through a new "
+                    "AI POD with $NVDA accelerated computing")
+    # One ticker, repeated because the title is prepended to the body.
+    tagged = ("CrowdStrike Unveils the Next Evolution of the Agentic SOC | "
+              "$CRWD CrowdStrike Unveils the Next Evolution of the Agentic "
+              "SOC. Only CrowdStrike can investigate every domain | $CRWD")
+    assert not is_noise(tagged)

@@ -185,7 +185,52 @@ _NOISE = re.compile(
     r"|\bwebinar\b|\bregister\s+now\b|\bjoin\s+us\s+(at|for)\b|\bbooth\b"
     r"|\badd\s+this\s+session\b|\bsave\s+the\s+date\b|\bsee\s+you\s+at\b"
     r"|\brequesting\s+recommendations\b|\bday\s?\d+\b.{0,40}\bchallenge\b"
-    r"|\b\d+\s?days?\s?challenge\b|\bbuilding\s+in\s+public\b", re.I)
+    r"|\b\d+\s?days?\s?challenge\b|\bbuilding\s+in\s+public\b"
+    # Promotion aimed at consumers, which reaches this market only by
+    # matching a vendor's name or one of its words in passing. A Bluesky
+    # post offering a "Fun-Pass" under the code "7AI-N5AI" led the public
+    # site's Social panel on 16 September 2026.
+    r"|\blink\s+in\s+bio\b|\buse\s+(this\s+)?code\b|\bpromo\s+code\b"
+    r"|\bdiscount\s+code\b|\bfollow\s+(for|4)\s+follow\b|\bdm\s+me\b"
+    r"|\bgiveaway\b|\bairdrop\b|\bonlyfans\b|\bcreator\s+drops?\b"
+    r"|\bfree\s*&\s*unlimited\b"
+    # Somebody asking which job to take. Adjacent to the job-seeking lines
+    # above and just as far from what this market tracks; two of these led
+    # the Social panel the same day. Deliberately the shapes of a question
+    # about one's own career — "any advice" alone also matches a
+    # practitioner asking how to evaluate AI SOC tools, which is the kind of
+    # post the panel exists for.
+    r"|\brecently\s+graduated\b|\bcareer\s+advice\b|\bjob\s+offers?\b"
+    r"|\bwhich\s+offer\b|\bshould\s+i\s+(take|accept|choose)\b"
+    r"|\bbreak\s+into\s+(cyber|security)\b|\bresume\s+review\b"
+    # A feed robot restating a vendor's headlines. Seven of these in ninety
+    # days, all from one account, none of them anybody saying anything.
+    r"|\bthe\s+latest\s+update\s+for\b"
+    # Share-price chatter. A vendor's stock moving is not the vendor doing
+    # something, and the market's own funding and acquisition news reaches
+    # the report through the development path, not through this one.
+    r"|\bstocks?\s+to\s+(buy|watch)\b|\bcyber\s?security\s+stocks\b"
+    r"|\bprice\s+targets?\b|\bmarket\s+recap\b|\bearnings\s+call\b"
+    # A sales approach. "What practitioners are saying" does not mean a
+    # partner's campaign copy asking the reader to get in touch; the same
+    # Microsoft Copilot line ran from three accounts in ninety days.
+    r"|\bmessage\s+us\b|\bcontact\s+us\s+(today|to|for)\b"
+    r"|\bbook\s+a\s+(demo|call)\b|\brequest\s+a\s+demo\b"
+    r"|\bget\s+in\s+touch\s+to\b|\btalk\s+to\s+(us|our\s+team)\b",
+    re.I)
+
+#: Subreddits that are about getting a job rather than doing one. A post in
+#: r/SecurityCareerAdvice is a career question however it is worded, and the
+#: wording is what the text rules above have to work from — "20yo in
+#: cybersecurity, which path could lead to a location-independent career?"
+#: hits none of them. Named subreddits only: r/FreeITCourses reposts real
+#: vendor news and r/learnwithcodelivly carries practitioners writing up
+#: their own work, so neither is on this list.
+_CAREER_SUBREDDITS = frozenset({
+    "securitycareeradvice", "itcareerquestions", "cscareerquestions",
+    "jobs", "forhire", "hiring", "jobhuntify", "uaejobseekers",
+    "freshertechjobsindia", "resumeinminutes",
+})
 
 #: Words a sentence does not end on. A title ending on one was cut short.
 _DANGLING = frozenset("""
@@ -257,9 +302,30 @@ MIN_HEADCOUNT_PCT = float(os.getenv("MARKET_MIN_HEADCOUNT_PCT", "10") or 10)
 MAIN_TABLE_LIMIT = max(1, int(os.getenv("MARKET_MAIN_TABLE_LIMIT", "8") or 8))
 
 
+#: A stock ticker as a social post writes one. Two *different* tickers in a
+#: post makes it share-price commentary; one is how a stock-tracking account
+#: tags a vendor's own announcement, which is a development like any other.
+#: Counted as a set, so the same ticker in a title and again in the body does
+#: not read as two.
+_TICKER = re.compile(r"\$[A-Z]{1,5}\b")
+
+
 def is_noise(text_value: str) -> bool:
     """A record the report should never lead with."""
-    return bool(_NOISE.search(text_value or ""))
+    if _NOISE.search(text_value or ""):
+        return True
+    return len(set(_TICKER.findall(text_value or ""))) >= 2
+
+
+def record_is_noise(record: Dict[str, Any]) -> bool:
+    """Whether one corpus record is noise, reading its words and where it
+    came from. :func:`is_noise` sees only the words, and a Reddit post's
+    subreddit says more about it than any phrase in it does."""
+    meta = record.get("social_meta")
+    sub = ((meta or {}).get("subreddit") or "").strip().lower()
+    if sub in _CAREER_SUBREDDITS:
+        return True
+    return is_noise(f"{record.get('title') or ''} {record.get('summary') or ''}")
 
 
 def _refine_product(kind: str, text_value: str) -> str:
@@ -306,7 +372,7 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
     here — they attach to one as evidence, or stay in the corpus.
     """
     text_value = f"{record.get('title') or ''} {record.get('summary') or ''}"
-    if is_noise(text_value):
+    if record_is_noise(record):
         return None
     kind = record.get("article_class")
     if kind == "social":
@@ -1394,7 +1460,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
     discussion: List[Dict[str, Any]] = []
     for row in rows:
         text_value = _full_text(row)
-        noisy = is_noise(text_value)
+        noisy = record_is_noise(row)
         kind = classify_record(row)
         evidence = _evidence_from_record(row)
         klass = row.get("article_class")

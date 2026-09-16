@@ -416,3 +416,63 @@ def test_attention_bars_carry_a_delta_against_the_period_before():
     assert "the same in the period before" in html             # 7ai earned unchanged
     # Without a previous window the engagement bar keeps its posts note.
     assert "9 posts" in _v2_motion(rows, prev=None)
+
+
+def test_the_social_panel_spreads_across_voices():
+    """On 16 September 2026 one feed robot held two of the six front-page
+    slots and one person's duplicate post held two more, so the panel showed
+    three voices where it had room for six."""
+    from app.services.market_report_html import _spread_voices
+
+    rows = [{"uri": f"u{i}", "social_meta": {"author": a}} for i, a in
+            enumerate(["opsmatters", "opsmatters", "gullible", "gullible",
+                       "chuvakin", "polsia", "torq_io"])]
+    shown = _spread_voices(rows, 6)
+    authors = [(r["social_meta"]["author"]) for r in shown]
+    assert authors[:5] == ["opsmatters", "gullible", "chuvakin", "polsia",
+                           "torq_io"]
+    # Nothing is dropped: with five distinct voices and room for six, a
+    # second post fills the last slot rather than leaving it empty.
+    assert len(shown) == 6
+    assert len(_spread_voices(rows, 20)) == len(rows)
+
+
+def test_the_social_panel_keeps_rows_with_no_author():
+    from app.services.market_report_html import _spread_voices
+
+    rows = [{"uri": "a", "social_meta": {}}, {"uri": "b", "social_meta": None},
+            {"uri": "c"}]
+    assert len(_spread_voices(rows, 6)) == 3
+
+
+def test_the_social_panel_shows_one_line_of_campaign_copy_once():
+    """A partner campaign runs the same sentence from several handles: the
+    Microsoft Copilot line ran from three accounts, two of which reached the
+    panel on 16 September 2026."""
+    from app.services.market_report_html import _spread_voices
+
+    copy = "Fragmented security tools impact visibility. Message us to talk."
+    rows = [{"uri": "a", "title": copy, "social_meta": {"author": "one"}},
+            {"uri": "b", "title": copy, "social_meta": {"author": "two"}},
+            {"uri": "c", "title": "Wazuh and TheHive are talking to each other",
+             "social_meta": {"author": "three"}}]
+    shown = _spread_voices(rows, 2)
+    assert [r["uri"] for r in shown] == ["a", "c"]
+    # Kept, not dropped: with room for three the repeat fills the last slot.
+    assert [r["uri"] for r in _spread_voices(rows, 3)] == ["a", "c", "b"]
+
+
+def test_the_same_post_from_two_handles_keys_the_same():
+    """A social title is "@handle: <the post>", so keying the panel's dedup
+    on the title let one line of syndicated copy through twice (16 Sep
+    2026)."""
+    from app.services.market_report_html import _same_words
+
+    body = ("AI-powered SOC automation reduces detection time and improves "
+            "accuracy while keeping human analysts responsible.")
+    a = {"title": f"@bizintelbriefly.bsky.social: {body}", "summary": body}
+    b = {"title": f"@devopsbriefly.bsky.social: {body}", "summary": body}
+    assert _same_words(a) == _same_words(b)
+    # With no body, the handle still comes off the title.
+    assert (_same_words({"title": f"@one: {body}"})
+            == _same_words({"title": f"@two: {body}"}))

@@ -526,6 +526,36 @@ def _without_urls(text: str) -> str:
     return _URLISH.sub(" ", text or "")
 
 
+#: A reference code rather than a word: two or more runs joined by a hyphen,
+#: underscore or slash, where each run mixes letters and digits. "7AI-N5AI"
+#: and "SOC2-X1" are codes; "7AI-backed" and "Strike48-powered" are not,
+#: because the second run is an ordinary word.
+_CODEISH = re.compile(
+    r"\b[A-Za-z0-9]*\d[A-Za-z0-9]*(?:[-_/][A-Za-z0-9]*\d[A-Za-z0-9]*)+\b")
+
+
+def _without_codes(text: str) -> str:
+    """Text with reference codes removed before name matching.
+
+    A name inside a code is not a mention. A Bluesky promo post reading "Use
+    code: 7AI-N5AI to unlock the latest drop" was attributed to 7ai and led
+    the public site's Social panel (16 Sep 2026). The name is real and the
+    word boundary is real — the hyphen ends a word — so neither the matcher
+    nor the context rule could tell it apart; the token it sits in is what
+    gives it away.
+
+    Both runs must mix letters and digits, so an ordinary hyphenated phrase
+    survives and no vendor name in the registry is itself erased; a test
+    asserts the second on every market's terms.
+    """
+    return _CODEISH.sub(" ", text or "")
+
+
+def _matchable(text: str) -> str:
+    """One article's words as the name scan should read them."""
+    return _without_codes(_without_urls(text))
+
+
 def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
                  ) -> List[Tuple[Dict[str, Any], str]]:
     """``[(vendor, term that matched)]`` for one article's text.
@@ -649,7 +679,7 @@ def attribute_vendors(conn, market_id: int, *,
     rejected: List[Dict[str, Any]] = []
     per_vendor: Dict[str, int] = {}
     for row in rows:
-        content = _without_urls(f"{row['title'] or ''} {row['summary'] or ''}")
+        content = _matchable(f"{row['title'] or ''} {row['summary'] or ''}")
         hits = _vendor_hits(content, vendors)
         if not hits:
             continue
