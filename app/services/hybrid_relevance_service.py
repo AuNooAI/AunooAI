@@ -196,6 +196,33 @@ class HybridRelevanceService:
             self._load_embedding_model()
         return self._embedding_loaded
 
+    def _get_topic_description(self, topic: str) -> Optional[str]:
+        """The topic's description from config.json (cached per topic).
+
+        The description is where a tenant scopes a generic label: "M&A
+        Updates ... in scientific publishing, research and academia". The
+        embedding tier already used it; the LLM auditor judged against the
+        bare label and three keywords and approved every merger on Earth.
+        """
+        cache = getattr(self, "_topic_description_cache", None)
+        if cache is None:
+            cache = self._topic_description_cache = {}
+        if topic in cache:
+            return cache[topic]
+        desc = None
+        try:
+            import json
+            with open("app/config/config.json", "r") as f:
+                config = json.load(f)
+            for t in config.get('topics', []):
+                if t.get('name') == topic:
+                    desc = (t.get('description') or '').strip() or None
+                    break
+        except Exception as e:
+            logger.debug(f"Could not read topic description for '{topic}': {e}")
+        cache[topic] = desc
+        return desc
+
     def _get_topic_embedding(self, topic: str) -> np.ndarray:
         """Get or compute topic embedding (cached).
 
@@ -333,6 +360,7 @@ class HybridRelevanceService:
         summary: str,
         use_local: bool = False,
         keywords: Optional[List[str]] = None,
+        description: Optional[str] = None,
     ) -> Optional[float]:
         """
         Get relevance score from LLM (most accurate, but slow/expensive).
@@ -399,6 +427,14 @@ Score:"""
         else:
             # Theme topics keep the strict "must be primarily about the topic" auditor —
             # it works well for them and their trained classifier is reliable.
+            if description is None:
+                description = self._get_topic_description(topic)
+            definition_line = f"\nTopic definition: {description}" if description else ""
+            scope_rule = ("""
+- SCOPE: the topic means what its definition says. Where the definition names a focus
+  (a sector, a field, a region, a kind of organisation), an article outside that focus
+  scores 0.1-0.3 even when its subject matches the topic's words — a merger in mining is
+  not "M&A" for a topic defined around scientific publishing.""" if description else "")
             materiality_rules = """
 - MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
   local administrative trivia. Purely LOCAL or single-institution items with no wider
@@ -410,7 +446,7 @@ Score:"""
   generic-drug dynamics, major institutions, or developments affecting the field broadly."""
             prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
 
-Topic: {topic}{kw_line}
+Topic: {topic}{definition_line}{kw_line}
 
 Article Title: {title}
 Article Summary: {summary}
@@ -419,7 +455,7 @@ Rules:
 - The article must be DIRECTLY about the topic, not just tangentially related
 - Sharing a keyword is NOT enough — the article's main subject must match the topic
 - Generic news that mentions a related term in passing scores 0.1-0.2
-- Only score above 0.7 if the article is primarily about the topic{materiality_rules}
+- Only score above 0.7 if the article is primarily about the topic{scope_rule}{materiality_rules}
 
 Respond with ONLY a number between 0.0 and 1.0.
 

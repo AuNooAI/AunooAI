@@ -1008,6 +1008,9 @@ class AutomatedIngestService:
                         })
                         await self.async_db.save_below_threshold_article(article)
                         self.db.facade.mark_article_as_below_threshold(article_uri)
+                        await self.async_db.record_group_relevance(
+                            article_uri, topic, article.get("topic_alignment_score"),
+                            "filtered_relevance")
                     except Exception as e:
                         self.logger.warning(f"Failed to save below-threshold article: {e}")
 
@@ -1206,8 +1209,11 @@ class AutomatedIngestService:
                         })
                         
                         success = await self.async_db.update_article_with_enrichment(enriched_article)
-                        
+
                         if success:
+                            await self.async_db.record_group_relevance(
+                                article_uri, topic, enriched_article.get("topic_alignment_score"),
+                                "approved")
                             # Step 7: Vector database upsert (kept async but with timeout)
                             try:
                                 await asyncio.wait_for(

@@ -210,7 +210,11 @@ class AsyncDatabase:
                 return [dict(row) for row in rows]
     
     async def update_article_with_enrichment(self, article_data: Dict[str, Any]) -> bool:
-        """Update article with enrichment data efficiently"""
+        """Update article with enrichment data efficiently.
+
+        The relevance verdict (topic, score, explanation, status) moves as one:
+        see ``build_enrichment_update``.
+        """
 
         # VALIDATION: Warn if placeholder title detected
         title = article_data.get("title")
@@ -219,6 +223,15 @@ class AsyncDatabase:
             logger.warning(f"Title: {title}")
             # Don't update with placeholder - let COALESCE keep existing
             article_data["title"] = None
+
+        if self.db_type == 'postgresql':
+            query, params = build_enrichment_update(article_data)
+            try:
+                rows_affected = await self.execute_single_update(query, params)
+                return rows_affected > 0
+            except Exception as e:
+                logger.error(f"Failed to update article {article_data.get('uri')}: {e}")
+                return False
 
         query = """
             UPDATE articles
@@ -430,7 +443,13 @@ class AsyncDatabase:
                     confidence_score = $9,
                     overall_match_explanation = $10,
                     ingest_status = $12
+                WHERE articles.topic = EXCLUDED.topic
+                   OR articles.ingest_status IS DISTINCT FROM 'approved'
             """
+            # The WHERE keeps one topic's rejection from demoting a row another
+            # topic approved: an article about AI safety is rightly rejected by
+            # "U.S. Federal R&D Pullback" and rightly approved by "AI and
+            # Machine Learning", and the row belongs to the topic that took it.
         else:
             # SQLite syntax
             query = """
@@ -465,6 +484,29 @@ class AsyncDatabase:
             return rows_affected > 0
         except Exception as e:
             logger.error(f"Failed to save below-threshold article {article_data.get('uri')}: {e}")
+            return False
+
+    async def record_group_relevance(self, uri: str, topic: str, score: Optional[float],
+                                     status: str) -> bool:
+        """The relevance verdict for this article under this topic, on the
+        (article, group) match row. Best-effort: a site that has not applied
+        rel_001 yet just logs at debug and carries on."""
+        if self.db_type != 'postgresql' or not uri or not topic:
+            return False
+        query = """
+            UPDATE keyword_article_matches m
+               SET topic_alignment_score = ?,
+                   relevance_status = ?,
+                   scored_at = NOW(),
+                   below_threshold = ?
+              FROM keyword_groups g
+             WHERE g.id = m.group_id AND g.topic = ? AND m.article_uri = ?
+        """
+        params = (score, status, 0 if status == 'approved' else 1, topic, uri)
+        try:
+            return (await self.execute_single_update(query, params)) > 0
+        except Exception as e:
+            logger.debug(f"record_group_relevance skipped for {uri} / {topic}: {e}")
             return False
 
     async def close_pool(self):
@@ -514,3 +556,76 @@ async def close_async_db():
     if _async_db_instance:
         await _async_db_instance.close_pool()
         _async_db_instance = None 
+
+# --------------------------------------------------------------------------
+# Enrichment update (PostgreSQL)
+# --------------------------------------------------------------------------
+
+#: The row's relevance verdict is replaced only when this pipeline's topic
+#: may claim the row: the row is not approved yet, it is already filed under
+#: this topic, or this topic scored it higher than the topic it is filed
+#: under. Otherwise the row keeps its topic AND its score, and only the
+#: topic-independent enrichment (summary, category, sentiment ...) is written.
+_REFILE = ("(articles.ingest_status IS DISTINCT FROM 'approved' OR articles.topic = ? "
+           "OR ? > COALESCE(articles.topic_alignment_score, 0))")
+
+_VERDICT_COLUMNS = ("topic", "topic_alignment_score", "keyword_relevance_score",
+                    "confidence_score", "overall_match_explanation")
+
+
+def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
+    """(query, params) for the enrichment UPDATE, ``?`` placeholders in order.
+
+    Before this, the UPDATE wrote the score, explanation and status
+    unconditionally and never wrote the topic. An article matched by several
+    groups is scored once per group, and the last group to approve it stamped
+    its verdict on a row filed under the first group's topic. The verdict now
+    travels with the topic: either both move, or neither does.
+    """
+    topic = article_data.get("topic")
+    score = article_data.get("topic_alignment_score")
+    score_num = float(score) if score is not None else 0.0
+
+    verdict_values = {
+        "topic": topic,
+        "topic_alignment_score": score,
+        "keyword_relevance_score": article_data.get("keyword_relevance_score"),
+        "confidence_score": article_data.get("confidence_score"),
+        "overall_match_explanation": article_data.get("overall_match_explanation"),
+    }
+
+    sets: list = []
+    params: list = []
+
+    def plain(col: str, value: Any, expr: str = "?") -> None:
+        sets.append(f"{col} = {expr}")
+        params.append(value)
+
+    def verdict(col: str) -> None:
+        sets.append(f"{col} = CASE WHEN {_REFILE} THEN ? ELSE articles.{col} END")
+        params.extend([topic, score_num, verdict_values[col]])
+
+    plain("title", article_data.get("title"), "COALESCE(?, title)")
+    plain("original_title", article_data.get("original_title"), "COALESCE(?, original_title)")
+    plain("summary", article_data.get("summary"), "COALESCE(?, summary)")
+    plain("original_summary", article_data.get("original_summary"), "COALESCE(?, original_summary)")
+    sets.append("auto_ingested = TRUE")
+    plain("ingest_status", article_data.get("ingest_status"))
+    for col in ("quality_score", "quality_issues", "category", "sentiment", "bias",
+                "factual_reporting", "mbfc_credibility_rating", "bias_source", "bias_country",
+                "press_freedom", "media_type", "popularity"):
+        plain(col, article_data.get(col))
+    verdict("topic")
+    verdict("topic_alignment_score")
+    verdict("keyword_relevance_score")
+    for col in ("future_signal", "future_signal_explanation", "sentiment_explanation",
+                "time_to_impact", "time_to_impact_explanation", "driver_type",
+                "driver_type_explanation", "tags"):
+        plain(col, article_data.get(col))
+    plain("analyzed", article_data.get("analyzed", True))
+    verdict("confidence_score")
+    verdict("overall_match_explanation")
+
+    query = "UPDATE articles SET " + ", ".join(sets) + " WHERE uri = ?"
+    params.append(article_data.get("uri"))
+    return query, tuple(params)
