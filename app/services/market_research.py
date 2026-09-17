@@ -69,6 +69,7 @@ REPORT_FAMILIES: List[Tuple[str, str, str]] = [
     ("Innovation Insight", r"innovation\s+insight", ":"),
     ("Emerging Tech Impact Radar", r"emerging\s+tech(?:nolog(?:y|ies))?\s+impact\s+radar", ":"),
     ("Emerging Tech", r"emerging\s+tech(?:nolog(?:y|ies))?(?=\s*:)", ":"),
+    ("AI Vendor Race", r"ai\s+vendor\s+race", ":"),
     ("Forrester Wave", r"forrester\s+wave|forrester\s+new\s+wave|\bnew\s+wave\b", "for|on"),
     ("Tech Tide", r"tech\s+tide", ":"),
     ("Landscape", r"landscape\s*(?:™|®)?\s*(?:report|,\s*q[1-4])", "for"),
