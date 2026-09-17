@@ -13821,6 +13821,25 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting desk briefings for user {username}: {e}")
             return []
 
+    @staticmethod
+    def _decode_briefing_json_fields(briefing: dict) -> dict:
+        """Return a briefing whose JSONB fields are real lists and dicts.
+
+        Some rows were written with json.dumps() into a JSONB column, so the
+        value comes back as a JSON *string* instead of the list it should be.
+        Readers then iterate the characters of that string and crash. The
+        writers are fixed, and this decodes rows stored before that fix.
+        """
+        for field in ('articles', 'incidents', 'emerging_topics', 'themes',
+                      'priority_actions', 'metadata'):
+            value = briefing.get(field)
+            if isinstance(value, str):
+                try:
+                    briefing[field] = json.loads(value)
+                except (ValueError, TypeError):
+                    briefing[field] = {} if field == 'metadata' else []
+        return briefing
+
     def get_desk_briefing_by_id(self, briefing_id: int, username: str) -> dict:
         """Get a specific desk briefing by ID (user-scoped).
 
@@ -13837,7 +13856,7 @@ class DatabaseQueryFacade:
 
             result = self._fetchone_with_rollback(statement)
             if result:
-                return dict(result._mapping)
+                return self._decode_briefing_json_fields(dict(result._mapping))
             return None
         except Exception as e:
             self.logger.error(f"Error retrieving desk briefing {briefing_id}: {e}")
@@ -14491,7 +14510,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             ).values(
-                priority_actions=json.dumps(priority_actions) if priority_actions else '[]',
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else [],
                 updated_at=datetime.utcnow()
             )
 
@@ -14529,7 +14548,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             ).values(
-                themes=json.dumps(themes) if themes else '[]',
+                themes=json.loads(json.dumps(themes, default=str)) if themes else [],
                 updated_at=datetime.utcnow()
             )
 
