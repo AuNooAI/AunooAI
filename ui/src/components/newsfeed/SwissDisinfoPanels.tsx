@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { Loader2, ExternalLink, ChevronLeft, Sparkles, RefreshCw } from 'lucide-react';
 import type { UseSwissDisinfo } from '../../hooks/useSwissDisinfo';
-import type { Narrative } from '../../services/swissDisinfoApi';
+import type { Narrative, Flow, GlossaryEntry } from '../../services/swissDisinfoApi';
 
 export const LANG_COLORS: Record<string, string> = { de: '#2563eb', fr: '#dc2626', it: '#16a34a', en: '#6b7280' };
 export const STANCE_COLORS: Record<string, string> = { promotes: '#dc2626', reports: '#2563eb', debunks: '#16a34a' };
@@ -208,12 +208,49 @@ export function SourcesPanel({ h }: { h: UseSwissDisinfo }) {
 }
 
 // ------------------------------------------------------- Targets & techniques
+function LegendList({ entries, counts, note, criteriaLabel = 'Recorded when:' }:
+    { entries: GlossaryEntry[]; counts?: Record<string, number>; note?: string; criteriaLabel?: string }) {
+  return (
+    <div>
+      {note && <div className="text-xs text-gray-500 mb-3">{note}</div>}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        {entries.map((e) => (
+          <div key={e.key} className="py-2 border-t border-gray-100 dark:border-gray-700">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{e.label}</span>
+              {counts && (
+                <span className="text-xs text-gray-500">
+                  {counts[e.key]
+                    ? `${counts[e.key]} ${counts[e.key] === 1 ? 'article' : 'articles'}`
+                    : 'none in this window'}
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">{e.attack}</div>
+            {e.criteria && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                <span className="font-medium">{criteriaLabel}</span> {e.criteria}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function TargetsPanel({ h }: { h: UseSwissDisinfo }) {
   useEffect(() => { h.loadTargets(); }, [h.loadTargets]);
   const active = h.targets.filter((t) => t.articles > 0);
   const seeded = h.targets.filter((t) => t.articles === 0);
   const techs = h.techniques.filter((t) => t.technique !== 'none_reported');
+  const g = h.glossary;
+  const techCounts = Object.fromEntries(h.techniques.map((t) => [t.technique, t.articles]));
+  const targetCounts = h.targets.reduce<Record<string, number>>((acc, t) => {
+    acc[t.type] = (acc[t.type] ?? 0) + t.articles; return acc;
+  }, {});
   return (
+    <div className="space-y-4">
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className={card}>
         <div className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200">Targets, last {h.daysBack} days</div>
@@ -234,6 +271,46 @@ export function TargetsPanel({ h }: { h: UseSwissDisinfo }) {
           </>
         )}
       </div>
+    </div>
+
+      {g && (
+        <div className={card}>
+          <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">What each technique means</div>
+          <LegendList
+            entries={g.techniques.filter((t) => t.key !== 'none_reported')}
+            counts={techCounts}
+            note={'Each entry gives the attack and the test the model must satisfy before it records the '
+                  + 'label. The wording here is the instruction the model receives. A count of nought means no '
+                  + 'article in this window named that method; techniques are recorded from what articles '
+                  + 'report, so the count says nothing about whether the method is in use. Articles that name '
+                  + 'no method are recorded as "none reported" (' + (techCounts.none_reported ?? 0)
+                  + ' here) and are left off the chart.'}
+          />
+        </div>
+      )}
+
+      {g && (
+        <div className={card}>
+          <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">What each target type means</div>
+          <LegendList entries={g.targets} counts={targetCounts}
+                      note="Each type says what the manipulation is aimed at, as the article describes it." />
+        </div>
+      )}
+
+      {g && (
+        <div className={card}>
+          <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">Attribution and source tier</div>
+          <div className="text-xs text-gray-500 mb-3">
+            Attribution records who the article says is behind something; this tool never makes that finding
+            itself. The source tier sets how strictly an article is judged, which is why an untiered outlet
+            loses storylines a known one would keep.
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6">
+            <LegendList entries={g.attributions} />
+            <LegendList entries={g.tiers} criteriaLabel="How it is judged:" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -383,6 +460,103 @@ export function RefreshButton({ onClick, loading }: { onClick: () => void; loadi
   return <button onClick={onClick} className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>;
 }
 
+// --------------------------------------------------------- collection flow
+// A hand-drawn Sankey rather than a charting library's: four fixed stages with
+// known labels, and the ribbons have to stay put for a screenshot, which the
+// animated chart components do not.
+const FLOW_COLORS: Record<string, string> = {
+  'In a storyline': '#dc2626', 'Analysed, no storyline': '#f59e0b',
+  'Waiting to be analysed': '#2563eb', 'Never scored': '#9333ea',
+  'Analysis failed': '#b91c1c', 'Below the relevance line': '#9ca3af',
+  'RSS feeds': '#0891b2', Bluesky: '#0ea5e9', Telegram: '#38bdf8',
+  'state media': '#dc2626', 'alt media': '#ea580c', mainstream: '#2563eb',
+  party: '#9333ea', 'fact checker': '#16a34a', institution: '#64748b',
+  research: '#0d9488', social: '#0ea5e9', unknown: '#9ca3af',
+  DE: LANG_COLORS.de, FR: LANG_COLORS.fr, IT: LANG_COLORS.it, EN: LANG_COLORS.en,
+  'Language unknown': '#9ca3af',
+};
+const flowColor = (name: string) =>
+  FLOW_COLORS[name]
+  || (name.startsWith('Keywords') ? LANG_COLORS[name.slice(-2).toLowerCase()] ?? '#6b7280' : '#6b7280');
+
+export function FlowDiagram({ f }: { f: Flow }) {
+  const L = useMemo(() => {
+    const H = 430, barW = 12, colW = 236, padTop = 12, gap = 7, labelStep = 13;
+    const total = f.total || 1;
+    const pos = new Map<string, { x: number; y: number; h: number; ly: number; name: string; value: number }>();
+    f.stages.forEach((_, i) => {
+      const nodes = f.nodes.filter((n) => n.stage === i);
+      const avail = H - padTop - Math.max(0, nodes.length - 1) * gap;
+      let y = padTop, lastLabel = -Infinity;
+      nodes.forEach((n) => {
+        const h = Math.max(3, (n.value / total) * avail);
+        // Thin bands would stack their labels on top of each other, so a label
+        // is pushed down to clear the one above it and keeps a leader line.
+        const ly = Math.max(y + h / 2, lastLabel + labelStep);
+        lastLabel = ly;
+        pos.set(n.key, { x: i * colW, y, h, ly, name: n.name, value: n.value });
+        y += h + gap;
+      });
+    });
+    const out = new Map<string, number>(), inn = new Map<string, number>();
+    const ribbons = f.links
+      .filter((l) => pos.has(l.source) && pos.has(l.target))
+      .sort((a, b) => (pos.get(a.source)!.y - pos.get(b.source)!.y)
+                   || (pos.get(a.target)!.y - pos.get(b.target)!.y))
+      .map((l) => {
+        const s = pos.get(l.source)!, t = pos.get(l.target)!;
+        const hs = Math.max(1, (l.value / Math.max(1, s.value)) * s.h);
+        const ht = Math.max(1, (l.value / Math.max(1, t.value)) * t.h);
+        const y0 = s.y + (out.get(l.source) ?? 0), y1 = t.y + (inn.get(l.target) ?? 0);
+        out.set(l.source, (out.get(l.source) ?? 0) + hs);
+        inn.set(l.target, (inn.get(l.target) ?? 0) + ht);
+        const x0 = s.x + barW, x1 = t.x, xm = (x0 + x1) / 2;
+        return {
+          key: `${l.source}>${l.target}`, color: flowColor(s.name),
+          title: `${s.name} → ${t.name}: ${l.value}`,
+          d: `M${x0},${y0} C${xm},${y0} ${xm},${y1} ${x1},${y1} L${x1},${y1 + ht} `
+             + `C${xm},${y1 + ht} ${xm},${y0 + hs} ${x0},${y0 + hs} Z`,
+        };
+      });
+    // Pushed-down labels can run past the last band, so the canvas grows to
+    // hold them rather than clipping the smallest categories off the bottom.
+    const maxLy = Math.max(H, ...Array.from(pos.values(), (n) => n.ly + 10));
+    return { H: maxLy, barW, colW, width: (f.stages.length - 1) * colW + 168,
+             nodes: Array.from(pos.entries()), ribbons };
+  }, [f]);
+
+  if (!f.total) return <Empty text="Nothing collected in this window." />;
+  return (
+    <svg width={L.width} height={L.H + 26} className="text-gray-700 dark:text-gray-300">
+      {f.stages.map((s, i) => (
+        <text key={s} x={i * L.colW} y={11} fontSize={10} fontWeight={600}
+              className="uppercase tracking-wide fill-gray-500 dark:fill-gray-400">{s}</text>
+      ))}
+      <g transform="translate(0,22)">
+        {L.ribbons.map((r) => (
+          <path key={r.key} d={r.d} fill={r.color} fillOpacity={0.22} stroke="none">
+            <title>{r.title}</title>
+          </path>
+        ))}
+        {L.nodes.map(([key, n]) => (
+          <g key={key}>
+            <rect x={n.x} y={n.y} width={L.barW} height={n.h} rx={2} fill={flowColor(n.name)}>
+              <title>{`${n.name}: ${n.value}`}</title>
+            </rect>
+            {Math.abs(n.ly - (n.y + n.h / 2)) > 2 && (
+              <path d={`M${n.x + L.barW},${n.y + n.h / 2} L${n.x + L.barW + 5},${n.ly}`}
+                    stroke="currentColor" strokeOpacity={0.3} fill="none" />
+            )}
+            <text x={n.x + L.barW + 6} y={n.ly + 3} fontSize={11} fill="currentColor">
+              {n.name} <tspan fillOpacity={0.55}>{n.value}</tspan>
+            </text>
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 // ------------------------------------------------------------- How it works
 const step = 'relative pl-6 pb-4 border-l border-gray-200 dark:border-gray-700 last:border-l-0 last:pb-0';
 const dot = 'absolute -left-[5px] top-1 w-2.5 h-2.5 rounded-full bg-red-500';
@@ -397,6 +571,11 @@ export function HowItWorksPanel({ h }: { h: UseSwissDisinfo }) {
   const liveFeeds = d.feeds.filter((f) => f.is_active);
   const offFeeds = d.feeds.filter((f) => !f.is_active);
   const pct = (n: number, of: number) => (of ? `${Math.round((100 * n) / of)}%` : '–');
+  const c = d.collection;
+  // The aliases in the config read like OpenAI models and none of them are, so
+  // every model shown here is the concrete one the stage actually calls.
+  const runs = (stage: string) => d.models.find((m) => m.stage === stage)?.runs ?? '';
+  const when = (t: string | null) => (t ? t.slice(0, 16).replace('T', ' ') : '–');
 
   return (
     <div className="space-y-4">
@@ -404,9 +583,40 @@ export function HowItWorksPanel({ h }: { h: UseSwissDisinfo }) {
         <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">What this watch does</div>
         <p className="text-sm text-gray-700 dark:text-gray-300">{d.blurb}</p>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-          Everything below is read from the running system, not written down, so the source list is
-          what is actually being collected right now.
+          Everything below is read from the running system each time this tab opens, so the source list
+          shows what is being collected right now.
         </p>
+      </div>
+
+      <div className={card}>
+        <div className="text-sm font-semibold mb-3 text-gray-700 dark:text-gray-200">Collected so far</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {[
+            ['Collected', c.collected, 'articles and posts, all time'],
+            ['Kept', c.approved + c.social_kept, `${c.approved} news, ${c.social_kept} social`],
+            ['Below the line', c.rejected, 'kept on file, off the board'],
+            ['Analysed', c.analysed, c.analysis_failed ? `${c.analysis_failed} failed` : 'no failures'],
+            ['Storylines', c.narratives, `${c.narrative_articles} article mentions`],
+            ['Never scored', c.unscored, c.unscored ? 'collected, gate never ran' : 'nothing stuck'],
+          ].map(([label, value, note]) => (
+            <div key={String(label)}>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{value as number}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{note}</div>
+            </div>
+          ))}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+          Last collected {when(c.last_collected)} · last analysed {when(c.last_analysed)}.
+        </div>
+      </div>
+
+      <div className={card}>
+        <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">Where articles come from and what becomes of them</div>
+        <div className="text-xs text-gray-500 mb-3">
+          Each article of the last {h.flow?.days_back ?? 30} days is counted once in every column. Hover a band to see its count.
+        </div>
+        <div className="overflow-x-auto">{h.flow ? <FlowDiagram f={h.flow} /> : <Spinner />}</div>
       </div>
 
       <div className={card}>
@@ -433,7 +643,7 @@ export function HowItWorksPanel({ h }: { h: UseSwissDisinfo }) {
           <div className={step}><div className={dot} />
             <div className="font-medium text-sm text-gray-900 dark:text-gray-100">3. Extraction</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">
-              One pass per article on <code className="text-xs">{s.extraction_model}</code>, returning the
+              One pass per article on <code className="text-xs">{runs('Extraction')}</code>, returning the
               storylines it carries and the stance towards each ({s.stances.join(', ')}), what is targeted,
               who the article says is behind it, the technique, the language, and any fact-check or official
               response. What counts as in scope depends on the source: an outlet we classify as state or
@@ -455,7 +665,7 @@ export function HowItWorksPanel({ h }: { h: UseSwissDisinfo }) {
             <div className="text-sm text-gray-600 dark:text-gray-400">
               Four rules raise an alert: a new storyline on two outlets within two days, a week's volume more
               than triple the week before, a first crossing into another language, and synthetic media aimed
-              at a named person. The weekly brief is written on <code className="text-xs">{s.brief_model}</code> from
+              at a named person. The weekly brief is written on <code className="text-xs">{runs('Weekly brief')}</code> from
               this data only.
             </div>
           </div>
@@ -516,21 +726,41 @@ export function HowItWorksPanel({ h }: { h: UseSwissDisinfo }) {
 
       <div className={card}>
         <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">What each source has produced</div>
-        <div className="text-xs text-gray-500 mb-3">Everything this watch has collected, by outlet, kept versus total.</div>
+        <div className="text-xs text-gray-500 mb-3">
+          This is everything the watch has collected, by outlet, with kept against total. Rows are counted
+          by the article's own domain, so an outlet reached two ways is still one row.
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6">
           {d.produced_by_source.map((p) => (
             <div key={p.source} className="flex justify-between gap-2 py-1 text-sm border-t border-gray-100 dark:border-gray-700">
-              <span className="truncate text-gray-700 dark:text-gray-300">{p.source}</span>
+              <span className="truncate text-gray-700 dark:text-gray-300" title={p.source}>{p.name}</span>
               <span className="whitespace-nowrap text-gray-500">{p.approved}/{p.articles}</span>
             </div>))}
         </div>
+      </div>
+
+      <div className={card + ' overflow-x-auto'}>
+        <div className="text-sm font-semibold mb-1 text-gray-700 dark:text-gray-200">Models</div>
+        <div className="text-xs text-gray-500 mb-3">
+          Each stage is configured by an alias. The aliases are historical and read like OpenAI names,
+          but every one of them runs on Bedrock.
+        </div>
+        <table className="w-full min-w-[700px]"><thead><tr>
+          <th className={th}>Stage</th><th className={th}>Runs on</th><th className={th}>Configured as</th><th className={th}>What for</th>
+        </tr></thead><tbody>{d.models.map((m) => (
+          <tr key={m.stage} className="border-t border-gray-100 dark:border-gray-700">
+            <td className={td}>{m.stage}</td>
+            <td className={td + ' text-xs'}><code>{m.runs}</code></td>
+            <td className={td + ' text-xs text-gray-500'}>{m.alias}</td>
+            <td className={td + ' text-xs text-gray-500'}>{m.note}</td>
+          </tr>))}</tbody></table>
       </div>
 
       <div className={card}>
         <div className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200">Schedule</div>
         {d.schedules.length === 0 ? <Empty text="No schedule for this watch." /> : d.schedules.map((sc) => (
           <div key={sc.name} className="text-sm text-gray-700 dark:text-gray-300 py-1 border-t border-gray-100 dark:border-gray-700">
-            <b>{sc.name}</b> — every {sc.every} on {sc.model}, {sc.runs} runs so far, last {sc.last_run?.slice(0, 16).replace('T', ' ') ?? '–'} ({sc.status ?? '–'}), next {sc.next_run?.slice(0, 16).replace('T', ' ') ?? '–'}.
+            <b>{sc.name}</b> — every {sc.every} on {runs('Extraction') || sc.model}, {sc.runs} runs so far, last {sc.last_run?.slice(0, 16).replace('T', ' ') ?? '–'} ({sc.status ?? '–'}), next {sc.next_run?.slice(0, 16).replace('T', ' ') ?? '–'}.
             {!sc.enabled && <span className="text-gray-400"> Disabled.</span>}
           </div>))}
         <div className="text-xs text-gray-500 mt-3">

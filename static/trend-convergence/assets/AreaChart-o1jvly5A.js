@@ -1,1 +1,0 @@
-import{aI as a,X as r,Y as s,aJ as i}from"./newsfeed-DuEiTrrO.js";import{A as x}from"./Area-CU47llNe.js";var o=a({chartName:"AreaChart",GraphicalChild:x,axisComponents:[{axisType:"xAxis",AxisComp:r},{axisType:"yAxis",AxisComp:s}],formatAxisMap:i});export{o as A};

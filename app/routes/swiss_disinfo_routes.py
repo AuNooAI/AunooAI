@@ -18,7 +18,8 @@ from app.database import get_database_instance
 from app.security.session import verify_session_api
 from app.services.swiss_disinfo_service import (
     ATTRIBUTIONS, BRIEF_MODEL, DEFAULT_MODEL, DEFAULT_TOPIC, LANGUAGES, SCOPES,
-    STANCES, TECHNIQUES, TIERS, get_swiss_disinfo_service, list_scopes, scope,
+    STANCES, TECHNIQUES, TIERS, SwissDisinfoService, get_swiss_disinfo_service,
+    list_scopes, scope,
 )
 from app.tasks.swiss_disinfo_monitor import calculate_next_run, get_task_status, run_schedule_now
 
@@ -140,6 +141,21 @@ async def articles(days_back: int = Query(30, ge=1, le=365), language: Optional[
                    per_page: int = Query(25, ge=1, le=100), topic: Optional[str] = ScopeParam,
                    session=Depends(verify_session_api)):
     return await asyncio.to_thread(_svc(topic).articles, days_back, language, tier, attribution, technique, page, per_page)
+
+
+@router.get("/glossary")
+async def glossary(session=Depends(verify_session_api)):
+    """The definition and the labelling test behind every technique, target
+    type, attribution, tier and stance on the board."""
+    return SwissDisinfoService.glossary()
+
+
+@router.get("/flow")
+async def flow(days_back: int = Query(30, ge=1, le=365), topic: Optional[str] = ScopeParam,
+               session=Depends(verify_session_api)):
+    """Channel, language, outlet type and outcome for every article of the
+    watch, as nodes and links for the flow diagram."""
+    return await asyncio.to_thread(_svc(topic).flow, days_back)
 
 
 @router.get("/how-it-works")

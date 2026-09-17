@@ -2,6 +2,144 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-17 — Swiss Election Watch: the same outlet, and the same ballot item, counted twice
+
+Two lists on the board were showing one thing as several.
+
+### Sources
+"What each source has produced" grouped on `articles.news_source`, which holds
+the feed's display title for an RSS article and the domain for everything else.
+So SRF appeared as "Aktuelle News aus der Schweiz und weltweit – SRF" with 327
+and as "srf.ch" with 8; RT DE as 111 and 8; Inside Paradeplatz, Les Observateurs
+and Journal21 the same way. It now groups on the article's own domain and
+labels each row from `sd_sources.name`, and the social platforms get readable
+names instead of `xpoz:twitter`.
+
+### Targets
+The target list was worse, because it had no canonical naming at all. The September neutrality
+vote was spread across eleven rows: "Neutrality initiative" (52) as a vote and
+again (6) as a policy, "Neutrality Initiative" (8 and 1), "Neutrality initiative
+referendum", "Neutrality initiative September 2025", "Safeguard Swiss neutrality
+initiative", "Sauvegarder la neutralité suisse initiative", and a seeded
+calendar row called "Neutrality initiative (27 Sep 2026)" sitting under
+"watched, nothing yet" while 47 articles hit its twin. The SVP was spread over
+six: SVP, UDC, SVP/UDC, UDC/SVP, "VP" (an article wrote `#$VP`) and SVP/Young
+UDC.
+
+`sd_targets` already had an unused `aliases` column, so it becomes the registry:
+43 canonical targets, 26 of them carrying the aliases seen in the corpus.
+Resolution is by name alone, which also settles the type — the same initiative
+came back as a vote in most articles and a policy in six.
+
+It resolves in three places, on purpose:
+- **In the prompt.** The registry's names go into the extraction prompt with an
+  instruction to reuse one exactly where it fits, and not to invent vague
+  targets — "public opinion", "referendum campaigns", "the Swiss population"
+  were all appearing as targets.
+- **At write time**, so alerts and the weekly brief see canonical names.
+- **At read time**, so an alias added to the registry today folds yesterday's
+  rows together without a reprocess.
+
+Result on the Targets tab: 91 raw rows became 55, the neutrality initiative
+reads 66 articles instead of a 52 at the top of a scattered list, and the SVP
+reads 17.
+
+Files: `app/services/swiss_disinfo_service.py` (`_target_aliases()`,
+`canonical_targets()`, `known_target_names()`, `targets()`, `how_it_works()`),
+`SwissDisinfoPanels.tsx`, `swissDisinfoApi.ts`.
+
+## 2026-09-17 — Swiss Election Watch: the technique labels had no definitions behind them
+
+### What was wrong
+The extraction prompt passed the ten technique names as a bare list of enum
+values — `deepfake`, `astroturfing`, `state_media_placement` and the rest — with
+no definition of any of them. The model was labelling from the words alone, and
+the board offered the reader no way to check what a label meant.
+
+The effect was visible on a Blick piece whose entire summary is "A propaganda
+portal, a Kremlin spokesperson… Moscow is interfering in the referendum
+campaign": the model had recorded `bot_amplification` and `fake_account`. Neither appears in
+the text; both came from what the model knows about Russian operations rather
+than from the article. A near-duplicate of the same story carried
+`astroturfing`, another carried nothing at all.
+
+### What changed
+Every technique, target type, attribution and source tier now has a written
+definition and a labelling test, held once in `swiss_disinfo_service.py`. The
+same text goes into the prompt as the instruction and onto the Targets tab as
+the legend, so the legend is the instruction, not a description of it written
+afterwards. `GET /api/swiss-disinfo/glossary` serves it.
+
+Before and after on 30 articles: 14 labels unchanged, and every change but one
+was a label being dropped for want of evidence in the text. Hallucinated
+`bot_amplification` and `fake_account` went; real deepfake reporting held.
+
+The one loss was mine. `deepfake` was defined as video or audio, which left
+AI-generated still images with nowhere to go — a Bluesky post about the
+10-million-initiative campaign using AI-made images lost its label. The
+definition now covers video, audio and still images, and the post keeps it.
+
+Also fixed: `none_reported` was being returned alongside real techniques on a
+third of the sample. It is the empty answer, so `_clean_extraction` now drops it
+whenever a real technique is present.
+
+All 272 extractions across both scopes were reprocessed under the defined
+prompt, because a legend that states criteria the stored labels were not
+produced under is worse than no legend.
+
+Files: `app/services/swiss_disinfo_service.py` (`TECHNIQUE_GLOSSARY` and the
+four others, `_prompt_glossary()`, `glossary()`, `_clean_extraction`),
+`app/routes/swiss_disinfo_routes.py`, `SwissDisinfoPanels.tsx` (`LegendList`,
+`TargetsPanel`), `useSwissDisinfo.ts`, `swissDisinfoApi.ts`.
+
+## 2026-09-17 — Swiss Election Watch: a flow diagram, and How It Works stops naming models we do not run
+
+### The models it claimed to run
+The How It Works tab printed the configured alias for two of the six model
+stages, and the aliases read like OpenAI (`gpt-5.4-mini`, `gpt-5.4`). Every one
+of them resolves to Bedrock, so the page implied a vendor the board never calls.
+The tab now lists all six stages with the concrete model each invokes, resolved
+live through `resolve_model_identity()`:
+
+| Stage | Runs on |
+| --- | --- |
+| Relevance gate | `bedrock/us.anthropic.claude-haiku-4-5` |
+| Social relevance | `bedrock/us.anthropic.claude-haiku-4-5` |
+| Article analysis | `bedrock/moonshotai.kimi-k2.5` |
+| Extraction | `bedrock/moonshotai.kimi-k2.5` |
+| Storyline matching | local DeBERTa encoder, 768 dimensions |
+| Weekly brief | `bedrock/us.anthropic.claude-sonnet-4-5` |
+
+The extraction model is now read from `sd_schedules.model` rather than the
+`DEFAULT_MODEL` constant, so changing the schedule changes the page. Two stages
+run on Haiku 4.5 against the standing preference — that is a tenant-wide
+setting (`RELEVANCE_MODEL`, `SOCIAL_EVAL_MODEL`), left alone deliberately.
+
+### Collection counters
+A stats row was added above the pipeline: collected, kept, below the line,
+analysed, storylines, never scored, with the last collection and last analysis
+timestamps. It surfaced 55 articles with a NULL `ingest_status` — collected on
+8 and 10 September (36 from the FINMA feed, 9 from Schweizerzeit) and never put
+through the relevance gate at all. They were invisible before because they are
+neither approved nor rejected.
+
+### The flow diagram
+`GET /api/swiss-disinfo/flow` places every article of the window on four axes —
+the channel that found it, its language, the tier of the outlet, and what the
+analysis made of it — and returns nodes and links. The tab draws it as a Sankey
+in plain SVG rather than through a chart library, because the four stages are
+fixed and the ribbons have to hold still for a screenshot.
+
+Swiss watch, 30 days: 1,434 of 2,001 articles arrive through RSS and 216 through
+Bluesky; 1,284 are German; 805 come from mainstream outlets and 563 from outlets
+we have not tiered; 1,673 fall below the relevance line and 141 land in a
+storyline. `Never scored` and `Analysis failed` are their own outcomes, because
+folding them into "below the line" would show a collection fault as a judgement.
+
+Files: `app/services/swiss_disinfo_service.py` (`flow()`, `how_it_works()`),
+`app/routes/swiss_disinfo_routes.py`, `SwissDisinfoPanels.tsx` (`FlowDiagram`),
+`useSwissDisinfo.ts`, `swissDisinfoApi.ts`.
+
 ## 2026-09-17 — Social relevance scoring: a brand classifier was doing a subject watch's job
 
 ### The finding

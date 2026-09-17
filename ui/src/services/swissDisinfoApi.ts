@@ -210,6 +210,22 @@ export interface Scope {
   blurb: string;
 }
 
+/** One label's definition and the test the model is told to apply before using it. */
+export interface GlossaryEntry { key: string; label: string; attack: string; criteria: string }
+export interface Glossary {
+  techniques: GlossaryEntry[]; targets: GlossaryEntry[];
+  attributions: GlossaryEntry[]; tiers: GlossaryEntry[]; stances: GlossaryEntry[];
+}
+
+/** Nodes and links for the collection flow diagram: channel, language, outlet type, outcome. */
+export interface Flow {
+  stages: string[];
+  total: number;
+  days_back: number;
+  nodes: { key: string; stage: number; name: string; value: number }[];
+  links: { source: string; target: string; value: number }[];
+}
+
 export interface HowItWorks {
   topic: string;
   label: string;
@@ -217,8 +233,15 @@ export interface HowItWorks {
   keyword_groups: { id: number; name: string; language: string | null; providers: string | null; kind: string; is_active: boolean; keywords: string[]; threshold: number | null; last_checked: string | null }[];
   feeds: { id: number; name: string; url: string; is_active: boolean; tier: string | null; language: string | null; threshold: number | null; fetched: number | null; last_checked: string | null; error: string | null; produced: { articles: number; approved: number } }[];
   telegram_channels: { channel: string; url: string; tier: string }[];
-  produced_by_source: { source: string; articles: number; approved: number }[];
+  produced_by_source: { source: string; name: string; articles: number; approved: number }[];
   schedules: { name: string; enabled: boolean; every: string; model: string | null; batch_size: number; runs: number; last_run: string | null; next_run: string | null; status: string | null }[];
+  collection: {
+    collected: number; approved: number; rejected: number; social: number; social_kept: number;
+    unscored: number; analysed: number; analysis_failed: number;
+    narratives: number; narrative_articles: number;
+    last_collected: string | null; last_analysed: string | null;
+  };
+  models: { stage: string; alias: string; runs: string; note: string }[];
   settings: {
     relevance_threshold: number | null;
     search_fields: string | null;
@@ -231,6 +254,8 @@ export interface HowItWorks {
 }
 
 export const getHowItWorks = (topic?: string) => get<HowItWorks>('/how-it-works', { topic });
+export const getFlow = (days_back: number, topic?: string) => get<Flow>('/flow', { days_back, topic });
+export const getGlossary = () => get<Glossary>('/glossary');
 export const getScopes = () => get<{ scopes: Scope[]; default: string }>('/scopes');
 export const getOverview = (days_back: number, topic?: string) => get<Overview>('/overview', { days_back, topic });
 export const getNarratives = (days_back: number, language?: string, stance?: string, topic?: string) =>

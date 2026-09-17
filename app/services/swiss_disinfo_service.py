@@ -89,6 +89,100 @@ SCOPES: Dict[str, Dict[str, Any]] = {
 def scope(topic: str) -> Dict[str, Any]:
     return SCOPES.get(topic, SCOPES[DEFAULT_TOPIC])
 
+# The ten techniques, the five target types and the source tiers were passed to
+# the model as bare enum values, so it was labelling them from the words alone
+# and the board offered the reader no way to check what a label meant. The same
+# text now goes into the prompt as the test to apply AND onto the screen as the
+# legend, so what is displayed is what was asked for.
+TECHNIQUE_GLOSSARY: List[Dict[str, str]] = [
+    {"key": "deepfake", "label": "Synthetic or manipulated media",
+     "attack": "Video, audio or still images generated or altered by machine and presented as real — a politician made to say something they did not, or an AI-made campaign picture of a scene that never happened.",
+     "criteria": "The article says the media was machine-generated or manipulated. AI-made campaign imagery counts. A real photograph used to describe the wrong event is decontextualised media instead."},
+    {"key": "synthetic_text", "label": "Synthetic text",
+     "attack": "Machine-written articles, posts or comments passed off as written by people, often filling whole sites.",
+     "criteria": "The article reports AI-generated text used to produce or pad content, not merely that AI exists as a worry."},
+    {"key": "bot_amplification", "label": "Bot amplification",
+     "attack": "Automated accounts inflating how far a message travels.",
+     "criteria": "The article reports automated or scripted accounts driving shares, likes, replies or trending position. Volume alone is not enough."},
+    {"key": "fake_account", "label": "Fake account",
+     "attack": "Accounts impersonating a real person or organisation, or invented personas presented as ordinary citizens.",
+     "criteria": "The article says accounts posed as someone they are not. Use bot amplification instead when the point is automation rather than false identity."},
+    {"key": "forged_document", "label": "Forged document",
+     "attack": "A fabricated document circulated as genuine: a leaked memo, an official letter, a ballot paper, a court filing.",
+     "criteria": "The article says the document itself was faked or altered. A document whose contents are merely disputed does not count."},
+    {"key": "doctored_quote", "label": "Doctored quote",
+     "attack": "Words invented for a real person, or edited so they mean something else.",
+     "criteria": "The article says a quotation was fabricated or altered. If the words are real and only the setting is missing, use decontextualised media."},
+    {"key": "decontextualised_media", "label": "Decontextualised media",
+     "attack": "Real images, video or figures re-used to describe an event they have nothing to do with.",
+     "criteria": "The material is genuine and the claim about when, where or what it shows is false."},
+    {"key": "astroturfing", "label": "Astroturfing",
+     "attack": "A campaign staged to look like a spontaneous citizens' movement.",
+     "criteria": "The article reports organised money or coordination behind something presented as grassroots: a committee, a petition, a protest, a wave of letters."},
+    {"key": "state_media_placement", "label": "State media placement",
+     "attack": "A state-owned or state-directed outlet carrying or seeding the claim into another country's debate.",
+     "criteria": "A state outlet is named as the vehicle. This holds whether or not the claim is false, because the placement is the operation."},
+    {"key": "none_reported", "label": "None reported",
+     "attack": "The article describes no technique.",
+     "criteria": "The default. It records that the article named no method, not that no method was used."},
+]
+
+TARGET_GLOSSARY: List[Dict[str, str]] = [
+    {"key": "vote", "label": "Vote",
+     "attack": "A referendum, popular initiative or election that is actually on a ballot.",
+     "criteria": "Name it as it appears on the ballot, e.g. \"Neutrality initiative\"."},
+    {"key": "party", "label": "Party",
+     "attack": "A political party, its candidates as a bloc, or its campaign.",
+     "criteria": "Use the common abbreviation, e.g. \"SVP\", \"SP\"."},
+    {"key": "person", "label": "Person",
+     "attack": "A named individual: a candidate, an officeholder, a journalist, a campaigner.",
+     "criteria": "Full name. A deepfake or synthetic text aimed at a person raises an alert on its own."},
+    {"key": "institution", "label": "Institution",
+     "attack": "A body rather than a person: the Federal Council, a canton, a court, a platform, a newsroom, an election office.",
+     "criteria": "The body as commonly named, e.g. \"Federal Council\"."},
+    {"key": "policy", "label": "Policy",
+     "attack": "A policy area or measure that is not itself on a ballot: neutrality, migration, energy, defence procurement.",
+     "criteria": "Use this when no specific vote is named, otherwise prefer vote."},
+]
+
+ATTRIBUTION_GLOSSARY: List[Dict[str, str]] = [
+    {"key": "russia", "label": "Russia", "attack": "The article names a Russian state actor or Russian state media.", "criteria": ""},
+    {"key": "china", "label": "China", "attack": "The article names a Chinese state actor or Chinese state media.", "criteria": ""},
+    {"key": "other_state", "label": "Another state", "attack": "The article names a state actor other than Russia or China.", "criteria": ""},
+    {"key": "domestic", "label": "Domestic", "attack": "The article points at an actor inside the country: a party, a committee, a campaign, a domestic outlet.", "criteria": ""},
+    {"key": "unattributed", "label": "Unattributed", "attack": "The article names nobody. The default.", "criteria": ""},
+]
+
+TIER_GLOSSARY: List[Dict[str, str]] = [
+    {"key": "state_media", "label": "State media", "attack": "Owned or directed by a state.", "criteria": "A political line pushed at these voters is itself the signal."},
+    {"key": "alt_media", "label": "Alternative media", "attack": "Outside the established press, with a campaigning editorial line.", "criteria": "A political line pushed at these voters is itself the signal."},
+    {"key": "party", "label": "Party", "attack": "A party's own channel or press office.", "criteria": "A political line pushed at these voters is itself the signal."},
+    {"key": "mainstream", "label": "Mainstream", "attack": "An established news organisation.", "criteria": "Ordinary opinion for or against a vote is off topic; manipulation, foreign influence or a false claim is on topic."},
+    {"key": "fact_checker", "label": "Fact-checker", "attack": "A verification outfit.", "criteria": "Stricter test, as mainstream."},
+    {"key": "institution", "label": "Institution", "attack": "An official or public body.", "criteria": "Stricter test, as mainstream."},
+    {"key": "research", "label": "Research", "attack": "An academic or research organisation.", "criteria": "Stricter test, as mainstream."},
+    {"key": "social", "label": "Social", "attack": "A social account with no outlet behind it.", "criteria": "Judged on what the account is doing, not on what it is."},
+    {"key": "unknown", "label": "Unknown", "attack": "Not yet classified.", "criteria": "Gets the stricter test, so an untiered outlet's storylines are more likely to be dropped."},
+]
+
+STANCE_GLOSSARY: List[Dict[str, str]] = [
+    {"key": "promotes", "label": "Promotes", "attack": "The article itself pushes the claim.", "criteria": ""},
+    {"key": "reports", "label": "Reports", "attack": "The article reports that others push it.", "criteria": ""},
+    {"key": "debunks", "label": "Debunks", "attack": "The article fact-checks or refutes it.", "criteria": ""},
+]
+
+
+def _prompt_glossary() -> str:
+    """The technique and target definitions, as the model sees them."""
+    techs = "\n".join(
+        f"- {t['key']}: {t['attack']} Label it when: {t['criteria']}"
+        for t in TECHNIQUE_GLOSSARY)
+    targets = "\n".join(f"- {t['key']}: {t['attack']}" for t in TARGET_GLOSSARY)
+    return ("Technique definitions. Use a technique only when its test is met, and "
+            "none_reported when the article names no method:\n" + techs
+            + "\n\nTarget types:\n" + targets)
+
+
 EXTRACTION_PROMPT = """You analyse one item for a monitor of disinformation and influence operations aimed at {subject}. The item is usually a news article; it may be a social-media post, in which case the "source" below is the account handle and the text is short. Output ONLY valid JSON.
 
 Article title: {title}
@@ -104,7 +198,7 @@ Return this JSON object:
   "narratives": [                                  // 0-3 items. Each is a claim or storyline the article carries or discusses, as one plain sentence in English, phrased so the same storyline from another article would match it
     {{"statement": "...", "stance": "promotes|reports|debunks"}}
   ],                                               // promotes = the article itself pushes the claim; reports = it reports that others push it; debunks = it fact-checks or refutes it
-  "targets": [ {{"type": "vote|party|person|institution|policy", "name": "..."}} ],   // what the manipulation is aimed at; use the common name (e.g. "Neutrality initiative", "SVP", "Ignazio Cassis", "Federal Council")
+  "targets": [ {{"type": "vote|party|person|institution|policy", "name": "..."}} ],   // what the manipulation is aimed at. If it is one of the known targets listed below, use that name EXACTLY. Otherwise give the common name, in English, with no qualifiers of your own: "Neutrality initiative", not "Neutrality initiative referendum" or "Neutrality initiative September 2025". Leave targets empty rather than naming something vague such as "public opinion", "referendum campaigns" or "the Swiss population".
   "attribution": {{"actor": "russia|china|other_state|domestic|unattributed", "confidence": 0.0-1.0}},   // who the ARTICLE says is behind it; unattributed if it does not say
   "techniques": ["deepfake","synthetic_text","bot_amplification","fake_account","forged_document","doctored_quote","decontextualised_media","astroturfing","state_media_placement","none_reported"],
   "source_tier": "state_media|alt_media|mainstream|party|fact_checker|institution|research|social|unknown",
@@ -114,6 +208,11 @@ Return this JSON object:
 
 This source is known to us as: {known_tier}
 
+Known targets — reuse one of these names exactly when it is what the item is aimed at:
+{known_targets}
+
+__GLOSSARY__
+
 Rules:
 - Report what the article says; do not add knowledge of your own.
 - If the source tier above is state_media, alt_media or party, then an article pushing a political line at Swiss readers IS the thing this monitor watches. Set on_topic true and record what it argues as a narrative with stance "promotes", even when the article alleges no manipulation and simply makes the case. That is the primary signal, not a miss.
@@ -121,6 +220,8 @@ Rules:
 - If the source tier is mainstream, fact_checker, research, institution, social or unknown, apply the stricter test: ordinary opinion for or against a vote, with no manipulation, foreign influence or false claim in it, is on_topic false with no narratives.
 - {angle_rule}
 - Keep statements short and specific: "Switzerland's neutrality initiative is promoted by Russian state media" not "Russia is involved"."""
+
+EXTRACTION_PROMPT = EXTRACTION_PROMPT.replace("__GLOSSARY__", _prompt_glossary())
 
 BRIEF_PROMPT = """You write a short weekly brief for analysts at Swiss federal bodies, parties and platforms who monitor disinformation aimed at Swiss voters. Plain language, no hype, no bullet padding. Only use the data below; if it is thin, say the week was quiet and why that is credible (sources scanned, articles gated).
 
@@ -283,6 +384,7 @@ class SwissDisinfoService:
             source=article.get("news_source") or _domain(article.get("url"), None) or "unknown",
             category=article.get("category") or "unknown",
             known_tier=known_tier,
+            known_targets="\n".join("- " + n for n in self.known_target_names()) or "- (none yet)",
         )
         model = LiteLLMModel.get_instance(model_name)
         response = await model.agenerate_response([
@@ -316,7 +418,11 @@ class SwissDisinfoService:
             conf = float(attr.get("confidence") or 0.0)
         except (TypeError, ValueError):
             conf = 0.0
-        techniques = [t for t in (raw.get("techniques") or []) if t in TECHNIQUES] or ["none_reported"]
+        techniques = [t for t in (raw.get("techniques") or []) if t in TECHNIQUES]
+        # "none reported" is the empty answer, so it cannot stand beside a real
+        # technique. The model returned both on a third of the sample.
+        real = [t for t in techniques if t != "none_reported"]
+        techniques = real or ["none_reported"]
         tier = (raw.get("source_tier") or "unknown").lower()
         if tier not in TIERS:
             tier = "unknown"
@@ -433,6 +539,7 @@ class SwissDisinfoService:
             tier_hint = await asyncio.to_thread(self.known_tier, domain)
             raw = await self.extract_with_llm(article, model_name, tier_hint)
             ex = self._clean_extraction(raw)
+            ex["targets"] = self.canonical_targets(ex.get("targets") or [])
             error = None
         except Exception as e:  # keep the row so the article is not retried forever
             logger.warning("Swiss disinfo extraction failed for %s: %s", uri, e)
@@ -791,10 +898,27 @@ class SwissDisinfoService:
                 WHERE e.article_date >= CAST(:s AS date) AND e.topic = :topic
                 GROUP BY 1, 2 ORDER BY articles DESC
             """), {"s": since, "topic": self.topic}).fetchall()
-            seen = {(r.type, r.name.lower()) for r in rows}
-            out = [{"type": r.type, "name": r.name, "articles": int(r.articles), "last7": int(r.last7),
-                    "last_seen": r.last_seen.isoformat() if r.last_seen else None, "seeded": False}
-                   for r in rows]
+            # Resolved here as well as at write time, so an alias added to the
+            # registry today folds yesterday's rows together without a reprocess.
+            amap = self._target_aliases()
+            merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
+            for r in rows:
+                ttype, name = amap.get((r.name or "").strip().lower(), (r.type, r.name))
+                key = (ttype, name.lower())
+                cur = merged.get(key)
+                if cur is None:
+                    merged[key] = {"type": ttype, "name": name, "articles": int(r.articles),
+                                   "last7": int(r.last7),
+                                   "last_seen": r.last_seen.isoformat() if r.last_seen else None,
+                                   "seeded": False}
+                    continue
+                cur["articles"] += int(r.articles)
+                cur["last7"] += int(r.last7)
+                last = r.last_seen.isoformat() if r.last_seen else None
+                if last and (cur["last_seen"] is None or last > cur["last_seen"]):
+                    cur["last_seen"] = last
+            out = sorted(merged.values(), key=lambda d: -d["articles"])
+            seen = set(merged.keys())
             seeded = conn.execute(text("SELECT type, name FROM sd_targets WHERE seeded ORDER BY type, name")).fetchall()
             for ttype, name in seeded:
                 if (ttype, name.lower()) not in seen:
@@ -1055,9 +1179,26 @@ class SwissDisinfoService:
                        ON s.domain = regexp_replace(regexp_replace(f.url, '^https?://(www\\.)?', ''), '/.*$', '')
                 WHERE f.topic = :topic ORDER BY f.is_active DESC, f.name
             """), {"topic": self.topic}).fetchall()
-            produced = {r[0]: {"articles": int(r[1]), "approved": int(r[2])} for r in conn.execute(text("""
-                SELECT news_source, COUNT(*), COUNT(*) FILTER (WHERE ingest_status = 'approved')
-                FROM articles WHERE topic = :topic GROUP BY 1
+            # Grouped by the article's own domain, not by news_source: an RSS
+            # article carries the feed's title ("Aktuelle News aus der Schweiz
+            # und weltweit - SRF") while the same outlet collected any other way
+            # carries "srf.ch", and the list showed both. Social posts have no
+            # outlet domain worth grouping on, so they group by platform.
+            produced = {r[0]: {"articles": int(r[1]), "approved": int(r[2]), "label": r[3]}
+                        for r in conn.execute(text("""
+                SELECT key, COUNT(*), COUNT(*) FILTER (WHERE ingest_status = 'approved'),
+                       MIN(label) AS label
+                FROM (
+                    SELECT a.ingest_status,
+                           CASE WHEN a.news_source IN ('bluesky','bsky','telegram','reddit')
+                                  OR a.news_source LIKE 'xpoz:%'
+                                THEN a.news_source
+                                ELSE regexp_replace(regexp_replace(
+                                       COALESCE(NULLIF(a.url, ''), a.uri),
+                                       '^https?://(www\\.)?', ''), '/.*$', '') END AS key,
+                           a.news_source AS label
+                    FROM articles a WHERE a.topic = :topic
+                ) s GROUP BY key
             """), {"topic": self.topic}).fetchall()}
             # A feed's name rarely equals the article's news_source ("Republik"
             # vs "Republik Magazin"), so per-feed yield is counted by the
@@ -1071,6 +1212,8 @@ class SwissDisinfoService:
             """), {"topic": self.topic}).fetchall()}
             tiers = {r[0]: r[1] for r in conn.execute(text(
                 "SELECT domain, tier FROM sd_sources")).fetchall()}
+            tiers_named = {r[0]: r[1] for r in conn.execute(text(
+                "SELECT domain, name FROM sd_sources WHERE name IS NOT NULL")).fetchall()}
             schedules = conn.execute(text("""
                 SELECT name, schedule_enabled, schedule_type, schedule_interval, schedule_unit,
                        model, batch_size, last_run_at, next_run_at, last_run_status, run_count
@@ -1079,6 +1222,26 @@ class SwissDisinfoService:
             tenant = conn.execute(text(
                 "SELECT min_relevance_threshold, search_fields, default_llm_model, language "
                 "FROM keyword_monitor_settings LIMIT 1")).fetchone()
+            counts = conn.execute(text("""
+                SELECT COUNT(*) AS collected,
+                       COUNT(*) FILTER (WHERE ingest_status = 'approved') AS approved,
+                       COUNT(*) FILTER (WHERE ingest_status = 'filtered_relevance') AS rejected,
+                       COUNT(*) FILTER (WHERE ingest_status = 'social_evaluated') AS social,
+                       COUNT(*) FILTER (WHERE ingest_status = 'social_evaluated'
+                                        AND topic_alignment_score >= :sm) AS social_kept,
+                       COUNT(*) FILTER (WHERE ingest_status IS NULL) AS unscored,
+                       MAX(submission_date) AS last_collected
+                FROM articles WHERE topic = :topic
+            """), {"topic": self.topic, "sm": SOCIAL_MIN_ALIGNMENT}).fetchone()
+            ext = conn.execute(text("""
+                SELECT COUNT(*) AS analysed, COUNT(*) FILTER (WHERE error IS NOT NULL) AS failed,
+                       MAX(extracted_at) AS last_analysed
+                FROM sd_extractions WHERE topic = :topic
+            """), {"topic": self.topic}).fetchone()
+            nar = conn.execute(text("""
+                SELECT COUNT(*) AS narratives, COALESCE(SUM(article_count), 0) AS narrative_articles
+                FROM sd_narratives WHERE topic = :topic
+            """), {"topic": self.topic}).fetchone()
         finally:
             conn.close()
 
@@ -1092,6 +1255,11 @@ class SwissDisinfoService:
                 return "social"
             return "news"
 
+        # The social collectors store their platform in news_source, so they
+        # group as "xpoz:twitter" unless they are given a readable name.
+        platform_names = {"bluesky": "Bluesky", "bsky": "Bluesky", "telegram": "Telegram",
+                          "reddit": "Reddit", "xpoz:twitter": "X (via xpoz)",
+                          "xpoz:reddit": "Reddit (via xpoz)", "xpoz:bluesky": "Bluesky (via xpoz)"}
         sc = scope(self.topic)
         # TELEGRAM_CHANNELS is tenant-wide, so only list it where this watch
         # actually runs a telegram group — otherwise the Swiss channels show
@@ -1100,6 +1268,31 @@ class SwissDisinfoService:
         telegram_channels = [c.strip().lstrip("@") for c in
                              os.getenv("TELEGRAM_CHANNELS", "").split(",")
                              if c.strip()] if uses_telegram else []
+
+        # Every name in litellm_config.yaml is an alias, and most of them read
+        # like an OpenAI model while calling something else entirely. Showing
+        # only the alias here told the reader we run on OpenAI, which we do not,
+        # so each stage carries the concrete provider and model it invokes.
+        from app.ai_models import resolve_model_identity
+        from app.vector_store_pgvector import DEBERTA_ENCODER_URL
+        extraction_alias = next((r.model for r in schedules if r.model), DEFAULT_MODEL)
+        def _m(stage: str, alias: str, note: str = "") -> Dict[str, str]:
+            return {"stage": stage, "alias": alias,
+                    "runs": resolve_model_identity(alias) or alias, "note": note}
+        models = [
+            _m("Relevance gate", os.getenv("RELEVANCE_MODEL", "gpt-5.4-mini"),
+               "scores every article against this watch's description"),
+            _m("Social relevance", os.getenv("SOCIAL_EVAL_MODEL", "").strip('"') or "bedrock-claude-haiku",
+               "scores Bluesky and Telegram posts, which never reach the news gate"),
+            _m("Article analysis", (tenant[2] if tenant else "") or DEFAULT_MODEL,
+               "category, sentiment and tags, shared with the rest of the platform"),
+            _m("Extraction", extraction_alias,
+               "the storylines, stance, targets, technique and attribution on this board"),
+            {"stage": "Storyline matching", "alias": "DeBERTa encoder (local)",
+             "runs": f"{DEBERTA_ENCODER_URL} · 768 dimensions",
+             "note": "shortlists candidates by meaning; the extraction model decides the merge"},
+            _m("Weekly brief", BRIEF_MODEL, "writes the brief from this board's data only"),
+        ]
         return {
             "topic": self.topic,
             "label": sc["label"],
@@ -1117,14 +1310,16 @@ class SwissDisinfoService:
                 "threshold": f.relevance_threshold, "fetched": f.articles_fetched,
                 "last_checked": f.last_checked_at.isoformat() if f.last_checked_at else None,
                 "error": f.last_error,
-                "produced": by_domain.get(_feed_domain(f.url)) or produced.get(
-                    f.name, {"articles": 0, "approved": 0}),
+                "produced": by_domain.get(_feed_domain(f.url)) or {"articles": 0, "approved": 0},
             } for f in feeds],
             "telegram_channels": [{"channel": c, "url": f"https://t.me/s/{c}",
                                    "tier": tiers.get(f"t.me/{c}", "unknown")}
                                   for c in telegram_channels],
-            "produced_by_source": [{"source": k, **v} for k, v in
-                                   sorted(produced.items(), key=lambda kv: -kv[1]["articles"])[:40]],
+            "produced_by_source": [
+                {"source": k, "name": (platform_names.get(k) or tiers_named.get(k)
+                                       or v.get("label") or k),
+                 "articles": v["articles"], "approved": v["approved"]}
+                for k, v in sorted(produced.items(), key=lambda kv: -kv[1]["articles"])[:40]],
             "schedules": [{
                 "name": r.name, "enabled": r.schedule_enabled,
                 "every": f"{r.schedule_interval} {r.schedule_unit}" if r.schedule_type == "interval" else r.schedule_type,
@@ -1133,16 +1328,197 @@ class SwissDisinfoService:
                 "next_run": r.next_run_at.isoformat() if r.next_run_at else None,
                 "status": r.last_run_status,
             } for r in schedules],
+            "collection": {
+                "collected": int(counts.collected or 0),
+                "approved": int(counts.approved or 0),
+                "rejected": int(counts.rejected or 0),
+                "social": int(counts.social or 0),
+                "social_kept": int(counts.social_kept or 0),
+                "unscored": int(counts.unscored or 0),
+                "analysed": int(ext.analysed or 0),
+                "analysis_failed": int(ext.failed or 0),
+                "narratives": int(nar.narratives or 0),
+                "narrative_articles": int(nar.narrative_articles or 0),
+                "last_collected": counts.last_collected,
+                "last_analysed": ext.last_analysed.isoformat() if ext.last_analysed else None,
+            },
+            "models": models,
             "settings": {
                 "relevance_threshold": tenant[0] if tenant else None,
                 "search_fields": tenant[1] if tenant else None,
-                "extraction_model": DEFAULT_MODEL,
+                "extraction_model": extraction_alias,
                 "brief_model": BRIEF_MODEL,
                 "social_min_alignment": SOCIAL_MIN_ALIGNMENT,
                 "narrative_shortlist_floor": NARRATIVE_MATCH_THRESHOLD,
                 "stances": list(STANCES), "tiers": list(TIERS),
                 "techniques": list(TECHNIQUES), "attributions": list(ATTRIBUTIONS),
             },
+        }
+
+    # ------------------------------------------------------- target registry
+    _TARGET_CACHE: Dict[str, Tuple[float, Dict[str, Tuple[str, str]]]] = {}
+    _TARGET_TTL = 120.0
+
+    def _target_aliases(self) -> Dict[str, Tuple[str, str]]:
+        """lower(name or alias) -> (type, canonical name), from sd_targets.
+
+        The model writes a target's name freely, so the same ballot item arrived
+        as "Neutrality initiative", "Neutrality Initiative", "Neutrality
+        initiative referendum" and "Sauvegarder la neutralite suisse initiative",
+        and the Targets list showed four rows. Resolution is by name alone, which
+        also settles the type: the same initiative came back as a vote in most
+        articles and a policy in six.
+        """
+        import time
+        hit = self._TARGET_CACHE.get(self.topic)
+        if hit and time.time() - hit[0] < self._TARGET_TTL:
+            return hit[1]
+        conn = self._conn()
+        try:
+            rows = conn.execute(text("SELECT type, name, aliases FROM sd_targets")).fetchall()
+        finally:
+            conn.close()
+        out: Dict[str, Tuple[str, str]] = {}
+        for ttype, name, aliases in rows:
+            out[name.strip().lower()] = (ttype, name)
+            for a in (aliases or []):
+                key = str(a).strip().lower()
+                if key and key not in out:
+                    out[key] = (ttype, name)
+        self._TARGET_CACHE[self.topic] = (time.time(), out)
+        return out
+
+    def canonical_targets(self, targets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Fold each target onto its registered name, dropping what that makes
+        into a duplicate within the same article."""
+        amap = self._target_aliases()
+        out: List[Dict[str, Any]] = []
+        seen = set()
+        for t in targets or []:
+            name = str(t.get("name") or "").strip()
+            ttype = str(t.get("type") or "").strip().lower()
+            if not name:
+                continue
+            resolved = amap.get(name.lower())
+            if resolved:
+                ttype, name = resolved
+            key = (ttype, name.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"type": ttype, "name": name})
+        return out
+
+    def known_target_names(self, limit: int = 60) -> List[str]:
+        """The registry's canonical names, for the extraction prompt."""
+        conn = self._conn()
+        try:
+            rows = conn.execute(text(
+                "SELECT type, name FROM sd_targets ORDER BY seeded DESC, type, name LIMIT :l"
+            ), {"l": limit}).fetchall()
+        finally:
+            conn.close()
+        return [f"{name} ({ttype})" for ttype, name in rows]
+
+    # ---------------------------------------------------------------- legend
+    @staticmethod
+    def glossary() -> Dict[str, Any]:
+        """What each label means and when the model is told to apply it. The
+        same text goes into the extraction prompt, so the legend on screen is
+        the instruction that produced the labels, not a description of it."""
+        return {
+            "techniques": TECHNIQUE_GLOSSARY, "targets": TARGET_GLOSSARY,
+            "attributions": ATTRIBUTION_GLOSSARY, "tiers": TIER_GLOSSARY,
+            "stances": STANCE_GLOSSARY,
+        }
+
+    # ------------------------------------------------------------- flow graph
+    def flow(self, days_back: int = 30) -> Dict[str, Any]:
+        """How collection relates to what comes out.
+
+        Every article of this watch is placed on four axes: the channel that
+        found it, the language it is written in, the tier of the outlet that
+        published it, and what the analysis made of it. Returned as nodes and
+        links so the tab can draw it as a flow. Each article is counted once
+        per stage, so all four stages sum to the same total.
+        """
+        conn = self._conn()
+        try:
+            rows = conn.execute(text("""
+                WITH arts AS (
+                    SELECT a.uri, a.ingest_status, a.topic_alignment_score,
+                           regexp_replace(regexp_replace(COALESCE(NULLIF(a.url, ''), a.uri),
+                                          '^https?://(www\\.)?', ''), '/.*$', '') AS domain
+                    FROM articles a
+                    WHERE a.topic = :topic AND a.submission_date >= :s
+                ), chan AS (
+                    SELECT DISTINCT ON (m.article_uri)
+                           m.article_uri, g.name AS gname, g.language AS glang, g.providers
+                    FROM keyword_article_matches m JOIN keyword_groups g ON g.id = m.group_id
+                    WHERE g.topic = :topic
+                    ORDER BY m.article_uri, g.id
+                )
+                SELECT a.uri, a.ingest_status, a.topic_alignment_score,
+                       c.gname, c.glang, c.providers,
+                       e.language AS elang, e.source_tier,
+                       s.tier AS stier, s.language AS slang,
+                       EXISTS (SELECT 1 FROM sd_narrative_articles na
+                               WHERE na.article_uri = a.uri AND na.topic = :topic) AS in_narrative,
+                       (e.article_uri IS NOT NULL) AS analysed
+                FROM arts a
+                LEFT JOIN chan c ON c.article_uri = a.uri
+                LEFT JOIN sd_extractions e ON e.article_uri = a.uri AND e.topic = :topic
+                LEFT JOIN sd_sources s ON s.domain = a.domain
+            """), {"topic": self.topic, "s": self._since(days_back)}).fetchall()
+        finally:
+            conn.close()
+
+        links: Dict[Tuple[str, str], int] = {}
+        totals: Dict[str, int] = {}
+        for r in rows:
+            provs = (r.providers or "").lower()
+            if r.gname is None:
+                channel = "RSS feeds"
+            elif "telegram" in provs:
+                channel = "Telegram"
+            elif any(p in provs for p in ("bluesky", "bsky", "reddit", "xpoz")):
+                channel = "Bluesky"
+            else:
+                channel = "Keywords %s" % (r.glang or "en").upper()
+            lang = (r.elang or r.glang or r.slang or "").lower()
+            lang = lang.upper() if lang in LANGUAGES else "Language unknown"
+            tier = (r.source_tier or r.stier or "unknown").replace("_", " ")
+            if r.in_narrative:
+                outcome = "In a storyline"
+            elif r.analysed:
+                outcome = "Analysed, no storyline"
+            elif r.ingest_status == "approved" or (
+                    r.ingest_status == "social_evaluated"
+                    and (r.topic_alignment_score or 0) >= SOCIAL_MIN_ALIGNMENT):
+                outcome = "Waiting to be analysed"
+            elif r.ingest_status is None:
+                # Collected but the relevance gate never ran on it. Folding these
+                # into "below the line" would hide a collection fault as a
+                # judgement, so they get their own bucket.
+                outcome = "Never scored"
+            elif r.ingest_status == "enrichment_failed":
+                outcome = "Analysis failed"
+            else:
+                outcome = "Below the relevance line"
+            path = ["0:" + channel, "1:" + lang, "2:" + tier, "3:" + outcome]
+            for key in path:
+                totals[key] = totals.get(key, 0) + 1
+            for a, b in zip(path, path[1:]):
+                links[(a, b)] = links.get((a, b), 0) + 1
+
+        nodes = [{"key": k, "stage": int(k.split(":", 1)[0]), "name": k.split(":", 1)[1], "value": v}
+                 for k, v in totals.items()]
+        nodes.sort(key=lambda n: (n["stage"], -n["value"], n["name"]))
+        return {
+            "stages": ["Channel", "Language", "Outlet type", "Outcome"],
+            "total": len(rows), "days_back": days_back, "nodes": nodes,
+            "links": [{"source": a, "target": b, "value": v}
+                      for (a, b), v in sorted(links.items(), key=lambda kv: -kv[1])],
         }
 
     # ---------------------------------------------------- calendar and alerts

@@ -5,12 +5,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  getScopes, getHowItWorks, getOverview, getNarratives, getNarrativeDetail, getSources, getCooccurrence, getTargets,
+  getScopes, getHowItWorks, getFlow, getGlossary, getOverview, getNarratives, getNarrativeDetail, getSources, getCooccurrence, getTargets,
   getTechniques, getLanguages, getCalendar, getResponses, getArticles, getBrief, generateBrief,
   getProcessStatus, startProcessing, getUnprocessedCount,
   type Overview, type Narrative, type NarrativeDetail, type SourceRow, type Cooccurrence,
   type TargetRow, type TechniqueRow, type LanguagesData, type CalendarData, type ResponsesData,
-  type ArticlesPage, type Brief, type ProcessStatus, type Scope, type HowItWorks,
+  type ArticlesPage, type Brief, type ProcessStatus, type Scope, type HowItWorks, type Flow, type Glossary,
 } from '../services/swissDisinfoApi';
 
 export interface ArticleFilters {
@@ -41,6 +41,8 @@ export function useSwissDisinfo() {
   const [processStatus, setProcessStatus] = useState<ProcessStatus | null>(null);
   const [unprocessed, setUnprocessed] = useState<number | null>(null);
   const [howItWorks, setHowItWorks] = useState<HowItWorks | null>(null);
+  const [flow, setFlow] = useState<Flow | null>(null);
+  const [glossary, setGlossary] = useState<Glossary | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -67,6 +69,7 @@ export function useSwissDisinfo() {
   const loadTargets = useCallback(() => {
     run('targets', () => getTargets(daysBack, topic), setTargets);
     run('techniques', () => getTechniques(daysBack, topic), setTechniques);
+    run('glossary', () => getGlossary(), setGlossary);
   }, [run, daysBack, topic]);
   const loadLanguages = useCallback(() => run('languages', () => getLanguages(daysBack, topic), setLanguages), [run, daysBack, topic]);
   const loadCalendar = useCallback(() => run('calendar', () => getCalendar(Math.max(daysBack, 60), topic), setCalendar), [run, daysBack, topic]);
@@ -76,7 +79,10 @@ export function useSwissDisinfo() {
     return run('articles', () => getArticles({ days_back: daysBack, ...f, per_page: 25, topic }), setArticles);
   }, [run, daysBack, topic]);
   const loadBrief = useCallback(() => run('brief', () => getBrief(topic), setBrief), [run, topic]);
-  const loadHowItWorks = useCallback(() => run('how', () => getHowItWorks(topic), setHowItWorks), [run, topic]);
+  const loadHowItWorks = useCallback(() => {
+    run('how', () => getHowItWorks(topic), setHowItWorks);
+    run('flow', () => getFlow(Math.max(daysBack, 30), topic), setFlow);
+  }, [run, daysBack, topic]);
   const makeBrief = useCallback((days: number) => run('brief', () => generateBrief(days, topic), setBrief), [run, topic]);
   const loadProcessStatus = useCallback(() => run('process', () => getProcessStatus(), setProcessStatus), [run]);
   const loadUnprocessed = useCallback(() => run('unprocessed', async () => (await getUnprocessedCount(topic)).count, setUnprocessed), [run, topic]);
@@ -98,7 +104,7 @@ export function useSwissDisinfo() {
   return {
     daysBack, setDaysBack, scopes, topic, setTopic,
     overview, narratives, narrativeDetail, setNarrativeDetail, sources, cooccurrence, targets, techniques,
-    languages, calendar, responses, articles, articleFilters, brief, processStatus, unprocessed, howItWorks,
+    languages, calendar, responses, articles, articleFilters, brief, processStatus, unprocessed, howItWorks, flow, glossary,
     loading, error, clearError: () => setError(null),
     loadOverview, loadNarratives, loadNarrativeDetail, loadSources, loadTargets, loadLanguages,
     loadCalendar, loadResponses, loadArticles, loadBrief, makeBrief, process, loadUnprocessed, loadHowItWorks,
