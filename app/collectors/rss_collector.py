@@ -267,7 +267,7 @@ class RSSCollector(ArticleCollector):
                 response = await client.get(
                     feed_url,
                     headers={
-                        'User-Agent': 'AunooAI RSS Collector/1.0',
+                        'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
                         'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml'
                     },
                     follow_redirects=True
@@ -488,7 +488,7 @@ class RSSCollector(ArticleCollector):
                 response = await client.get(
                     url,
                     headers={
-                        'User-Agent': 'AunooAI RSS Collector/1.0',
+                        'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
                         'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml'
                     },
                     follow_redirects=True

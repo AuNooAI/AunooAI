@@ -220,7 +220,9 @@ class SocialEvalService:
         return self._model
 
     async def _eval_one(self, brand_topic: str, title: str, body: str,
-                        author: str = "", brand_context: str = "") -> Optional[Dict]:
+                        author: str = "", brand_context: str = "",
+                        anchors: Optional[List[str]] = None, source_tier: str = "",
+                        topic_mode: bool = False) -> Optional[Dict]:
         model = self._get_model()
         if not model:
             return None
@@ -229,6 +231,18 @@ class SocialEvalService:
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
         ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
+        # A watch on a subject is not a watch on a company. The extra guidance
+        # rides in the user message rather than the system prompt so the brand
+        # path sees byte-identical input to what it saw before.
+        if source_tier and source_tier not in ("unknown", ""):
+            ctx += f"\nSOURCE: {author or 'unknown'} — known to us as {source_tier.replace('_', ' ')}"
+        if topic_mode:
+            ctx += ("\nThis is a SUBJECT watch, not a company. Relevance means the post is "
+                    "substantively about this subject — including a post that argues a position "
+                    "within it. A post from a source known to us as state media, alternative "
+                    "media or a party, pushing a line on this subject, is highly relevant even "
+                    "when it names no organisation. Judge the subject, not a company name, and "
+                    "score posts in any language on the same scale.")
         messages = [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}{ctx}\n\nPOST:\n{text}"},
@@ -254,7 +268,9 @@ class SocialEvalService:
         # subject matter (a French Sony ebook complaint scored 0.75 for Wiley).
         # 0.3 sits below the 0.4 relevance floor used by feeds and alert rules.
         if r and r["relevance"] > 0.3:
-            anchors = _brand_anchor_tokens(brand_topic)
+            # Brands keep the single title-derived anchor; a topic passes its own
+            # keyword terms, which carry the language variants.
+            anchors = anchors if anchors is not None else _brand_anchor_tokens(brand_topic)
             hay = f"{text}\n{author or ''}".lower()
             if anchors and not _mentions_brand(hay, anchors):
                 r["relevance"] = 0.3
@@ -346,7 +362,9 @@ class SocialEvalService:
         return results
 
     async def evaluate_posts(self, posts: List[Dict], brand_topic: str,
-                             brand_context: str = "") -> List[Dict]:
+                             brand_context: str = "", anchors: Optional[List[str]] = None,
+                             tiers: Optional[Dict[str, str]] = None,
+                             topic_mode: bool = False) -> List[Dict]:
         """Evaluate a batch of post dicts (need 'uri','title','summary'/'content').
 
         Returns list of {uri, relevance, sentiment} for posts the model scored.
@@ -362,8 +380,15 @@ class SocialEvalService:
                 title = p.get("title") or ""
                 body = p.get("summary") or p.get("content") or ""
                 author = p.get("author") or (p.get("social_meta") or {}).get("author") or ""
+                # A Bluesky handle and a Telegram channel are both addressed the
+                # way a domain is, so one lookup serves both.
+                tier = ""
+                if tiers:
+                    handle = (author or "").strip().lstrip("@").lower()
+                    tier = tiers.get(handle) or tiers.get(f"t.me/{handle}") or ""
                 r = await self._eval_one(brand_topic, title, body, author=author,
-                                         brand_context=brand_context)
+                                         brand_context=brand_context, anchors=anchors,
+                                         source_tier=tier, topic_mode=topic_mode)
                 if r:
                     results.append({"uri": p.get("uri") or p.get("url"), **r})
 
@@ -407,6 +432,12 @@ class SocialEvalService:
         # brand description rides along on the model calls so the LLM can tell
         # look-alike entities apart on its own.
         ctx = _brand_context_for_topic(db, brand_topic)
+        # No brand behind this topic: it is a subject watch, so give the model
+        # the topic's description and its own keyword terms as anchors.
+        profile = {"description": "", "anchors": [], "tiers": {}}
+        topic_mode = not ctx["description"] and not ctx["excludes"]
+        if topic_mode:
+            profile = _topic_profile(db, brand_topic)
         excluded_zeroed = 0
         if ctx["excludes"]:
             keep = []
@@ -422,8 +453,12 @@ class SocialEvalService:
                 else:
                     keep.append(p)
             posts = keep
-        scored = await self.evaluate_posts(posts, brand_topic,
-                                           brand_context=ctx["description"])
+        scored = await self.evaluate_posts(
+            posts, brand_topic,
+            brand_context=ctx["description"] or profile["description"],
+            anchors=(profile["anchors"] or None) if topic_mode else None,
+            tiers=profile["tiers"] or None,
+            topic_mode=topic_mode and bool(profile["description"] or profile["anchors"]))
         for s in scored:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
@@ -578,6 +613,74 @@ _STANCE_BY_SENTIMENT = {
 }
 
 
+def _topic_profile(db, topic: str) -> Dict:
+    """Description, anchor terms and source tiers for a plain keyword topic.
+
+    The brand path (``_brand_context_for_topic``) answers for
+    "Brand Monitoring <name>" topics and is untouched. Everything else used to
+    get nothing at all: no description, so the model judged a post against the
+    bare topic title, and a single anchor word derived from that title, so the
+    no-mention cap fired on any post not containing it. For
+    "Swiss Federal Elections 2027 Disinfo Monitoring" the anchor was "swiss",
+    which does not match "Switzerland" (swiss/switz) and matches no German,
+    French or Italian post at all — 88 posts sat at the 0.30 ceiling, several
+    of them squarely on topic (2026-09-17).
+
+    Anchors now come from the topic's own monitored keywords, which already
+    carry the language variants, and tiers come from sd_sources when a watch
+    module has populated it.
+    """
+    from sqlalchemy import text
+    out: Dict[str, Any] = {"description": "", "anchors": [], "tiers": {}}
+    if not topic:
+        return out
+    try:
+        from app.config.settings import get_config_path
+        cfg_path = get_config_path()
+    except Exception:
+        cfg_path = None
+    try:
+        import json as _json
+        from pathlib import Path
+        path = Path(cfg_path) if cfg_path else Path(__file__).resolve().parents[1] / "config" / "config.json"
+        cfg = _json.loads(path.read_text())
+        for t in cfg.get("topics", []):
+            if (t.get("name") or "").strip().lower() == topic.strip().lower():
+                out["description"] = (t.get("description") or "").strip()
+                break
+    except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
+        logger.debug(f"SocialEval topic description lookup failed for {topic!r}: {e}")
+
+    try:
+        rows = db.facade._fetchall_with_rollback(text(
+            "SELECT k.keyword FROM monitored_keywords k "
+            "JOIN keyword_groups g ON g.id = k.group_id WHERE g.topic = :t"),
+            {"t": topic}, operation_name="social eval topic anchors")
+        seen: List[str] = []
+        for (kw,) in rows or []:
+            bare = re.sub(r"^(company|tech|person|location):", "", (kw or "").strip(), flags=re.I)
+            for tok in re.findall(r"[\w'-]{4,}", bare.lower(), flags=re.UNICODE):
+                if tok not in _ANCHOR_STOP and tok not in seen:
+                    seen.append(tok)
+        for tok in re.findall(r"[\w'-]{4,}", (topic or "").lower(), flags=re.UNICODE):
+            if tok not in _ANCHOR_STOP and tok not in seen:
+                seen.append(tok)
+        out["anchors"] = seen[:60]
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"SocialEval topic anchors lookup failed for {topic!r}: {e}")
+
+    try:
+        if db.facade._fetchone_with_rollback(text("SELECT to_regclass('sd_sources')"), {},
+                                             operation_name="social eval tier probe")[0]:
+            rows = db.facade._fetchall_with_rollback(text(
+                "SELECT domain, tier FROM sd_sources"), {},
+                operation_name="social eval tiers")
+            out["tiers"] = {(d or "").lower(): t for d, t in (rows or []) if d and t}
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"SocialEval tier lookup failed: {e}")
+    return out
+
+
 def _brand_context_for_topic(db, brand_topic: str) -> Dict:
     """Description + entity-collision exclude terms for the brand behind a topic.
 
@@ -605,6 +708,60 @@ def _brand_context_for_topic(db, brand_topic: str) -> Dict:
     except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
         logger.debug(f"SocialEval brand-context lookup failed for {brand_topic!r}: {e}")
         return {"description": "", "excludes": []}
+
+
+def apply_exclude_terms(conn, brand_id: int, display_name: str,
+                        excludes: List[str]) -> Dict[str, int]:
+    """Zero already-scored posts that match the brand's exclude terms.
+
+    The terms are checked when a post is first evaluated, so a term added
+    later did nothing for what was already in the tables: Noom's Voices kept
+    showing Thai fan posts about an actor nicknamed "Noom" that the model had
+    scored 0.7 to 1.0. Saving the list now re-applies it to the brand's stored
+    mentions and topic rows, the same way the evaluators would have. Matching
+    is the same lowercase substring test over title, summary and author.
+    """
+    terms = [str(x).strip().lower() for x in (excludes or []) if str(x).strip()]
+    if not terms:
+        return {"mentions": 0, "articles": 0}
+    from sqlalchemy import text
+    from app.services import entity_content
+    out = {"mentions": 0, "articles": 0}
+    topic = f"Brand Monitoring {display_name}"
+
+    def _hit(title, summary, author) -> bool:
+        blob = f"{title or ''} {summary or ''} {author or ''}".lower()
+        return any(t in blob for t in terms)
+
+    try:
+        rows = conn.execute(text("""
+            SELECT m.id, a.uri, a.title, a.summary, a.social_meta->>'author'
+              FROM bw_entity_mentions m JOIN articles a ON a.uri = m.article_uri
+             WHERE m.brand_id = :b AND COALESCE(m.relevance, 0) > 0
+        """), {"b": brand_id}).fetchall()
+        for mid, uri, title, summary, author in rows:
+            if _hit(title, summary, author):
+                entity_content.score_mention(
+                    conn, int(mid), relevance=0.0, sentiment=None,
+                    stance='not_applicable', method='exclude_term', model=None,
+                    version=entity_content.MATCHER_VERSION, status='accepted')
+                out["mentions"] += 1
+    except Exception as e:  # noqa: BLE001 — no mention table on the topic-only trees
+        logger.debug("apply_exclude_terms: mention pass skipped: %s", e)
+    rows = conn.execute(text("""
+        SELECT uri, title, summary, social_meta->>'author'
+          FROM articles
+         WHERE topic = :t AND COALESCE(topic_alignment_score, 0) > 0
+    """), {"t": topic}).fetchall()
+    for uri, title, summary, author in rows:
+        if _hit(title, summary, author):
+            conn.execute(text("""
+                UPDATE articles SET topic_alignment_score = 0, keyword_relevance_score = 0,
+                       sentiment = 'Neutral'
+                 WHERE uri = :u
+            """), {"u": uri})
+            out["articles"] += 1
+    return out
 
 
 _singleton: Optional[SocialEvalService] = None

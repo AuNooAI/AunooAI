@@ -10,11 +10,11 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Info, RefreshCw, Eye, Quote, FileDown } from 'lucide-react';
+import { Loader2, Info, RefreshCw, Eye, Quote, FileDown, UserSearch } from 'lucide-react';
 import { downloadVoicesReport } from '../../services/voicesReportHtml';
 import {
-  Brand, BWVoicesResponse, BWVoiceRole, BWVoicesDigest, BWVoicePost,
-  getVoices, getVoicesDigest,
+  Brand, BWVoicesResponse, BWVoiceRole, BWVoicesDigest, BWVoicePost, BWVoicesProfileStatus,
+  getVoices, getVoicesDigest, startVoicesProfiling, getVoicesProfilingStatus,
 } from '../../services/brandWatcherApi';
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -151,7 +151,6 @@ function RoleColumn({ role, brandId, daysBack, minRelevance }: { role: BWVoiceRo
             {digest.context && <p className="text-xs text-gray-500 dark:text-gray-400">{digest.context}</p>}
             {digest.summary && <p className="text-sm text-gray-800 dark:text-gray-100">{digest.summary}</p>}
             {digest.note && <p className="text-xs text-gray-500 dark:text-gray-400">{digest.note}</p>}
-            {digest.tone_warning && <p className="text-xs text-amber-700 dark:text-amber-300">{digest.tone_warning}</p>}
             {digest.themes.map((t, i) => (
               <div key={i} className="rounded border border-gray-100 dark:border-gray-700 p-2">
                 <div className="flex items-center gap-2">
@@ -176,7 +175,7 @@ function RoleColumn({ role, brandId, daysBack, minRelevance }: { role: BWVoiceRo
                 </ul>
               </div>
             )}
-            {digest.model && <p className="text-[10px] text-gray-400">Digest by {digest.model}{digest.cached ? ' (cached)' : ''}. Quotes are copied from the posts; check the post before citing one.</p>}
+            {(digest.summary || digest.themes.length > 0) && <p className="text-[10px] text-gray-400">AI digest of {digest.post_count} post{digest.post_count === 1 ? '' : 's'}. Quotes are copied from the posts; check the post before citing one.</p>}
           </div>
         )}
       </div>
@@ -200,6 +199,11 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
   // The two audiences shown side by side. Null = the backend's suggested pair.
   const [picked, setPicked] = useState<string[] | null>(null);
   const [exporting, setExporting] = useState(false);
+  // Profiling the accounts behind the posts. A profiled account carries its
+  // audience onto every post, which is what moves posts out of Bystanders.
+  const [profiling, setProfiling] = useState<BWVoicesProfileStatus | null>(null);
+  const [profileErr, setProfileErr] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const minRelevance = 0.4;
 
   const effectiveBrand = brandId ?? (enabled.find(b => b.is_primary)?.id ?? enabled[0]?.id ?? null);
@@ -207,13 +211,47 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
   useEffect(() => {
     if (effectiveBrand == null) { setLoading(false); return; }
     let cancelled = false;
-    setLoading(true); setError(null); setPicked(null);
+    setLoading(true); setError(null);
+    if (reloadKey === 0) setPicked(null);
     getVoices(effectiveBrand, daysBack, minRelevance)
       .then(d => { if (!cancelled) setData(d); })
       .catch(e => { if (!cancelled) setError(e?.message || 'Failed to load'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [effectiveBrand, daysBack]);
+  }, [effectiveBrand, daysBack, reloadKey]);
+
+  // Pick up a run already going for this brand, then poll while it runs and
+  // reload the table once it finishes.
+  useEffect(() => {
+    if (effectiveBrand == null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const st = await getVoicesProfilingStatus(effectiveBrand);
+        if (cancelled) return;
+        setProfiling(prev => {
+          if (prev?.state === 'running' && st.state === 'done') setReloadKey(k => k + 1);
+          return st;
+        });
+        if (st.state === 'running') timer = setTimeout(tick, 3000);
+      } catch { /* status is a convenience; the table stands without it */ }
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [effectiveBrand, profiling?.state === 'running' ? 'run' : 'idle']);
+
+  const profilePosters = async () => {
+    if (effectiveBrand == null) return;
+    setProfileErr(null);
+    try {
+      const st = await startVoicesProfiling(effectiveBrand, daysBack, minRelevance);
+      setProfiling(st);
+      if (st.state === 'done') setReloadKey(k => k + 1);
+    } catch (e: any) {
+      setProfileErr(e?.message || 'Could not start profiling');
+    }
+  };
 
   const roles = data?.roles || [];
   const shown = picked ?? data?.focus ?? [];
@@ -255,9 +293,16 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
         <div className="flex flex-wrap items-center gap-3">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Voices</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Who is talking about the brand, and what each audience thinks. Last {daysBack} days, on-brand posts only (relevance ≥ {minRelevance}).</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Who is talking about the brand, and what each audience thinks. Last {daysBack} days, on-brand posts only.</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <button onClick={profilePosters} disabled={!data || loading || profiling?.state === 'running'}
+              title="Build an account profile for every poster in this window that has none yet. A profiled account carries its audience onto all its posts, so posts the text alone could not place leave Bystanders."
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40">
+              {profiling?.state === 'running'
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Profiling {profiling.done ?? 0}/{profiling.total ?? 0}</>
+                : <><UserSearch className="w-3 h-3" /> Profile posters</>}
+            </button>
             <button onClick={exportHtml} disabled={!data || loading || exporting}
               title="Download this view as a self-contained HTML report: audience table, the two compared audiences with their digests, and every post"
               className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40">
@@ -272,12 +317,19 @@ export function BrandWatcherVoices({ brands, daysBack }: { brands: Brand[]; days
         </div>
         <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500 inline-flex items-start gap-1">
           <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-          <span>The role is read from the post itself by the social evaluation model: first-person use of the service reads as a patient or customer, prescribing or referring as a clinician, a reporter or outlet as press, the company's own promotion as brand voice. Glassdoor reviews count as employees. Where the text gives no clue the post stays unidentified rather than guessed. An account profiled under Market Monitor Top voices or the Accounts tab carries its profile role onto all its posts, and an account whose other posts keep reading the same way is taken as that. The brand's own LinkedIn and website posts are not included.</span>
+          <span>The role is read from the post itself by the social evaluation model: first-person use of the service reads as a patient or customer, prescribing or referring as a clinician, a reporter or outlet as press, the company's own promotion as brand voice. Glassdoor reviews count as employees. Where the text gives no clue the poster counts as a bystander rather than being guessed. An account profiled under Market Monitor Top voices, the Accounts tab or Profile posters here carries its profile role onto all its posts, and an account whose other posts keep reading the same way is taken as that. The brand's own LinkedIn and website posts are not included.</span>
         </p>
       </div>
 
       {loading && <div className="flex items-center gap-2 text-sm text-gray-500 p-4"><Loader2 className="w-4 h-4 animate-spin" /> Loading voices…</div>}
       {error && <div className="text-sm text-red-600 p-4">{error}</div>}
+      {profileErr && <div className="text-xs text-red-600 px-4">{profileErr}</div>}
+      {profiling?.state === 'done' && (profiling.total ?? 0) > 0 && (
+        <div className="text-xs text-gray-500 dark:text-gray-400 px-4">
+          Profiled {profiling.built ?? 0} of {profiling.total} account{profiling.total === 1 ? '' : 's'}
+          {(profiling.failed ?? 0) > 0 ? `, ${profiling.failed} could not be read` : ''}.
+        </div>
+      )}
 
       {!loading && data && (
         <>

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # One job per market at a time. Progress lives here because a bulk profile
 # is a few minutes of work and the page polls for it.
-_JOBS: Dict[int, Dict[str, Any]] = {}
+_JOBS: Dict[Any, Dict[str, Any]] = {}
 
 PROFILABLE = {"twitter", "bluesky", "reddit", "instagram", "tiktok"}
 
@@ -33,14 +33,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def status(market_id: int) -> Dict[str, Any]:
+def status(market_id: Any) -> Dict[str, Any]:
+    """``market_id`` is the job key: a market id, or "brand:<id>" for a run
+    started from a brand's Voices view."""
     job = _JOBS.get(market_id)
     if not job:
         return {"state": "idle", "market_id": market_id}
     return {k: v for k, v in job.items() if k != "task"}
 
 
-def running(market_id: int) -> bool:
+def running(market_id: Any) -> bool:
     job = _JOBS.get(market_id)
     return bool(job and job.get("state") == "running")
 
@@ -248,18 +250,35 @@ def start_many(db, market_id: int, market_name: str, voices: List[Dict[str, Any]
             skipped += 1
             continue
         todo.append((platform, v.get("author")))
+    return start_handles(db, market_id, market_name, todo, skipped=skipped,
+                         mode=mode, concurrency=concurrency, link_vendors=True)
+
+
+def start_handles(db, key: Any, context_name: str, todo: List[tuple], *,
+                  skipped: int = 0, mode: str = "build", concurrency: int = 1,
+                  link_vendors: bool = False) -> Dict[str, Any]:
+    """Queue profiles for a list of (platform, handle) pairs under one job key.
+
+    ``start_many`` builds the list from a market's Top voices; a brand's Voices
+    view builds it from the accounts behind the brand's posts and keys the job
+    "brand:<id>". ``link_vendors`` records vendor accounts on the market's
+    vendor profiles after the run, which only makes sense for a market key.
+    """
+    if running(key):
+        raise RuntimeError("A profiling run for this market is already in progress")
     job: Dict[str, Any] = {
         "state": "running" if todo else "done",
-        "market_id": market_id,
+        "market_id": key,
         "total": len(todo), "done": 0, "built": 0, "failed": 0,
         "skipped": skipped, "errors": [], "mode": mode,
+        "link_vendors": link_vendors,
         "started_at": _now(), "finished_at": None if todo else _now(),
     }
-    _JOBS[market_id] = job
+    _JOBS[key] = job
     if todo:
         job["task"] = asyncio.create_task(
-            _run(db, job, market_name, todo, concurrency, mode))
-    return status(market_id)
+            _run(db, job, context_name, todo, concurrency, mode))
+    return status(key)
 
 
 async def _run(db, job: Dict[str, Any], market_name: str,
@@ -288,11 +307,12 @@ async def _run(db, job: Dict[str, Any], market_name: str,
 
     try:
         await asyncio.gather(*(one(p, h) for p, h in todo))
-        try:
-            job["linked"] = (await asyncio.to_thread(
-                link_vendor_accounts, db, job["market_id"]))["linked"]
-        except Exception as exc:  # noqa: BLE001 — the profiles stand without the link
-            logger.warning("linking vendor accounts failed: %s", exc)
+        if job.get("link_vendors"):
+            try:
+                job["linked"] = (await asyncio.to_thread(
+                    link_vendor_accounts, db, job["market_id"]))["linked"]
+            except Exception as exc:  # noqa: BLE001 — the profiles stand without the link
+                logger.warning("linking vendor accounts failed: %s", exc)
     finally:
         job["state"] = "done"
         job["finished_at"] = _now()

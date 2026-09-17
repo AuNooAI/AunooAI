@@ -173,6 +173,13 @@ class KeywordMonitor:
             from app.collectors.bluesky_collector import BlueskyCollector
             return BlueskyCollector()
 
+        elif provider == 'telegram':
+            # Public channel previews, no credentials. Channels come from
+            # TELEGRAM_CHANNELS; an empty list yields nothing rather than
+            # reading channels nobody chose.
+            from app.collectors.telegram_collector import TelegramCollector
+            return TelegramCollector()
+
         elif provider == 'semantic_scholar':
             from app.collectors.semantic_scholar_collector import SemanticScholarCollector
             return SemanticScholarCollector()
@@ -198,7 +205,7 @@ class KeywordMonitor:
             return XpozCollector()
 
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit', 'xpoz'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose', 'opoint', 'reddit', 'xpoz', 'telegram'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -333,7 +340,7 @@ class KeywordMonitor:
             # and a provider outage is never backfilled. Social gets its own floor,
             # still bounded per platform by XPOZ_MAX_RESULTS (oviva, 14 Sep 2026).
             max_results = self.page_size
-            if provider in ('reddit', 'bluesky', 'xpoz'):
+            if provider in ('reddit', 'bluesky', 'xpoz', 'telegram'):
                 max_results = max(max_results, _social_page_size())
             articles = await asyncio.wait_for(
                 collector.search_articles(
@@ -495,7 +502,7 @@ class KeywordMonitor:
                             # (oviva, 14 Sep 2026).
                             if not getattr(self, '_social_only_group', False):
                                 self._social_only_group = all(
-                                    p in ('reddit', 'bluesky', 'xpoz') for p in group_collectors
+                                    p in ('reddit', 'bluesky', 'xpoz', 'telegram') for p in group_collectors
                                 )
                             logger.info(
                                 f"Using group {group_id} providers: "
@@ -1230,10 +1237,10 @@ class KeywordMonitor:
         original_collectors = self.collectors
         self.collectors = group_collectors
 
-        # A social-only group (reddit/bluesky/xpoz) skips the heavy news pipeline and
+        # A social-only group (reddit/bluesky/xpoz/telegram) skips the heavy news pipeline and
         # uses the cheap social eval instead.
         self._social_only_group = bool(group_collectors) and all(
-            p in ('reddit', 'bluesky', 'xpoz') for p in group_collectors
+            p in ('reddit', 'bluesky', 'xpoz', 'telegram') for p in group_collectors
         )
 
         # Also update settings temporarily
@@ -1271,7 +1278,7 @@ class KeywordMonitor:
             # configurable model instead of the heavy news pipeline. Model precedence:
             # the group's default_llm_model (set in the Gather group-settings UI) ->
             # SOCIAL_EVAL_MODEL env -> default. So the UI model dropdown controls it.
-            if any(p in self.collectors for p in ('reddit', 'bluesky', 'xpoz')):
+            if any(p in self.collectors for p in ('reddit', 'bluesky', 'xpoz', 'telegram')):
                 group_topic = group.get('topic')
                 if group_topic:
                     try:

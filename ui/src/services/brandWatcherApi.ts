@@ -141,6 +141,9 @@ export interface BWArticle {
   story_scored?: number | null;
   // MBFC source authority (when the source is in the mediabias dataset).
   factual_reporting?: string | null;
+  // The company's own publishing (its website, its LinkedIn): listed and
+  // flagged, left out of sentiment and share of voice.
+  is_owned?: boolean;
   // Adverse risk findings [{risk_type, severity, confidence}] + case state.
   risks?: { risk_type: string; severity: string; confidence?: number | null }[];
   review_status?: string | null;
@@ -259,6 +262,9 @@ export interface BWSocialPost {
   author_role_reason?: string | null;
   post_role?: string | null;
   author_role_source?: 'post' | 'account_profile' | 'account_posts';
+  // Copies of the same text (retweets, mirrors) folded into this entry.
+  repost_count?: number;
+  reposts?: string[];
 }
 
 export interface BWSocialResponse {
@@ -329,7 +335,8 @@ export interface BWComparison {
 export interface BWShareOfVoice {
   brand_id: number;
   brand_name: string;
-  mention_count: number;
+  mention_count: number;   // earned coverage only
+  owned_count?: number;    // the company's own blog / LinkedIn posts, reported beside it
   percentage: number;
   color: string | null;
 }
@@ -707,8 +714,6 @@ export interface BWVoicesDigest {
   themes: Array<{ theme: string; sentiment: string; post_count: number; quotes: string[] }>;
   /** What the posts ask for or would change, as items the brand could act on. */
   asks?: string[];
-  /** Set when the writer used verdict language in its own voice after a rewrite. */
-  tone_warning?: string;
   note?: string;
   model?: string;
   generated_at?: string;
@@ -720,6 +725,39 @@ export async function getVoices(brandId: number | null, daysBack: number = 90, m
   if (brandId != null) q.set('brand_id', String(brandId));
   const res = await fetch(`${BASE}/voices?${q}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch voices: ${res.status}`);
+  return res.json();
+}
+
+/** Progress of a run that profiles the accounts behind a brand's posts. */
+export interface BWVoicesProfileStatus {
+  state: 'idle' | 'running' | 'done';
+  total?: number;
+  done?: number;
+  built?: number;
+  failed?: number;
+  skipped?: number;
+  errors?: string[];
+  started_at?: string;
+  finished_at?: string | null;
+}
+
+export async function startVoicesProfiling(brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4, refresh = false): Promise<BWVoicesProfileStatus> {
+  const res = await fetch(`${BASE}/voices/profile-posters`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_id: brandId, days_back: daysBack, min_relevance: minRelevance, refresh }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `Failed to start profiling: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getVoicesProfilingStatus(brandId: number | null): Promise<BWVoicesProfileStatus> {
+  const q = new URLSearchParams();
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices/profile-posters?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch profiling status: ${res.status}`);
   return res.json();
 }
 

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # the first customer for this view is a health provider; the UI ranks by
 # volume anyway, so the order only breaks ties.
 ROLE_LABELS: Dict[str, Dict[str, str]] = {
-    "patient":      {"label": "Patients",      "plural": "patients",      "hint": "People on, or referred to, the programme or treatment"},
+    "patient":      {"label": "Patients",      "plural": "patients",      "hint": "People on, referred to, or weighing up the programme or treatment"},
     "clinician":    {"label": "Clinicians",    "plural": "clinicians",    "hint": "Doctors, GPs, nurses, dietitians and other health professionals speaking as such"},
     "caregiver":    {"label": "Caregivers",    "plural": "caregivers",    "hint": "Relatives or carers speaking about someone else's care"},
     "customer":     {"label": "Customers",     "plural": "customers",     "hint": "End users or buyers, including prospective ones"},
@@ -44,7 +44,7 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "journalist":   {"label": "Press",         "plural": "journalists",   "hint": "Reporters, outlets and newsletter authors"},
     "investor":     {"label": "Investors",     "plural": "investors",     "hint": "Shareholders, equity analysts and VCs"},
     "brand":        {"label": "Brand voice",   "plural": "brand accounts", "hint": "The company, affiliates, resellers or paid promotion"},
-    "unknown":      {"label": "Unidentified",  "plural": "posters whose role the text does not show", "hint": "The post gives no clue who is speaking"},
+    "unknown":      {"label": "Bystanders",    "plural": "bystanders",    "hint": "Commenting from the sidelines: the post shows no part in the programme, the profession or the company"},
     "unclassified": {"label": "Not yet classified", "plural": "posts not yet classified", "hint": "Scored before roles existed; run the backfill"},
 }
 
@@ -348,7 +348,99 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
     # A profiled account, or an account whose other posts all read the same
     # way, outranks the reading of one post.
     apply_account_roles(conn, out)
+    fold_customers_into_patients(out)
     return out
+
+
+def fold_customers_into_patients(posts: List[Dict[str, Any]]) -> int:
+    """On a health brand, show "customer" posts under Patients.
+
+    The role list is shared with publishers and vendors, where "customer" is
+    the natural word. For a treatment or programme the classifier is told to
+    call every user a patient, so the few posts that still come back
+    "customer" are people weighing up paying for it, or a partner or insurer
+    paying on someone's behalf. Splitting them out gave Oviva a one-post
+    audience with a -100 net score, which reads as a finding and is not one.
+    The brand counts as a health brand when any of its posts carries a
+    patient, clinician or caregiver role. Returns how many posts were folded;
+    each keeps the original reading in ``author_role_folded_from``.
+    """
+    if not any(p.get("author_role") in HEALTH_ROLES for p in posts):
+        return 0
+    n = 0
+    for p in posts:
+        if p.get("author_role") == "customer":
+            p["author_role_folded_from"] = "customer"
+            p["author_role"] = "patient"
+            n += 1
+    return n
+
+
+# ---------------------------------------------------------------------------
+# Profiling the accounts behind a brand's posts
+# ---------------------------------------------------------------------------
+
+PROFILABLE_PLATFORMS = {"twitter", "bluesky", "reddit", "instagram", "tiktok"}
+
+
+def profile_context(conn, brand_id: int, display_name: str) -> str:
+    """The name the profiler frames the account with: the market the brand
+    sits in when there is one, so a Noom poster is read against the same
+    weight-management market as an Oviva poster; the brand name otherwise."""
+    try:
+        row = conn.execute(text("""
+            SELECT m.name FROM bw_market_brands mb
+              JOIN bw_markets m ON m.id = mb.market_id
+             WHERE mb.brand_id = :b ORDER BY m.id LIMIT 1
+        """), {"b": brand_id}).fetchone()
+        if row and row[0]:
+            return str(row[0])
+    except Exception as exc:  # noqa: BLE001 — no market tables on some sites
+        logger.debug("profile_context: %s", exc)
+    return display_name
+
+
+def posters_to_profile(conn, *, brand_id: int, display_name: str, days_back: int = 90,
+                       mention_read: bool = False, min_relevance: float = 0.4,
+                       refresh: bool = False, limit: int = 80) -> List[Dict[str, Any]]:
+    """The accounts behind this brand's posts that have no profile yet.
+
+    Oviva's Voices table settled because nearly every account posting about it
+    had been profiled under Top voices, and a profile turns a post the model
+    could not place into a definite audience. Noom and WeightWatchers had no
+    profiles, so a third to a half of their posts sat as bystanders. This
+    lists the brand's posters, most posts first, so the same treatment can be
+    run for any brand. ``refresh`` includes accounts already profiled.
+    """
+    posts = _rows(conn, brand_id=brand_id, display_name=display_name,
+                  days_back=days_back, mention_read=mention_read,
+                  min_relevance=min_relevance)
+    acc: Dict[tuple, Dict[str, Any]] = {}
+    for p in posts:
+        key = _author_key(p.get("platform"), p.get("author"))
+        if not key or key[0] not in PROFILABLE_PLATFORMS:
+            continue
+        a = acc.setdefault(key, {"platform": key[0], "handle": p["author"].lstrip("@"),
+                                 "posts": 0, "engagement": 0, "unplaced": 0,
+                                 "profiled": p.get("author_role_source") == "account_profile"})
+        a["posts"] += 1
+        a["engagement"] += int(p.get("engagement") or 0)
+        if p.get("author_role") in ("unknown", "unclassified"):
+            a["unplaced"] += 1
+    if not refresh:
+        try:
+            rows = conn.execute(text("""
+                SELECT LOWER(platform), LOWER(handle) FROM social_accounts
+                 WHERE last_profiled_at IS NOT NULL
+                   AND metadata->>'audience_role' IS NOT NULL
+            """)).fetchall()
+            done = {(r[0], r[1]) for r in rows}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("posters_to_profile: %s", exc)
+            done = set()
+        acc = {k: v for k, v in acc.items() if k not in done and not v["profiled"]}
+    out = sorted(acc.values(), key=lambda a: (-a["unplaced"], -a["posts"], -a["engagement"]))
+    return out[:limit]
 
 
 def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
@@ -397,9 +489,9 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     unclassified = len(by_role.get("unclassified", []))
     notes: List[str] = []
     if not posts:
-        notes.append("No external social or community posts about this brand "
-                     "in the window at relevance ≥ %.1f. That is a collection gap, "
-                     "not evidence that nobody is talking." % min_relevance)
+        notes.append("No on-brand social or community posts about this brand in "
+                     "the window. That is a collection gap, not evidence that "
+                     "nobody is talking.")
     if unclassified:
         notes.append(f"{unclassified} post(s) were scored before author roles existed "
                      "and are not yet classified.")
@@ -422,6 +514,9 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
 # ---------------------------------------------------------------------------
 
 _DIGEST_TTL_S = 6 * 3600
+# The one message a reader sees when no digest could be written. What went
+# wrong goes to the log, not the page.
+_DIGEST_UNAVAILABLE = "No digest could be written for this audience just now. Try again in a few minutes."
 _digest_cache: Dict[str, tuple] = {}
 
 _DIGEST_SYSTEM = (
@@ -461,23 +556,50 @@ _DIGEST_SYSTEM = (
 # Words that pass a verdict in the writer's own voice. A digest that uses one
 # outside a quote is regenerated once with the rule restated; if it still
 # does, the digest is returned with a tone warning rather than hidden.
+# Only words that are a verdict whenever the writer uses them. "poor",
+# "failure" and "demand" were on this list and flagged plain reporting
+# ("outcomes reported as poor", "demand for GLP-1s"); with the rewrite
+# instruction they cost a second model call and nothing else.
 _VERDICT_WORDS = re.compile(
-    r"\b(distrust\w*|resent\w*|undermin\w*|demand\w*|rip-?off|failure|failing|poor|"
-    r"predatory|scam|dishonest|misleading|exploit\w*)\b", re.I)
+    r"\b(distrust\w*|resent\w*|undermin\w*|rip-?off|predatory|scam|dishonest|"
+    r"misleading|exploit\w*)\b", re.I)
+_QUOTED = re.compile(r'["\u201c\u201d][^"\u201c\u201d]*["\u201c\u201d]')
 
 
 def _tone_problems(obj: Dict[str, Any]) -> List[str]:
+    """Verdict words in the writer's own voice. Anything inside straight or
+    curly double quotes is the posts' wording and exempt. This only steers a
+    rewrite; the reader never sees it."""
     from app.services.report_style import find_severity_language
     texts = [str(obj.get("context") or ""), str(obj.get("summary") or "")]
     for t in obj.get("themes") or []:
         if isinstance(t, dict):
             texts.append(str(t.get("theme") or ""))
     texts += [str(a) for a in (obj.get("asks") or [])]
-    blob = "\n".join(texts)
-    unquoted = re.sub(r'"[^"]*"', "", blob)
+    unquoted = _QUOTED.sub("", "\n".join(texts))
     hits = {m.group(0).lower() for m in _VERDICT_WORDS.finditer(unquoted)}
-    hits |= set(find_severity_language(blob))
+    hits |= set(find_severity_language(unquoted))
     return sorted(hits)
+
+
+def _parse_digest(raw: str) -> Dict[str, Any]:
+    """The JSON object in a model reply, whatever surrounds it.
+
+    A greedy first-brace-to-last-brace match broke on a reasoning model's
+    reply, which puts braces in its thinking before the answer, so a good
+    digest parsed as nothing. Try each opening brace and keep the first
+    object that looks like a digest.
+    """
+    decoder = json.JSONDecoder()
+    text_ = raw or ""
+    for m in re.finditer(r"\{", text_):
+        try:
+            obj, _ = decoder.raw_decode(text_, m.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and ("summary" in obj or "themes" in obj):
+            return obj
+    return {}
 
 
 def _digest_context(posts: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -538,8 +660,9 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
     model_name = _digest_model_name(conn)
     model = LiteLLMModel.get_instance(model_name)
     if not model:
+        logger.warning("voices digest: model %r not available", model_name)
         return {**base, "summary": None, "themes": [],
-                "note": f"Digest model {model_name!r} is not available."}
+                "note": _DIGEST_UNAVAILABLE}
 
     from app.services.report_style import CLINICAL_STYLE
     lines = []
@@ -555,27 +678,42 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
     system = _DIGEST_SYSTEM + CLINICAL_STYLE
     obj: Dict[str, Any] = {}
     problems: List[str] = []
-    for attempt in range(2):
+    rewrites = 0
+    # Up to three calls: the draft, one retry if the reply had no usable
+    # JSON, one rewrite if the draft passed verdicts in its own voice.
+    for attempt in range(3):
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": user}]
-        if attempt:
+        if problems and obj:
+            messages.append({"role": "assistant", "content": json.dumps(obj, ensure_ascii=False)})
             messages.append({"role": "user", "content":
-                             "Rewrite. Your draft used these words in your own voice, which the "
+                             "Rewrite this. It uses these words in your own voice, which the "
                              f"rules forbid outside a verbatim quote: {', '.join(problems)}. "
-                             "Report what the posts say and how many say it instead."})
+                             "Keep the same themes, counts and quotes; report what the posts "
+                             "say and how many say it instead. Respond with ONLY the JSON object."})
         try:
             raw = await model.agenerate_response(messages)
         except Exception as e:  # noqa: BLE001
             logger.warning("voices digest failed for brand %s role %s: %s", brand_id, role, e)
-            return {**base, "summary": None, "themes": [], "note": f"Digest failed: {e}"}
-        m = re.search(r"\{[\s\S]*\}", raw or "")
-        try:
-            obj = json.loads(m.group()) if m else {}
-        except json.JSONDecodeError:
-            obj = {}
-        problems = _tone_problems(obj) if obj else []
+            return {**base, "summary": None, "themes": [], "note": _DIGEST_UNAVAILABLE}
+        parsed = _parse_digest(raw)
+        if not parsed:
+            logger.warning("voices digest: no JSON in reply for brand %s role %s (attempt %d, %d chars)",
+                           brand_id, role, attempt + 1, len(raw or ""))
+            if attempt == 0:
+                continue
+            break
+        obj = parsed
+        problems = _tone_problems(obj)
         if not problems:
             break
+        if rewrites:
+            # One rewrite is all the budget: the words are logged for us, the
+            # reader gets the digest without a note about our own checks.
+            logger.info("voices digest for brand %s role %s kept verdict words after a rewrite: %s",
+                        brand_id, role, ", ".join(problems))
+            break
+        rewrites += 1
     themes = []
     for t in (obj.get("themes") or [])[:5]:
         if not isinstance(t, dict):
@@ -591,14 +729,11 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
               "summary": (str(obj.get("summary") or "").strip() or None),
               "themes": themes, "asks": asks, "model": model_name,
               "generated_at": datetime.now().isoformat(timespec="seconds")}
-    if problems:
-        result["tone_warning"] = ("The writer used verdict language in its own voice after one "
-                                  "rewrite: " + ", ".join(problems) + ". Read the quotes, not the labels.")
     if result["summary"] or themes:
         _digest_cache[cache_key] = (time.monotonic(), result)
         if len(_digest_cache) > 200:
             oldest = min(_digest_cache, key=lambda k: _digest_cache[k][0])
             _digest_cache.pop(oldest, None)
     else:
-        result["note"] = "The model returned nothing usable; try again."
+        result["note"] = _DIGEST_UNAVAILABLE
     return {**base, **result}

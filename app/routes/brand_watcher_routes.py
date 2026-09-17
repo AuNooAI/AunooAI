@@ -20,6 +20,14 @@ from functools import lru_cache
 import os
 
 from app.security.session import verify_session
+from app.services.social_sources import (
+    earned_news_sql, social_src_sql, owned_src_sql, is_owned_source, collapse_reposts,
+)
+
+# Row predicates shared by the Brand Watcher queries (static SQL, no bind params).
+_EARNED_NEWS = earned_news_sql('a')          # analysed, not social, not the company's own publishing
+_SOCIAL_ROW = social_src_sql('a.news_source')
+_OWNED_ROW = owned_src_sql('a.bias_source')
 from app.services import brand_screening
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
@@ -467,6 +475,9 @@ class ArticleResponse(BaseModel):
     story_group_id: Optional[str] = None
     # MBFC source authority (when the source is in the mediabias dataset).
     factual_reporting: Optional[str] = None
+    # The company's own publishing (its website, its LinkedIn): listed, flagged,
+    # and left out of sentiment and share of voice.
+    is_owned: bool = False
     # Adverse risk findings: [{risk_type, severity, confidence}] (bw_article_risks).
     risks: List[dict] = []
     # Case state (bw_finding_reviews): new | reviewed | escalated | dismissed.
@@ -506,7 +517,8 @@ class ComparisonDataResponse(BaseModel):
 class ShareOfVoiceResponse(BaseModel):
     brand_id: int
     brand_name: str
-    mention_count: int
+    mention_count: int              # earned coverage only
+    owned_count: int = 0            # the company's own blog / LinkedIn posts, shown beside it
     percentage: float
     color: Optional[str] = None
 
@@ -1585,6 +1597,7 @@ async def get_social_posts(
 
         # sentiment + platform rollups for the tab summary
         from collections import Counter
+        posts = collapse_reposts(posts)   # retweets and mirrors of one post read as one
         sent_counts = Counter((p["sentiment"] or "Unrated") for p in posts)
         plat_counts = Counter(p["platform"] for p in posts)
         kw_counts = Counter(k for p in posts for k in p["matched_keywords"])
@@ -1867,9 +1880,19 @@ async def update_brand_config(brand_id: int, config_update: dict, session=Depend
         conn.execute(text("""
             UPDATE bw_brands SET config = :config, updated_at = NOW() WHERE id = :id
         """), {"id": brand_id, "config": json.dumps(current_config)})
+        # A new exclude term applies to what is already scored, not only to
+        # posts evaluated from now on; otherwise a look-alike that slipped
+        # through stays in every view until it ages out.
+        applied = None
+        if "news_keyword_excludes" in config_update:
+            from app.services.social_eval_service import apply_exclude_terms
+            name = conn.execute(text("SELECT display_name FROM bw_brands WHERE id = :id"),
+                                {"id": brand_id}).scalar() or ""
+            applied = apply_exclude_terms(conn, brand_id, name,
+                                          current_config.get("news_keyword_excludes") or [])
         conn.commit()
         bw_cache_clear()
-        return {"config": current_config}
+        return {"config": current_config, "excludes_applied": applied}
     except HTTPException:
         raise
     except Exception as e:
@@ -2634,6 +2657,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 except Exception:
                     pass
 
+        # A brand's own website is collected like any other source; stamp those
+        # rows as owned so the metrics leave them out (bw_owned).
+        try:
+            from app.services.bw_owned import tag_owned_articles
+            tag_owned_articles(conn, brand_id=brand_id)
+        except Exception as oe:
+            logger.warning(f"BW Run {run_id}: owned-article tagging failed: {oe}")
+
         # Mark run complete
         conn.execute(text("""
             UPDATE bw_tracker_runs SET status = 'completed', completed_at = NOW(),
@@ -2929,7 +2960,7 @@ async def get_stats(
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
               -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
-              AND a.analyzed = true
+              AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2958,7 +2989,7 @@ async def get_stats(
             ) cc ON a.uri = cc.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
-              AND a.analyzed = true
+              AND {_EARNED_NEWS}
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
@@ -3008,7 +3039,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -3024,7 +3055,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -3080,7 +3111,7 @@ async def get_temporal_data(
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -3094,7 +3125,7 @@ async def get_temporal_data(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -3161,7 +3192,7 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-                AND a.analyzed = true
+                AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY bac.category
@@ -3175,7 +3206,7 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-                AND a.analyzed = true
+                AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY COALESCE(a.sentiment, 'Unknown')
@@ -3220,25 +3251,29 @@ async def get_share_of_voice(
 
         result = conn.execute(text(f"""
             SELECT bac.brand_id, b.display_name, b.color,
-                   COUNT(DISTINCT bac.article_uri)
+                   COUNT(DISTINCT bac.article_uri) FILTER (WHERE NOT {_OWNED_ROW}) AS mentions,
+                   COUNT(DISTINCT bac.article_uri) FILTER (WHERE {_OWNED_ROW}) AS owned
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             JOIN bw_brands b ON bac.brand_id = b.id
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND b.enabled = true
-            AND a.analyzed = true
+            AND a.analyzed = true AND NOT {_SOCIAL_ROW}
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
-            ORDER BY COUNT(DISTINCT bac.article_uri) DESC
+            ORDER BY 4 DESC
         """), params)
 
         rows = result.fetchall()
+        # Share of voice is earned coverage only; a company's own blog and
+        # LinkedIn posts are reported beside it as owned_count, not inside it.
         grand_total = sum(r[3] for r in rows) or 1
 
         return [
             ShareOfVoiceResponse(
                 brand_id=r[0], brand_name=r[1],
                 mention_count=r[3],
+                owned_count=r[4] or 0,
                 percentage=round(r[3] / grand_total * 100, 1),
                 color=r[2],
             ) for r in rows
@@ -3283,7 +3318,7 @@ async def get_sentiment_trends(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
@@ -3302,7 +3337,7 @@ async def get_sentiment_trends(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-            AND a.analyzed = true
+            AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
@@ -3599,7 +3634,8 @@ async def get_articles(
                        MAX(stc.story_size) as story_size,
                        MAX(stc.story_neg) as story_neg,
                        MAX(stc.story_pos) as story_pos,
-                       MAX(stc.story_scored) as story_scored
+                       MAX(stc.story_scored) as story_scored,
+                       a.bias_source
                 FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
@@ -3619,7 +3655,7 @@ async def get_articles(
                     GROUP BY st2.brand_id, st2.story_group_id
                 ) stc ON stc.brand_id = st.brand_id AND stc.story_group_id = st.story_group_id
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
-                AND a.analyzed = true
+                AND a.analyzed = true AND NOT {_SOCIAL_ROW}
                 AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 -- items flagged false-positive (any brand) are hidden from the list
                 -- but kept in the DB as labeled data for relevance fine-tuning
@@ -3629,7 +3665,7 @@ async def get_articles(
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
                          a.tags, a.extracted_article_keywords, b.name, a.opoint_entities,
-                         a.factual_reporting
+                         a.factual_reporting, a.bias_source
             )
         """
 
@@ -3729,6 +3765,7 @@ async def get_articles(
                 story_neg=row[17],
                 story_pos=row[18],
                 story_scored=row[19],
+                is_owned=is_owned_source(row[20]),
                 risks=risk_map.get((row[0], row[6]), []),
                 review_status=review_map.get((row[0], row[6])),
                 signals_summary=signals_map.get((row[0], row[6])),
@@ -6408,6 +6445,87 @@ async def get_voices_digest(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+class VoicesProfileRequest(BaseModel):
+    brand_id: Optional[int] = None
+    days_back: int = Field(90, ge=1, le=730)
+    min_relevance: float = Field(0.4, ge=0.0, le=1.0)
+    # Rebuild accounts that already have a profile too.
+    refresh: bool = False
+    limit: int = Field(80, ge=1, le=200)
+
+
+def _voices_uncache() -> None:
+    """Drop cached Voices answers so a finished profiling run shows at once."""
+    for key in [k for k in _BW_CACHE if k.startswith("get_voices")]:
+        _BW_CACHE.pop(key, None)
+
+
+@router.post("/voices/profile-posters")
+async def start_voices_profiling(body: VoicesProfileRequest, session=Depends(verify_session)):
+    """Profile the accounts behind this brand's posts that have no profile yet.
+
+    A profiled account carries its audience onto all its posts, which is how
+    Oviva's table settled while Noom's and WeightWatchers' sat a third
+    unplaced. Runs in the background through the same paced, rate-limit-aware
+    runner as Market Monitor Top voices; poll the GET for progress. 409 while
+    a run for the brand is still going.
+    """
+    from app.services import audience_voices
+    from app.services import market_voice_profiles as mvp
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+
+    def _work():
+        conn = db._temp_get_connection()
+        try:
+            bid, name = _voices_brand(conn, body.brand_id)
+            todo = audience_voices.posters_to_profile(
+                conn, brand_id=bid, display_name=name, days_back=body.days_back,
+                mention_read=_voices_mention_read(), min_relevance=body.min_relevance,
+                refresh=body.refresh, limit=body.limit)
+            return bid, audience_voices.profile_context(conn, bid, name), todo
+        finally:
+            conn.close()
+
+    try:
+        bid, context, todo = await _bw_asyncio.to_thread(_work)
+        _voices_uncache()
+        return mvp.start_handles(db, f"brand:{bid}", context,
+                                 [(a["platform"], a["handle"]) for a in todo])
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as e:
+        logger.error(f"brand-watcher/voices/profile-posters error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/voices/profile-posters")
+async def voices_profiling_status(
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    session=Depends(verify_session),
+):
+    """Progress of the brand's profiling run: state, total, done, built, failed."""
+    from app.services import market_voice_profiles as mvp
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, _ = await _bw_asyncio.to_thread(_voices_brand, conn, brand_id)
+    finally:
+        conn.close()
+    out = mvp.status(f"brand:{bid}")
+    if out.get("state") == "done" and not out.get("uncached"):
+        _voices_uncache()
+        job = mvp._JOBS.get(f"brand:{bid}")
+        if job is not None:
+            job["uncached"] = True
+    return out
 
 
 @router.get("/brands/{brand_id}/employee-risk")

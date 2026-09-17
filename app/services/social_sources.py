@@ -2,7 +2,7 @@
 
 Social posts (Reddit / Bluesky / X / Instagram / TikTok via the xpoz API) live in
 the same `articles` table as news, distinguished only by `news_source` naming
-conventions: 'xpoz:<platform>', 'bluesky', 'reddit.com', 'bsky*', ...
+conventions: 'xpoz:<platform>', 'bluesky', 'reddit.com', 'bsky*', 'telegram', ...
 
 Historically each consumer hand-rolled its own predicate and they drifted — the
 worst case being the social evaluator missing 'xpoz', which left every X/
@@ -15,9 +15,10 @@ own, correct predicate) could still count them. Import from here instead:
 
 Adding a platform = adding one substring here.
 """
+import re
 from typing import Optional
 
-SOCIAL_SOURCES = ("reddit", "bluesky", "bsky", "xpoz")
+SOCIAL_SOURCES = ("reddit", "bluesky", "bsky", "xpoz", "telegram")
 
 
 def is_social_source(news_source: Optional[str]) -> bool:
@@ -64,6 +65,64 @@ _XPOZ_CHANNEL = {'reddit': 'community'}
 
 OWNED_BIAS_SOURCES = {'vendor:linkedin': ('linkedin', 'owned_social')}
 
+# A company's own publishing, marked in ``articles.bias_source``:
+#   owned:<domain>   an article on the company's own website (its blog, its
+#                    press page), stamped by app.services.bw_owned
+#   vendor:linkedin  the company's own LinkedIn posts (Market Monitor)
+# Neither belongs in news sentiment or share of voice: a brand praising itself
+# is not coverage. They stay visible in article lists, flagged as owned.
+OWNED_BIAS_PREFIXES = ('owned:', 'vendor:')
+
+
+def is_owned_source(bias_source: Optional[str]) -> bool:
+    b = (bias_source or '').strip().lower()
+    return any(b.startswith(pfx) for pfx in OWNED_BIAS_PREFIXES)
+
+
+def owned_src_sql(column: str = "bias_source") -> str:
+    """SQL predicate matching a company's own publishing, e.g. owned_src_sql('a.bias_source')."""
+    return "(" + " OR ".join(f"LOWER(COALESCE({column}, '')) LIKE '{pfx}%'" for pfx in OWNED_BIAS_PREFIXES) + ")"
+
+
+def earned_news_sql(alias: str = "a") -> str:
+    """Rows that count as news coverage: analysed, not a social post, not the
+    company's own publishing. Every Brand Watcher metric query uses this."""
+    return (f"{alias}.analyzed = true AND NOT {social_src_sql(alias + '.news_source')}"
+            f" AND NOT {owned_src_sql(alias + '.bias_source')}")
+
+
+def collapse_reposts(posts: list, text_keys=('summary', 'title')) -> list:
+    """Fold posts that carry the same text into one entry.
+
+    Retweets, cross-posts and bridged mirrors of one post arrive under
+    different URIs. The first entry in list order is kept (feeds are newest
+    first, so the newest copy) and gets ``repost_count`` (copies in total)
+    and ``reposts`` (the other URIs, up to five). Posts with no text are
+    left alone.
+    """
+    seen: dict = {}
+    out = []
+    for p in posts:
+        text = ''
+        for k in text_keys:
+            if p.get(k):
+                text = p[k]
+                break
+        key = re.sub(r'https?://\S+|\s+', ' ', (text or '').lower()).strip()
+        if len(key) < 12:
+            out.append(p)
+            continue
+        first = seen.get(key)
+        if first is None:
+            seen[key] = p
+            out.append(p)
+        else:
+            first['repost_count'] = first.get('repost_count', 1) + 1
+            first.setdefault('reposts', [])
+            if len(first['reposts']) < 5:
+                first['reposts'].append(p.get('uri'))
+    return out
+
 
 def classify_source(news_source: Optional[str],
                     bias_source: Optional[str] = None) -> tuple:
@@ -76,6 +135,8 @@ def classify_source(news_source: Optional[str],
     bias = (bias_source or '').strip().lower()
     if bias in OWNED_BIAS_SOURCES:
         return OWNED_BIAS_SOURCES[bias]
+    if bias.startswith('owned:'):
+        return None, 'owned_web'
 
     source = (news_source or '').strip().lower()
     if not source:

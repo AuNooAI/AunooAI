@@ -136,7 +136,7 @@
     },
     {
       "name": "Swiss Federal Elections 2027 Disinfo Monitoring",
-      "description": "Topic for monitoring disinformation, misinformation, propaganda and coordinated influence operations targeting Swiss federal politics: the 2027 Federal Elections and the federal referendums and popular initiatives held in the run-up to them (for example the neutrality initiative). Tracks foreign and domestic information operations aimed at Swiss voters, synthetic media, narrative manipulation, platform-based influence campaigns, and the response of Swiss federal bodies, parties, media and fact-checkers.",
+      "description": "Monitoring of disinformation, propaganda and coordinated influence operations aimed at Swiss voters, in the run-up to the 2027 Federal Elections and around the federal referendums and popular initiatives before them (for example the neutrality initiative). In scope: documented or alleged manipulation of the Swiss information space by foreign states (Russia, China and others) or domestic actors; fake or hijacked accounts, bot networks, deepfakes and synthetic media; fact-checks of viral false claims about Swiss politics; and what Swiss federal bodies, parties, platforms and media do about it. Out of scope: ordinary reporting or opinion on the merits of a vote or a party's position when no manipulation, foreign interference or false claim is involved.",
       "categories": [
         "Foreign State Operations",
         "Domestic Disinformation",
@@ -193,6 +193,61 @@
         "ingérence Suisse",
         "\"neutrality initiative\"",
         "\"Swiss federal elections\""
+      ]
+    },
+    {
+      "name": "European Election Interference",
+      "description": "Monitoring of foreign and domestic interference in elections and referendums across Europe: documented or alleged manipulation of the information space around a vote, by state actors (Russia, China and others) or domestic ones; fake or hijacked accounts, bot networks, deepfakes and synthetic media; fact-checks of viral false claims about European politics; platform takedowns and the response of governments, election bodies and researchers. Read as the playbook that gets aimed at Switzerland next. Out of scope: ordinary election reporting with no manipulation or interference angle, and organisational news from research bodies such as job adverts or newsletters.",
+      "categories": [
+        "Foreign State Operations",
+        "Domestic Disinformation",
+        "Synthetic Media & Deepfakes",
+        "Social Media Manipulation",
+        "Platform Policy & Enforcement",
+        "Fact-Checking & Verification",
+        "Coordinated Inauthentic Behavior",
+        "Election Integrity & Security",
+        "Legal & Regulatory Response",
+        "Cross-Border Information Flows",
+        "Research & Attribution",
+        "Other"
+      ],
+      "future_signals": [
+        "Interference escalates across Europe",
+        "Operations shift to synthetic media",
+        "Platforms contain coordinated campaigns",
+        "Attribution becomes routine",
+        "Techniques migrate to smaller states"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "election interference Europe",
+        "foreign interference election",
+        "coordinated inauthentic behaviour",
+        "influence operation election",
+        "Doppelganger campaign",
+        "Pravda network",
+        "Moldova election interference",
+        "disinformation referendum Europe",
+        "EU DisinfoLab",
+        "election deepfake Europe"
       ]
     }
   ],

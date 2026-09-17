@@ -2,6 +2,236 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-17 — Social relevance scoring: a brand classifier was doing a subject watch's job
+
+### The finding
+88 of 481 social posts on the Swiss watch sat at exactly 0.30 — not a score, a
+ceiling, in a distribution that was otherwise smooth (3 posts at 0.25, 25 at
+0.20, none between 0.30 and 0.65). `_eval_one` caps relevance at 0.30 for any
+post that does not contain an anchor word derived from the topic title. For
+"Swiss Federal Elections 2027 Disinfo Monitoring" that anchor is `swiss`, and
+`_mentions_brand` does a word-start match, so **"Russian disinformation against
+Switzerland" fails** — swiss/switz diverge at the fourth letter — as does every
+German, French and Italian post. The guard exists to stop Wiley the rapper
+being read as Wiley the publisher, which is a brand-collision problem; applied
+to a multilingual subject watch it silenced the corpus. Sitting at the ceiling:
+"A propaganda portal, a Kremlin spokesperson…", "Disinformation represents the
+greatest threat", the 2027 federal election barometer.
+
+Two more: `_brand_context_for_topic` returns an empty description for anything
+not named "Brand Monitoring <x>", so the model judged posts against the bare
+topic title with nothing saying what is in scope; and the scorer knows nothing
+about source tiers, so it could not tell that an alternative-media channel
+pushing a line is the signal — the distinction the news path was taught on
+09-16.
+
+### The change, all additive
+**`app/services/social_eval_service.py`** gains `_topic_profile(db, topic)`,
+used only when no brand backs the topic: the description from `config.json`,
+anchors from the topic's own `monitored_keywords` across all its groups (which
+already carry the language variants — 60 anchors including switzerland,
+schweiz, svizzera, neutralitätsinitiative, disinformazione), and a
+domain→tier map from `sd_sources` when that table exists. `_eval_one` takes
+`anchors`, `source_tier` and `topic_mode`; the anchors argument falls back to
+`_brand_anchor_tokens` when absent, so the brand path is byte-identical. The
+tier line and the subject-watch guidance ride in the **user** message, not the
+system prompt, for the same reason. A Bluesky handle and a Telegram channel are
+both addressed like domains, so one lookup serves both; 258 of 481 posts carry
+a known tier.
+
+### Verification, before and after on real posts
+A stratified sample of 25 (14 capped, 6 zeros, 5 high) rescored with no writes:
+17 up, 3 down, 5 unchanged. 12 of the 14 capped posts moved to 0.65–0.95 and
+read as on topic; one capped post correctly fell to 0.20; two over-scored
+party-politics items came down from 1.00 and 0.95 to 0.85, which is right for a
+disinformation watch. Full rescore of all 481 posts (321s on
+bedrock-claude-haiku): 311 up, 12 down, and posts above the module's 0.5 social
+floor went **48 → 227**.
+
+Precision was then checked at the next stage rather than assumed. The
+0.50–0.75 band does now admit some generic Swiss news roundups ("Today in
+Switzerland: a roundup…"), which is what the tier-aware extractor is for: of
+180 newly-qualifying articles it kept 96 on topic and wrote 47 new narratives,
+0 errors. Social now runs at 65% extraction precision (97 of 149), against
+mainstream at 30% and alt_media at 100%. Swiss narratives 32 → 79.
+
+### Not changed
+The social floor stays at 0.5 rather than rising to 0.8: the coarse gate plus
+the precise extractor is the intended shape, and the extractor is demonstrably
+catching the roundups. The 120 posts still at 0.00 are genuine junk from the
+Bluesky keyword search, cheaper to fix in the group's terms than at scoring
+time. `SOCIAL_EVAL_MODEL` remains `bedrock-claude-haiku`, a tenant-wide setting.
+
+## 2026-09-17 — Telegram posts were collected but never scored
+
+**`app/services/social_sources.py`**: `SOCIAL_SOURCES` gained `"telegram"`.
+That tuple is the single predicate every consumer uses for "is this row a
+social post?" and the file's own docstring says adding a platform means adding
+one substring — but yesterday's Telegram collector was wired into the keyword
+monitor and the collector factory without it. The four Schweizerzeit posts sat
+with a NULL `ingest_status` overnight: collected, stored, never evaluated, and
+therefore invisible to the module, which reads `social_evaluated` rows above
+the alignment floor. After the fix the evaluator found all four
+(`evaluated: 4, candidates: 4`). Blast radius was nil — six telegram rows exist
+on this tenant and none anywhere else — but the same predicate feeds Brand
+Watcher, the entity path and the alert rules, so it is worth knowing that
+adding a collector means touching this file too.
+
+**Open, not fixed:** those four posts score 0.00–0.30 and the module's social
+floor is 0.50, so Telegram still contributes nothing. The posts are
+neutrality-initiative campaigning from an alternative-media channel, which is
+exactly the "promotes" signal the news path was taught to keep yesterday, but
+the social relevance evaluator is a separate, earlier stage and knows nothing
+about source tiers. Either the floor drops for known state and alternative
+channels, or Telegram stays a tripwire rather than a feed. That is a decision,
+not a bug.
+
+### Overnight state
+Both schedules healthy: Swiss 24 runs, Europe 6, no errors, 0 failed
+extractions. All seven keyword groups ran. Swiss 32 narratives, Europe 7.
+Europe took 9 approvals on 09-16 against 71 rejections, which is the precise
+keyword set working; the Swiss watch took 2 approvals today against 41.
+
+## 2026-09-16 (afternoon) — Swiss Election Watch gains social, Telegram and a second scope; four dead trackers pruned
+
+### Goal
+Four questions from the user, answered with evidence and then built: should we
+watch election influence beyond Switzerland, do we need more collection, are we
+looking at social, and a follow-up "do all of it".
+
+### Ops — the four dead trackers
+Of six international feeds added on 09-15, only DFRLab and EUvsDisinfo produced
+usable material. Alliance4Europe posts job adverts, Bellingcat merchandise
+competitions and forest-fire tooling, EU DisinfoLab newsletter roundups,
+Mimikama general German fact-checks — 0 approvals between them. 85, 86, 87
+deactivated. EU DisinfoLab (83) kept but moved to the new European scope, where
+its roundups belong.
+
+### Feature — a second scope in the same module
+**`sd_002`**: `topic` on `sd_extractions`, `sd_narratives`, `sd_narrative_articles`
+and `sd_briefs` (+ indexes), `topic` on `sd_schedules`, social handles and
+European research sources seeded into `sd_sources`, 7 European targets, and a
+second schedule. NOTE: bugfixing's alembic history is branched — `rel_001`
+(another session, from `voice_001`) and `sd_002` (from `mm_028`) are both heads
+and both applied. `alembic upgrade head` fails with "multiple head revisions";
+use `alembic upgrade sd_002` to move this branch without entangling the other.
+
+**`swiss_disinfo_service.py`**: a `SCOPES` dict holds each watch's label, blurb,
+prompt subject, angle rule and vote calendar. `get_swiss_disinfo_service(topic)`
+returns one service per scope; every query now filters on topic, including the
+narrative-matching shortlist, so a European narrative can never merge with a
+Swiss one. **Routes**: every read takes `?topic=`, plus `GET /scopes`.
+**Monitor**: a schedule carries its topic and the notification uses the scope's
+label. **UI**: a "Watch" selector in the header, the heading and blurb follow
+the scope, and the hook threads the topic through every call.
+
+Second scope = **European Election Interference** (config.json topic, keyword
+group 25, feeds 82/83/84, schedule every 4h). Its first keyword set repeated the
+generic-keyword mistake — "foreign interference election", "influence operation
+election" and "election interference Europe" pulled 59 articles of US midterms,
+Iran and Brazil at 0.15–0.27 alignment. Measured replacements over 30 days:
+Doppelganger influence operation 1, Storm-1516 1, Matryoshka campaign 5, Romania
+election annulled 4, Moldova disinformation 16, Bulgaria disinformation 9 — all
+precise. After the swap the gate approved "Putin's bot army is targeting German
+and French elections" (0.90), "No, the EU Democracy Shield isn't a Trojan horse"
+(0.89) and the Moldova drone stories (0.84–0.86), and rejected the US noise at
+0.20–0.30. 31 research-feed articles were moved across from the Swiss topic with
+their extractions dropped, since the feeds now belong to the European scope.
+Result: 7 narratives from 13 articles, e.g. "Serbia and Montenegro host
+disposable IP firms used to obscure Russian…" and "The EU Democracy Shield is a
+tool to rig the French presidential election" (domestic, debunked).
+
+### Fix — the prompt still hard-coded Switzerland in the field that decides everything
+The European scope returned 0 narratives from 13 articles even where the model
+had clearly extracted them. Cause: when the on_topic rule was made tier-aware
+this morning, the *Rules* bullet was rewritten but the inline JSON comment on
+the `on_topic` field still read "true ONLY if the article concerns
+Switzerland". So for "Putin's bot army is targeting German and French
+elections" the model returned `on_topic: false` **and** a correct narrative,
+targets, `attribution: russia` and `bot_amplification` — and the code discarded
+all of it because it gates on on_topic. The comment now uses the scope's
+`{subject}`, and `_clean_extraction` treats extracted narratives as the stronger
+signal: narratives present with on_topic false flips it to true and logs it.
+
+### Feature — social, and why it was the biggest miss
+Bluesky produced the highest-scoring items this topic has ever had ("Swiss
+neutrality: how Russia tries to influence the 27 September vote" 0.95, "UDC
+neutrality initiative: between pro-peace and pro-Putin" 1.00) during the three
+days it ran in September, before being switched off for junk — but the junk was
+xpoz single-word matches, not Bluesky. Group **26** is Bluesky-only
+(`providers`/`social_platforms` both `["bluesky"]`), a separate social group
+rather than a provider on the news groups, because a mixed group is not
+`_social_only_group` and its posts would be précis-rewritten by the news
+pipeline. `social_platforms` on 21/22/24 set to explicit `[]`, closing the trap
+where NULL falls back to the env list.
+
+Plumbing: social posts are filed `social_evaluated`, never `approved`, so the
+module could not see one. `get_unprocessed_articles` and the Articles panel now
+take `approved` OR (`social_evaluated` AND alignment ≥ `SOCIAL_MIN_ALIGNMENT`
+= 0.5) — the line between the September signal (0.70–1.00) and the junk
+(0.00–0.30). A Bluesky handle is itself a domain (pssuisse.ch,
+mediasch.bsky.social), so `_social_handle()` uses it as the source domain and
+the existing `sd_sources` tier lookup works on social with no special casing;
+five handles seeded, unknown ones default to the new `social` tier. 262 posts
+evaluated, 48 above the gate; the extraction run took 38 articles → 24 on topic,
+11 new narratives, 0 errors. Social is now the second-largest tier: 27 articles,
+14 carrying narratives.
+
+### Feature — Telegram collector, no credentials
+**`app/collectors/telegram_collector.py`**: reads the public channel preview
+(`https://t.me/s/<channel>`), which Telegram serves as plain HTML, and keeps the
+posts matching the caller's keyword (AND of words, the firehose rule). Telegram
+has no public search without an API key, so it is channel-based:
+`TELEGRAM_CHANNELS` in `.env`, and an unset variable returns nothing rather than
+reading channels nobody chose. Registered in the collector factory **and** in
+`keyword_monitor._create_collector` (the monitor has its own factory — missing
+that is what produced "Unknown provider 'telegram'"), and added to the four
+social-provider tuples so its posts take the cheap social eval instead of the
+news pipeline. Channels verified by probing before seeding: `rtde_news`,
+`schweizerzeit`, `transition_news` return content; uncutnews, weltwoche, nzz,
+srf_news, Impfschadenschweiz do not. Group **27**. First run brought in four
+Schweizerzeit posts campaigning for the neutrality initiative ("Why should young
+people vote YES for the neutrality initiative?"), which is the signal.
+
+### Verification
+`npm run typecheck` clean; UI rebuilt; `alembic upgrade sd_002`; service
+restarted four times job-gated. Both scopes answer independently —
+Swiss 12 approved / 29 extracted / 17 narratives active, Europe 13 / 10 / 6 —
+and the selector switches heading, blurb, counts and calendar with 0 page
+errors. Swiss totals now 31 narratives over 79 extractions, 0 errors.
+
+### Feature — "How it works" tab, with the source list read from the running system
+A tenth sub-tab. The app's existing pattern for this is a markdown file served
+through `/api/docs/{name}` and rendered by `DocViewer`, but a written-down
+source list is exactly the part that goes stale, so this one is live:
+`GET /api/swiss-disinfo/how-it-works?topic=` returns, per scope, every keyword
+group with its language, providers and full term list; every feed with its tier,
+poll time, fetch count and kept-versus-total; the Telegram channels; what each
+outlet has produced; the schedule with its model and next run; and the settings
+each stage runs on (relevance threshold, social floor, narrative shortlist
+floor, extraction and brief models, the stance/tier/technique vocabularies).
+The panel pairs that with the pipeline in five steps — collect, relevance gate,
+extraction, group into storylines, alert and brief — written in plain terms and
+quoting the live numbers rather than hard-coded ones. Telegram channels list
+only under a watch that actually runs a telegram group, since `TELEGRAM_CHANNELS`
+is tenant-wide. Verified for both scopes: Swiss 6 groups / 15 live feeds /
+3 channels, Europe 1 group / 3 feeds / 0 channels, 18 working links, 0 page errors.
+One defect found while reading the rendered page: per-feed yield was keyed on
+the feed's name, which rarely equals the article's `news_source` ("Republik" vs
+"Republik Magazin"), so feeds that were plainly producing showed "0 of 0". Yield
+is now counted by the article URL's domain, with the name as a fallback: RT DE
+2 of 89, Uncut-News 2 of 69, Republik 2 of 52.
+
+### Open
+The European scope has no vote calendar, so its Calendar panel shows only
+narrative volume and alerts. Its articles arrive gated against the European
+description, but the 28 research-feed articles moved across keep the Swiss
+score that rejected them and stay `filtered_relevance`; they will be replaced by
+fresh fetches rather than re-gated. `SOCIAL_EVAL_MODEL` on this tenant is
+`bedrock-claude-haiku`, against the standing preference for cheaper models —
+untouched, it is a tenant-wide setting. Telegram posts wait for the next
+scheduled social eval before the module sees them.
+
 ## 2026-09-16 — Market Monitor Social panel: a vendor's name inside a discount code, and five other things that are not practitioners talking
 
 ### Goal
@@ -136,6 +366,549 @@ regex.
 When one false positive is reported, count the rest of the panel before
 fixing it. The reported advert was one of six bad items in six slots, and
 fixing only the advert would have left the panel looking exactly as wrong.
+
+## 2026-09-16 — Swiss Election Watch: dead article links, and an on_topic rule that discarded the primary signal
+
+### Fix — every article link in the module was inert
+`articles.url` is NULL for all 1,741 rows of this topic; the link lives in
+`articles.uri`, which is the URL itself for these collectors. The UI already
+rendered `{a.url ? <a href=…> : a.title}`, so every title fell through to
+plain text. **`app/services/swiss_disinfo_service.py`**: the four queries that
+expose an article (`narrative_detail`, `responses` ×2, `articles`) now select
+`COALESCE(NULLIF(a.url,''), CASE WHEN a.uri LIKE 'http%' THEN a.uri END) AS url`,
+so every panel gets a usable href without a UI change. Link styling in the
+narrative detail was `hover:underline` only, indistinguishable from text; now
+`text-blue-600` with an external-link icon, matching the Responses panel.
+Verified in Chromium: the detail view renders 4 anchors with real hrefs
+(uncutnews.ch, insideparadeplatz.ch), built into `SwissDisinfoTab-CdloRiyY.js`.
+
+### Fix — the extractor was discarding the thing the monitor exists to catch
+Since Monday's narrowing, every scheduled run reported "0 on topic" and the
+board sat at 11 narratives from the one backfill. 15 articles that the
+relevance gate scored ≥0.80 produced no narratives. Cause was a rule written
+into the extraction prompt on 09-15: *opinion arguing for or against a vote
+without alleging manipulation is off topic*. Correct for a mainstream paper,
+backwards for a vector outlet — when uncut-news runs "Marc Faber on Swiss
+neutrality" or Arrêt sur Info runs "Switzerland must tie its leaders' hands",
+the article **is** the influence attempt aimed at Swiss voters, and the
+`promotes` stance exists for exactly that. The rule now depends on the source
+tier: for `state_media`, `alt_media` and `party` an article pushing a line at
+Swiss readers is on topic with stance `promotes`; the stricter opinion test
+applies only to mainstream, fact-checker, research, institution and unknown;
+the Swiss-angle requirement holds for all tiers. The tier is read from
+`sd_sources` **before** the LLM call (`known_tier()`) and passed into the
+prompt, rather than being resolved afterwards.
+
+Reprocess of all 28 approved articles: 13 on topic (was 12 with 11 narratives),
+8 new narratives, 0 errors, 92s. Yield by tier afterwards — alt_media 10/10
+articles produce narratives, state_media 2/2, mainstream 3/13, and
+fact-checker/research still 0, which is right: those were the EUvsDisinfo and
+DFRLab pieces on Ukraine and Bulgaria with no Swiss angle. Party press
+releases stay at 0/2; the model treats an open party statement of its own
+position as ordinary campaigning, which is defensible — left as is.
+
+### Fix — reprocessing left zombie narratives
+`process_article` refreshes `article_count`/`languages`/`first_seen`/`last_seen`
+only for narratives it just attached to, so re-running the corpus left two
+narratives with zero articles and several stale counts (id 2 stored 7, actual
+4). Added `reconcile_narratives()`: recompute the rollups for every narrative
+from `sd_narrative_articles`, then delete the ones with no articles left. Runs
+at the end of every `process_batch`, and its `orphans_removed` count is
+returned in the batch stats. Ran once by hand: 2 orphans removed, 17
+narratives / 25 links, stored counts now match actual.
+
+### Verification
+`npm run typecheck` clean; UI rebuilt and deployed; service restarted twice
+job-gated. Module schedule healthy at 14 runs, every 2h, next 14:44, no errors.
+The new narratives read as the intended signal, e.g. "Swiss political leaders
+need binding constraints" (DE+FR, promotes) and "The EU is interfering in
+Swiss democratic processes" (DE, promotes).
+
+### Observed, not changed
+Cost is not a factor here: the relevance gate ran 2,461 Nova Lite calls on
+09-15 for $0.22, so the ~470 daily rejections are close to free. The RT DE
+feed (id 75) carries RT's full German output — 76 articles, 0 approved, best
+alignment 0.19 (Merz, CDU/CSU, UFO files); its Swiss material arrives through
+the keyword groups instead, so that one feed is worth switching off while
+keeping the user-agent fix that unblocked GLP.
+
+## 2026-09-16 — Brand Watcher Voices: one Patients row on health brands, Bystanders, Profile posters, exclude terms that reach back, and no QA notes on the page
+
+### Goal
+Oliver read the Oviva Voices table and asked what separated a Customer from a
+Patient. The answer was a taxonomy artefact, and pulling on it exposed four
+more things wrong with the view on oviva.aunoo.ai: audiences that depended on
+whether anyone had happened to profile the posters, a Noom table full of Thai
+fan posts about an actor nicknamed "Noom", a debugging sentence about our own
+tone check printed to the customer, and empty digests that were never retried.
+All of it is on oviva. Not committed yet; paths below.
+
+### Customer folds into Patient on health brands (Fix)
+**`app/services/audience_voices.py`** — `fold_customers_into_patients` runs at
+the end of `_rows`. The role list is shared with publisher and vendor sites,
+where "customer" is the natural word; on a treatment or programme the
+classifier is told to call every user a patient, so the few "customer"
+readings left are people weighing up paying for it. Oviva's table showed them
+as a one-post audience with a net score of -100. Now, when any post about the
+brand carries a patient, clinician or caregiver role, customer posts show
+under Patients. The original reading stays on the post as
+`author_role_folded_from`. Nothing about the fold is printed on the page: a
+note I first added was removed at Oliver's request. Side effect to know:
+Noom and WeightWatchers carry caregiver posts, so their customer posts fold
+too.
+
+### "Unidentified" is now "Bystanders" (Fix)
+`ROLE_LABELS["unknown"]` reads "Bystanders", hint "Commenting from the
+sidelines: the post shows no part in the programme, the profession or the
+company". The explanatory paragraph in `BrandWatcherVoices.tsx` says the same.
+The classifier answers unknown rather than guessing, and a sample of the
+WeightWatchers unknowns was jokes aimed at third parties, a shared discount
+price, a study summary. Those are bystanders, not a gap.
+
+### Profile posters (Feature)
+Oviva's table had three audiences and no unknowns only because 22 of its 24
+posts took their role from an account profile built under Market Monitor Top
+voices; Noom and WeightWatchers had no profiled posters at all, and a third to
+a half of their posts sat unplaced. **`audience_voices.posters_to_profile`**
+lists the accounts behind a brand's posts that have no profile, most
+unplaced posts first; **`profile_context`** frames them with the brand's
+market name when the brand sits in a `bw_market`, so a Noom poster is read
+against the same weight-management market as an Oviva poster.
+**`market_voice_profiles.start_handles`** is the market bulk-profiler's job
+runner split out so it takes any (platform, handle) list under any job key;
+`start_many` now calls it, and `_run` links vendor accounts only when the
+job says so. Routes in **`brand_watcher_routes.py`**:
+`POST /api/brand-watcher/voices/profile-posters` (body: brand_id, days_back,
+min_relevance, refresh, limit; 409 while a run is going) and the matching
+`GET` for progress, keyed `brand:<id>`. Both drop the cached Voices answers
+so a finished run shows at once. UI: a "Profile posters" button beside Export
+HTML with a progress counter; the table reloads when the run ends
+(`BrandWatcherVoices.tsx`, `brandWatcherApi.ts`). A profile outranks the
+reading of one post, so a single Press or Investor row can disappear after a
+run when the account reads as something else with its bio in view.
+
+### Exclude terms now apply to what is already scored (Fix)
+The social evaluator gave Thai fan posts relevance 0.7 to 1.0 for Noom
+("Kayanya nanti Noom gede banget yaa" scored 1.0) with the brand description
+in the prompt. The entity-collision list (`bw_brands.config.news_keyword_excludes`)
+already zeroes such posts, but only at first evaluation, so a term added
+later did nothing for stored rows. **`social_eval_service.apply_exclude_terms`**
+zeroes matching `bw_entity_mentions` (method `exclude_term`, status accepted)
+and Brand Monitoring topic rows, same lowercase substring test over title,
+summary and author. **`PUT /brands/{id}/config`** calls it whenever
+`news_keyword_excludes` is in the update and returns `excludes_applied`.
+Noom's list now has 22 terms: the series and actor names, the fan handles.
+"palm" was rejected because it matched @katiepalmer, a journalist covering
+Noom Med.
+
+### Digest quality check stays internal; reasoning-model replies parse (Fix)
+The digest writer's tone check appended "The writer used verdict language in
+its own voice after one rewrite: poor. Read the quotes, not the labels." to
+the payload, and page and HTML export printed it. Oliver: "this is user
+facing". Review of the path found four faults in **`audience_voices.py`**:
+- The word list held "poor", "failure", "failing", "demand", which flagged
+  attributed reporting ("Patient outcomes reported as poor"). Removed. The
+  quote exemption only covered straight double quotes; curly quotes now count.
+- `tone_warning` is gone from payload, `BrandWatcherVoices.tsx`,
+  `voicesReportHtml.ts` and the `BWVoicesDigest` type. Problems steer one
+  rewrite, which now receives the draft rather than regenerating blind, and
+  are logged.
+- A reply with no usable JSON was never retried: the loop only retried on
+  tone problems, so the Noom patients digest was empty. One retry now.
+- The JSON extractor took first brace to last brace, which fails when a
+  reasoning model's thinking contains braces. `_parse_digest` tries each
+  opening brace with `raw_decode` and keeps the first dict with summary or
+  themes.
+Failure notes carried exception text and the model id; they and the "Digest
+by bedrock-kimi-k2-5" footer are replaced by one plain sentence
+(`_DIGEST_UNAVAILABLE`) and "AI digest of N posts". The model id stays in the
+API payload only. The relevance threshold "(relevance ≥ 0.4)" left the
+subtitle, the export lead line and the empty-window coverage note.
+
+### Verification
+- Fold, live oviva DB, Oviva brand, 90-day window: Customers row (2 posts)
+  gone, Patients 21 -> 23, Clinicians and Brand voice unchanged.
+- Profile posters on oviva: Noom 34 accounts built, 0 failed; WeightWatchers
+  50 built, 0 failed. `social_accounts` rows profiled in the last four hours:
+  85, of which 46 received a definite audience; the rest read as unrelated to
+  the market. 30-day Bystanders: Noom 12 -> 8, WeightWatchers 28 -> 19.
+- Excludes: `PUT /brands/6/config` returned `excludes_applied
+  {mentions: 30, articles: 30}`; `bw_entity_mentions` with method
+  `exclude_term` for Noom = 30; Noom on-brand mentions in 30 days 192 -> 41
+  candidates before the gate, table 36 -> 26 posts, Bystanders 8 -> 1 (a
+  comment on Noom's AI coaching).
+- Digests after restart: Oviva clinicians returns with no warning; Noom
+  patients, empty before, returns a summary and five themes. `journalctl`
+  since restart: 0 tracebacks.
+- `npm run typecheck` in the live bugfixing tree: clean (228 errors, all
+  known baseline).
+
+### Propagation
+oviva.aunoo.ai has everything: backend files copied, UI built in a scratch
+copy of bugfixing HEAD plus the staged Brand Watcher files and these Voices
+files (without the unstaged Swiss Election tab), static and `*_react.html`
+rsynced, service restarted after each step. Brand settings changed on oviva:
+Noom `config.news_keyword_excludes` (22 terms). bugfixing has the code on
+disk, uncommitted on `fix/market-monitor-voices-relevance` next to other
+sessions' work; the bugfixing service was NOT restarted so as not to load
+their in-progress code. wiley and wileytest were skipped: their
+`audience_voices.py` is an older version and Voices is hidden there.
+
+### Lessons
+- NEVER put a quality-check outcome, an exception message or a model id in
+  a field the UI renders. Log it. The reader gets the content or one plain
+  sentence.
+- A word-list tone check must exempt attributed phrasing and curly quotes,
+  or it flags exactly the reporting style the prompt asks for.
+- A retry loop that only retries on one failure class silently swallows the
+  other. Check the empty-reply path.
+- Set exclude terms through `PUT /brands/{id}/config`, not by hand in the
+  DB, so the retroactive pass runs. Check a candidate term against real
+  authors first; "palm" would have zeroed a journalist.
+
+## 2026-09-16 — Briefing Desk compose: one item per development, backfill spread across topics, Sonnet pinned on wileytest
+
+A side-by-side of kimi-k2.5 and Sonnet 4.5 as the curator on the same day's
+pool: kimi picked the same three generic AI-safety articles every run
+(China's intelligence chief, Altman on recklessness, geopolitics scored 0.9
+by the Publishing & Integrity aligner) and ignored the one-item-per-
+development rule twice; Sonnet dropped all three, gave grounded reasons and
+kept Gates Foundation to one section. Cost per compose: about $0.14 (Sonnet,
+2 calls) against under a cent. `emerging_topics_settings.model` on wileytest
+is now `claude-sonnet-4-5`, so page and scripted runs both use it.
+
+Two guards that neither model managed on its own, now in code
+(commit ee123bf0):
+- **Article vs incident by lead entity.** A launch article and a funding
+  incident about the same startup (TypeSafe, every run) share neither URI
+  nor title. The selected incidents' lead entities are matched against
+  article titles, requiring one further shared substantive word so
+  "OpenAI" alone does not drop every OpenAI story.
+- **Backfill topic cap.** With eighteen topics the coverage pass does not
+  run, and next-best-score gave one briefing three quantum articles out of
+  eight. Backfill now prefers any topic with fewer than two picks.
+
+## 2026-09-16 — Briefing Desk: the page's model wins, finalize gets the whole org profile, the Timeline is background
+
+### Model selector
+The page's model dropdown did nothing for briefings. Compose and finalize
+replaced whatever the page sent with the tenant's pinned briefing model
+(`emerging_topics_settings.model`, kimi-k2.5 on wileytest), and the compose
+call never sent a model at all. Now a model the page sends applies to the
+curator, incident detection and the synthesis (`honor_model` in the compose
+kwargs, `model_fields_set` on the finalize request). The pin is still the
+default for callers that send none. `BriefingDeskSection.tsx` passes the
+selected model on compose.
+
+### Org profile at finalize
+The synthesis received only the profile's name ("Organization: Wiley
+Scientific Publisher"). The route now resolves the named profile, or the
+tenant default, and passes the same block the curator sees: industry,
+key concerns, strategic priorities, monitored brands, competitive landscape,
+regulatory environment, custom context. The wileytest profile row was
+refreshed (monitored brands filled in from the four Brand Monitoring topics,
+"AI content licensing and rights" added to concerns, Pearson added to
+competitors; it had not been touched since October 2025).
+
+### Timeline as background
+`build_timeline_context` was only injected into Auspex chat and observer
+reports. `_timeline_background` now builds one block per selected topic
+(state summary trimmed to a sentence, rollup lines shortened, every daily
+line kept) and hands it to the curator prompt and the synthesis prompt as
+BACKGROUND, marked as already known and not evidence. On wileytest that is
+about 29k characters across 17 topics. Tenants without the timeline tables
+get an empty block.
+
+Commit dedf1cd6. Deployed to bugfixing, wiley, wileytest (backend by copy,
+route file by patch because the tenant copies carry a redundant extra import;
+UI built from HEAD in a scratch copy for the prod tenants).
+
+## 2026-09-16 — Briefing Desk compose: the curator now sees every topic's emerging topics, the own brand, and no repeats
+
+### What was wrong
+An audit of wileytest's 16 September draft found that three of its five emerging
+topics were the same "AI leaders call to slow down" story under three labels, that
+two of them had already run on the 14th and 15th under other labels, that no
+Wiley story reached the curator although 20 were eligible, and that the Elsevier/LG
+press release appeared as both an article and an incident. Each had a mechanical
+cause in `app/services/daily_briefing_compose_service.py`.
+
+### Fixes
+- **Emerging pool balanced across topics.** The 15-slot cap fell on the candidate
+  list in topic order, so the first two topics (15 and 19 candidates) filled it and
+  the other sixteen topics were never shown. Candidates are now ranked within each
+  topic and round-robined across topics (`balance_across_groups` in
+  `daily_briefing_ranking.py`); the cap is 20.
+- **Repeats recognised under a new name.** Already-shared matching used exact
+  labels. It now also matches on stemmed label tokens (`labels_match`, 3 shared
+  tokens and 60% containment) and, for incidents, on any cited article URI that a
+  finalized briefing's incident already cited. Emerging entries now store their
+  cluster's `article_uris` so future runs can match on those too. Within one run,
+  two emerging labels for the same development keep the stronger one.
+- **Own brand gets shortlist room.** `build_shortlist` takes `priority` slots;
+  compose reserves 5 for a "Brand Monitoring <x>" topic whose name shares a
+  distinctive word with the org profile's name ("Wiley Scientific Publisher" claims
+  "Brand Monitoring Wiley", not Elsevier). On wileytest the analyst downgrade now
+  reaches the curator instead of a journal paper and a week-old transcript.
+- **Article-vs-incident dedup by story.** An article is dropped when it is the same
+  story as one a selected incident cites: same normalized URI, a URI merged into it
+  by the gatherer's dedup, or a title match against the cited articles' titles
+  (fetched via `get_articles_by_uris`).
+- The curator prompt lists recently covered incident and emerging labels and asks
+  for one item per development; incidents are ordered by significance before the
+  context cap.
+
+Tests: 19 new cases in `tests/test_daily_briefing_compose.py` and
+`tests/test_daily_briefing_ranking.py`; one stale assertion (`date` → `published`)
+fixed. Deployed to bugfixing, wiley, wileytest.
+
+## 2026-09-16 — Brand Watcher: a company's own publishing is tagged and kept out of the metrics; social posts out of the News list; one row per post
+
+### Goal
+A colleague reviewing oviva's Brand Watcher over 90 days noticed that what
+the dashboard called Oviva "news" was Oviva's own website, that Bluesky and
+Reddit posts appeared in the News column, and that the Social list showed
+the same post several times. All three were real. In the 90-day window every
+one of the 25 articles counted as Oviva news came from oviva.com (recipes,
+"Oviva Erfahrungen" testimonials), 10 optimistic and 15 neutral; the 5
+external press items had not passed analysis and counted for nothing. So
+news sentiment and share of voice for Oviva measured Oviva's copywriters.
+
+### Owned publishing: tagged at classification, reported beside the metrics
+**`app/services/bw_owned.py`** (new) reads each brand's own domains from
+Entity Intelligence's identifiers (`bw_vendor_identifiers`, kind `domain`)
+and stamps matching rows `articles.bias_source = 'owned:<domain>'`, only
+where `bias_source` is still empty so the official-source poller's
+`official:` and the market's `vendor:` marks are kept. It runs at the end of
+every classification run (`_run_classification_task`, before the run is
+marked complete) and is safe to call any time. Sites without the identifiers
+table get an empty domain list and no change.
+
+**`app/services/social_sources.py`** gains `OWNED_BIAS_PREFIXES`
+(`owned:`, `vendor:`), `is_owned_source`, `owned_src_sql`, and
+`earned_news_sql(alias)`: analysed, not a social post, not the company's
+own publishing. `classify_source` maps `owned:` to the `owned_web` channel.
+
+**`app/routes/brand_watcher_routes.py`**: the ten metric queries behind
+`/stats`, `/categories`, `/temporal`, `/comparison` and
+`/brands/{id}/sentiment-trends` now gate on `{_EARNED_NEWS}` instead of
+`a.analyzed = true`. `/share-of-voice` counts earned and owned separately
+(`mention_count`, new `owned_count`; the percentage is earned only).
+`/articles` keeps owned rows, flagged `is_owned`, and never returns social
+rows. The UI shows an "owned" chip on those cards and "+N owned" beside a
+brand's share-of-voice line (`BrandWatcherTab.tsx`, `brandWatcherApi.ts`).
+
+### Social posts out of the News list
+The social evaluation sets `analyzed = true`, and the Market Monitor's
+name-match step (`market_name_match`) writes a brand category for social
+posts, so 10 posts in 90 days passed the News list's two gates. Every
+news-side query now excludes `social_src_sql('a.news_source')`.
+
+### One row per post
+oviva reads social through the entity-mention path. A post that matched both
+an alias term and the explicit brand name had two `bw_entity_mentions` rows
+and the feed returned it twice (9 posts in 90 days, 8 WeightWatchers).
+**`app/services/entity_social_read.py`** selects `DISTINCT ON (article_uri,
+brand_id)`, preferring the explicit-name mention. Separately,
+`collapse_reposts` (in `social_sources.py`) folds posts with the same text
+under different URIs — retweets, a spam account posting four times,
+Bluesky bridge mirrors — into one entry with `repost_count` and the other
+URIs; both the entity path and the legacy `/social` query use it, and the
+social card shows "×N posts".
+
+### Verification
+- oviva after tagging (60 rows: 29 oviva.com, 31 noom.com) and restart,
+  90 days: share of voice Oviva earned 0 / owned 14, Noom 3 / 2,
+  WeightWatchers 25 / 0; `/articles` for Oviva 14 rows, all flagged owned,
+  0 social; `/social` for Noom + WeightWatchers 260 posts, 0 repeated URIs,
+  5 entries with folded reposts (was 279 posts, 10 repeated URIs).
+- The same five endpoints answer 200 on sunstar, abm, wbm, wiley, wileytest
+  and bugfixing after deployment, with 0 social rows in every `/articles`
+  result and 0 repeated URIs in every `/social` result (38–59 folded
+  entries per site).
+- `npm run typecheck` clean in the live tree (228 known).
+
+### Propagation
+oviva took the patch cleanly. sunstar, abm, wbm, wiley, wileytest and
+bwtemplate did not carry the 14 Sep `analyzed = true` gate in the metric
+queries, so the six metric route functions were replaced with canonical's
+(`replace_bw_funcs.py`, function-level, tenant-only lines reviewed: all
+older versions of the same code); `social_sources.py` copied whole
+(canonical is a strict superset there); `bw_owned.py` copied. UI built from
+committed HEAD plus the two Brand Watcher files in a scratch copy, because
+this tree carries another session's uncommitted Swiss Election work; that
+bundle went to the six tenants, the live-tree build to bugfixing. All seven
+services restarted between ingest batches. Owned tagging has data only on
+oviva; sunstar has no domain identifiers yet, and abm/wbm/wileytest lack the
+identifiers table, so their brands' own pages are not tagged until Entity
+Intelligence reaches them. Static assets and templates were not staged in
+this commit: this tree's tracked bundle belongs to the other session's
+in-progress work.
+
+## 2026-09-15 — Swiss Election Watch: new analysis module built; topic sources rebuilt around vector outlets and trackers
+
+### Goal
+A week after the Swiss elections disinformation topic went live, yield was 1-3
+approvals a day against 80-170 rejections, the approvals had drifted to
+neutrality-vote opinion pieces, and there was no view of what was being said,
+by whom, aimed at what. The user asked for more sources and a purpose-built
+dashboard ("net new", borrowing from GeoHotSpots, Threat Intel and the US
+Crisis Tracker). Spec: `docs/SWISS_ELECTION_DISINFO_MONITOR_SPEC.md`. Built
+the same day, bugfixing only (feature for the requesting tenant).
+
+### Feature — Swiss Election Watch module (`swiss_disinfo`)
+Registered in **`app/core/modules.py`** on the standard pattern: routes
+`/api/swiss-disinfo`, monitor task, `sd_` migrations, Explore tab "Swiss
+Election Watch" (icon `Vote`), gated by `module_config` (row created via the
+toggle API; the routers loop only mounts enabled modules, so a restart was
+needed after enabling).
+
+**`app/services/swiss_disinfo_service.py`**: one structured extraction per
+approved article of the topic (`gpt-5.4-mini` alias = Kimi on Bedrock):
+narratives with stance (promotes / reports / debunks), targets, attribution
+as the article reports it, techniques (DISARM-style list), language, source
+tier, fact-check and institutional response. `on_topic` requires a Swiss
+angle — the first run let two EUvsDisinfo Ukraine pieces through, the rule
+now says so explicitly. Narrative matching is an embedding shortlist decided
+by the model: the 768-dim encoder scores every pair of statements in this
+domain between 0.86 and 0.96 (measured over 32 statements, median 0.915),
+so a pure threshold either merged everything (0.85 → one narrative with 15
+articles) or nothing; now the top 8 neighbours above 0.90 go to Kimi with
+"same storyline or not", accept without asking at ≥ 0.985. Reprocessed:
+11 narratives from 12 on-topic articles, e.g. "Russia attempts to influence
+Swiss political discourse on neutrality" (5 articles, Russia as reported)
+and "Sanctions harm ordinary citizens rather than governments" (DE and FR,
+Uncut-News). Known outlets keep a curated tier from `sd_sources` (46 seeded:
+RT DE and Sputnik state media, Uncut-News / Les Observateurs / Arrêt sur
+Info / Weltwoche alt media, the mainstream titles, parties, fact-checkers,
+trackers); unknown domains take the model's tier and are recorded.
+Panel queries: overview, narratives (+detail with per-language series),
+sources, outlet×narrative co-occurrence, targets (22 seeded: votes, EU
+package, parties, Federal Councillors, Blocher, Dettling), techniques,
+languages (crossings with lag days), calendar, responses, filtered articles,
+weekly brief (`gpt-5.4` alias, saved in `sd_briefs`). Four alert rules →
+`timeline_events` scope `topic` + bell notification: new narrative on ≥2
+outlets in 48h, 7-day volume >3× previous (min 5), first crossing into a
+second language, synthetic media aimed at a person. Vote calendar seeded as
+topic mementos (27 Sep 26, 29 Nov 26, 7 Mar 27, 13 Jun 27, 26 Sep 27,
+election 24 Oct 27).
+
+**`app/routes/swiss_disinfo_routes.py`** (22 routes, `verify_session_api`,
+sync service calls wrapped in `asyncio.to_thread`); **`app/tasks/
+swiss_disinfo_monitor.py`** (`sd_schedules`, due-loop every 60s, reuses
+`calculate_next_run` from the GeoHotspots monitor, runs extraction →
+alerts → calendar; default schedule every 2h seeded by the migration);
+**`alembic/versions/sd_001_add_swiss_disinfo_tables.py`** (`sd_narratives`
+with `vector(768)` via plain DDL since `pgvector.sqlalchemy` is not in the
+venv, `sd_narrative_articles`, `sd_extractions`, `sd_sources`, `sd_targets`,
+`sd_briefs`, `sd_schedules`; down_revision `mm_028`).
+
+UI: **`ui/src/components/newsfeed/SwissDisinfoTab.tsx`** (container, nine
+sub-tabs, Overview with stat tiles + stance area chart + attribution +
+categories, Articles with filters and the extraction shown per article),
+**`SwissDisinfoPanels.tsx`** (Narratives table + detail, Sources + who-
+carries-what matrix, Targets & Techniques, Languages with border crossings,
+Calendar with vote lines + alerts + first-seen, Responses ledger, Insights
+brief), `useSwissDisinfo.ts`, `services/swissDisinfoApi.ts`; NewsFeedPage
+tab id added to the `ExploreTab` union and `EXPLORE_TABS`. recharts marks
+carry `isAnimationActive={false}` — in headless Chromium the animated
+areas/bars never painted (GeoHotSpots control rendered its map fine), so
+screenshots looked empty until animation was off.
+
+### Verification
+`npm run typecheck` clean (no new errors); `alembic upgrade head` → `sd_001`;
+first scheduled run processed 26 articles, 0 errors; after the matcher fix a
+manual `POST /process-articles` reprocessed 26 → 12 on-topic, 11 narratives,
+0 errors, 97s. Every read endpoint returns 200 with data (narratives 11,
+sources 12, co-occurrence 18 cells, targets 30, languages 2 crossings,
+calendar 6 votes + alerts, responses 1+1, articles 26). `POST /brief`
+(14 days) produced a grounded note naming RT DE, diepresse.com and
+insideparadeplatz.ch as carriers and the 12-day countdown. Playwright
+against 127.0.0.1:10004 (Chromium resolves localhost to ::1, the app
+listens on IPv4): Overview, Narratives, Sources, Languages, Calendar,
+Insights, Articles all render; the only 500s on the page are
+`/api/organizational-profiles`, unrelated and pre-existing.
+
+### Ops — topic sources rebuilt (same session, before the build)
+Five general feeds deactivated (SRF, NZZ, Beobachter, Le News, FINMA: 477
+articles, 2 approvals since 09-11); Schweizerzeit kept. `config.json`
+description narrowed to manipulation / foreign interference / false claims
+with an explicit out-of-scope clause for plain vote opinion. 95 candidate
+feed URLs probed; 20 live and relevant added topic-tied at threshold 40
+(ids 68-87): Infosperber, Republik, Journal21, Inside Paradeplatz, Arrêt sur
+Info, Les Observateurs, Uncut-News, SVP/SP/Mitte/Grüne/GLP press, RSF CH,
+EUvsDisinfo, EU DisinfoLab, DFRLab, Alliance4Europe, Bellingcat, Mimikama.
+First pass approved 9 from backlogs. RT DE (75) parked: 403 to any UA
+containing "Collector"/"AunooAI" (browser UA passes); not spoofing globally,
+RT DE Swiss items still arrive via TheNewsAPI. GLP feed 406 on our Accept
+header. Dead: swissinfo RSS (410 all languages), admin.ch/NCSC/BAKOM/
+parlament (no RSS), watson/nau/20min/RTS/RSI/CdT 404, medienwoche (2022),
+GCSP (2019), correctiv (2020), AFP fact-check 403.
+
+### Propagation
+bugfixing only, by design (feature for the requesting tenant). Restarted
+job-gated four times during the build. Nothing copied to wiley/wileytest.
+`sd_001` is the new alembic head on bugfixing.
+
+### Follow-ups the same afternoon
+- **Italian group 24** (`- IT`, TheNewsAPI + firehose, language it, 11 terms measured over 30 days:
+  "disinformazione Svizzera" 10, "Svizzera Russia influenza" 6, "iniziativa sulla neutralità" 6; "elezioni
+  federali 2027" dropped because it returns FIFA/FIGC). First run approved one La Regione piece on
+  non-military warfare and rejected the Italy-only noise. Italian coverage of Swiss disinformation is thin.
+- **Feed user agent** (`app/collectors/rss_collector.py`, both fetch paths): `AunooAI RSS Collector/1.0`
+  → `AunooAI Feed Reader/1.0 (+https://aunoo.ai)`. RT DE returned 403 and GLP 406 to any UA containing
+  "Collector"; every honest reader-style UA tested passed both (RT 200, GLP 301→200). No browser spoofing.
+  Feeds 75 (RT DE) and 80 (GLP) reactivated; RT DE fetched 50 items on its first pass, all non-Swiss
+  items rejected by the gate as intended.
+- **`/api/organizational-profiles` 500** on every Explore load: profile id 9 ("Cyberfuturists — AI SOC
+  market readers") had plain text in `regulatory_environment` where the route does `json.loads`. Data
+  repaired to a JSON list (five items split on the separators). Endpoint 200 after restart. Not a code change.
+- **Alert rule 3** (language crossing) now requires the new language's first sighting to be strictly
+  later than the narrative's earliest sighting in another language, so a backfill that lands DE and FR
+  on the same day is not a crossing. Three stale crossing alerts deleted.
+- Not done, by decision: social collection for the topic stays off.
+
+### Open
+Italian has no keyword group (firehose Swiss slice brings Italian in);
+social collection stays off for the topic; attribution is shown as "as
+reported" everywhere — no independent attribution. Alert rule 3 fired on
+backfill for narratives whose DE and FR first sightings were the same day.
+
+## 2026-09-15 — Incident tracking 500 fixed; Briefing Desk keeps its best repair round
+
+### Goal
+Two errors from the wileytest log, one of them also reported from sunstar. Every Incident Tracking
+run returned 500, and a held Daily Briefing showed "Reviewed: 4 warnings, no errors" under a list
+of four errors.
+
+### Fix 1: Incident Tracking prompt (`app/routes/vector_routes.py`, commit 8e973423)
+Commit 731a4c8a added a literal JSON example (`timeline: {"event_date": ...}`) to the system
+prompt at line 2200, but that prompt is an f-string, so Python read the braces as a format spec
+and raised "Invalid format specifier" on every call. The braces are now doubled. The second copy
+at line 6714 is a plain string sent to the UI as the editable default and stays as it was.
+
+### Fix 2: Briefing Desk repair loop (`app/services/daily_report_service.py`, commit 16cf54b7)
+The reviewer (gpt-5.4) held the wileytest briefing with 2 errors, the writer (the pinned
+kimi-k2.5) repaired it to 1 error, then repaired again to 4, and the loop kept the last draft.
+It now keeps the round with the fewest errors and records `review.repair_kept_round`.
+
+### Fix 3: held-draft labels (`ui/src/components/newsfeed/BriefingDeskSection.tsx`)
+The metadata line's label had no branch for errors, so a held draft read "no errors". It now
+reads "Held by the reviewer: N errors, M warnings" in red, and "held as a draft" replaces
+"on Unknown" when there is no finalized date.
+
+### Still open
+- `geopolitical_service.py` country-stats upsert fails with `CardinalityViolation` because it
+  groups by `country_code, country_name` and the same code appears with two spellings. Background
+  warning only; three hits in 24 h on wileytest.
+- The Briefing Desk ignores the page's model dropdown by design (commit e79b7aa3): the model
+  comes from `emerging_topics_settings.model`, which is `bedrock-kimi-k2-5` on wileytest, wiley,
+  sunstar and bugfixing.
+
+### Propagation
+Backend files copied to wiley, wileytest, sunstar (byte-identical before the fix). UI built
+from committed HEAD plus the one component in a scratch copy for those three, and from the live
+tree for bugfixing. All four services restarted after checking for live background jobs.
 
 ## 2026-09-15 — Market Monitor: sort the Maturity Map's Acquired list oldest-first
 
@@ -1247,8 +2020,10 @@ entry); migration, script, `title_translation.py` and the UI sources
 copied; static + templates rsynced; all seven services restarted except
 bwtemplate (inactive), and again after each follow-up fix, each time
 between ingest batches; on canonical after detection run 3553 completed. Backfill run on sunstar
-only; other sites translate from now on and can run the script when
-wanted.
+(above) and, on request the same evening, on oviva for 30 days: 128
+summaries looked non-English, 111 translated (5 of them also got a title),
+15 returned unchanged, 2 failed; the title pass changed 5 more. Other sites
+translate from now on and can run the scripts when wanted.
 
 ## 2026-09-10 — Focus groups: personas must not be named after real people
 

@@ -1032,6 +1032,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 );
               })()}
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
+              {(p.repost_count || 1) >= 2 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                  title={`The same text was posted ${p.repost_count} times (reposts and mirrors folded into this entry)`}>×{p.repost_count} posts</span>
+              )}
               {p.author_role && p.author_role !== 'unknown' && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${ROLE_CHIP_CLASS[p.author_role] || ROLE_CHIP_CLASS.other}`}
                   title={p.author_role_reason ? `${ROLE_CHIP_LABEL[p.author_role] || p.author_role}: ${p.author_role_reason}` : (ROLE_CHIP_LABEL[p.author_role] || p.author_role)}>
@@ -2853,6 +2857,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   className="text-sm font-semibold text-gray-800 dark:text-gray-100 hover:text-blue-600 text-left flex-1 line-clamp-1" title={a.title}>
                   {a.title}
                 </button>
+                {a.is_owned && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                    title="Published by the company itself — not counted in sentiment or share of voice">owned</span>
+                )}
                 {(a.story_size || 1) >= 2 && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold ${(a.story_size || 0) >= 3 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
                     title={`Republished by ${a.story_size} sources — amplification signal`}>×{a.story_size} sources</span>
@@ -5481,6 +5489,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{sov.brand_name}</span>
                         <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{sov.percentage.toFixed(1)}%</span>
                         <span className="text-xs text-gray-400 w-20 text-right">{sov.mention_count} articles</span>
+                        {(sov.owned_count || 0) > 0 && (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 w-16 text-right"
+                            title="The company's own posts and pages, not counted in share of voice">+{sov.owned_count} owned</span>
+                        )}
                         <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                       </button>
                     ))}
@@ -5968,6 +5980,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         title={`Coverage split: ${article.story_pos} positive vs ${article.story_neg} negative`}>⚡ polarized</span>
                     )}
                     {renderSignalsChips(article)}
+                    {article.is_owned && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                        title="Published by the company itself — not counted in sentiment or share of voice">owned</span>
+                    )}
                     {article.news_source && (
                       <span className="text-xs text-gray-400">{article.news_source}</span>
                     )}

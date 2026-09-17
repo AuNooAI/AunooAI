@@ -139,8 +139,13 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                      "WHERE r.article_uri = m.article_uri "
                      "AND r.status = 'false_positive')")
 
+    # One row per post and company: a post that matched both an alias term
+    # and the explicit name has two mention rows, and the feed showed it twice
+    # (oviva, 9 posts in 90 days). The explicit-name mention is the one kept.
     rows = conn.execute(text(f"""
-        SELECT m.id, m.brand_id, m.article_uri, m.channel, m.platform,
+        SELECT * FROM (
+        SELECT DISTINCT ON (m.article_uri, m.brand_id)
+               m.id, m.brand_id, m.article_uri, m.channel, m.platform,
                m.relevance, m.sentiment, m.stance, m.status, m.excerpt,
                m.evaluated_at, m.mention_type,
                a.title, a.summary, a.news_source, a.publication_date, a.topic,
@@ -161,7 +166,10 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                  ON si.social_account_id = sa.id AND si.brand_id = m.brand_id
                 AND si.valid_to IS NULL
          WHERE {' AND '.join(where)}
-         ORDER BY a.publication_date DESC
+         ORDER BY m.article_uri, m.brand_id,
+                  (m.mention_type = 'explicit_name') DESC, m.id
+        ) one
+         ORDER BY one.publication_date DESC
          LIMIT :lim
     """), params).mappings().all()
 
@@ -186,6 +194,8 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                  if (p['matched_keywords']
                      and any(k.lower() == wanted for k in p['matched_keywords']))]
 
+    from app.services.social_sources import collapse_reposts
+    posts = collapse_reposts(posts)   # retweets and mirrors of one post read as one
     return _rollup(posts, days_back, min_relevance, include_unevaluated, keyword)
 
 

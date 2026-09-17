@@ -86,10 +86,9 @@ function digestHtml(d: BWVoicesDigest | null | undefined, r: BWVoiceRole): strin
   return `
     ${d.context ? `<p class="ctx">${esc(d.context)}</p>` : ''}
     ${d.summary ? `<p class="summary">${esc(d.summary)}</p>` : ''}
-    ${d.tone_warning ? `<p class="warn">${esc(d.tone_warning)}</p>` : ''}
     ${themes}
     ${asks}
-    <p class="muted">Digest by ${esc(d.model || 'the site model')} over ${r.n} post${r.n === 1 ? '' : 's'}. Quotes are copied from the posts; open the post before citing one.</p>`;
+    <p class="muted">AI digest of ${r.n} post${r.n === 1 ? '' : 's'}. Quotes are copied from the posts; open the post before citing one.</p>`;
 }
 
 export function buildVoicesReportHtml(d: VoicesReportData): string {
@@ -202,7 +201,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
 </header>
 <main>
   <h1>${esc(brandName)} — who is talking, and what each audience says</h1>
-  <p class="lead">${esc(period)} · on-brand social and community posts (relevance ≥ ${v.min_relevance}) · the brand's own accounts are listed as brand voice and never counted in an audience's sentiment.</p>
+  <p class="lead">${esc(period)} · on-brand social and community posts · the brand's own accounts are listed as brand voice and never counted in an audience's sentiment.</p>
 
   <section id="overview">
     <h2>Overview</h2>

@@ -10,6 +10,7 @@ from .rss_collector import RSSCollector
 from .newsfirehose_collector import NewsFirehoseCollector
 from .opoint_collector import OpointCollector
 from .reddit_collector import RedditCollector
+from .telegram_collector import TelegramCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -25,7 +26,8 @@ class CollectorFactory:
         'rss': RSSCollector,
         'newsfirehose': NewsFirehoseCollector,
         'opoint': OpointCollector,
-        'reddit': RedditCollector
+        'reddit': RedditCollector,
+        'telegram': TelegramCollector
     }
 
     @classmethod
