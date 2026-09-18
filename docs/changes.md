@@ -2,6 +2,71 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-18 — Brand Watcher: the narrative, spike alerts and risk attention now count earned press only
+
+### Goal
+Oliver exported the 7-day Oviva Brand Intelligence Report. The overview said 0 on-brand
+articles and 0 categories, while the executive summary two lines down said Oviva "recorded 17
+articles" with Media & Advertising at "12.3x normal levels". He asked why the counts disagree.
+
+### Root cause
+On 16 Sep we split earned press from a company's own publishing: `/stats`, `/categories` and
+the other metric routes gate on `earned_news_sql('a')`, which drops social rows and rows whose
+`bias_source` is `owned:` or `vendor:`. Three readers never got that gate:
+
+- **`app/routes/brand_watcher_routes.py`**, `generate_narrative`: the category count, the
+  competitor scan, the sentiment tally and the negative and positive article pulls only checked
+  the relevance bar. Every article the LLM was given was Oviva's own. In the window we checked
+  (11 to 18 Sep) that was 10 rows from Oviva's own LinkedIn (`vendor:linkedin`, unanalysed) and
+  6 from oviva.com (`owned:oviva.com`), and zero earned press.
+- **Same file**, `get_brand_alerts`: the 7-day counts, the 30-day baseline and the article
+  list under each alert had the same gap, so own posts raised the two live spike alerts.
+- **`app/services/brand_risk_assessment.py`**: the shared predicate `_REL` feeds issue
+  detection, the attention readout (the "12.3x" figure) and peer eligibility, and it also only
+  checked relevance. The first regeneration after fixing the routes still said "12.3x" because
+  the narrative prompt takes the attention block from this service.
+
+### Fix (commit `3d08db0a`)
+- **`brand_watcher_routes.py`**: the eight queries in the narrative and alerts endpoints carry
+  `AND {_EARNED_NEWS}`, the same constant the metric routes use.
+- **`brand_risk_assessment.py`**: `_REL` is now relevance AND `earned_news_sql("a")`, so all
+  four readers in the service use earned press. Side effect on oviva: the attention readout
+  needs 56 days of earned history and the brand has less, so it now returns `available: false`
+  with the reason, instead of a spike. That is the honest answer.
+- **`ui/src/services/brandReportHtml.ts`**: the exported report drops the Overview stat grid
+  and its nav link when there are no articles and no alerts, and prints one line saying there
+  was no earned coverage in the period. Four zero cards read as a broken page (Oliver's
+  request mid-session).
+
+### Verification
+- Before the fix, the narrative's own query on oviva returned 16 distinct articles for brand 1
+  in the last 7 days, all `vendor:linkedin` or `owned:oviva.com`; the stats query returned 0.
+- Regenerated the 7-day Oviva narrative through `POST /api/brand-watcher/generate-narrative`
+  after each stage. After the routes fix: `total_articles: 0` but the summary still quoted the
+  12.3x spike from the risk block. After the service fix: `total_articles: 0`, attention
+  `available: false`, and the summary reads "zero news articles were recorded for Oviva" with
+  the social side (28 posts, 6 on-brand, +17% net) and Glassdoor intact. Two runs, 70 s and 56 s.
+- `py_compile` clean on all four tenants' copies; `npm run typecheck` clean against baseline.
+- All four services answer on their ports after restart.
+
+### Propagation
+- Backend: bugfixing (canonical, committed), oviva (file copy, identical to HEAD before the
+  change), wiley and wileytest (their `brand_watcher_routes.py` drifts from HEAD, so the eight
+  queries were patched by pattern with the same script rather than copied; `brand_risk_assessment.py`
+  was identical everywhere and copied). All four restarted; only the routine per-article analysis
+  loop was running on wiley and wileytest at the time.
+- Frontend: built in bugfixing (`BrandWatcherTab-B2sCnVk9.js`, `newsfeed-B9EfJg5l.js`) and
+  rsynced to oviva with the six React templates. Not shipped to wiley or wileytest, whose UI
+  bundles carry other sessions' work and are not wholesale-synced from bugfixing.
+- Committed on `fix/market-monitor-voices-relevance`, the branch checked out at the time.
+
+### Lessons
+- Any new brand-side query that joins `bw_article_categories` to `articles` must carry
+  `earned_news_sql('a')`. To find stragglers: grep for `topic_alignment_score) >= 0.4` lines
+  without `_EARNED_NEWS` or `_REL`.
+- The narrative prompt pulls numbers from two places, the routes file and the risk assessment
+  service. Fixing one and regenerating is not a check; both must agree with `/stats`.
+
 ## 2026-09-18 — aisocnews.com feeds linked subscribers to the tenant's login page
 
 ### Goal

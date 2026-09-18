@@ -3405,22 +3405,22 @@ async def get_brand_alerts(
     conn = db._temp_get_connection()
     try:
         # Recent 7-day counts
-        recent = conn.execute(text("""
+        recent = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": brand_id})
         recent_counts = {row[0]: row[1] for row in recent.fetchall()}
 
         # 30-day avg (per week, excluding last 7 days)
-        avg_result = conn.execute(text("""
+        avg_result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -3452,7 +3452,7 @@ async def get_brand_alerts(
                 SELECT bac.category, a.uri, a.title, a.publication_date, a.sentiment, a.news_source
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
                 AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
                 AND bac.category IN ({ph})
                 ORDER BY a.publication_date DESC
@@ -3807,11 +3807,11 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         brand = _brand_row_to_dict(brand_row)
 
         # Category counts
-        cat_result = conn.execute(text("""
+        cat_result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
@@ -3827,10 +3827,10 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         competitor_kws = brand.get("competitor_keywords") or []
         competitor_counts: Dict[str, int] = {}
         if competitor_kws:
-            art_result = conn.execute(text("""
+            art_result = conn.execute(text(f"""
                 SELECT DISTINCT a.title, a.summary FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
-                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
             """), {"bid": request.brand_id, "start": start_date, "end": end_date})
             for atitle, asumm in art_result.fetchall():
@@ -3857,26 +3857,26 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
 
         # Clinical sentiment facts for the prompt. Distinct articles, not
         # category rows — multi-category articles used to vote once per category.
-        sent_row = conn.execute(text("""
+        sent_row = conn.execute(text(f"""
             SELECT COUNT(DISTINCT a.uri) FILTER (WHERE LOWER(a.sentiment) IN
                        ('negative', 'pessimistic', 'concerning', 'concerned',
                         'critical', 'alarming')) AS neg,
                    COUNT(DISTINCT a.uri) AS total
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
         """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchone()
         win_neg, win_scored = int(sent_row[0] or 0), int(sent_row[1] or 0)
 
         # Fetch recent negative/concerning articles so the narrative can cite specific drivers
-        neg_articles_result = conn.execute(text("""
+        neg_articles_result = conn.execute(text(f"""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
                                         'concerned', 'critical', 'alarming')
@@ -3899,12 +3899,12 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             neg_articles_text = "\n".join(lines)
 
         # Fetch recent positive articles to ground positive signals with evidence
-        pos_articles_result = conn.execute(text("""
+        pos_articles_result = conn.execute(text(f"""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
             ORDER BY a.publication_date DESC

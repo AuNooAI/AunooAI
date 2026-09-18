@@ -106,6 +106,8 @@ export function buildBrandWatcherReportHtml(d: BrandReportData): string {
   const totalCatArticles = catSorted.reduce((s, c) => s + c.article_count, 0) || 1;
   const totalArticles = d.stats?.total_articles ?? totalCatArticles;
   const topCat = catSorted[0]?.category || '—';
+  // No earned coverage: an all-zero stat grid reads as broken, so the section is dropped.
+  const hasCoverage = totalArticles > 0 || d.alerts.length > 0;
 
   // ---- Risk (mirrors the in-app computation, relevance-filtered upstream) ----
   const alertsSorted = [...d.alerts].sort((a, b) => b.spike_ratio - a.spike_ratio);
@@ -512,8 +514,8 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   <span class="brand">Brand Watcher · <b>${esc(brandName)}</b></span>
   <span class="meta">${esc(period)} · generated ${gen}</span>
   <nav class="nav">
-    <a href="#overview" class="active">Overview</a>
-    <a href="#analysis">Analysis</a>
+    ${hasCoverage ? '<a href="#overview" class="active">Overview</a>' : ''}
+    <a href="#analysis"${hasCoverage ? '' : ' class="active"'}>Analysis</a>
     <a href="#perception">Perception</a>
     <a href="#risk">Risk</a>
     <a href="#workforce">Workforce</a>
@@ -526,7 +528,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
   <h1>${esc(brandName)} — Brand Intelligence Report</h1>
   <p class="lead">${esc(period)} · ${totalArticles.toLocaleString()} on-brand articles analyzed</p>
 
-  <section id="overview">
+  ${hasCoverage ? `<section id="overview">
     <h2>Overview</h2>
     <div class="stat-grid">
       ${statCard('On-brand articles', totalArticles.toLocaleString(), period)}
@@ -535,7 +537,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       ${statCard('Active spike alerts', String(d.alerts.length), highAlerts ? `${highAlerts} high-severity` : 'none high')}
     </div>
     <div class="card"><h3>Category distribution</h3>${catBars || '<p class="muted">No categories.</p>'}</div>
-  </section>
+  </section>` : `<p class="muted">No earned press coverage in this period, so the overview stats are not shown.</p>`}
 
   <section id="analysis">
     <h2>Analysis</h2>

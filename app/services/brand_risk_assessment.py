@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.services.social_sources import earned_news_sql
+
 logger = logging.getLogger(__name__)
 
 ISSUE_EXPIRY_DAYS = {"high": 28, "medium": 14, "low": 7}
@@ -55,7 +57,11 @@ ATTENTION_SPIKE_MULTIPLE = 2.0
 ATTENTION_SPIKE_MIN_COUNT = 3
 
 _SCORED = "COALESCE(a.sentiment, '') <> ''"
-_REL = "COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4"
+# On-brand AND earned: the company's own LinkedIn posts and website articles must not
+# open issues, count as attention spikes, or make a peer eligible (oviva, 18 Sep 2026:
+# 16 own posts in a week read as a 12.3x Media & Advertising spike with zero press).
+_REL = ("COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND "
+        + earned_news_sql("a"))
 
 
 def _day(date_str: str) -> str:
