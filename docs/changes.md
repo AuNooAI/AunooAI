@@ -25,9 +25,16 @@ front page had no place for a hand-picked link; everything on it comes out of th
 ### Notes
 - The nginx micro-cache holds the front page for 90 s; we purged it once so the item went
   live at once. Later adds and retires show within that window on their own.
-- On 18 September the pipeline's own lead was Anvilogic's LinkedIn post about the same
-  paper, so the top of the page showed the story three times. The lead rotates with the news;
-  the featured item stays until retired with `scripts/market_featured.py retire --id 1`.
+- Oliver's review the same morning, two changes. Strip and sidebar card side by side on
+  desktop was too much, so a `both` row now shows once per screen: the sidebar card on
+  desktop, the strip only when the grid stacks below 1080 px. And a paid or
+  vendor-published link has to say so: a `sponsored` flag (migration `mm_030`) turns the
+  badge into "Sponsored · Whitepaper", the sidebar heading into "Sponsored", and the byline
+  into "Sponsored by Anvilogic". Set it on add with `--sponsored`, or later with
+  `scripts/market_featured.py sponsored --id N`.
+- The pipeline's own lead that day was Anvilogic's LinkedIn post about the same paper, so
+  the story appeared twice at the top. The lead rotates with the news; the featured item
+  stays until retired with `scripts/market_featured.py retire --id 1`.
 
 ## 2026-09-17 — Sharing a briefing by email failed once its themes had been edited
 

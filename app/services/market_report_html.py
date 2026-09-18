@@ -3207,8 +3207,9 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-lead-story h2 { font-size:clamp(26px,3.2vw,36px); line-height:1.18; letter-spacing:-.03em;
   font-weight:600; margin:var(--s-1) 0 0; }
 .mm-v2 .v2-lead-story .n-story-sum { font-size:var(--fs-lead); max-width:62ch; }
-/* Featured: a hand-picked link (a whitepaper, a talk) under the lead story.
-   The sidebar copy is the desktop reminder; it goes when the grid stacks. */
+/* Featured: a hand-picked link (a whitepaper, a talk). One copy per screen:
+   the sidebar card on desktop, the strip under the lead once the grid stacks. */
+.mm-v2 .v2-featured.v2-featured-both { display:none; }
 .mm-v2 .v2-featured { background:var(--accent-tint-08); border:1px solid var(--sidebar-border);
   border-left:3px solid var(--accent); border-radius:0 var(--r-card) var(--r-card) 0;
   padding:var(--s-4) var(--s-5); min-width:0; }
@@ -3579,6 +3580,7 @@ html { scroll-behavior:smooth; }
 @media (max-width:1080px) {
   .mm-v2 .v2-grid { grid-template-columns:1fr; }
   .mm-v2 .v2-side > .v2-featured-card { display:none; }
+  .mm-v2 .v2-featured.v2-featured-both { display:block; }
   .mm-v2 .v2-side { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
   .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
@@ -3885,8 +3887,10 @@ def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]],
 
     publisher = r.get("publisher") or ""
     mark = _mark(logos, r.get("vendor") or publisher, 16) if (r.get("vendor") or publisher) else ""
-    bits = [esc(r.get("byline") or ""),
-            (f'<span class="v2-vendor">{mark}{esc(publisher)}</span>' if publisher else ""),
+    who = (f'<span class="v2-vendor">{mark}{esc(publisher)}</span>' if publisher else "")
+    if who and r.get("sponsored"):
+        who = "Sponsored by " + who
+    bits = [esc(r.get("byline") or ""), who,
             f'<a href="{esc(r["url"])}" rel="noopener">{esc(read)} {mfe.kind_label(r.get("kind")).lower()} &rarr;</a>']
     return '<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>"
 
@@ -3906,13 +3910,19 @@ def _opening(text_value: str, limit: int) -> str:
 
 def _v2_featured_strip(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]]) -> str:
     """The featured items under the lead story, one box each: the kind as
-    the badge, the title, the blurb, the byline. Empty when there are none."""
+    the badge, the title, the blurb, the byline. Empty when there are none.
+    A ``both`` row's strip is hidden by CSS while the sidebar card shows."""
     from app.services import market_featured as mfe
 
     out: List[str] = []
     for r in rows:
-        out.append('<article class="v2-featured" style="--story:var(--n-accent)">'
-                   f'<div class="n-story-tag">Featured · {esc(mfe.kind_label(r.get("kind")))}</div>'
+        # ``both``: the sidebar card is the desktop copy, so the strip waits
+        # for the grid to stack; ``lead`` shows the strip at every width.
+        both = (r.get("placement") or "both") == "both"
+        out.append(f'<article class="v2-featured{" v2-featured-both" if both else ""}" '
+                   'style="--story:var(--n-accent)">'
+                   f'<div class="n-story-tag">{"Sponsored" if r.get("sponsored") else "Featured"}'
+                   f' · {esc(mfe.kind_label(r.get("kind")))}</div>'
                    f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
                    + (f'<p>{esc(_clip(r["blurb"], 520))}</p>' if r.get("blurb") else "")
                    + _featured_byline(r, logos, read="Read the")
@@ -3930,14 +3940,15 @@ def _v2_featured_card(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]
         return ""
     inner = "".join(
         '<div class="v2-fi">'
-        f'<div class="n-social-meta">{esc(mfe.kind_label(r.get("kind")))}'
+        f'<div class="n-social-meta">{"Sponsored · " if r.get("sponsored") else ""}{esc(mfe.kind_label(r.get("kind")))}'
         + (f' · {esc(r["publisher"])}' if r.get("publisher") else "") + "</div>"
         f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
         + (f'<p>{esc(_opening(r["blurb"], 200))}</p>' if r.get("blurb") else "")
-        + _featured_byline({**r, "publisher": ""}, logos, read="Read the")
+        + _featured_byline(r, logos, read="Read the")
         + "</div>"
         for r in rows)
-    return '<div class="v2-card v2-featured-card"><h2>Featured</h2>' + inner + "</div>"
+    heading = "Sponsored" if all(r.get("sponsored") for r in rows) else "Featured"
+    return f'<div class="v2-card v2-featured-card"><h2>{heading}</h2>' + inner + "</div>"
 
 
 #: Pages of the site that are not sections: ``?page=about``.

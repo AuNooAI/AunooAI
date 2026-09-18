@@ -5,7 +5,8 @@ we wrote, a talk, a report. Rows are added and retired with
 ``scripts/market_featured.py``; this module only reads them and holds the
 vocabulary the renderer prints.
 
-``placement`` says where a row goes: ``lead`` (the strip under the lead
+``sponsored`` marks a paid or vendor-published link, and the page says so
+on the badge and in the byline. ``placement`` says where a row goes: ``lead`` (the strip under the lead
 story, every screen size), ``side`` (a card at the top of the sidebar,
 desktop only) or ``both``.
 """
@@ -38,7 +39,7 @@ def active(conn, market_id: int, *, limit: int = 3) -> List[Dict[str, Any]]:
     started, and not yet ended."""
     rows = conn.execute(text("""
         SELECT id, kind, title, blurb, url, publisher, byline, vendor,
-               placement, sort_order, starts_at, ends_at
+               placement, sort_order, starts_at, ends_at, sponsored
           FROM market_featured
          WHERE market_id = :m AND active
            AND (starts_at IS NULL OR starts_at <= now())

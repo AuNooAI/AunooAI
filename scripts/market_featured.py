@@ -12,7 +12,7 @@ read by ``app/services/market_featured.py``). Rows are never deleted here;
         --url https://pages.anvilogic.com/whitepaper-an-architectural-foundation-for-agentic-secops \\
         --publisher Anvilogic --vendor Anvilogic \\
         --byline "Oliver Rochford, Cyberfuturists" \\
-        --blurb "..." [--placement both|lead|side] [--ends 2026-10-31]
+        --blurb "..." --sponsored [--placement both|lead|side] [--ends 2026-10-31]
     python scripts/market_featured.py retire --id 1
 
 The page is rebuilt on the next request; the aisocnews.com nginx micro-cache
@@ -48,7 +48,7 @@ def _stamp(value: str | None) -> datetime | None:
 def cmd_list(conn, args) -> int:
     rows = conn.execute(text("""
         SELECT id, kind, title, url, publisher, placement, active, sort_order,
-               starts_at, ends_at
+               starts_at, ends_at, sponsored
           FROM market_featured WHERE market_id = :m ORDER BY sort_order, id
     """), {"m": args.market}).mappings().all()
     if not rows:
@@ -57,7 +57,8 @@ def cmd_list(conn, args) -> int:
     live = {r["id"] for r in mfe.active(conn, args.market, limit=100)}
     for r in rows:
         state = "LIVE" if r["id"] in live else ("off" if not r["active"] else "outside window")
-        print(f'#{r["id"]:<4} {state:<15} {r["placement"]:<5} {r["kind"]:<11} {r["title"]}')
+        flag = "sponsored " if r["sponsored"] else ""
+        print(f'#{r["id"]:<4} {state:<15} {r["placement"]:<5} {flag}{r["kind"]:<11} {r["title"]}')
         print(f'      {r["url"]}')
         if r["ends_at"]:
             print(f'      until {r["ends_at"]:%Y-%m-%d}')
@@ -71,15 +72,16 @@ def cmd_add(conn, args) -> int:
     row = conn.execute(text("""
         INSERT INTO market_featured
                (market_id, kind, title, blurb, url, publisher, byline, vendor,
-                placement, sort_order, starts_at, ends_at)
+                placement, sort_order, starts_at, ends_at, sponsored)
         VALUES (:m, :kind, :title, :blurb, :url, :publisher, :byline, :vendor,
-                :placement, :sort_order, :starts_at, :ends_at)
+                :placement, :sort_order, :starts_at, :ends_at, :sponsored)
         RETURNING id
     """), {
         "m": args.market, "kind": args.kind, "title": args.title, "blurb": args.blurb,
         "url": args.url, "publisher": args.publisher, "byline": args.byline,
         "vendor": args.vendor or args.publisher, "placement": args.placement,
         "sort_order": args.sort, "starts_at": _stamp(args.starts), "ends_at": _stamp(args.ends),
+        "sponsored": bool(args.sponsored),
     }).scalar_one()
     conn.commit()
     print(f"added #{row}: {args.title}")
@@ -91,6 +93,14 @@ def cmd_retire(conn, args) -> int:
                      {"id": args.id}).rowcount
     conn.commit()
     print(f"retired #{args.id}" if n else f"no row #{args.id}")
+    return 0 if n else 1
+
+
+def cmd_sponsored(conn, args) -> int:
+    n = conn.execute(text("UPDATE market_featured SET sponsored = :v WHERE id = :id"),
+                     {"id": args.id, "v": not args.off}).rowcount
+    conn.commit()
+    print(f'#{args.id} sponsored = {not args.off}' if n else f"no row #{args.id}")
     return 0 if n else 1
 
 
@@ -108,14 +118,18 @@ def main() -> int:
     p.add_argument("--byline", default=None)
     p.add_argument("--vendor", default=None, help="vendor name whose logo mark to show (defaults to publisher)")
     p.add_argument("--placement", default="both", choices=mfe.PLACEMENTS)
+    p.add_argument("--sponsored", action="store_true", help="a paid or vendor-published link; the page says so")
     p.add_argument("--sort", type=int, default=0)
     p.add_argument("--starts", default=None, help="ISO date/time; default: now")
     p.add_argument("--ends", default=None, help="ISO date/time; default: open-ended")
     p = sub.add_parser("retire"); p.add_argument("--id", type=int, required=True)
+    p = sub.add_parser("sponsored", help="mark a row sponsored (or not, with --off)")
+    p.add_argument("--id", type=int, required=True); p.add_argument("--off", action="store_true")
     args = ap.parse_args()
     conn = get_database_instance()._temp_get_connection()
     try:
-        return {"list": cmd_list, "add": cmd_add, "retire": cmd_retire}[args.cmd](conn, args)
+        return {"list": cmd_list, "add": cmd_add, "retire": cmd_retire,
+                "sponsored": cmd_sponsored}[args.cmd](conn, args)
     finally:
         conn.close()
 
