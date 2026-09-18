@@ -3225,6 +3225,10 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-side .v2-featured-card p { margin:0 0 var(--s-2); font-size:var(--fs-small); color:var(--text-secondary); }
 .mm-v2 .v2-side .v2-featured-card .n-byline { margin-top:0; }
 .mm-v2 .v2-featured .n-byline a, .mm-v2 .v2-featured-card .n-byline a { white-space:nowrap; }
+.mm-v2 .v2-featured.n-story-img { grid-template-columns:minmax(0,1fr) clamp(120px,26%,180px); gap:var(--s-1) var(--s-5); }
+.mm-v2 .v2-featured.n-story-img > .n-thumb { grid-row:1 / span 5; align-self:start; }
+.mm-v2 .v2-side .v2-featured-card .v2-fi-img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover;
+  border-radius:var(--r-xl); background:var(--chip-soft); margin:0 0 var(--s-3); }
 .mm-v2 .v2-side .v2-featured-card .v2-fi + .v2-fi { margin-top:var(--s-4); padding-top:var(--s-3); border-top:1px solid var(--sidebar-border); }
 /* Highlights: a neutral box of disclosure rows */
 .mm-v2 .v2-findings { counter-reset:hl; }
@@ -3581,6 +3585,7 @@ html { scroll-behavior:smooth; }
   .mm-v2 .v2-grid { grid-template-columns:1fr; }
   .mm-v2 .v2-side > .v2-featured-card { display:none; }
   .mm-v2 .v2-featured.v2-featured-both { display:block; }
+  .mm-v2 .v2-featured.v2-featured-both.n-story-img { display:grid; }
   .mm-v2 .v2-side { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
   .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
@@ -3610,8 +3615,10 @@ html { scroll-behavior:smooth; }
   .mm-v2 .mm-trial { margin:var(--s-4); }
   .mm-v2 > p.mm-src { margin:var(--s-4) var(--s-4) 0; }
   .mm-v2 .v2-featured { padding:var(--s-4); }
-  .mm-v2 .n-story-img, .mm-v2 .v2-sec .n-story-img, .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:1fr; }
-  .mm-v2 .n-story-img > .n-thumb, .mm-v2 .v2-lead-story.n-story-img > .n-thumb { grid-column:1; grid-row:auto;
+  .mm-v2 .n-story-img, .mm-v2 .v2-sec .n-story-img, .mm-v2 .v2-lead-story.n-story-img,
+  .mm-v2 .v2-featured.n-story-img { grid-template-columns:1fr; }
+  .mm-v2 .n-story-img > .n-thumb, .mm-v2 .v2-lead-story.n-story-img > .n-thumb,
+  .mm-v2 .v2-featured.n-story-img > .n-thumb { grid-column:1; grid-row:auto;
     width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:var(--r-xl); }
   .mm-v2 .v2-numbers, .mm-v2 .n-metrics { grid-template-columns:1fr; }
   .mm-v2 .v2-hl > summary { font-size:var(--fs-lead); }
@@ -3919,9 +3926,11 @@ def _v2_featured_strip(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str
         # ``both``: the sidebar card is the desktop copy, so the strip waits
         # for the grid to stack; ``lead`` shows the strip at every width.
         both = (r.get("placement") or "both") == "both"
-        out.append(f'<article class="v2-featured{" v2-featured-both" if both else ""}" '
-                   'style="--story:var(--n-accent)">'
-                   f'<div class="n-story-tag">{"Sponsored" if r.get("sponsored") else "Featured"}'
+        img = r.get("image_url") or ""
+        out.append(f'<article class="v2-featured{" v2-featured-both" if both else ""}'
+                   f'{" n-story-img" if img else ""}" style="--story:var(--n-accent)">'
+                   + (f'<img class="n-thumb" src="{esc(img)}" alt="" loading="lazy">' if img else "")
+                   + f'<div class="n-story-tag">{"Sponsored" if r.get("sponsored") else "Featured"}'
                    f' · {esc(mfe.kind_label(r.get("kind")))}</div>'
                    f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
                    + (f'<p>{esc(_clip(r["blurb"], 520))}</p>' if r.get("blurb") else "")
@@ -3940,7 +3949,9 @@ def _v2_featured_card(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]
         return ""
     inner = "".join(
         '<div class="v2-fi">'
-        f'<div class="n-social-meta">{"Sponsored · " if r.get("sponsored") else ""}{esc(mfe.kind_label(r.get("kind")))}'
+        + (f'<a href="{esc(r["url"])}" rel="noopener"><img class="v2-fi-img" src="{esc(r["image_url"])}" '
+           'alt="" loading="lazy"></a>' if r.get("image_url") else "")
+        + f'<div class="n-social-meta">{"Sponsored · " if r.get("sponsored") else ""}{esc(mfe.kind_label(r.get("kind")))}'
         + (f' · {esc(r["publisher"])}' if r.get("publisher") else "") + "</div>"
         f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
         + (f'<p>{esc(_opening(r["blurb"], 200))}</p>' if r.get("blurb") else "")
@@ -4996,6 +5007,16 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                     '</div></div></header>')
         body.append('<main class="v2-grid"><div class="v2-main">')
         # The lead, then the findings under it.
+        # Featured: a hand-picked link (``market_featured``), under the lead
+        # and, on desktop, first in the sidebar. Our own promotion, so it is
+        # rendered apart like the pieces and never masked. A development
+        # carrying the same picture (the vendor's post about the paper)
+        # shows without it, so the cover prints once.
+        from app.services import market_featured as mfe
+        featured = _safe_list(mfe.active, conn, market["id"])
+        covers = mfe.image_urls(featured)
+        if covers:
+            images = {u: img for u, img in images.items() if img not in covers}
         body.append('<section class="v2-lead" id="v2-lead">')
         lead = parts["lead"]
         findings = assessment.get("findings") or []
@@ -5009,11 +5030,6 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         else:
             body.append(f'<p class="n-empty">No development met the evidence bar '
                         f'in the last {days} days.</p>')
-        # Featured: a hand-picked link (``market_featured``), under the lead
-        # and, on desktop, first in the sidebar. Our own promotion, so it is
-        # rendered apart like the pieces and never masked.
-        from app.services import market_featured as mfe
-        featured = _safe_list(mfe.active, conn, market["id"])
         strip = _v2_featured_strip(mfe.for_placement(featured, "lead"), logos)
         if strip:
             body.append(piece_slot(strip))

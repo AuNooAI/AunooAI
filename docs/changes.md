@@ -32,9 +32,13 @@ front page had no place for a hand-picked link; everything on it comes out of th
   badge into "Sponsored · Whitepaper", the sidebar heading into "Sponsored", and the byline
   into "Sponsored by Anvilogic". Set it on add with `--sponsored`, or later with
   `scripts/market_featured.py sponsored --id N`.
-- The pipeline's own lead that day was Anvilogic's LinkedIn post about the same paper, so
-  the story appeared twice at the top. The lead rotates with the news; the featured item
-  stays until retired with `scripts/market_featured.py retire --id 1`.
+- The pipeline's own lead that day was Anvilogic's LinkedIn post about the same paper, and
+  it carried the post's picture, which is the paper's cover. Oliver saw the cover on the
+  wrong card. A featured row now has an `image_url` (migration `mm_031`), shown on the
+  Sponsored card and strip, and a development whose picture is the same URL is rendered
+  without it, so the cover prints once. Set with `--image` on add or
+  `scripts/market_featured.py image --id N --url ...`. The lead itself rotates with the
+  news; the featured item stays until retired with `scripts/market_featured.py retire --id 1`.
 
 ## 2026-09-17 — Sharing a briefing by email failed once its themes had been edited
 

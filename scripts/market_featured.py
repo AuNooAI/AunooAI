@@ -12,7 +12,7 @@ read by ``app/services/market_featured.py``). Rows are never deleted here;
         --url https://pages.anvilogic.com/whitepaper-an-architectural-foundation-for-agentic-secops \\
         --publisher Anvilogic --vendor Anvilogic \\
         --byline "Oliver Rochford, Cyberfuturists" \\
-        --blurb "..." --sponsored [--placement both|lead|side] [--ends 2026-10-31]
+        --blurb "..." --sponsored [--image URL] [--placement both|lead|side] [--ends 2026-10-31]
     python scripts/market_featured.py retire --id 1
 
 The page is rebuilt on the next request; the aisocnews.com nginx micro-cache
@@ -72,16 +72,16 @@ def cmd_add(conn, args) -> int:
     row = conn.execute(text("""
         INSERT INTO market_featured
                (market_id, kind, title, blurb, url, publisher, byline, vendor,
-                placement, sort_order, starts_at, ends_at, sponsored)
+                placement, sort_order, starts_at, ends_at, sponsored, image_url)
         VALUES (:m, :kind, :title, :blurb, :url, :publisher, :byline, :vendor,
-                :placement, :sort_order, :starts_at, :ends_at, :sponsored)
+                :placement, :sort_order, :starts_at, :ends_at, :sponsored, :image_url)
         RETURNING id
     """), {
         "m": args.market, "kind": args.kind, "title": args.title, "blurb": args.blurb,
         "url": args.url, "publisher": args.publisher, "byline": args.byline,
         "vendor": args.vendor or args.publisher, "placement": args.placement,
         "sort_order": args.sort, "starts_at": _stamp(args.starts), "ends_at": _stamp(args.ends),
-        "sponsored": bool(args.sponsored),
+        "sponsored": bool(args.sponsored), "image_url": args.image,
     }).scalar_one()
     conn.commit()
     print(f"added #{row}: {args.title}")
@@ -93,6 +93,17 @@ def cmd_retire(conn, args) -> int:
                      {"id": args.id}).rowcount
     conn.commit()
     print(f"retired #{args.id}" if n else f"no row #{args.id}")
+    return 0 if n else 1
+
+
+def cmd_image(conn, args) -> int:
+    if not args.clear and not args.url:
+        print("give --url, or --clear", file=sys.stderr)
+        return 2
+    n = conn.execute(text("UPDATE market_featured SET image_url = :v WHERE id = :id"),
+                     {"id": args.id, "v": None if args.clear else args.url}).rowcount
+    conn.commit()
+    print(f'#{args.id} image = {"none" if args.clear else args.url}' if n else f"no row #{args.id}")
     return 0 if n else 1
 
 
@@ -119,17 +130,20 @@ def main() -> int:
     p.add_argument("--vendor", default=None, help="vendor name whose logo mark to show (defaults to publisher)")
     p.add_argument("--placement", default="both", choices=mfe.PLACEMENTS)
     p.add_argument("--sponsored", action="store_true", help="a paid or vendor-published link; the page says so")
+    p.add_argument("--image", default=None, help="URL of the cover or card picture")
     p.add_argument("--sort", type=int, default=0)
     p.add_argument("--starts", default=None, help="ISO date/time; default: now")
     p.add_argument("--ends", default=None, help="ISO date/time; default: open-ended")
     p = sub.add_parser("retire"); p.add_argument("--id", type=int, required=True)
+    p = sub.add_parser("image", help="set (or clear, with --clear) a row's picture")
+    p.add_argument("--id", type=int, required=True); p.add_argument("--url", default=None); p.add_argument("--clear", action="store_true")
     p = sub.add_parser("sponsored", help="mark a row sponsored (or not, with --off)")
     p.add_argument("--id", type=int, required=True); p.add_argument("--off", action="store_true")
     args = ap.parse_args()
     conn = get_database_instance()._temp_get_connection()
     try:
         return {"list": cmd_list, "add": cmd_add, "retire": cmd_retire,
-                "sponsored": cmd_sponsored}[args.cmd](conn, args)
+                "sponsored": cmd_sponsored, "image": cmd_image}[args.cmd](conn, args)
     finally:
         conn.close()
 

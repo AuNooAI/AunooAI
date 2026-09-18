@@ -39,7 +39,7 @@ def active(conn, market_id: int, *, limit: int = 3) -> List[Dict[str, Any]]:
     started, and not yet ended."""
     rows = conn.execute(text("""
         SELECT id, kind, title, blurb, url, publisher, byline, vendor,
-               placement, sort_order, starts_at, ends_at, sponsored
+               placement, sort_order, starts_at, ends_at, sponsored, image_url
           FROM market_featured
          WHERE market_id = :m AND active
            AND (starts_at IS NULL OR starts_at <= now())
@@ -48,6 +48,12 @@ def active(conn, market_id: int, *, limit: int = 3) -> List[Dict[str, Any]]:
          LIMIT :n
     """), {"m": market_id, "n": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+def image_urls(rows: List[Dict[str, Any]]) -> set:
+    """The pictures the featured rows print, so a development card with the
+    same picture (the vendor's post about the paper) leaves it out."""
+    return {r["image_url"] for r in rows if r.get("image_url")}
 
 
 def for_placement(rows: List[Dict[str, Any]], where: str) -> List[Dict[str, Any]]:
