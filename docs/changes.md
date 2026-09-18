@@ -2,6 +2,110 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-18 — aisocnews.com: a Featured slot for hand-picked links, first used for the Anvilogic whitepaper
+
+### Goal
+Oliver asked for his Anvilogic whitepaper, *The Decoupled SIEM: An Architectural Foundation for
+Agentic SecOps*, to be featured on aisocnews.com, with a copy in the sidebar on desktop. The
+front page had no place for a hand-picked link; everything on it comes out of the pipeline.
+
+### What we built
+- A `market_featured` table (migration `mm_029`) holding what the card prints (kind, title,
+  blurb, link, publisher, byline, vendor for the logo mark) and where it goes (`placement`:
+  `lead`, `side` or `both`), with an on/off flag and an optional start and end.
+- `app/services/market_featured.py` reads the live rows; `scripts/market_featured.py` adds,
+  lists and retires them. Rows are never deleted, so the record of what we promoted stays.
+- Two renderers in `market_report_html.py`: a strip under the lead story, shown at every
+  width, and a "Featured" card first in the sidebar, hidden once the grid stacks (below
+  1080 px) so a phone does not show the same item twice. Both are rendered into the pieces
+  slot, so the withheld-names check never masks them, as with our own editorial pieces.
+- Seeded the whitepaper as item #1 on market 2 with Anvilogic as publisher and the byline
+  "Oliver Rochford, Cyberfuturists".
+
+### Notes
+- The nginx micro-cache holds the front page for 90 s; we purged it once so the item went
+  live at once. Later adds and retires show within that window on their own.
+- On 18 September the pipeline's own lead was Anvilogic's LinkedIn post about the same
+  paper, so the top of the page showed the story three times. The lead rotates with the news;
+  the featured item stays until retired with `scripts/market_featured.py retire --id 1`.
+
+## 2026-09-17 — Sharing a briefing by email failed once its themes had been edited
+
+### Goal
+On wileytest, "Share via Email" on the briefing *Daily Briefing — 2026-09-17* returned
+`Failed to send email: 'str' object has no attribute 'get'`. No email was sent. Other
+briefings shared fine, which is what pointed at the data rather than the mail path.
+
+### Fix: two writers put a string into a JSONB column
+`app/database_query_facade.py` (`37890de9`). Editing a briefing's themes or its priority
+actions went through `update_desk_briefing_themes` / `update_desk_briefing_priority_actions`,
+and both passed `json.dumps(themes)` into the `desk_briefings.themes` column, which is JSONB.
+SQLAlchemy serialises a JSONB value itself, so it serialised that string a second time and the
+row came back as a JSON *string* rather than the list it should be.
+
+Every other desk-briefing writer in the file already round-trips through
+`json.loads(json.dumps(x, default=str))` — `add_article_to_desk_briefing`,
+`finalize_desk_briefing`, `save_desk_briefing_review_draft` and the rest. These two were the
+odd ones out. That is why the bug only fired on a briefing whose themes had been edited after
+generation.
+
+`_build_full_email_body` in `app/routes/daily_reports_routes.py` then did
+`for theme in themes`, walked the characters of that string one at a time, and called
+`theme.get("theme_name")` on a single character. Hence the `AttributeError`. The route wraps
+the whole build in `try/except` and surfaces `str(e)`, so the user saw the Python error text.
+
+Both writers now match the rest of the file. No route or UI change was needed.
+
+### Guard: the read path decodes a row that was stored wrong
+Same commit. `get_desk_briefing_by_id` now runs the row through a new static helper
+`_decode_briefing_json_fields`, which JSON-decodes `articles`, `incidents`,
+`emerging_topics`, `themes`, `priority_actions` and `metadata` whenever they come back as a
+string, and falls back to `[]` (or `{}` for `metadata`) if the string will not parse. A row
+written before the fix no longer takes down its readers — the email builder, the PDF export
+and the Briefing Desk UI all read through this one call.
+
+### Data repair
+One row was affected across every tenant: wileytest briefing 160,
+*Daily Briefing — 2026-09-17*. Decoded in place with
+
+```sql
+UPDATE desk_briefings SET themes = (themes #>> '{}')::jsonb
+ WHERE id = 160 AND jsonb_typeof(themes) = 'string';
+```
+
+### Verification
+Corrupted rows, counted after the repair on every tenant that has a `desk_briefings` table:
+
+```
+SELECT count(*) FROM desk_briefings
+ WHERE jsonb_typeof(themes)='string' OR jsonb_typeof(priority_actions)='string';
+
+test 0 · wiley 0 · wileytest 0 · oviva 0 · sunstar 0 · wbm 0 · pearson 0 · ibaset 0
+```
+
+wileytest row 160 now reads `jsonb_typeof = array`, `jsonb_array_length = 3`.
+
+Building the email body against the live wileytest code produced 45,899 characters with the
+theme name "Build vs. Buy Strategic Choices in AI Capabilities" present, where it previously
+raised. The decode helper was exercised directly: a JSON string becomes a list, unparseable
+text becomes `[]`, `metadata` becomes `{}`, and `synthesis` — a genuine text column — is left
+alone.
+
+### Propagation
+Committed in bugfixing (canonical) as `37890de9`. wiley and wileytest were patched
+surgically rather than by file copy, because `database_query_facade.py` has drifted between
+the trees — the same three edits land at different line numbers in each. All three now show
+the decode helper present and no `json.dumps(themes)` writer left. bugfixing, wiley and
+wileytest were restarted. No other tenant runs the Briefing Desk share path.
+
+### Lessons
+When a column is JSONB, hand SQLAlchemy a **Python list or dict**, never `json.dumps(...)`.
+The driver serialises it for you, so a pre-serialised string is stored as a JSON string and
+every reader downstream gets a string where it expects a list. The house pattern in this file
+is `json.loads(json.dumps(x, default=str))` — the `json.dumps(..., default=str)` is only there
+to coerce datetimes, and the `json.loads` puts it back to native Python before it reaches the
+driver. See also the double-encoded JSONB note in the Wiley agent-JSON work.
+
 ## 2026-09-17 — Swiss Election Watch: the same outlet, and the same ballot item, counted twice
 
 Two lists on the board were showing one thing as several.

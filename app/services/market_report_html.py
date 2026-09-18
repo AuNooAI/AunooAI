@@ -3207,6 +3207,24 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-lead-story h2 { font-size:clamp(26px,3.2vw,36px); line-height:1.18; letter-spacing:-.03em;
   font-weight:600; margin:var(--s-1) 0 0; }
 .mm-v2 .v2-lead-story .n-story-sum { font-size:var(--fs-lead); max-width:62ch; }
+/* Featured: a hand-picked link (a whitepaper, a talk) under the lead story.
+   The sidebar copy is the desktop reminder; it goes when the grid stacks. */
+.mm-v2 .v2-featured { background:var(--accent-tint-08); border:1px solid var(--sidebar-border);
+  border-left:3px solid var(--accent); border-radius:0 var(--r-card) var(--r-card) 0;
+  padding:var(--s-4) var(--s-5); min-width:0; }
+.mm-v2 .v2-featured > .n-story-tag { margin:0 0 var(--s-2); }
+.mm-v2 .v2-featured h3 { font-size:var(--fs-h3); font-weight:600; line-height:1.3; letter-spacing:-.018em; margin:0; }
+.mm-v2 .v2-featured h3 a, .mm-v2 .v2-featured-card h3 a { color:inherit; text-decoration:none; }
+.mm-v2 .v2-featured h3 a:hover, .mm-v2 .v2-featured-card h3 a:hover { color:var(--accent-ink); }
+.mm-v2 .v2-featured p { margin:var(--s-2) 0 0; font-size:var(--fs-body); color:var(--text-secondary); max-width:70ch; }
+.mm-v2 .v2-featured .n-byline { margin-top:var(--s-2); }
+.mm-v2 .v2-featured + .v2-featured { margin-top:calc(-1 * var(--s-3)); }
+.mm-v2 .v2-side .v2-featured-card { border-left:3px solid var(--accent); }
+.mm-v2 .v2-side .v2-featured-card h3 { font-size:var(--fs-lead); font-weight:600; line-height:1.32; margin:var(--s-2) 0 var(--s-1); }
+.mm-v2 .v2-side .v2-featured-card p { margin:0 0 var(--s-2); font-size:var(--fs-small); color:var(--text-secondary); }
+.mm-v2 .v2-side .v2-featured-card .n-byline { margin-top:0; }
+.mm-v2 .v2-featured .n-byline a, .mm-v2 .v2-featured-card .n-byline a { white-space:nowrap; }
+.mm-v2 .v2-side .v2-featured-card .v2-fi + .v2-fi { margin-top:var(--s-4); padding-top:var(--s-3); border-top:1px solid var(--sidebar-border); }
 /* Highlights: a neutral box of disclosure rows */
 .mm-v2 .v2-findings { counter-reset:hl; }
 .mm-v2 .v2-findings h2 { font-size:var(--fs-h3); font-weight:600; letter-spacing:-.02em; text-transform:none;
@@ -3560,6 +3578,7 @@ html { scroll-behavior:smooth; }
 /* ---- breakpoints */
 @media (max-width:1080px) {
   .mm-v2 .v2-grid { grid-template-columns:1fr; }
+  .mm-v2 .v2-side > .v2-featured-card { display:none; }
   .mm-v2 .v2-side { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
   .mm-v2 .v2-numbers { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
@@ -3588,6 +3607,7 @@ html { scroll-behavior:smooth; }
   .mm-v2 .v2-side > .n-block, .mm-v2 .mm-trial, .mm-v2 .v2-about, .mm-v2 .v2-one > .v2-piece-page { padding:var(--s-4); }
   .mm-v2 .mm-trial { margin:var(--s-4); }
   .mm-v2 > p.mm-src { margin:var(--s-4) var(--s-4) 0; }
+  .mm-v2 .v2-featured { padding:var(--s-4); }
   .mm-v2 .n-story-img, .mm-v2 .v2-sec .n-story-img, .mm-v2 .v2-lead-story.n-story-img { grid-template-columns:1fr; }
   .mm-v2 .n-story-img > .n-thumb, .mm-v2 .v2-lead-story.n-story-img > .n-thumb { grid-column:1; grid-row:auto;
     width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:var(--r-xl); }
@@ -3855,6 +3875,69 @@ def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
             + (f'<p class="n-story-sum">{esc(_clip(opening, 480 if lead else 260))}</p>' if opening else "")
             + f'<div class="n-byline">{esc(mbr.provenance_line(piece_row))} · {esc(_piece_when(piece_row))}'
             f' · <a href="{href}">Read &rarr;</a></div></article>')
+
+
+def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]],
+                     *, read: str) -> str:
+    """Who wrote it, who published it, and the link. The publisher gets its
+    mark when it is a vendor we hold one for."""
+    from app.services import market_featured as mfe
+
+    publisher = r.get("publisher") or ""
+    mark = _mark(logos, r.get("vendor") or publisher, 16) if (r.get("vendor") or publisher) else ""
+    bits = [esc(r.get("byline") or ""),
+            (f'<span class="v2-vendor">{mark}{esc(publisher)}</span>' if publisher else ""),
+            f'<a href="{esc(r["url"])}" rel="noopener">{esc(read)} {mfe.kind_label(r.get("kind")).lower()} &rarr;</a>']
+    return '<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>"
+
+
+def _opening(text_value: str, limit: int) -> str:
+    """The blurb's first sentences, whole, up to about ``limit`` characters:
+    a sidebar teaser that stops at a full stop rather than mid-word."""
+    out = ""
+    for sent in re.split(r"(?<=[.!?])\s+", (text_value or "").strip()):
+        if out and len(out) + len(sent) + 1 > limit:
+            break
+        out = (out + " " + sent).strip()
+        if len(out) >= limit:
+            break
+    return out or _clip(text_value, limit)
+
+
+def _v2_featured_strip(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]]) -> str:
+    """The featured items under the lead story, one box each: the kind as
+    the badge, the title, the blurb, the byline. Empty when there are none."""
+    from app.services import market_featured as mfe
+
+    out: List[str] = []
+    for r in rows:
+        out.append('<article class="v2-featured" style="--story:var(--n-accent)">'
+                   f'<div class="n-story-tag">Featured · {esc(mfe.kind_label(r.get("kind")))}</div>'
+                   f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
+                   + (f'<p>{esc(_clip(r["blurb"], 520))}</p>' if r.get("blurb") else "")
+                   + _featured_byline(r, logos, read="Read the")
+                   + "</article>")
+    return "".join(out)
+
+
+def _v2_featured_card(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]]) -> str:
+    """The same items as a sidebar card, shorter: the desktop reader sees it
+    beside the lead. Hidden by CSS once the grid stacks, so a phone shows
+    the strip only."""
+    from app.services import market_featured as mfe
+
+    if not rows:
+        return ""
+    inner = "".join(
+        '<div class="v2-fi">'
+        f'<div class="n-social-meta">{esc(mfe.kind_label(r.get("kind")))}'
+        + (f' · {esc(r["publisher"])}' if r.get("publisher") else "") + "</div>"
+        f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
+        + (f'<p>{esc(_opening(r["blurb"], 200))}</p>' if r.get("blurb") else "")
+        + _featured_byline({**r, "publisher": ""}, logos, read="Read the")
+        + "</div>"
+        for r in rows)
+    return '<div class="v2-card v2-featured-card"><h2>Featured</h2>' + inner + "</div>"
 
 
 #: Pages of the site that are not sections: ``?page=about``.
@@ -4915,6 +4998,14 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         else:
             body.append(f'<p class="n-empty">No development met the evidence bar '
                         f'in the last {days} days.</p>')
+        # Featured: a hand-picked link (``market_featured``), under the lead
+        # and, on desktop, first in the sidebar. Our own promotion, so it is
+        # rendered apart like the pieces and never masked.
+        from app.services import market_featured as mfe
+        featured = _safe_list(mfe.active, conn, market["id"])
+        strip = _v2_featured_strip(mfe.for_placement(featured, "lead"), logos)
+        if strip:
+            body.append(piece_slot(strip))
         body.append(_v2_highlights(findings, devs_by_id))
         body.append("</section>")
         for key in V2_SECTIONS:
@@ -4933,6 +5024,9 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</div>")
         # ---- the sidebar
         body.append('<aside class="v2-side">')
+        side_card = _v2_featured_card(mfe.for_placement(featured, "side"), logos)
+        if side_card:
+            body.append(piece_slot(side_card))
         from app.services import market_horizon as mh
         stored = _safe(mh.latest, conn, market["id"], n=2) or []
         if stored:
