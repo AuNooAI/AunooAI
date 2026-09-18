@@ -85,6 +85,18 @@ def _conn():
     return get_database_instance()._temp_get_connection()
 
 
+def _public_base(request: Request) -> Optional[str]:
+    """``https://<host>`` when the request came in on a public host such as
+    aisocnews.com, where the market is served at ``/``; None on the app host
+    and on localhost. Same rule as the inquiry pages' ``_links``."""
+    from urllib.parse import urlparse as _urlparse
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].split(":")[0].lower()
+    app_host = (_urlparse(os.getenv("APP_URL") or "").hostname or "").lower()
+    if not host or host == app_host or host.startswith("127.") or host == "localhost":
+        return None
+    return f"https://{host}"
+
+
 def _slugify(value: str) -> str:
     import re
 
@@ -1193,6 +1205,7 @@ async def market_feed(
     base = (os.getenv("APP_URL") or "").rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
+    public_base = _public_base(request)
 
     def _work():
         conn = _conn()
@@ -1214,7 +1227,8 @@ async def market_feed(
                            surface="feed.xml")
             return mp.build_feed(conn, market, base_url=base, kind=kind,
                                  classes=picked or None, days=days,
-                                 limit=limit, allowed_brand_ids=allowed)
+                                 limit=limit, allowed_brand_ids=allowed,
+                                 public_base=public_base)
         finally:
             conn.close()
 
@@ -1242,6 +1256,7 @@ async def market_feed_json(
     base = (os.getenv("APP_URL") or "").rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
+    public_base = _public_base(request)
 
     def _work():
         conn = _conn()
@@ -1260,7 +1275,8 @@ async def market_feed_json(
                            surface="feed.json")
             return mp.build_feed_json(conn, market, base_url=base, kind=kind,
                                       classes=picked or None, days=days,
-                                      limit=limit, allowed_brand_ids=allowed)
+                                      limit=limit, allowed_brand_ids=allowed,
+                                      public_base=public_base)
         finally:
             conn.close()
 

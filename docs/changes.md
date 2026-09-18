@@ -2,6 +2,28 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-18 — aisocnews.com feeds linked subscribers to the tenant's login page
+
+### Goal
+The hourly feed poller on 3.232.163.198 (a third party's Python pipeline on AWS) was
+hitting bugfixing.aunoo.ai/explore and /login every morning at 04:00. It was following
+the links in our own feed. Every internal link in feed.xml and feed.json was built from
+`APP_URL`, so on aisocnews.com the channel link, the four timeline-event items and the
+weekly briefing item all pointed at bugfixing.aunoo.ai, which answers with a login page.
+Every consumer got those links, the Feedly subscriber included.
+
+### Fix
+- `market_publish.py`: a `_FeedLinks` helper decides where a feed's own links go. On the
+  app host nothing changes (front page = the report route, timeline = /explore). On a
+  public host the channel link and JSON `home_page_url` are `/`, the self links are
+  `/feed.xml` and `/feed.json`, a briefing is `/?view=briefing&id=N`, and an event links
+  to the analyst view `/?days=30&view=report`, because the public site has no timeline
+  page with event anchors. The RSS logo stays on the app host, where /static is served.
+- `market_monitor_routes.py`: `_public_base(request)` reads the host header (the same
+  rule the inquiry pages use) and both feed routes pass it through.
+- Verified on localhost with a `Host: aisocnews.com` header and on the live feeds: zero
+  bugfixing links apart from the logo; the briefing link answers 200 on aisocnews.com.
+
 ## 2026-09-18 — aisocnews.com: a Featured slot for hand-picked links, first used for the Anvilogic whitepaper
 
 ### Goal
