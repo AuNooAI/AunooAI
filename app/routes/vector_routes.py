@@ -4579,6 +4579,13 @@ async def run_signal_instructions(
                             json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
                             if json_match:
                                 matches = json_module.loads(json_match.group())
+                                # Shadow referee (TypeSafe Jev): judges every article in this batch
+                                # against the signal, flagged or not, beside the matcher's verdict. Own thread.
+                                try:
+                                    from app.services import signal_referee_shadow
+                                    signal_referee_shadow.schedule(instruction, article_batch, matches, "inline")
+                                except Exception as shadow_err:  # noqa: BLE001
+                                    logger.debug(f"referee shadow not scheduled: {shadow_err}")
 
                                 # Process each match
                                 for match in matches:
@@ -5680,6 +5687,11 @@ If no articles match, return an empty array: []"""
                     json_match = re.search(r'\[[\s\S]*\]', content)
                     if json_match:
                         matches = json.loads(json_match.group())
+                        try:
+                            from app.services import signal_referee_shadow
+                            signal_referee_shadow.schedule(instruction, batch_articles, matches, "scheduled")
+                        except Exception as shadow_err:  # noqa: BLE001
+                            logger.debug(f"referee shadow not scheduled: {shadow_err}")
                         for match in matches:
                             if isinstance(match, dict) and match.get('signal_detected'):
                                 article_uri = norm_uri_lookup.get(

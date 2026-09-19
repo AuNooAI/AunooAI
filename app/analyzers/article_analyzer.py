@@ -249,6 +249,20 @@ Article text:
                 max_words = int(summary_length * 1.2)  # Allow 20% overage
                 result['summary'] = self.truncate_summary(result['summary'], max_words)
 
+            # Shadow: check every sentence of the summary and every explanation
+            # against the article text with the TypeSafe Jev model. Own thread,
+            # records only; the result above is untouched.
+            try:
+                from app.services import extraction_check_shadow as _xs
+                _claims = [("summary", s) for s in _xs.sentences(result.get("summary") or "")]
+                for _k, _v in result.items():
+                    if _k.endswith("_explanation") and isinstance(_v, str):
+                        _claims += [(_k, s) for s in _xs.sentences(_v)]
+                _xs.schedule("enrichment", uri, [{"label": "article", "title": title, "text": article_text}],
+                             _claims, pipe_model=self.model_name)
+            except Exception as _xs_err:  # noqa: BLE001
+                logger.debug(f"extraction shadow not scheduled: {_xs_err}")
+
             # Add uri and publication_date to result
             result["uri"] = uri
             # Extract publication date using only article_text

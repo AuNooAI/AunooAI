@@ -990,6 +990,7 @@ async def finalize_briefing(
                 organizational_profile=profile_block,
                 persona=request.persona,
                 timeline_context=_timeline_background(db, briefing_topics),
+                briefing_id=briefing_id,
             ):
                 if update.get("stage") == "complete":
                     # The reviewer's verdict decides whether this is a finalize

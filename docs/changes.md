@@ -2,6 +2,188 @@
 
 Running log of notable operational/code changes. Newest first.
 
+## 2026-09-19 — TypeSafe Jev: nine record-only shadows beside the monolith's judgment steps, a social-eval shadow on oviva, and typed-judgment tools on the MCP server
+
+### Goal
+Oliver gave us an API key for TypeSafe's Jev model and asked two things: work out where a
+decision model that returns calibrated probabilities instead of text could improve the
+stack, and measure whether it is better, and by how much, on the steps that fit. Jev is not
+an LLM. It takes a state and a list of typed questions (a Choice over options, a Score on a
+rubric, a yes/no "Noul") and returns a probability per option. It costs $0.042 per million
+input tokens, output is free, and one call takes about 0.6 seconds. It cannot generate text,
+do arithmetic or compare dates, and it reads instructions literally.
+
+The approach is the same everywhere: the pipeline decides as before, then a daemon thread
+asks Jev the same question and writes both answers to a dedicated table. Nothing on the
+decision path reads the answer. Every shadow has an env flag, defaults off, and the client
+never raises. Nothing in this entry is committed; see Propagation.
+
+### The client
+**`app/services/typesafe_client.py`** — one function, `system_one(state, questions)`. It
+pins `TYPESAFE_MODEL` (jev-1.13.0), times out at `TYPESAFE_TIMEOUT_S` (default 6), returns
+`None` on any failure, and writes every call to `llm_usage_log` with provider `typesafe`
+so the spend shows up beside the LLM ledger. Copied unchanged to oviva and abm.
+
+### Benchmark before wiring anything
+240 bugfixing articles (the AI and SOC Automation topics), four questions each, 360 calls,
+no errors, p50 0.61 s. Judged against the pipeline's own approve/reject verdict Jev's
+on-topic reading scored AUC 0.90 on the AI topic and 0.86 on SOC Automation. Every
+disagreement I read by hand went Jev's way: it rejected approved junk (an Israel
+death-penalty vote approved for AI at 0.80, Oracle earnings for SOC Automation) and
+recovered rejected real coverage (Anvilogic/SafeBreach, a Prophet Security SOAR piece).
+Four answers per article cost $0.044 per thousand articles; the nova-lite fallback judge
+costs about $0.17 per thousand for one answer. One trap found here and repeated later:
+the topic description in config.json for market topics ("tracks vendor coverage") dropped
+the approved-median on-topic probability to 0.45; the production market prompt's definition
+lifted it to 0.75. Jev reads what it is given.
+
+### Relevance gate shadow
+**`app/services/hybrid_relevance_service.py`** — `_compute_jev_shadow` and a hook at the end
+of `score_relevance`, after the verdict. Three columns on `relevance_confidence_readings`
+(`jev_on_topic`, `jev_score`, `jev_confidence`), Alembic `ts_001`, which also merged the
+tenant's two heads (`rel_001` and `mm_031`). `training_routes.py` and
+`automated_ingest_service.py` carry the columns through. Flags `TYPESAFE_SHADOW_RELEVANCE=1`
+and `TYPESAFE_SHADOW_RATE=1.0`. 506 readings carry a Jev score so far.
+
+### Briefing candidate and citation shadows
+**`app/services/briefing_candidate_shadow.py`** — hooked in
+`daily_briefing_compose_service` after backfill; table `briefing_candidate_shadow`
+(`ts_002`); flag `TYPESAFE_SHADOW_BRIEFING=1`. The first run (briefing 15, 116
+candidates, 9.4 s) put only 1 of the curator's 8 picks in Jev's top 8, and its "noise"
+question flagged vendor press releases, which are the signal on a market topic. The
+questions are now built per row topic (`_questions(topics, row_topic)`), and the rerun is
+in the table (232 rows).
+
+**`app/services/briefing_claim_shadow.py`** — the citation check. Hooked in
+`daily_report_service.generate_synthesis` right after the first review; the function took
+a new `briefing_id` kwarg, passed from `daily_reports_routes.py`. Each claim sentence goes
+to Jev with up to 20 sources (incidents first): a relation Choice (supports / contradicts /
+says nothing) and a "has a specific" Noul so framing sentences can be filtered out of the
+error count. Table `briefing_claim_shadow` (`ts_003`); flag `TYPESAFE_SHADOW_CITATIONS=1`.
+A planted error ($60M in the claim, $45M in the source) came back `contradicts` at 1.00.
+
+### Auspex rerank shadow
+**`app/retrieval/rerank_shadow.py`** — `rerank()` in `app/retrieval/reranker.py` takes an
+optional `topic` that only feeds the shadow; `auspex_service.py` (two call sites) and
+`auspex_tools.py` pass it. Brand and market topics only. Two Nouls per candidate: does it
+answer the query, and is it about the entity. The chat path that skips reranking altogether
+gets the shadow too, with the cross-encoder rank left null. Table `rerank_shadow`
+(`ts_004`); flag `TYPESAFE_SHADOW_RERANK=1`; 70 rows.
+
+### Issue-merge shadow (bugfixing and abm)
+**`app/services/issue_merge_shadow.py`** — hooked in
+`brand_risk_assessment.build_issues_for_brand` after the candidate decision, which is now
+recorded as one of auto_merge / llm_confirm_yes / llm_confirm_no / new_issue. Table
+`issue_merge_shadow` (`ts_006`); flag `TYPESAFE_SHADOW_MERGE=1`. Bugfixing has no live
+merge traffic, so a replay scored 56 pairs from the ten existing issues: tenant embeddings
+put plainly different events at cosine 0.93 to 0.97, so nearly everything lands in the
+LLM-confirm band, and Jev called 51 of 56 different. The same code went to abm, our own
+brand monitor, where a 400-pair replay gave AUC 0.930 for Jev against the pipeline's own
+verdicts, and the disagreements were pipeline errors: an auto-merge at 0.997 of "Britain's
+grid operator awarded Palantir" into the English-police-forces issue, and one NHS story filed
+as two issues that Jev calls the same at 0.96. abm has 67 article risks, so its hook gets
+real traffic.
+
+### Extraction check, everywhere we extract
+Oliver: the citation-check recipe "needs to be tested anywhere we extract data".
+**`app/services/extraction_check_shadow.py`** is the generic version:
+`schedule(site, item_key, sources, claims, pipe_model)` chunks the sources, picks the
+chunks that overlap each claim, and asks a relation Choice, a has-specific Noul and a
+per-chunk support Noul. Attached in `article_analyzer.analyze_content` (summary sentences
+and every explanation field against the article text, which exists only in memory at that
+point) and `timeline_events._llm_extract_events` (event title and description against the
+cited articles). Table `extraction_check_shadow` (`ts_007`); flags
+`TYPESAFE_SHADOW_EXTRACTION=1` and `_RATE`. Planted errors: a wrong figure came back
+`contradicts` 0.98 and an invented claim `says_nothing` 1.00, but a mangled day in a
+dateline still read as `supports` 0.75. Dates are text to Jev; the deterministic date
+preflight stays.
+
+### Auspex router and compaction shadows
+**`app/services/auspex_route_shadow.py`** — hooked in `auspex_service.chat_with_tools` right
+after the current topic is read: intent and depth Choices, needs-retrieval and follow-up
+Nouls, a difficulty Score. Table `auspex_route_shadow` (`ts_008`); flag
+`TYPESAFE_SHADOW_ROUTER=1`. The first five-turn test showed the regex classifier labelling
+"hi there" as a general research question, so Auspex searched the database and called
+gpt-5.4-mini for a greeting; Jev read it as casual at 1.00 with needs-retrieval 0.03.
+
+**`app/services/auspex_compaction_shadow.py`** — hooked just before the conversation
+history is built: one request per turn with a "still needed" Noul and a "carries
+specifics" Noul per prior message, 24 questions in about 700 ms. Table
+`auspex_compaction_shadow` (`ts_009`); flags `TYPESAFE_SHADOW_COMPACTION=1`, `_MIN` 2,
+`_MAX` 40. On a follow-up that needed two earlier answers Jev kept 6 of 10 prior messages;
+on "thanks, that's all" it kept none. The pipeline kept everything, because its
+compaction only runs past 50k tokens.
+
+### Observer-agent referee shadow
+**`app/services/signal_referee_shadow.py`** — hooked in `vector_routes.py` in both the
+inline and the scheduled signal paths, right after the matcher's JSON is parsed. It judges
+every article in the batch, not just the flagged ones: a matches Noul, a threat Score, and
+for flagged articles a summary-support Choice. Table `signal_referee_shadow` (`ts_010`);
+flags `TYPESAFE_SHADOW_REFEREE=1`, `_MAX` 60. On agent 6 (SOC Automation Market Watch,
+whose instruction says to ignore award announcements and marketing) the matcher flagged
+10 of 50 articles; Jev found four of those unwarranted, including a Splunk partner award at
+0.05, every "high" threat low or medium, and one unflagged article that does match (0.79).
+
+### Social-eval shadow on oviva
+**oviva `app/services/social_eval_shadow.py`** — hooks in `social_eval_service` after the
+combined first-pass call and the role-only backfill. Relevance Noul, sentiment Choice,
+author-role Choice with the prompt's own role guide as criteria, negative-toward-brand and
+spam Nouls. Table `social_eval_shadow` (oviva Alembic `ts_005`, from `voice_001`); flag
+`TYPESAFE_SHADOW_SOCIAL=1`. On 12 stored posts the role agreed 5 times; four posts the
+pipeline labelled "customer" Jev reads as patient at 0.77 to 0.98, which is the health-brand
+rule the pipeline gets wrong. Oviva's `.env` and `.env.encrypted` both carry the key.
+
+### Typed-judgment tools on the MCP server (bugfixing only)
+**`app/mcp_access/judgment_tools.py`** — two tools: `typed_judgment` (a state and up to 24
+typed questions, returns Jev's answers with usage and cost) and `judge_articles` (up to 40
+article URIs and one yes/no question, returns a probability per readable article; rows
+under the visibility floor are skipped). **`app/mcp_access/tool_suggestion.py`** —
+`suggest_tool(request)`: a Choice over the whole catalogue plus a needs-tool Noul, then a
+second read of the top three with full descriptions. Logged to `mcp_tool_suggestions`
+(`ts_011`). Both registered by appending to `tools.py`; the dispatcher meters them like any
+other tool, and the catalogue is now 27 tools. A five-request test routed a social question
+to `get_social_posts` (fit 0.87), a greeting to none (needs-tool 0.04), and "which of these
+20 are funding rounds" to `judge_articles`. Latency 0.6 s gated, 3.4 s when both calls run.
+
+### What the shadows say so far
+Where there is any ground truth or a readable disagreement, it has gone Jev's way on the
+judgment steps: junk approvals at the relevance gate, duplicate issues on abm, unwarranted
+observer flags, a greeting routed to retrieval. Its limits showed up exactly where its own
+documentation says: dates as text, literal readings of descriptions, and a documented
+inconsistency between a Noul and a Choice asked about the same thing (use the Choice).
+The report for both audiences is the artifact at
+https://claude.ai/artifact/TeeJpWWJzQeBZTYiFsHHt3 (version 20), rebuilt from the session
+scratchpad. The saas-side work of the same day is in `saasmvp-app/docs/changes.md`.
+
+### Verification
+`python3 -m py_compile` over every touched file in bugfixing, oviva and abm: clean.
+Alembic heads: bugfixing `ts_011`, oviva `ts_005`, abm `ts_006`. Row counts at the time of
+writing (bugfixing unless stated): 506 relevance readings with a Jev score, 232 briefing
+candidates, 88 claims, 70 rerank rows, 56 issue-merge pairs (400 on abm), 22 extraction
+checks, 7 router turns, 22 compaction turns, 50 referee rows, 5 tool suggestions, 14
+social-eval rows on oviva. Ledger: 903 TypeSafe calls on bugfixing for $0.05, 14 on oviva.
+Services active: bugfixing, oviva, abm.
+
+### Propagation
+Nothing is committed. Bugfixing (canonical) holds the 14 edited files, 11 new modules and
+migrations `ts_001` to `ts_011` in its working tree. The oviva and abm trees are not git
+repositories of their own (`git rev-parse` resolves to a parent repo at `/home/orochford`
+that does not track them), so their copies of the client, the two shadow modules, the hooks
+and migrations `ts_005` / `ts_006` live only in those checkouts. A tenant cloned from
+canonical will not have them, and a manual copy would need the module, the hook edit, the
+migration with the tenant's own `down_revision`, and the flag in both `.env` and
+`.env.encrypted`. Wiley and wileytest deliberately have none of this: their corpora were not
+approved for TypeSafe, and the shadows are features, not fixes. `ts_001` merges heads
+`rel_001` and `mm_031`, so check a tenant's heads before copying it.
+
+### Lessons
+- Jev reads only what the state carries and takes descriptions literally. The evidence's
+  wording moved answers more than the data did (market topics, "third party", agency roles).
+- Jev cannot compare dates or do arithmetic. Keep the deterministic preflights.
+- When a Noul and a Choice disagree about the same thing, the Choice is the one to use.
+- Shadow inserts from a thread need their own connection; the app's async pool is not
+  usable there.
+
 ## 2026-09-18 — Brand Watcher: the narrative, spike alerts and risk attention now count earned press only
 
 ### Goal

@@ -260,16 +260,30 @@ async def build_issues_for_brand(conn, brand_id: int) -> Dict[str, int]:
             stats["attached"] += 1
             continue
         cand = _best_embedding_candidate(conn, brand_id, uri, pub_date)
+        decision = "new_issue"
         if cand and cand["sim"] >= AUTO_MERGE_SIM:
             _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "embedding")
             stats["attached"] += 1
-        elif cand and cand["sim"] >= CONFIRM_SIM and \
-                await _llm_confirm_merge(title or "", summary or "", cand["title"]):
-            _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "llm_confirm")
-            stats["attached"] += 1
+            decision = "auto_merge"
+        elif cand and cand["sim"] >= CONFIRM_SIM:
+            if await _llm_confirm_merge(title or "", summary or "", cand["title"]):
+                _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "llm_confirm")
+                stats["attached"] += 1
+                decision = "llm_confirm_yes"
+            else:
+                _new_issue(conn, brand_id, uri, title, pub_date)
+                stats["created"] += 1
+                decision = "llm_confirm_no"
         else:
             _new_issue(conn, brand_id, uri, title, pub_date)
             stats["created"] += 1
+        # Shadow: Jev's same-event judgment for the pair the builder looked at,
+        # recorded next to the decision above. Own thread; never changes it.
+        try:
+            from app.services import issue_merge_shadow
+            issue_merge_shadow.schedule(brand_id, uri, title, summary, pub_date, cand, decision)
+        except Exception as shadow_err:  # noqa: BLE001
+            logger.debug(f"merge shadow not scheduled: {shadow_err}")
     return stats
 
 

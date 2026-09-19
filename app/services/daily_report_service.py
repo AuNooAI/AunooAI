@@ -454,6 +454,7 @@ class DailyReportService:
         organizational_profile: str = None,
         persona: str = None,
         timeline_context: str = None,
+        briefing_id: Optional[int] = None,
     ) -> AsyncGenerator[Dict, None]:
         """
         Generate AI synthesis for a desk briefing.
@@ -578,6 +579,17 @@ class DailyReportService:
                           "summary": {"errors": 0, "warnings": 0, "info": 0, "total": 0},
                           "model": model, "reviewed_at": datetime.now().isoformat(),
                           "error": "Review timed out"}
+            # Shadow citation check (TypeSafe Jev) on the first-pass draft,
+            # recorded next to the reviewer's findings. Own thread; never
+            # changes the review or the stream.
+            try:
+                from app.services import briefing_claim_shadow
+                briefing_claim_shadow.schedule(
+                    briefing_id, briefing_name, 0, synthesis_result,
+                    analyzed_articles, analyzed_incidents, review,
+                )
+            except Exception as shadow_err:  # noqa: BLE001
+                logger.warning(f"Citation shadow not scheduled: {shadow_err}")
             yield {"stage": "review", "status": "completed", "progress": 1.0,
                    "review_status": review.get("status"),
                    "errors": review.get("summary", {}).get("errors", 0),

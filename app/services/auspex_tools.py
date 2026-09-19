@@ -228,6 +228,7 @@ class AuspexToolsService:
                     candidates=vector_articles,
                     text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
                     top_k=limit,
+                    topic=topic,
                 )
 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")

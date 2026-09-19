@@ -1248,6 +1248,19 @@ async def compose_daily_briefing_stream(
             selection["articles"].append({"id": bid, "reason": "highest-ranked remaining on-topic article"})
             backfill_count += 1
 
+        # Shadow: score the whole ranked pool with the TypeSafe Jev model and
+        # record it next to what was shortlisted and selected. Runs on its own
+        # thread after the selection is final; never touches the selection.
+        try:
+            from app.services import briefing_candidate_shadow
+            if briefing_candidate_shadow.schedule(
+                briefing_id, topics, ranked_pool, shortlist, selection["articles"],
+                art_by_id, org_ctx=profile_ctx,
+            ):
+                diag["jev_shadow"] = {"scheduled": True, "pool": len(ranked_pool)}
+        except Exception as shadow_err:  # noqa: BLE001
+            logger.warning(f"[compose] Jev shadow not scheduled: {shadow_err}")
+
         diag.update({
             "curation": {
                 "llm_succeeded": not used_fallback,

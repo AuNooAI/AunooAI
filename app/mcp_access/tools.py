@@ -362,7 +362,9 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
         "notes": (
             "Pass a topic name exactly as listed here. Tools that take no topic "
             "search across every topic. Brand and market tools take the names "
-            "listed under brands / markets."
+            "listed under brands / markets. Before choosing a tool, call "
+            "suggest_tool with the user's request: it returns at most one "
+            "suggestion with probabilities, or none when no tool is needed."
         ),
     }
     # The brand and market names, so a model can go straight to the brand
@@ -538,3 +540,17 @@ def resolve(name: str) -> tuple[ToolSpec, Callable[..., Awaitable[dict[str, Any]
     if fn is None:
         raise ToolError(f"tool {name!r} is not available on this site")
     return spec, fn
+
+
+# ── Typed judgments (TypeSafe Jev) ──────────────────────────────────────────
+# Registered last so ToolSpec exists when judgment_tools imports it.
+from . import judgment_tools as _judgment_tools  # noqa: E402
+
+TOOLS.update(_judgment_tools.SPECS)
+_LOCAL_HANDLERS.update(_judgment_tools.HANDLERS)
+
+# ── Tool-suggestion pre-pass (TypeSafe Jev) ─────────────────────────────────
+from . import tool_suggestion as _tool_suggestion  # noqa: E402
+
+TOOLS.update(_tool_suggestion.SPECS)
+_LOCAL_HANDLERS.update(_tool_suggestion.HANDLERS)

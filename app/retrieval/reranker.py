@@ -146,8 +146,13 @@ async def rerank(
     text_key: str = "title",
     top_k: int,
     text_fn: Optional[Callable[[dict], str]] = None,
+    topic: Optional[str] = None,
 ) -> list[dict]:
     """Rerank cosine-ordered ``candidates`` against ``query``.
+
+    ``topic`` is optional and only feeds the TypeSafe Jev shadow
+    (``app.retrieval.rerank_shadow``), which records what Jev would have
+    ranked for brand and market topics; it never changes the order returned.
 
     Returns at most ``top_k`` candidates, each with a ``rerank_score`` key
     added. When reranking is disabled, the model fails to load, or there
@@ -200,7 +205,18 @@ async def rerank(
         scored.append((s, out))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [c for _, c in scored[:top_k]]
+    ranked = [c for _, c in scored]
+
+    # Shadow (brand and market topics only): record Jev's per-candidate
+    # relevance next to this order. Own thread, never changes `ranked`.
+    if topic:
+        try:
+            from app.retrieval import rerank_shadow
+            rerank_shadow.schedule(query_trimmed, topic, pool, ranked, top_k, caller="reranker.rerank")
+        except Exception as shadow_err:  # noqa: BLE001
+            logger.debug(f"rerank shadow not scheduled: {shadow_err}")
+
+    return ranked[:top_k]
 
 
 def is_enabled() -> bool:

@@ -1379,6 +1379,7 @@ class QueryRouter:
                 candidates=articles,
                 text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
                 top_k=limit,
+                topic=topic,
             )
 
             return {'articles': articles, 'topic': topic}
@@ -1617,6 +1618,7 @@ class QueryRouter:
                 candidates=articles,
                 text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
                 top_k=limit,
+                topic=topic,
             )
 
             return {
@@ -2068,6 +2070,19 @@ class AuspexService:
             chat = self.db.get_auspex_chat(chat_id)
             current_topic = chat.get('topic') if chat else None
 
+            # Shadow: the TypeSafe Jev model's routing read of this turn (intent,
+            # depth, needs retrieval, follow-up, difficulty) recorded next to the
+            # regex classifiers' verdicts and the model in use. Own thread; the
+            # turn proceeds exactly as before.
+            try:
+                from app.services import auspex_route_shadow
+                auspex_route_shadow.schedule(
+                    chat_id, current_topic, message, messages,
+                    classify_query_intent(message), classify_query_depth(message), model, limit,
+                )
+            except Exception as shadow_err:  # noqa: BLE001
+                logger.debug(f"router shadow not scheduled: {shadow_err}")
+
             # Check if conversation needs compaction
             conversation_for_compaction = [
                 {"role": msg['role'], "content": msg['content']}
@@ -2096,6 +2111,22 @@ class AuspexService:
                         )
                     except Exception as e:
                         logger.warning(f"Could not save compaction metadata: {e}")
+
+            # Shadow: the TypeSafe Jev model's keep-or-drop read of every prior
+            # message against this question, recorded beside what the compactor
+            # did (kept verbatim / summarised / untouched). Own thread; the
+            # history handed to the model below is unchanged.
+            try:
+                from app.services import auspex_compaction_shadow
+                from app.services.conversation_compactor import estimate_tokens as _est_tokens
+                _prior = [{"role": m['role'], "content": m['content']} for m in messages if m['role'] != 'system']
+                auspex_compaction_shadow.schedule(
+                    chat_id, message, _prior,
+                    tokens_est=sum(_est_tokens(str(m.get('content') or '')) for m in _prior),
+                    compaction_applied=bool(compaction_applied),
+                )
+            except Exception as shadow_err:  # noqa: BLE001
+                logger.debug(f"compaction shadow not scheduled: {shadow_err}")
 
             # Build conversation history for LLM
             conversation = []
@@ -3278,6 +3309,16 @@ Extracted search query (respond with ONLY the query, no explanation):"""
                             })
 
                     logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+
+                    # This chat path uses cosine order with no reranker. The Jev
+                    # shadow (brand and market topics only) records what it would
+                    # have ranked; ce_rank stays NULL here. Never changes the list.
+                    try:
+                        from app.retrieval import rerank_shadow
+                        rerank_shadow.schedule(search_query, topic, vector_articles, [], limit,
+                                               caller="auspex_service.chat_vector_search")
+                    except Exception as shadow_err:  # noqa: BLE001
+                        logger.debug(f"rerank shadow not scheduled: {shadow_err}")
 
                     # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
                     # SKIP entity filtering for system-generated thematic category queries
