@@ -23,4 +23,4 @@ Auspex chat on the SOC Automation market: "hi there" answers in a line. Signals:
 None. Internal plumbing on one site.
 
 ## Limits and what's next
-Each decision is measured against its shadow rows for two weeks before anything else moves. The relevance tier only accepts, never rejects. Auspex's own vector search on the SOC market chat returns nothing at present, a pre-existing issue noted in the changelog, so the retrieval filter has had nothing to filter live.
+Each decision is measured against its shadow rows for two weeks before anything else moves. The relevance tier only accepts, never rejects. Auspex's individual queries were failing on every turn from an earlier change and are fixed today on all three monolith sites; the chat's own vector search on the SOC market topic still returns nothing with its filters, so the retrieval filter has had little to filter live.
