@@ -350,6 +350,11 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
 # Measured 2026-09-20 on bugfixing.
 EXACT_SCAN_MAX = int(os.getenv("PGVECTOR_EXACT_SCAN_MAX", "40000"))
 HNSW_EF_SEARCH_WIDE = 1000
+# pgvector >= 0.8 can keep walking the index until the WHERE clause is
+# satisfied (hnsw.iterative_scan). Probed once per process; on 0.6.0 the SET
+# fails ("hnsw" is a reserved prefix) and the count-based strategy above runs.
+_ITERATIVE_SCAN: Optional[bool] = None
+ITERATIVE_SCAN_SQL = "SET LOCAL hnsw.iterative_scan = relaxed_order"
 
 
 def _scan_strategy(matching_rows: Optional[int]) -> str:
@@ -357,6 +362,32 @@ def _scan_strategy(matching_rows: Optional[int]) -> str:
     if matching_rows is None:
         return "index"
     return "exact" if matching_rows <= EXACT_SCAN_MAX else "index"
+
+
+VERSION_SQL = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+
+
+def _iterative_from_version(version: Optional[str]) -> bool:
+    try:
+        parts = [int(x) for x in str(version or "0").split(".")[:2]]
+        return (parts + [0])[0] > 0 or (parts + [0, 0])[1] >= 8
+    except ValueError:
+        return False
+
+
+def _probe_iterative_scan(conn) -> bool:
+    """True when pgvector >= 0.8 is installed in this database. Read from
+    pg_extension, not by trying the SET: a fresh backend accepts an unknown
+    ``hnsw.`` setting as a placeholder until the library loads, so the SET
+    "succeeds" on 0.6.0 and the query then runs with the 40-candidate index."""
+    global _ITERATIVE_SCAN
+    if _ITERATIVE_SCAN is None:
+        try:
+            _ITERATIVE_SCAN = _iterative_from_version(conn.execute(text(VERSION_SQL)).scalar())
+        except Exception:  # noqa: BLE001
+            _ITERATIVE_SCAN = False
+        logger.info("pgvector iterative index scans %s", "available" if _ITERATIVE_SCAN else "not available (pre-0.8); exact-scan strategy in use")
+    return _ITERATIVE_SCAN
 
 def search_articles(
     query: str,
@@ -508,17 +539,23 @@ def search_articles(
 
         strategy = "index"
         if not is_wildcard:
-            count_params = {k: v for k, v in params.items() if k not in ("limit", "query_embedding")}
-            matching = conn.execute(text(f"SELECT count(*) FROM articles WHERE {where_clause}"), count_params).scalar()
-            strategy = _scan_strategy(matching)
-            if strategy == "exact":
-                conn.execute(text("SET LOCAL enable_indexscan = off"))
+            if _probe_iterative_scan(conn):
+                # 0.8+: the index keeps scanning until the WHERE clause yields
+                # top_k rows; the exact fallback below still covers a short set.
+                conn.execute(text(ITERATIVE_SCAN_SQL))
+                strategy = "iterative"
             else:
-                conn.execute(text(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}"))
-            logger.debug("Vector search predicate admits %s rows; %s scan", matching, strategy)
+                count_params = {k: v for k, v in params.items() if k not in ("limit", "query_embedding")}
+                matching = conn.execute(text(f"SELECT count(*) FROM articles WHERE {where_clause}"), count_params).scalar()
+                strategy = _scan_strategy(matching)
+                if strategy == "exact":
+                    conn.execute(text("SET LOCAL enable_indexscan = off"))
+                else:
+                    conn.execute(text(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}"))
+                logger.debug("Vector search predicate admits %s rows; %s scan", matching, strategy)
 
         result = conn.execute(stmt, params)
-        if strategy == "index" and not is_wildcard:
+        if strategy in ("index", "iterative") and not is_wildcard:
             rows_first = list(result.mappings())
             if len(rows_first) < top_k:
                 # The widened index still came back short: finish with an exact scan.
@@ -691,16 +728,29 @@ async def search_articles_async(
 
             # Same strategy as the sync path (see EXACT_SCAN_MAX): count the
             # rows the predicate admits, then exact scan or widened index.
-            count_clause = re.sub(r"\$(\d+)", lambda m: f"${int(m.group(1)) - 1}", where_clause)
-            matching = await conn.fetchval(f"SELECT count(*) FROM articles WHERE {count_clause}", *param_values)
-            strategy = _scan_strategy(matching)
-            async with conn.transaction():
-                if strategy == "exact":
-                    await conn.execute("SET LOCAL enable_indexscan = off")
-                else:
-                    await conn.execute(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}")
-                rows = await conn.fetch(query_sql, *final_params)
-            if strategy == "index" and len(rows) < top_k:
+            global _ITERATIVE_SCAN
+            if _ITERATIVE_SCAN is None:
+                try:
+                    _ITERATIVE_SCAN = _iterative_from_version(await conn.fetchval(VERSION_SQL))
+                except Exception:  # noqa: BLE001
+                    _ITERATIVE_SCAN = False
+                logger.info("pgvector iterative index scans %s", "available" if _ITERATIVE_SCAN else "not available (pre-0.8); exact-scan strategy in use")
+            if _ITERATIVE_SCAN:
+                strategy, matching = "iterative", None
+                async with conn.transaction():
+                    await conn.execute(ITERATIVE_SCAN_SQL)
+                    rows = await conn.fetch(query_sql, *final_params)
+            else:
+                count_clause = re.sub(r"\$(\d+)", lambda m: f"${int(m.group(1)) - 1}", where_clause)
+                matching = await conn.fetchval(f"SELECT count(*) FROM articles WHERE {count_clause}", *param_values)
+                strategy = _scan_strategy(matching)
+                async with conn.transaction():
+                    if strategy == "exact":
+                        await conn.execute("SET LOCAL enable_indexscan = off")
+                    else:
+                        await conn.execute(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}")
+                    rows = await conn.fetch(query_sql, *final_params)
+            if strategy in ("index", "iterative") and len(rows) < top_k:
                 async with conn.transaction():
                     await conn.execute("SET LOCAL enable_indexscan = off")
                     rows = await conn.fetch(query_sql, *final_params)
