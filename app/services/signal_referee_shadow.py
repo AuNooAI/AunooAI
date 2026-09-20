@@ -112,6 +112,43 @@ def _judge(instruction: Dict[str, Any], article: Any, match: Optional[Dict[str, 
         return {"jev_error": f"bad answers: {e}", "jev_latency_ms": latency_ms}
 
 
+def decide_enabled() -> bool:
+    from app.services import typesafe_client
+    return (os.getenv("TYPESAFE_DECIDE_REFEREE", "false").lower() in {"1", "true", "yes"}
+            and typesafe_client.is_configured())
+
+
+def hold(instruction: Dict[str, Any], article: Any, match: Dict[str, Any]) -> bool:
+    """The decision step, behind TYPESAFE_DECIDE_REFEREE: True when the alert
+    should be saved as held (kept out of the email, listed for review) because
+    Jev scores the cited article under TYPESAFE_DECIDE_REFEREE_MIN (default
+    0.15) on "does this article match the instruction". Synchronous, one call.
+    0.15 rather than 0.3 because on the eight labelled rows the lowest true
+    match sat at 0.19 and the confident non-matches at 0.05 to 0.12.
+    Any error means not held, so a Jev outage changes nothing.
+
+    Justified by the blind labels of 19 Sept: of seven matcher flags Jev
+    rejected, five were promos, awards and trend pieces. The shadow keeps
+    recording every batch beside this, so a held alert is a row with
+    matcher_flagged and jev_matches under the threshold.
+    """
+    try:
+        if not decide_enabled() or not article:
+            return False
+        thr = float(os.getenv("TYPESAFE_DECIDE_REFEREE_MIN", "0.15"))
+        ans = _judge(instruction, article, match)
+        if ans.get("jev_error") or ans.get("jev_matches") is None:
+            return False
+        held = float(ans["jev_matches"]) < thr
+        if held:
+            logger.info(f"🎯 [referee hold] '{instruction.get('name')}': {_field(article, 'title')[:80]!r} "
+                        f"held at jev_matches={ans['jev_matches']:.2f} < {thr}")
+        return held
+    except Exception as e:  # noqa: BLE001 — never block an alert on the referee
+        logger.warning(f"[referee hold] failed, alert goes out: {e}")
+        return False
+
+
 def _insert(rows: List[Dict[str, Any]]) -> int:
     from sqlalchemy import text
     from app.database import get_database_instance

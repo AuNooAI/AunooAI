@@ -96,6 +96,12 @@ CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident a
 # disagreement favouring Jev. Runs a week in shadow before it may decide.
 JEV_SHADOW = os.getenv("TYPESAFE_SHADOW_RELEVANCE", "false").lower() in {"1", "true", "yes"}
 JEV_SHADOW_RATE = float(os.getenv("TYPESAFE_SHADOW_RATE", "1.0"))  # fraction of articles sent
+# Accept-only decision tier (2026-09-20). When the local score is uncertain
+# and Jev's on-topic probability clears JEV_ACCEPT_MIN, accept without the
+# LLM fallback. Never rejects: a wrong confident reject drops the article for
+# good, a wrong accept costs one enrichment call. Off by default.
+JEV_ACCEPT = os.getenv("TYPESAFE_DECIDE_RELEVANCE_ACCEPT", "false").lower() in {"1", "true", "yes"}
+JEV_ACCEPT_MIN = float(os.getenv("TYPESAFE_DECIDE_RELEVANCE_MIN", "0.8"))
 
 # Both brand-topic naming conventions in use across tenants.
 _BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
@@ -811,6 +817,23 @@ Score:"""
                         f"(> {CE_HIGH}), skipping LLM"
                     )
 
+        # Jev accept-only tier: ask before paying for the LLM fallback. The
+        # answer is reused as the shadow reading below, so this costs no
+        # extra call. See JEV_ACCEPT at the top of this module.
+        jev_pre = None
+        if JEV_ACCEPT and use_llm_fallback and result["confidence"] != "high":
+            try:
+                jev_pre = self._compute_jev_shadow(topic, title, summary, keywords=keywords)
+                if jev_pre and jev_pre["jev_on_topic"] >= JEV_ACCEPT_MIN:
+                    result["score"] = max(result["score"], threshold)
+                    result["method"] = f"{result['method']}+jev_accept"
+                    result["confidence"] = "high"
+                    logger.info(f"🎯 Jev accepted borderline case: on_topic={jev_pre['jev_on_topic']:.2f} "
+                                f">= {JEV_ACCEPT_MIN}, skipping LLM")
+            except Exception as e:  # noqa: BLE001 — the tier must never break scoring
+                logger.warning(f"Jev accept tier failed, falling through to the LLM: {e}")
+                jev_pre = None
+
         # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
@@ -830,7 +853,9 @@ Score:"""
         result["jev_on_topic"] = None
         result["jev_score"] = None
         result["jev_confidence"] = None
-        if JEV_SHADOW and (JEV_SHADOW_RATE >= 1.0 or random.random() < JEV_SHADOW_RATE):
+        if jev_pre:
+            result.update(jev_pre)
+        elif JEV_SHADOW and (JEV_SHADOW_RATE >= 1.0 or random.random() < JEV_SHADOW_RATE):
             try:
                 shadow = self._compute_jev_shadow(topic, title, summary, keywords=keywords)
                 if shadow:

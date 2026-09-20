@@ -334,7 +334,7 @@ class RelevanceConfidenceTracker:
     def record(self, topic: str, score: float, classifier_score: float = None,
                embedding_score: float = None, method: str = "hybrid", relevant: bool = None,
                ce_score: float = None, jev_on_topic: float = None, jev_score: float = None,
-               jev_confidence: float = None):
+               jev_confidence: float = None, article_uri: str = None):
         """
         Record a relevance score for a topic.
 
@@ -348,6 +348,7 @@ class RelevanceConfidenceTracker:
             ce_score: Cross-encoder score when the CE tier ran (optional)
             jev_on_topic / jev_score / jev_confidence: TypeSafe Jev shadow answers
                 (optional; recorded for comparison, never part of the decision)
+            article_uri: the article the reading is about, when the caller knows it
         """
         conn = None
         try:
@@ -357,9 +358,9 @@ class RelevanceConfidenceTracker:
             conn.execute(text("""
                 INSERT INTO relevance_confidence_readings
                     (topic, score, classifier_score, embedding_score, method, relevant, ce_score,
-                     jev_on_topic, jev_score, jev_confidence)
+                     jev_on_topic, jev_score, jev_confidence, article_uri)
                 VALUES (:topic, :score, :classifier_score, :embedding_score, :method, :relevant, :ce_score,
-                        :jev_on_topic, :jev_score, :jev_confidence)
+                        :jev_on_topic, :jev_score, :jev_confidence, :article_uri)
             """), {
                 "topic": topic,
                 "score": score,
@@ -371,6 +372,7 @@ class RelevanceConfidenceTracker:
                 "jev_on_topic": jev_on_topic,
                 "jev_score": jev_score,
                 "jev_confidence": jev_confidence,
+                "article_uri": (article_uri or None) and str(article_uri)[:2000],
             })
 
             conn.commit()

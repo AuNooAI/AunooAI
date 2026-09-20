@@ -215,6 +215,14 @@ async def rerank(
             rerank_shadow.schedule(query_trimmed, topic, pool, ranked, top_k, caller="reranker.rerank")
         except Exception as shadow_err:  # noqa: BLE001
             logger.debug(f"rerank shadow not scheduled: {shadow_err}")
+        # Decision (TYPESAFE_DECIDE_RERANK, brand and market topics): drop the
+        # top-k candidates Jev says do not answer the query. Off by default;
+        # off or failing, the list below is exactly ranked[:top_k].
+        try:
+            from app.retrieval import rerank_shadow as _rs
+            return await asyncio.to_thread(_rs.decide, query_trimmed, topic, ranked, top_k, "reranker.rerank")
+        except Exception as decide_err:  # noqa: BLE001
+            logger.warning(f"rerank decide failed, cosine-reranked order kept: {decide_err}")
 
     return ranked[:top_k]
 

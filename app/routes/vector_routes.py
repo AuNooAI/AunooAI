@@ -4602,6 +4602,20 @@ async def run_signal_instructions(
                                         summary = match.get('summary', 'Signal detected')
                                         reasoning = match.get('reasoning', '')
 
+                                        # Referee decision (TYPESAFE_DECIDE_REFEREE): an alert
+                                        # whose article Jev scores under the match threshold is
+                                        # saved as held: listed for review, not emailed or tagged.
+                                        _held = False
+                                        try:
+                                            from app.services import signal_referee_shadow as _srs
+                                            if _srs.decide_enabled():
+                                                _art = next((a for a in article_batch
+                                                             if (a.get('uri') if hasattr(a, 'get') else getattr(a, 'uri', None)) == article_uri), None)
+                                                _held = await run_in_threadpool(_srs.hold, instruction, _art, match)
+                                        except Exception as hold_err:  # noqa: BLE001
+                                            logger.warning(f"referee hold failed, alert goes out: {hold_err}")
+                                            _held = False
+
                                         # Save alert to database
                                         alert_saved = db.facade.save_signal_alert(
                                             article_uri=article_uri,
@@ -4610,10 +4624,11 @@ async def run_signal_instructions(
                                             confidence=confidence,
                                             threat_level=threat_level,
                                             summary=summary,
-                                            reasoning=reasoning
+                                            reasoning=reasoning,
+                                            review_status='held' if _held else None,
                                         )
 
-                                        if alert_saved:
+                                        if alert_saved and not _held:
                                             alert_data = {
                                                 'article_uri': article_uri,
                                                 'instruction_name': instruction['name'],
@@ -5708,6 +5723,19 @@ If no articles match, return an empty array: []"""
                                     summary = match.get('summary', '')
                                     reasoning = match.get('reasoning', '')
 
+                                    article = article_lookup.get(article_uri, {})
+                                    # Referee decision (TYPESAFE_DECIDE_REFEREE): held alerts are
+                                    # saved for the review list and left out of the email and
+                                    # the alert count that decides whether an email goes at all.
+                                    _held = False
+                                    try:
+                                        from app.services import signal_referee_shadow as _srs
+                                        if _srs.decide_enabled():
+                                            _held = await run_in_threadpool(_srs.hold, instruction, article, match)
+                                    except Exception as hold_err:  # noqa: BLE001
+                                        logger.warning(f"referee hold failed, alert goes out: {hold_err}")
+                                        _held = False
+
                                     db.facade.save_signal_alert(
                                         article_uri=article_uri,
                                         instruction_id=instruction_id,
@@ -5715,12 +5743,14 @@ If no articles match, return an empty array: []"""
                                         confidence=confidence,
                                         threat_level=threat_level,
                                         summary=summary,
-                                        reasoning=reasoning
+                                        reasoning=reasoning,
+                                        review_status='held' if _held else None,
                                     )
+                                    if _held:
+                                        continue
                                     alerts_created += 1
 
                                     # Track alert details for THIS instruction's notifications
-                                    article = article_lookup.get(article_uri, {})
                                     created_alert_details.append({
                                         'article_uri': article_uri,
                                         'instruction_id': instruction_id,
@@ -5896,6 +5926,7 @@ async def get_signal_alerts(
     instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
     acknowledged: Optional[str] = Query(None, description="Filter by acknowledgment status (true/false/null)"),
     limit: int = Query(100, ge=1, le=10000, description="Maximum alerts to return"),
+    review_status: Optional[str] = Query(None, description="'held' = alerts the referee kept out of the email; 'sent' = the rest; omit for all"),
     session=Depends(verify_session_optional),
 ):
     """Get signal alerts for the dashboard."""
@@ -5922,7 +5953,8 @@ async def get_signal_alerts(
             topic=topic,
             instruction_id=instruction_id,
             acknowledged=acknowledged_bool,
-            limit=limit
+            limit=limit,
+            review_status=review_status if review_status in ('held', 'sent') else None,
         )
         
         return {

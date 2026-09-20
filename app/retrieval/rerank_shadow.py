@@ -194,6 +194,68 @@ def _run(call_id: str, caller: str, query: str, topic: str, kind: str, top_k: in
                 f"{errs} Jev errors, {time.monotonic() - started:.1f}s")
 
 
+def decide_enabled() -> bool:
+    from app.services import typesafe_client
+    return (os.getenv("TYPESAFE_DECIDE_RERANK", "false").lower() in {"1", "true", "yes"}
+            and typesafe_client.is_configured())
+
+
+def decide(query: str, topic: Optional[str], ranked: List[Dict[str, Any]], top_k: int,
+           caller: str = "") -> List[Dict[str, Any]]:
+    """The decision step, behind TYPESAFE_DECIDE_RERANK. For brand and market
+    topics, judge the ``top_k`` candidates the caller was about to return and
+    drop those Jev says do not answer the query (``answers_query`` under
+    TYPESAFE_DECIDE_RERANK_MIN, default 0.1), keeping at least
+    TYPESAFE_DECIDE_RERANK_KEEP (default 5) in the original order. 0.1, not
+    0.5: on the labelled rows the three true answers Jev had rejected sat at
+    0.04, 0.15 and 0.45 while 42 of 44 non-answers sat under 0.1, so the low
+    cut removes the noise and keeps two of the three; the reranker's order
+    fills the rest. Nothing
+    below ``top_k`` is promoted, because it has not been judged. Returns the
+    list to hand back; on any failure, the unchanged ``ranked[:top_k]``.
+
+    Justified by the blind labels of 19 Sept: 44 of 47 candidates Jev rejected
+    from Auspex's used set were not answers to the query. The shadow keeps
+    recording the whole pool beside this, so the decision is measured against
+    the same rows: an ``in_top_k`` row with ``jev_answers_query`` under the
+    threshold is one this step dropped.
+    """
+    head = list(ranked[:top_k])
+    try:
+        kind = topic_kind(topic)
+        if not kind or not decide_enabled() or len(head) <= 1:
+            return head
+        thr = float(os.getenv("TYPESAFE_DECIDE_RERANK_MIN", "0.1"))
+        keep_min = int(os.getenv("TYPESAFE_DECIDE_RERANK_KEEP", "5"))
+        keywords = _keywords_for_topic(topic)
+        name = _entity_name(topic, kind)
+        definition, entity_criteria = _definition(topic, kind, keywords)
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            answers = list(ex.map(lambda c: _score_one(query, c, name, definition, entity_criteria, keywords), head))
+        errs = sum(1 for a in answers if a.get("jev_error"))
+        if errs:
+            logger.warning(f"[rerank decide] {errs}/{len(head)} Jev errors; returning the unfiltered list")
+            return head
+        keep_idx = {i for i, a in enumerate(answers) if float(a["jev_answers_query"]) >= thr}
+        # Fewer than keep_min pass: top up from the caller's own order, not
+        # Jev's. Jev has said "none of these answers", so it has no ranking
+        # to offer; the reranker's order is the best remaining signal. (An
+        # offline check on the labelled rows showed Jev's order dropping the
+        # one true answer among eight when it ranked the survivors itself.)
+        for i in range(len(head)):
+            if len(keep_idx) >= keep_min:
+                break
+            keep_idx.add(i)
+        kept = [c for i, c in enumerate(head) if i in keep_idx]
+        logger.info(f"🎯 [rerank decide] {kind} '{topic}' q={query[:60]!r}: kept {len(kept)} of {len(head)} "
+                    f"(threshold {thr}, min {keep_min}) in {time.monotonic() - started:.1f}s via {caller or '-'}")
+        return kept
+    except Exception as e:  # noqa: BLE001 — the decision must never break retrieval
+        logger.warning(f"[rerank decide] failed, returning the unfiltered list: {e}")
+        return head
+
+
 def schedule(query: str, topic: Optional[str], pool: List[Dict[str, Any]],
              ranked: List[Dict[str, Any]], top_k: int, caller: str = "") -> bool:
     """Start the shadow on a daemon thread when the topic is a brand or a

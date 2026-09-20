@@ -254,12 +254,15 @@ Article text:
             # records only; the result above is untouched.
             try:
                 from app.services import extraction_check_shadow as _xs
+                # Summary sentences only: the *_explanation fields are the
+                # analyst's own inferences (tone, driver, bias placement), which
+                # no source states, so checking them only measures that. And
+                # only when there is a real article to check against; a
+                # 150-character stub makes every claim "says nothing".
                 _claims = [("summary", s) for s in _xs.sentences(result.get("summary") or "")]
-                for _k, _v in result.items():
-                    if _k.endswith("_explanation") and isinstance(_v, str):
-                        _claims += [(_k, s) for s in _xs.sentences(_v)]
-                _xs.schedule("enrichment", uri, [{"label": "article", "title": title, "text": article_text}],
-                             _claims, pipe_model=self.model_name)
+                if len(article_text or "") >= _xs.MIN_SOURCE_CHARS:
+                    _xs.schedule("enrichment", uri, [{"label": "article", "title": title, "text": article_text}],
+                                 _claims, pipe_model=self.model_name)
             except Exception as _xs_err:  # noqa: BLE001
                 logger.debug(f"extraction shadow not scheduled: {_xs_err}")
 

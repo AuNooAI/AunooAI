@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 USE_CASE = "services.extraction_check_shadow:check"
 CHUNK_CHARS = 2500          # a passage a single claim is judged against
+MIN_SOURCE_CHARS = 400      # below this the source is a stub and every claim reads as unsupported
 MAX_SOURCES_PER_CALL = 8    # chunks per request; the 32k state budget holds far more
 
 

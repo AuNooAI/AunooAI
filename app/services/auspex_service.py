@@ -2083,6 +2083,24 @@ class AuspexService:
             except Exception as shadow_err:  # noqa: BLE001
                 logger.debug(f"router shadow not scheduled: {shadow_err}")
 
+            # Decision (TYPESAFE_DECIDE_ROUTE): Jev's depth for this turn, when
+            # confident, replaces the regex depth in the format block and caps
+            # the retrieval limit on quick turns. Off or unsure: unchanged.
+            jev_depth = None
+            try:
+                from app.services import auspex_route_shadow as _ars
+                if _ars.decide_enabled():
+                    _route = await asyncio.to_thread(_ars.decide, message, current_topic, messages)
+                    jev_depth = (_route or {}).get('depth')
+                    # Cap retrieval only on quick turns that do not need the
+                    # article store; a quick list of funding rounds still does.
+                    if jev_depth == 'quick' and (_route or {}).get('needs_retrieval', 1.0) < 0.5:
+                        import os as _os
+                        limit = min(limit, int(_os.getenv("TYPESAFE_DECIDE_ROUTE_QUICK_LIMIT", "10")))
+            except Exception as decide_err:  # noqa: BLE001
+                logger.warning(f"route decide failed, regex depth stands: {decide_err}")
+                jev_depth = None
+
             # Check if conversation needs compaction
             conversation_for_compaction = [
                 {"role": msg['role'], "content": msg['content']}
@@ -2187,7 +2205,7 @@ class AuspexService:
             else:
                 # Get system prompt and enhance it with topic information and profile context
                 # Pass include_charts to let Auspex know it can use chart visualizations
-                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts, query=message)
+                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts, query=message, query_depth=jev_depth)
                 system_prompt_content = system_prompt['content']
 
             # Prepare messages with system prompt
@@ -2359,7 +2377,7 @@ class AuspexService:
             except:
                 pass
 
-    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False, query: str = None) -> Dict:
+    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False, query: str = None, query_depth: Optional[str] = None) -> Dict:
         """Get enhanced system prompt with topic-specific information and organizational profile.
 
         Args:
@@ -2371,7 +2389,9 @@ class AuspexService:
         try:
             # Determine query intent and build versatile prompt
             query_intent = classify_query_intent(query) if query else 'general'
-            query_depth = classify_query_depth(query) if query else 'standard'
+            # query_depth is Jev's confident read when the route decision is on
+            # (chat_with_tools passes it); otherwise the regex classifier's.
+            query_depth = query_depth or (classify_query_depth(query) if query else 'standard')
 
             # Use versatile prompt for general/casual/system queries
             # Use data-focused prompt for research queries
@@ -3319,6 +3339,19 @@ Extracted search query (respond with ONLY the query, no explanation):"""
                                                caller="auspex_service.chat_vector_search")
                     except Exception as shadow_err:  # noqa: BLE001
                         logger.debug(f"rerank shadow not scheduled: {shadow_err}")
+                    # Decision (TYPESAFE_DECIDE_RERANK): on brand and market
+                    # topics, drop the articles Jev says do not answer the
+                    # query before the model sees them. Off: list unchanged.
+                    try:
+                        from app.retrieval import rerank_shadow as _rs
+                        if _rs.decide_enabled() and _rs.topic_kind(topic):
+                            _before = len(vector_articles)
+                            vector_articles = await asyncio.to_thread(
+                                _rs.decide, search_query, topic, vector_articles, len(vector_articles),
+                                "auspex_service.chat_vector_search")
+                            logger.info(f"🎯 chat vector search: {len(vector_articles)} of {_before} articles kept by Jev")
+                    except Exception as decide_err:  # noqa: BLE001
+                        logger.warning(f"rerank decide failed on chat path, list kept: {decide_err}")
 
                     # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
                     # SKIP entity filtering for system-generated thematic category queries

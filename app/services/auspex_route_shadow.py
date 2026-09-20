@@ -104,6 +104,45 @@ def _judge(message: str, topic: Optional[str], history: List[Dict[str, Any]]) ->
         return {"jev_error": f"bad answers: {e}", "jev_latency_ms": latency_ms}
 
 
+def decide_enabled() -> bool:
+    from app.services import typesafe_client
+    return (os.getenv("TYPESAFE_DECIDE_ROUTE", "false").lower() in {"1", "true", "yes"}
+            and typesafe_client.is_configured())
+
+
+def decide(message: str, topic: Optional[str], history: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The decision step, behind TYPESAFE_DECIDE_ROUTE: Jev's depth for this
+    turn (quick / standard / deep) when its confidence clears
+    TYPESAFE_DECIDE_ROUTE_MIN_CONF (default 0.7), else None and the regex
+    classifier's depth stands. Synchronous, one call, never raises.
+
+    Returns ``{"depth", "needs_retrieval"}``: the caller uses depth for the
+    answer format and caps retrieval only when needs_retrieval is under 0.5,
+    because "a list" is a quick answer that may still need the article store
+    (a funding-round question scored quick at 0.97 on the first live check).
+
+    Justified by the blind labels of 19 Sept: on all five router
+    disagreements the regex said standard, Jev said quick, and the label
+    agreed with Jev ("hi there", "thanks, that's all", "what can you do?").
+    """
+    try:
+        if not decide_enabled():
+            return None
+        min_conf = float(os.getenv("TYPESAFE_DECIDE_ROUTE_MIN_CONF", "0.7"))
+        ans = _judge(message, topic, history)
+        depth = ans.get("jev_depth")
+        if ans.get("jev_error") or depth not in ("quick", "standard", "deep"):
+            return None
+        if float(ans.get("jev_depth_confidence") or 0.0) < min_conf:
+            return None
+        needs = float(ans.get("jev_needs_retrieval") or 0.0)
+        logger.info(f"🎯 [route decide] depth={depth} ({ans['jev_depth_confidence']:.2f}) needs_retrieval={needs:.2f} for {message[:60]!r}")
+        return {"depth": depth, "needs_retrieval": needs}
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[route decide] failed, regex depth stands: {e}")
+        return None
+
+
 def _insert(row: Dict[str, Any]) -> None:
     from sqlalchemy import text
     from app.database import get_database_instance

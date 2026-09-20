@@ -538,6 +538,7 @@ class AutomatedIngestService:
                     jev_on_topic=hybrid_result.get("jev_on_topic"),
                     jev_score=hybrid_result.get("jev_score"),
                     jev_confidence=hybrid_result.get("jev_confidence"),
+                    article_uri=article_data.get("uri"),
                 )
             except Exception as tracker_err:
                 self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")

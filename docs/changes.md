@@ -1,5 +1,44 @@
 # Changes
 
+## 2026-09-20 — TypeSafe Jev: four decisions behind flags on bugfixing, three fixes from the labelling, a language check
+
+### Goal
+Move the first judgments from the shadow column to the decision, one flag each, on bugfixing only, with the shadow still recording so each decision is measured against the rows that justified it. Every flag is a kill switch: 0 restores the previous behaviour with no migration. Justification for each threshold is the blind-label set in `eval/jev_labels/` (19 Sept) and the consistency test (20 Sept).
+
+### Fixes from the labelling
+**`alembic/versions/ts_012_relevance_reading_article_uri.py`, `app/routes/training_routes.py`, `app/services/automated_ingest_service.py`.** `relevance_confidence_readings.article_uri` (nullable, indexed); the tracker's `record()` takes it and the ingest path passes `article_data["uri"]`. Reason: only 28 of 165 Jev disagreements could be joined back to an article for labelling. Verified: all 17 readings written by the AI group's check at 11:53 carry the uri.
+
+**`app/analyzers/article_analyzer.py`, `app/services/extraction_check_shadow.py`.** The extraction check now sends summary sentences only and only when the article text is at least `MIN_SOURCE_CHARS` (400). The `*_explanation` fields are the analyst's own inferences (16 of 22 labelled claims), and a 150-character stub made every claim "says nothing".
+
+**`app/services/briefing_claim_shadow.py`.** Sentences under `action:*` targets (priority actions) are skipped: they are recommendations no source states, and all 21 such rows in the labelled set came back "says nothing" from Jev and the reader alike.
+
+### Decision 1 · Rerank filter (`TYPESAFE_DECIDE_RERANK=1`)
+**`app/retrieval/rerank_shadow.py` (`decide_enabled`, `decide`), `app/retrieval/reranker.py`, `app/services/auspex_service.py` (chat vector search).** On brand and market topics the top-k candidates go through Jev's "does this answer the query" question; those under `TYPESAFE_DECIDE_RERANK_MIN` (default 0.1) are dropped, at least `TYPESAFE_DECIDE_RERANK_KEEP` (default 5) survive, topped up in the caller's own order, and nothing below top-k is promoted because it was not judged. The shadow still records the whole pool, so an `in_top_k` row with `jev_answers_query` under the threshold is one the decision dropped.
+
+Why 0.1 and not 0.5: on the 47 labelled rows the three true answers Jev had rejected sat at 0.04, 0.15 and 0.45, while 42 of 44 non-answers sat under 0.1. Why the caller's order for the top-up: with Jev's own order the one true answer among eight was dropped in the offline check. Offline check at the final settings (`rerank_decide_final.json` in the scratchpad): the 39-row funding query keeps 5 with both true answers, the 8-row query keeps 5 with its one true answer; 47 candidates become 10, 37 non-answers gone, no true answer lost. Live: the SOC market chat's vector search returned zero results on every query tried (see Known issue), so the chat path ran with nothing to filter; the reranker path was not exercised live.
+
+### Decision 2 · Router depth (`TYPESAFE_DECIDE_ROUTE=1`)
+**`app/services/auspex_route_shadow.py` (`decide`), `app/services/auspex_service.py` (`chat_with_tools`, `get_enhanced_system_prompt` takes `query_depth`).** Jev's depth (quick / standard / deep) replaces the regex depth in the format block when its confidence clears `TYPESAFE_DECIDE_ROUTE_MIN_CONF` (0.7). The retrieval limit is capped at `TYPESAFE_DECIDE_ROUTE_QUICK_LIMIT` (10) only when the turn is quick and Jev's "needs retrieval" is under 0.5. Live: "hi there" → quick at 0.88, format quick. A funding-rounds question also came back quick at 0.97 (a list is a quick answer) and would have capped retrieval, which is why the cap now follows needs-retrieval rather than depth.
+
+### Decision 3 · Referee hold (`TYPESAFE_DECIDE_REFEREE=1`)
+**`alembic/versions/ts_013_signal_alert_review_status.py`, `app/services/signal_referee_shadow.py` (`hold`), `app/routes/vector_routes.py` (both alert loops, `GET /api/signal-alerts?review_status=held|sent`), `app/database_query_facade.py` (`save_signal_alert`, `get_signal_alerts`).** An alert whose cited article Jev scores under `TYPESAFE_DECIDE_REFEREE_MIN` on "does this article match the instruction" is saved with `review_status='held'`: it is in the alerts list under the held filter, and left out of the email, the tag, and the count that decides whether an email goes at all. Threshold 0.15, not 0.3: on the eight labelled rows the lowest true match sat at 0.19 (ServiceNow into SecOps) and the confident non-matches at 0.05 to 0.12 (a partner award, an MSSP trend piece, a SOAR-to-agentic post); 0.3 would have held a true match and passed two promos. Offline check: `hold()` on the labelled promo and the ServiceNow row behaves as the labels say at 0.15. Live: the next scheduled run of instruction 6 is 21 Sept 07:00; not triggered by hand because its config emails on every run.
+
+### Decision 4 · Relevance accept-only tier (`TYPESAFE_DECIDE_RELEVANCE_ACCEPT=1`)
+**`app/services/hybrid_relevance_service.py`.** When the local score is uncertain and would go to the nova-lite fallback, Jev is asked first; at on-topic `TYPESAFE_DECIDE_RELEVANCE_MIN` (0.8) or above the article is accepted without the LLM call, `method` gains `+jev_accept`. Never rejects. The answer is reused as the shadow reading, so it costs no extra call. Live on the AI group's check at 11:53: ten borderline articles reached the tier, Jev scored all of them 0.1 or under on-topic, none accepted, all went to nova-lite as before.
+
+### Language check on the Swiss groups
+Forty Bluesky posts from the Swiss election disinformation group with a German original and an English translation, both run through the relevance questions: the same verdict on 39 of 40, mean on-topic 0.21 on both, largest difference 0.13. Jev reads the German as it reads the English. Separately, on the stored readings for that topic Jev agrees with none of the gate's 13 approvals; the approved articles are EU-politics stories (von der Leyen and Zelenskyy, EU sanctions), so that is the gate's definition, not the language.
+
+### Known issue, not fixed here
+Auspex "individual queries" on bugfixing fail with `Database.search_articles() got an unexpected keyword argument 'exclude_ingest_status'`: commit 1dc83111 added the argument to the facade, the `Database` wrapper in `app/database.py` does not take it. The chat vector search on the SOC market chat also returns zero results with its filters. Both predate this entry and were left alone.
+
+### Verification
+`py_compile` clean on every touched file; `alembic upgrade head` → ts_013; service restarted three times with no live background task each time (checked against the process boot time); flags added to `.env` and the encrypted copy (backup `.env.bak-typesafe-decide-*`); live checks as stated per decision.
+
+### Propagation
+bugfixing only. Nothing goes to wiley or wileytest: no tenant asked, and the relevance tier would send their articles to TypeSafe.
+
+
 Running log of notable operational/code changes. Newest first.
 
 ## 2026-09-19 — TypeSafe Jev: nine record-only shadows beside the monolith's judgment steps, a social-eval shadow on oviva, and typed-judgment tools on the MCP server

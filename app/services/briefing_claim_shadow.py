@@ -214,6 +214,11 @@ def _run(briefing_id: Optional[int], briefing_name: str, review_round: int, synt
     lookup = _judge_lookup(findings)
     jobs: List[Tuple[str, int, str, List[str], str]] = []
     for target, text_, cited in _segments(synthesis_result):
+        if target.startswith("action:"):
+            # Priority actions are recommendations. No source states "consider
+            # an audit", so checking them only ever says "says nothing"; the
+            # blind labels on briefing 15 confirmed all 21 such rows were that.
+            continue
         refs = [r for r in cited if r in sources]
         scope = "cited" if refs else "all"
         refs = (refs or all_refs)[:max_sources]

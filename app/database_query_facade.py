@@ -6417,7 +6417,8 @@ class DatabaseQueryFacade:
     # ============================================================
 
     def get_signal_alerts(self, topic: str = None, instruction_id: int = None,
-                         acknowledged: bool = None, limit: int = 100) -> List[Dict]:
+                         acknowledged: bool = None, limit: int = 100,
+                         review_status: str = None) -> List[Dict]:
         """Get signal alerts with optional filters.
 
         Args:
@@ -6435,7 +6436,7 @@ class DatabaseQueryFacade:
         query = """
         SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-               sa.is_acknowledged, sa.acknowledged_at,
+               sa.is_acknowledged, sa.acknowledged_at, sa.review_status,
                a.title as article_title, a.news_source as article_source,
                a.publication_date as article_publication_date
         FROM signal_alerts sa
@@ -6452,6 +6453,13 @@ class DatabaseQueryFacade:
         if acknowledged is not None:
             query += " AND sa.is_acknowledged = :acknowledged"
             params['acknowledged'] = acknowledged
+
+        # 'held' = alerts the Jev referee kept out of the email (review list);
+        # 'sent' = everything else; None = all.
+        if review_status == 'held':
+            query += " AND sa.review_status = 'held'"
+        elif review_status == 'sent':
+            query += " AND (sa.review_status IS NULL OR sa.review_status <> 'held')"
 
         if topic:
             query += " AND (a.topic = :topic OR a.title LIKE :topic_pattern OR a.summary LIKE :topic_pattern)"
@@ -6473,6 +6481,7 @@ class DatabaseQueryFacade:
                     'confidence': row['confidence'],
                     'threat_level': row['threat_level'],
                     'summary': row['summary'],
+                    'review_status': row['review_status'],
                     'detected_at': row['detected_at'],
                     'is_acknowledged': bool(row['is_acknowledged']),
                     'acknowledged_at': row['acknowledged_at'],
@@ -6822,7 +6831,7 @@ class DatabaseQueryFacade:
     def save_signal_alert(self, article_uri: str, instruction_id: int,
                          instruction_name: str, confidence: float,
                          threat_level: str, summary: str,
-                         reasoning: str = None) -> Optional[int]:
+                         reasoning: str = None, review_status: str = None) -> Optional[int]:
         """Save a signal alert.
 
         Args:
@@ -6840,13 +6849,14 @@ class DatabaseQueryFacade:
         try:
             query = """
             INSERT INTO signal_alerts
-            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, reasoning)
-            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary, :reasoning)
+            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, reasoning, review_status)
+            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary, :reasoning, :review_status)
             ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
                 confidence = :confidence,
                 threat_level = :threat_level,
                 summary = :summary,
                 reasoning = :reasoning,
+                review_status = :review_status,
                 detected_at = CURRENT_TIMESTAMP
             RETURNING id
             """
@@ -6857,7 +6867,8 @@ class DatabaseQueryFacade:
                 'confidence': confidence,
                 'threat_level': threat_level,
                 'summary': summary,
-                'reasoning': reasoning
+                'reasoning': reasoning,
+                'review_status': review_status
             })
             self.connection.commit()
             return row[0] if row else None
