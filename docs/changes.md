@@ -155,6 +155,13 @@ The report for both audiences is the artifact at
 https://claude.ai/artifact/TeeJpWWJzQeBZTYiFsHHt3 (version 20), rebuilt from the session
 scratchpad. The saas-side work of the same day is in `saasmvp-app/docs/changes.md`.
 
+### Blind labels on the disagreements (after the commit above; uncommitted)
+The shadows only measure agreement with the pipeline, so we exported every row where the two disagree, stripped both answers, and had separate Claude agents label each item from the text and the question alone. Merged files (item, both answers, label with rationale) are in `eval/jev_labels/`, one JSONL per shadow, with a README; the export, scoring and publish scripts are in the session scratchpad (`ts/labels/`). Claude labels, not human ground truth.
+
+Counts are "label sides with pipeline / with Jev" on the disagreement rows: rerank 3 / 44 of 47 (every row an article Auspex used that Jev said does not answer the query; a top-k always fills, so Jev is a "nothing answers" filter); briefing citations 5 / 39 of 44, but a category difference (21 recommendation or framing sentences no source states, 18 reviewer flags for dates and actors with the substance sourced, 5 from review round 0 before incidents were passed); observer referee 3 / 5 of 8; Auspex router depth 0 / 5 of 5 (pipeline "standard", label "quick"); relevance gate 14 / 14 of 28, only 28 of 165 disagreements join back to an article because `relevance_confidence_readings` stores no article reference, all on the SOC Automation topic; briefing candidates 29 / 22 of 51 (Jev more inclusive: 26 of its extra picks were opinion, roundups, promo or duplicates, 16 were real misses); issue merge 3 / 1 of 5; extraction check 22 rows labelled for support and kind, 16 of 22 are analyst inferences, Jev calls 12 of them unsupported and the label agrees on 4, the shadow fed Jev 149 to 245 characters of source.
+
+Follow-ups this surfaced, not done: store the article uri on relevance readings (ts_001 has no reference column); run the extraction check on fact-bearing fields only and pass the full summary; ask the citation check only about factual sentences.
+
 ### Verification
 `python3 -m py_compile` over every touched file in bugfixing, oviva and abm: clean.
 Alembic heads: bugfixing `ts_011`, oviva `ts_005`, abm `ts_006`. Row counts at the time of
