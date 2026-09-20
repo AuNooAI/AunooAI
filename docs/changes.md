@@ -1,5 +1,71 @@
 # Changes
 
+## 2026-09-20 — MCP server: the timeline mementos as three tools (list_timelines, get_timeline, what_changed)
+
+### Goal
+Oliver asked whether the mementos could be sold. The answer was yes, and the gap was that an
+external assistant on the MCP tier could not reach them: the timelines fed Auspex chat context
+and observer-agent prompts, but `app/mcp_access` had no timeline tool. This closes that gap on
+bugfixing. The positioning write-up that prompted it is
+`docs/product/2026-09-20-what-we-solve-that-an-assistant-does-not.md`; the release write-up is
+`docs/product/2026-09-20-timeline-tools-on-mcp.md`.
+
+### Feature · timeline tools on the MCP server
+**`app/mcp_access/timeline_tools.py`** (new, untracked until commit), registered last in
+**`app/mcp_access/tools.py`** the same way the judgment tools are. Read-only, and metered
+through the dispatcher like every other call.
+
+- `list_timelines`: every brand and topic scope, with event count, latest event date, when the
+  state doc was last written, and a `has_timeline` flag so a caller can tell "nothing happened"
+  from "not tracked".
+- `get_timeline`: one scope's memory. State doc (summary, trend, key entities), pinned analyst
+  notes, up to 3 monthly and 8 weekly rollups in the window, and the daily events (default 90
+  days, 30 events, max 60), newest and most significant first. Every event carries its
+  `article_uris`; `include_articles=true` adds title, source and date for up to 60 of them.
+- `what_changed`: the same scope as a diff since a date (default 7 days). `new` = first seen in
+  the window (`event_date`); `ongoing` = first seen before it but bumped inside it
+  (`last_seen_date`), with `occurrence_count`. Plus the rollups written in the window and the
+  current trend.
+
+Scope naming follows the other tools: `brand` (display name, `_brand_row` from brand_tools) or
+`topic`, case-insensitive, with "Brand Monitoring <name>" resolving to the brand scope via
+`resolve_scope_for_topic`. Superseded dailies are excluded because their rollup says the same
+thing once. Descriptions are clipped (400 chars daily, 1500 rollup) and the two payload tools
+carry a 192 KB byte cap. `days=0` is an error, not the default. The `list_capabilities` note
+now points "what has happened with X" at these two tools before a fresh search.
+
+### Verification
+Run before this entry was written, all on bugfixing against the `test` database:
+
+- `python -m py_compile` on both files: clean.
+- In-process: catalogue holds 30 tools including the three, each with a handler.
+  `list_timelines` returns 25 scopes, 22 with events. `get_timeline` on "AI and Machine
+  Learning" (323 events, trend escalating) with the default 30 events and articles is
+  91,970 bytes, under the cap; at the 60-event maximum with articles it is over and the
+  dispatcher truncates, which is why the maximum is 60 and not 100. `what_changed` on the
+  Swiss elections topic since 2026-09-20 gives 10 new and 4 ongoing; the ongoing four are
+  the Neutrality-initiative narrative spikes first seen on the 19th and bumped on the 20th
+  (occurrence_count 2). Bad topic, no scope, bad `since` and `days=0` each raise ToolError.
+- Live, over `POST /mcp` on localhost:10004 with a one-day key minted for the purpose and
+  revoked afterwards: `tools/list` shows the three among 30; `list_timelines`,
+  `what_changed` (Swiss, with articles) and `get_timeline` (brand Torq, 60 days) return
+  `isError: false` and `truncated: false`; a bad topic returns the ToolError message.
+  `mcp_tool_calls` afterwards: list_timelines ok 1, get_timeline ok 1 + error 1 (the bad
+  topic), what_changed ok 1.
+- Service restarted 12:10:47 CEST; `/health` 200, `/mcp` unauthenticated 401, no import or
+  traceback lines in the journal.
+
+Known and by design: Swiss `alert` and `calendar` events carry no `article_uris`, so
+`include_articles` is empty for them.
+
+### Propagation
+bugfixing only, live since the 12:10 restart. Both files are uncommitted in this tree at the
+time of writing (the tree is otherwise clean; the Jev decide-step work that was pending
+earlier today has since been committed by the other session). The other six trees with both
+`app/mcp_access` and `timeline_rollup.py` are abm, oviva, sunstar, wbm, wiley and wileytest;
+the module is self-contained, so each copy is the new file, the two small edits in
+`tools.py`, and a restart.
+
 ## 2026-09-20 — TypeSafe Jev: four decisions behind flags on bugfixing, three fixes from the labelling, a language check
 
 ### Goal
@@ -30,7 +96,10 @@ Why 0.1 and not 0.5: on the 47 labelled rows the three true answers Jev had reje
 Forty Bluesky posts from the Swiss election disinformation group with a German original and an English translation, both run through the relevance questions: the same verdict on 39 of 40, mean on-topic 0.21 on both, largest difference 0.13. Jev reads the German as it reads the English. Separately, on the stored readings for that topic Jev agrees with none of the gate's 13 approvals; the approved articles are EU-politics stories (von der Leyen and Zelenskyy, EU sanctions), so that is the gate's definition, not the language.
 
 ### Fix · Auspex individual queries (`app/database.py`)
-Every Auspex "individual query" failed with `Database.search_articles() got an unexpected keyword argument 'exclude_ingest_status'`. Commit 1dc83111 (exclude relevance-rejected articles from Auspex's corpus) added the argument to the facade's `search_articles` and to seven call sites in `auspex_service.py`, but the `Database` wrapper those call sites go through never got it. The wrapper now takes `exclude_ingest_status` and passes it on. Verified: three errors per chat turn before the restart at 12:10, none since, and the funding question on the SOC market chat answers from the corpus again. Copied to wiley and wileytest (same three-line wrapper, same seven callers, same failure), both compiled and restarted with no live background task; wileytest was mid-ingest, which resumes on its own. The chat's own vector search on that topic still returns zero results with its filters; separate, not touched.
+Every Auspex "individual query" failed with `Database.search_articles() got an unexpected keyword argument 'exclude_ingest_status'`. Commit 1dc83111 (exclude relevance-rejected articles from Auspex's corpus) added the argument to the facade's `search_articles` and to seven call sites in `auspex_service.py`, but the `Database` wrapper those call sites go through never got it. The wrapper now takes `exclude_ingest_status` and passes it on. Verified: three errors per chat turn before the restart at 12:10, none since, and the funding question on the SOC market chat answers from the corpus again. Copied to wiley and wileytest (same three-line wrapper, same seven callers, same failure), both compiled and restarted with no live background task; wileytest was mid-ingest, which resumes on its own. The chat's own vector search is the next subsection.
+
+### Fix · Semantic search starved by the HNSW index, and a missing `$ne` (`app/vector_store_pgvector.py`)
+Two faults in one file. First, pgvector 0.6.0's HNSW index returns its `ef_search` nearest rows (40 by default) and applies every WHERE condition afterwards, so any predicate that admits a small share of the 214,000 embedded rows starves the result. Measured before the fix with the store's own embedder: the readability floor alone left 5 of 30 on an unfiltered query; the SOC Automation market (586 readable rows) got 0 of 30; Geopolitical Hotspots (27,654 rows) got 1 of 30. Every topic-filtered Auspex search on the monolith has been returning a handful of rows or none. Both `search_articles` and `search_articles_async` now count the rows the predicate admits and, at or under `PGVECTOR_EXACT_SCAN_MAX` (40,000), run an exact scan (`SET LOCAL enable_indexscan = off`: 0.46 s on the SOC market, 2.4 s on Geopolitical Hotspots); above it they widen `hnsw.ef_search` to 1000 and finish with an exact scan only if the index came back short. Second, the async translator had no `$ne` branch, so the chat's `{"ingest_status": {"$ne": "filtered_relevance"}}` became `ingest_status = 'filtered_relevance'` and returned only rejected rows; it now uses `IS DISTINCT FROM` like the sync path. After the fix, in-process: 30 of 30 on the SOC market, Geopolitical Hotspots, AI and no filter, both paths. Live on the SOC market chat: "Vector search returned 30 results", the rerank decision kept 5 of 30, the router read the question as quick with needs-retrieval 0.90 and so did not cap the limit. Copied to wiley (identical file) and wileytest (same code, different docstrings, patched by anchor), both compiled and restarted with no live background task. A pgvector upgrade to 0.8 would make the exact-scan branch unnecessary (iterative index scans); not done here.
 
 ### Verification
 `py_compile` clean on every touched file; `alembic upgrade head` → ts_013; service restarted three times with no live background task each time (checked against the process boot time); flags added to `.env` and the encrypted copy (backup `.env.bak-typesafe-decide-*`); live checks as stated per decision.
