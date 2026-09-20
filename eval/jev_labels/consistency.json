@@ -1,0 +1,183 @@
+{
+ "auspex_route": {
+  "items": 5,
+  "k": 5,
+  "unanimous": 4,
+  "elapsed_s": 3.0,
+  "non_unanimous": [
+   [
+    "5",
+    {
+     "general/quick": 4,
+     "research/quick": 1
+    },
+    [
+     0.84,
+     0.81,
+     0.83,
+     0.83,
+     0.82
+    ]
+   ]
+  ]
+ },
+ "briefing_candidate": {
+  "items": 51,
+  "k": 5,
+  "unanimous": 48,
+  "elapsed_s": 26.8,
+  "non_unanimous": [
+   [
+    "11",
+    {
+     "not": 4,
+     "worthy": 1
+    },
+    [
+     0.483,
+     0.483,
+     0.503,
+     0.497,
+     0.49
+    ]
+   ],
+   [
+    "131",
+    {
+     "not": 4,
+     "worthy": 1
+    },
+    [
+     0.473,
+     0.5,
+     0.487,
+     0.497,
+     0.48
+    ]
+   ],
+   [
+    "227",
+    {
+     "not": 1,
+     "worthy": 4
+    },
+    [
+     0.487,
+     0.507,
+     0.513,
+     0.507,
+     0.51
+    ]
+   ]
+  ]
+ },
+ "briefing_claim": {
+  "items": 44,
+  "k": 5,
+  "unanimous": 41,
+  "elapsed_s": 30.6,
+  "non_unanimous": [
+   [
+    "25",
+    {
+     "says_nothing": 2,
+     "supports": 3
+    },
+    [
+     0.48,
+     0.51,
+     0.52,
+     0.58,
+     0.5
+    ]
+   ],
+   [
+    "40",
+    {
+     "supports": 4,
+     "says_nothing": 1
+    },
+    [
+     0.58,
+     0.54,
+     0.5,
+     0.5,
+     0.57
+    ]
+   ],
+   [
+    "69",
+    {
+     "says_nothing": 4,
+     "supports": 1
+    },
+    [
+     0.46,
+     0.46,
+     0.45,
+     0.5,
+     0.48
+    ]
+   ]
+  ]
+ },
+ "extraction_check": {
+  "items": 22,
+  "k": 5,
+  "unanimous": 22,
+  "elapsed_s": 11.5,
+  "non_unanimous": []
+ },
+ "issue_merge": {
+  "items": 5,
+  "k": 5,
+  "unanimous": 5,
+  "elapsed_s": 2.9,
+  "non_unanimous": []
+ },
+ "relevance": {
+  "items": 28,
+  "k": 5,
+  "unanimous": 28,
+  "elapsed_s": 14.8,
+  "non_unanimous": []
+ },
+ "rerank": {
+  "items": 47,
+  "k": 5,
+  "unanimous": 47,
+  "elapsed_s": 24.8,
+  "non_unanimous": []
+ },
+ "signal_referee": {
+  "items": 8,
+  "k": 5,
+  "unanimous": 7,
+  "elapsed_s": 4.4,
+  "non_unanimous": [
+   [
+    "7",
+    {
+     "no": 4,
+     "match": 1
+    },
+    [
+     0.46,
+     0.42,
+     0.45,
+     0.51,
+     0.39
+    ]
+   ]
+  ]
+ },
+ "_total": {
+  "items": 320,
+  "unanimous": 302,
+  "mean_variance": 0.0002954527777777777,
+  "median_std": 0.008691668228332674,
+  "calls": 1600,
+  "date": "2026-09-20",
+  "method": "each labelled row re-judged 5 times through the shadow module judge function; p = the decision probability (on_topic, worthiness, answers_query, p_supports, matches, needs_retrieval, p_same, P(opposes), stance confidence, p_other)"
+ }
+}

@@ -162,6 +162,8 @@ Counts are "label sides with pipeline / with Jev" on the disagreement rows: rera
 
 Follow-ups this surfaced, not done: store the article uri on relevance readings (ts_001 has no reference column); run the extraction check on fact-bearing fields only and pass the full summary; ask the citation check only about factual sentences.
 
+Consistency (2026-09-20): every labelled row re-judged five times through its shadow's judge function, 1,600 calls, no errors: the label was identical on all five runs for 302 of 320 rows; median standard deviation of the decision probability 0.009, mean variance 0.0003; every row that moved sat within a few points of 0.5. Least stable output is the honeypot's compound stance/target/attack label (43 of 50). Per-row results in `eval/jev_labels/consistency.json`; runner in the session scratchpad (`ts/labels/consistency_*.py`). The standalone runs did not reach `llm_usage_log` (the client's usage writer needs the app's queue), so the shadow ledgers are unchanged.
+
 ### Verification
 `python3 -m py_compile` over every touched file in bugfixing, oviva and abm: clean.
 Alembic heads: bugfixing `ts_011`, oviva `ts_005`, abm `ts_006`. Row counts at the time of
