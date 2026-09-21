@@ -368,18 +368,57 @@ def _inputs(devs, *, post_share=1.0, hiring=None):
             "jobs_collection": _collection(30, 40)}
 
 
+def _mixed(n_independent, n_total):
+    """Launches, ``n_independent`` of them reported by somebody outside."""
+    return [_dev("product_launch", f"V{i}", n=i,
+                 provenance=("independently_reported" if i < n_independent
+                             else "vendor_source_only"))
+            for i in range(n_total)]
+
+
 def test_no_market_comparison_is_made_below_the_coverage_threshold():
     """Twenty launches against two customers is a fact about our collection
     when we only read a third of the vendors' channels. The template that
-    compares them across the market must stay silent."""
-    devs = ([_dev("product_launch", f"V{i}", n=i) for i in range(6)]
-            + [_dev("customer", "V1")])
+    compares them across the market must stay silent.
+
+    Three of the seven developments here are independently reported, which
+    clears MIN_INDEPENDENT_SHARE, so vendor coverage is the only gate the
+    assertions are testing.
+    """
+    devs = _mixed(3, 6) + [_dev("customer", "V1")]
     thin = ma.candidate_findings(_inputs(devs, post_share=0.3))
     assert not any(f["id"] == "product_vs_customer" for f in thin)
     # The observed-mix finding that replaces it says what it counts.
     assert any(f["id"] == "dominant_kind" for f in thin)
     full = ma.candidate_findings(_inputs(devs, post_share=0.9))
     assert any(f["id"] == "product_vs_customer" for f in full)
+
+
+def test_nothing_characterises_the_market_when_only_vendors_were_read():
+    """Vendors post launches far more than customer wins, so a corpus built
+    only from vendor channels produces that ratio whatever the market is
+    doing, and produces "the only source is the vendor" every period because
+    no other answer is reachable. Neither finding may run on that corpus, and
+    nor may the observed-mix finding that would otherwise stand in.
+    """
+    devs = _mixed(0, 6) + [_dev("customer", "V1")]
+    out = ma.candidate_findings(_inputs(devs, post_share=0.9))
+    ids = {f["id"] for f in out}
+    assert "product_vs_customer" not in ids
+    assert "dominant_kind" not in ids
+    assert "corroboration" not in ids
+    # Named developments are still reported; it is the market-wide claim
+    # about them that is withheld.
+    assert "adoption" in ids
+
+
+def test_the_market_findings_return_once_outside_sources_are_read():
+    """The gate is about our reading, not a permanent silence. Give the same
+    developments outside sourcing and both findings come back."""
+    devs = _mixed(3, 6) + [_dev("customer", "V1")]
+    ids = {f["id"] for f in ma.candidate_findings(_inputs(devs, post_share=0.9))}
+    assert "product_vs_customer" in ids
+    assert "corroboration" in ids
 
 
 def test_hiring_concentration_needs_enough_roles_and_vendors():

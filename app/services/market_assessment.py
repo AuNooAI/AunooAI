@@ -1887,6 +1887,33 @@ def distribution(developments: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 #: Share of eligible vendors a source must have reached before a finding may
 #: compare counts across the market.
 MIN_COVERAGE_SHARE = float(os.getenv("MARKET_FINDING_MIN_COVERAGE", "0.5") or 0.5)
+#: Share of developments carrying a source other than the vendor, below which
+#: a finding may not characterise the market's behaviour.
+#:
+#: Two findings here count vendor announcements and then say something about
+#: the market: which kind of announcement dominates, and whose word the
+#: developments rest on. Both are only about the market if we read enough
+#: besides the vendors for the balance to mean anything, and on this host we
+#: do not. The event extractors read vendor LinkedIn, vendor sites and
+#: LinkedIn jobs; the ``coverage`` extractor that would read trade press is
+#: registered and switched off. Matching corpus records onto events at report
+#: time recovers some outside sourcing, but only 12 of 101 developments in the
+#: last 30 days, and 19 of the 31 independent evidence items behind those are
+#: social posts rather than reporting.
+#:
+#: So "for most developments the only source is the vendor" was measuring how
+#: little we read and reporting it as a fact about the market, every period,
+#: with no other answer available to it. Same for the product-against-customer
+#: comparison: vendors post launches more than customer wins, so counting only
+#: vendor posts guarantees that result.
+#:
+#: ``MIN_COVERAGE_SHARE`` does not catch this. It asks whether we reached
+#: enough vendors, which we do; it never asks whether we reached anyone but
+#: vendors. This is that second question. Set at a third because below that
+#: the vendor-only share is carried by what we did not read, not by how the
+#: market behaves.
+MIN_INDEPENDENT_SHARE = float(
+    os.getenv("MARKET_FINDING_MIN_INDEPENDENT", "0.35") or 0.35)
 #: Share of the registry read before coverage counts as complete and no
 #: caveat is printed.
 COMPLETE_COVERAGE_SHARE = 0.9
@@ -2082,7 +2109,15 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     product_all = _devs_of(counted, *PRODUCT_TYPES)
     customers_all = _devs_of(counted, "customer")
     post_share = _coverage_share(post_cov)
-    if (len(product_all) + len(customers_all) >= MIN_DEVELOPMENTS_FOR_MIX
+    # Both branches below characterise the market from the mix of developments,
+    # so both need the mix to have come from somewhere other than the vendors.
+    # Reading only vendor channels guarantees product announcements outnumber
+    # customer ones, because that is what vendors post; saying so back is
+    # circular. See MIN_INDEPENDENT_SHARE.
+    independent_enough = (dist.get("independent_share") or 0) >= MIN_INDEPENDENT_SHARE
+    if not independent_enough:
+        pass
+    elif (len(product_all) + len(customers_all) >= MIN_DEVELOPMENTS_FOR_MIX
             and post_share is not None and post_share >= MIN_COVERAGE_SHARE):
         named = [d for d in customers_all if _customer_named(d)]
         if len(product_all) > 2 * len(customers_all):
@@ -2180,8 +2215,11 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             coverage="",
             developments=devs))
 
-    # 7. Whose word it all rests on.
-    if len(devs) >= MIN_DEVELOPMENTS_FOR_MIX:
+    # 7. Whose word it all rests on — only once somebody other than the
+    # vendors has been read. With vendor-only collection this counted our own
+    # inputs and reported them as a property of the market, every period, with
+    # no other answer available to it. See MIN_INDEPENDENT_SHARE.
+    if len(devs) >= MIN_DEVELOPMENTS_FOR_MIX and independent_enough:
         prov = dist.get("by_provenance") or {}
         vendor_only = prov.get("vendor_source_only", 0)
         indep = (prov.get("independently_reported", 0)

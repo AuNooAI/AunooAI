@@ -336,7 +336,7 @@ async def _gather_seed_articles(
 
     def _exact_match(t: str) -> list:
         sql = sa_text("""
-            SELECT uri
+            SELECT uri, title, news_source, source_country
             FROM articles
             WHERE topic = :topic
               AND (publication_date IS NULL OR
@@ -347,7 +347,24 @@ async def _gather_seed_articles(
         rows = db.facade._execute_with_rollback(
             sql, {"topic": t, "days": int(days_back), "limit": int(limit)},
         ).fetchall()
-        return [r._mapping["uri"] for r in rows]
+        return _hygiene([dict(r._mapping) for r in rows], t)
+
+    def _hygiene(rows: list, t: str) -> list:
+        """Run seed rows through the report corpus rules and return URIs.
+
+        Every path into a deck goes through here — explicit source topics, the
+        exact-name match and the semantic fallback — because the rules are
+        about what may be cited, not about how the article was found. Only the
+        source-topic path was filtered at first, and five of the six Wiley
+        tracker topics carry no source topics, so their decks would have gone
+        on citing press releases and aggregators.
+        """
+        try:
+            from app.services.report_corpus import filter_report_corpus
+            rows = filter_report_corpus(rows, topic=t)
+        except Exception as e:
+            logger.warning("corpus filter skipped for %r: %s", t, e)
+        return [r.get("uri") for r in rows if r.get("uri")]
 
     seen: set = set()
     ordered: list = []
@@ -378,14 +395,7 @@ async def _gather_seed_articles(
             # Without this a deck built from "…- France" still cited a BBC
             # Afrique story, because the country filter lives at corpus-build
             # time and this path went straight to the facade.
-            try:
-                from app.services.report_corpus import filter_report_corpus
-                rows = filter_report_corpus(
-                    [dict(r) for r in rows], topic=t,
-                )
-            except Exception as e:
-                logger.warning("corpus filter skipped for source topic %r: %s", t, e)
-            picked = [r["uri"] for r in rows]
+            picked = _hygiene([dict(r) for r in rows], t)
             if not picked:
                 # topic has no alignment scores yet — fall back to raw match
                 picked = _exact_match(t)
@@ -424,7 +434,17 @@ async def _gather_seed_articles(
             top_k=max(limit * 2, 60),
             metadata_filter={"publication_date": {"$gte": cutoff}},
         )
-        _add([r.get("id") for r in results])
+        # Third path into a deck, same rules. The vector store returns URIs,
+        # so fetch the columns the rules need before applying them.
+        uris = [r.get("id") for r in results if r.get("id")]
+        if uris:
+            rows = db.facade._execute_with_rollback(sa_text(
+                "SELECT uri, title, news_source, source_country "
+                "FROM articles WHERE uri = ANY(:u)"
+            ), {"u": uris}).fetchall()
+            by_uri = {dict(r._mapping)["uri"]: dict(r._mapping) for r in rows}
+            ranked = [by_uri[u] for u in uris if u in by_uri]
+            _add(_hygiene(ranked, topic))
     except Exception as e:
         logger.warning("Semantic seed fallback failed for '%s': %s", topic, e)
 

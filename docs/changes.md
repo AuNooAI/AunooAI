@@ -173,6 +173,30 @@ The non-English markets barely move: France loses exactly the one article that p
 has no country filter, so the topic has always been global English wearing a US label. The United
 Kingdom at 7 of 74 confirms independently why that topic was archived earlier today.
 
+### Fix · the corpus rules reached only one of three seed paths
+`_gather_seed_articles` finds a deck's articles three ways: explicit source topics, an exact match
+on the tracked name, and a semantic search for a free-typed name. Only the first was filtered.
+Five of wileytest's six tracker topics carry no source topics at all, so their decks took the
+exact-match path and would have gone on citing press releases and aggregators no matter how many
+rules we added.
+
+All three paths now go through one `_hygiene` helper. The exact-match query was widened to fetch
+the columns the rules need, and the semantic path fetches them for the URIs the vector store
+returns. The rules are about what may be cited, not about how the article was found.
+
+Effect on wileytest's decks, seed capped at 60:
+
+| Deck | Seed after the rules |
+|---|---|
+| Open Science Transition Uncertainty | 52 |
+| Attacks on Expertise & Peer Review | 49 |
+| Patent Cliffs | 49 |
+| Scientific Publishers — General Monitoring | 49 |
+| Quantum Advantage | 43 |
+| U.S. Federal R&D Pullback | 43 |
+
+Between 8 and 17 of every 60 candidates were a wire, an aggregator or a blocked publisher.
+
 ### Propagation · the Wiley tenants
 wiley and wileytest now have the registry migration, `source_country.py`, all four corpus rules
 and the round-robin seed. `report_corpus.py` had zero drift on both and was copied;
