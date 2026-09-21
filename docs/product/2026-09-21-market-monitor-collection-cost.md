@@ -21,8 +21,10 @@ Those vendors do not post anything like that much. Over two weeks the whole list
 companies produced 480 posts: about one a day each, two for the busier ones, five on the single
 busiest day any one company managed. Five per vendor per run covers that.
 
-The saving is about $1.46 a day instead of $6.06, so roughly $44 a month rather than $186 for
-the same posts.
+Measured on the first run under the new setting: 430 records for $0.645, against 2,020 for $3.03
+that morning. That is $1.29 a day instead of $6.06 — roughly $39 a month rather than $186, for
+more posts, not fewer. The same run collected 25 new posts where the previous one collected 3,
+because it covered a working day rather than a weekend.
 
 What this unblocks: the budget cap is per market and it applies to every paid source. When
 LinkedIn posts ate the cap, company profiles, job postings and funding data stopped too. Those
@@ -45,6 +47,6 @@ The bound is per run, and a post the provider does not hand over is not offered 
 collection below once a day would need the number raised to match, or posts get missed. The
 setting is `MARKET_POSTS_PER_VENDOR` if that happens.
 
-This does not recover September. That month's budget is already 93% spent, so market 2 will
-pause paid collection around the 26th — later than the 22nd it was heading for, but still
-before month end. Finishing September means raising the cap.
+September could not be recovered by the saving alone — the month was already 93% spent — so the
+cap for that market went from $100 to $150. Month to date is now 62% of the new cap and the nine
+days left cost about $12.
