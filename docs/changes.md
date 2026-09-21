@@ -128,6 +128,28 @@ only market ones. That is right for foresight and topic reports, where a wire is
 and would be wrong for brand monitoring, where a company announcement is the point. Brand Watcher
 does not call this module.
 
+### Fix · a synthesis that used only four of its nine sources
+Rebuilding the `Oral-Systemic Health` synthesis showed it was not a synthesis.
+`_gather_seed_articles` concatenated each source topic's articles in order and then truncated at
+`limit`, so whichever topics came last got nothing. Over nine sources the whole 60-article budget
+went to Research, Japan, the United States and Germany, and France, Italy, Spain, Brazil and the
+consumer voice contributed **zero**. The consumer perspective is one of the three the customer
+asked for, and it was silently absent.
+
+The seed is now taken round-robin across source topics. Each source keeps its own ranking, a thin
+topic runs out early and hands its share back, and every declared source is represented:
+
+| Source | Articles in the seed |
+|---|---|
+| Research | 10 |
+| Japan, United States, Germany, Consumer Voice | 9 each |
+| France | 6 |
+| Spain, Italy | 3 each |
+| Brazil | 2 |
+
+Pre-existing, not introduced here, but it mattered far more once the synthesis went from six
+sources to nine.
+
 ### Verification
 France, read path, 7 candidate articles in and 6 out. The one dropped is the BBC Afrique story
 Oliver reported, correctly stamped `gb`. The Research topic declares no country and all 81 of its

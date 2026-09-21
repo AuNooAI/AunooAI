@@ -360,6 +360,15 @@ async def _gather_seed_articles(
 
     # 1. Explicit source topics — alignment-filtered (customer-facing quality)
     if source_topics:
+        # Take from every source topic in turn rather than draining them in
+        # order. Concatenating and then truncating at `limit` starved whichever
+        # topics came last: a synthesis over nine sources filled its whole
+        # 60-article budget from the first four (Research, Japan, the US and
+        # Germany) and gave France, Italy, Spain, Brazil and the consumer voice
+        # nothing at all, which is not a synthesis. Round-robin keeps each
+        # source's ranking intact while guaranteeing every one is represented,
+        # and a thin topic simply runs out early and hands its share back.
+        per_topic: list = []
         for t in source_topics:
             rows = db.facade.get_relevant_articles_for_topic(
                 t, days_back=days_back, limit=limit,
@@ -380,7 +389,19 @@ async def _gather_seed_articles(
             if not picked:
                 # topic has no alignment scores yet — fall back to raw match
                 picked = _exact_match(t)
-            _add(picked)
+            per_topic.append(picked)
+
+        if len(per_topic) == 1:
+            _add(per_topic[0])
+        else:
+            depth = 0
+            while len(ordered) < limit and any(len(p) > depth for p in per_topic):
+                for picked in per_topic:
+                    if depth < len(picked):
+                        _add([picked[depth]])
+                        if len(ordered) >= limit:
+                            break
+                depth += 1
         return ordered[:limit]
 
     # 2. Exact match on the tracked name (original behaviour)
