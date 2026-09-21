@@ -59,6 +59,12 @@ now fetches the column.
 
 Strict by choice: a publisher we cannot place is dropped, not kept.
 
+**Tracker decks** — `build_topic_pipeline` in **`app/services/wiley_candidate_pipeline.py`** picked
+its seed articles straight from the facade, so neither filter reached a deck and one built from the
+France source topic still cited the BBC Afrique story. Its seed now goes through
+`filter_report_corpus` too, which also gives it the publisher blocklist and headline dedup the
+report corpus already had. France's seed drops from 7 articles to 6, losing exactly that story.
+
 ### Verification
 France, read path, 7 candidate articles in and 6 out. The one dropped is the BBC Afrique story
 Oliver reported, correctly stamped `gb`. The Research topic declares no country and all 81 of its

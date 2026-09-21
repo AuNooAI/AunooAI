@@ -364,6 +364,18 @@ async def _gather_seed_articles(
             rows = db.facade.get_relevant_articles_for_topic(
                 t, days_back=days_back, limit=limit,
             )
+            # Same hygiene the report corpus gets, and for the same reason: a
+            # market source topic must only contribute its own country's press.
+            # Without this a deck built from "…- France" still cited a BBC
+            # Afrique story, because the country filter lives at corpus-build
+            # time and this path went straight to the facade.
+            try:
+                from app.services.report_corpus import filter_report_corpus
+                rows = filter_report_corpus(
+                    [dict(r) for r in rows], topic=t,
+                )
+            except Exception as e:
+                logger.warning("corpus filter skipped for source topic %r: %s", t, e)
             picked = [r["uri"] for r in rows]
             if not picked:
                 # topic has no alignment scores yet — fall back to raw match
