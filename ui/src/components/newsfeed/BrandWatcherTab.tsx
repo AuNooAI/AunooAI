@@ -3019,8 +3019,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null,
-                    tip: `On-brand news articles in the window (relevance >= 0.4 so name-collisions are excluded).${newsToday ? ` ${newsToday} arrived today, ${negNewsToday || 0} of them negative.` : ''}` },
+                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: (stats?.owned_articles || 0) > 0 ? `${stats!.owned_articles} owned excluded` : (newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`)), tone: negNewsToday ? -1 : null,
+                    tip: `Earned news articles in the window (relevance >= 0.4 so name-collisions are excluded).${newsToday ? ` ${newsToday} arrived today, ${negNewsToday || 0} of them negative.` : ''}${(stats?.owned_articles || 0) > 0 ? ` A further ${stats!.owned_articles} item(s) in the list are the company's own blog, press or LinkedIn posts, marked "owned"; they are not coverage, so no count or sentiment figure includes them.` : ''}` },
                   { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet,
                     tip: `Net sentiment of news coverage: (positive − negative) ÷ scored × 100, from ${newsSent.pos} positive, ${newsSent.neu} neutral, ${newsSent.neg} negative articles. Neutrals count in the base, so many neutrals pull the net toward 0.${newsCompAvg != null ? ` Competitor average is ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}.` : ''}` },
                   { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored`,
@@ -3240,6 +3240,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Articles</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_articles ?? 0}</p>
+                  {(stats?.owned_articles || 0) > 0 && (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400"
+                      title="The company's own blog, press or LinkedIn posts. They appear in the article list marked &quot;owned&quot; but count as publishing, not coverage.">
+                      {stats!.owned_articles} owned excluded
+                    </p>
+                  )}
                 </div>
                 <div className={`p-4 bg-white dark:bg-gray-800 rounded-lg border ${
                   primarySelectedId && (negativePct || 0) >= 15

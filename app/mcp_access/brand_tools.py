@@ -127,8 +127,18 @@ async def get_brand_stats(ctx=None, brand: str | None = None, brand_id: int | No
     stats = await get_stats(brand_id=bid, brand_ids=None, topics=None, days_back=days, session=None)
     cats = await get_category_distribution(brand_id=bid, brand_ids=None, topics=None,
                                            days_back=days, session=None)
-    return {"brand": name, "brand_id": bid, "days_back": days,
-            "stats": _plain(stats), "categories": _plain(cats)}
+    out = {"brand": name, "brand_id": bid, "days_back": days,
+           "stats": _plain(stats), "categories": _plain(cats)}
+    owned = (out["stats"] or {}).get("owned_articles") or 0
+    out["note"] = ("Counts here are earned coverage only: social posts and the brand's own "
+                   "blog, press page and LinkedIn are excluded, because a brand writing about "
+                   "itself is not coverage. get_brand_articles is deliberately wider and keeps "
+                   "owned rows (flagged is_owned), so it can return articles while these counts "
+                   "are zero. owned_articles says how many were left out.")
+    if owned and not (out["stats"] or {}).get("total_articles"):
+        out["note"] += (f" Here that is the whole picture: no earned coverage in {days} days, "
+                        f"against {owned} of the brand's own items.")
+    return out
 
 
 async def get_brand_articles(ctx=None, brand: str | None = None, brand_id: int | None = None,

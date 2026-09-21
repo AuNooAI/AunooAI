@@ -443,6 +443,10 @@ class StatsResponse(BaseModel):
     most_active_category: Optional[str] = None
     multi_category_count: int = 0
     category_breakdown: Dict[str, int] = {}
+    # The company's own blog and press posts, which the article list shows but
+    # the counts above leave out. Reported so a zero article count next to a
+    # populated list reads as "no earned coverage" and not as a broken query.
+    owned_articles: int = 0
 
 
 class CategoryDistribution(BaseModel):
@@ -2959,7 +2963,10 @@ async def get_stats(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
+              -- earned coverage only: social posts and the brand's own publishing
+              -- are excluded here. The article list is deliberately wider (it keeps
+              -- owned rows, flagged), so these counts can sit below the list length;
+              -- owned_articles below says by how much.
               AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
@@ -2988,11 +2995,29 @@ async def get_stats(
                 GROUP BY bac.article_uri
             ) cc ON a.uri = cc.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
+              -- earned coverage only: social posts and the brand's own publishing
+              -- are excluded here. The article list is deliberately wider (it keeps
+              -- owned rows, flagged), so these counts can sit below the list length;
+              -- owned_articles below says by how much.
               AND {_EARNED_NEWS}
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
+
+        # Owned rows the gate above removed: the brand's own blog, press page and
+        # LinkedIn. Same window and relevance gate as the article list, so this
+        # says how much of that list the counts above are not measuring. On oviva
+        # (21 Sep 2026) it was all of it: 0 earned articles against 19 owned.
+        owned_result = conn.execute(text(f"""
+            SELECT COUNT(DISTINCT a.uri)
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri
+            WHERE a.publication_date >= :start AND a.publication_date <= :end
+              AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+              AND a.analyzed = true AND NOT {_SOCIAL_ROW} AND {_OWNED_ROW}
+            {brand_filter} {topic_filter}
+        """), params)
+        owned_articles = owned_result.fetchone()[0] or 0
 
         # Brand count
         brand_count_result = conn.execute(text("SELECT COUNT(*) FROM bw_brands WHERE enabled = true"))
@@ -3008,6 +3033,7 @@ async def get_stats(
             most_active_category=most_active[0] if most_active[1] > 0 else None,
             multi_category_count=sr[3] or 0,
             category_breakdown=cat_counts,
+            owned_articles=owned_articles,
         )
     except Exception as e:
         logger.error(f"Error fetching brand watcher stats: {e}")

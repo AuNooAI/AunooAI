@@ -111,6 +111,9 @@ export interface BWStats {
   most_active_category: string | null;
   multi_category_count: number;
   category_breakdown: Record<string, number>;
+  // The brand's own blog/press/LinkedIn items in the same window. They show in
+  // the article list flagged "owned" but are left out of every count above.
+  owned_articles?: number;
 }
 
 export interface BWCategory {

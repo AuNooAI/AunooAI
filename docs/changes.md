@@ -1,5 +1,72 @@
 # Changes
 
+## 2026-09-21 — Brand Watcher stat cards said 0 articles above a list of 19
+
+### Goal
+Oliver read an Oviva brand overview built through the MCP server. `get_brand_stats` returned
+zero articles and an empty category breakdown for every window tried, while
+`get_brand_articles` returned 19 for the same brand and window. The overview concluded the
+dashboard's stat cards were broken.
+
+### Root cause: not a bug, an unexplained difference
+The stat cards were right. Every one of those 19 articles is Oviva's own oviva.com blog
+output, tagged `bias_source = 'owned:oviva.com'` by `app/services/bw_owned.py`. Since 18 Sep
+(`3d08db0a`) every Brand Watcher metric query gates on `earned_news_sql('a')`, which drops
+social rows and the brand's own publishing, because a brand writing about itself is not
+coverage. The article list deliberately keeps owned rows and flags them, so the list is wider
+than the counts by design.
+
+Counted against the Oviva database, 90 days to 21 Sep, brand 1, relevance floor 0.4:
+0 earned articles, 19 owned, 19 in the list. The two numbers never disagreed about the data.
+Nothing in the API or the UI said why they differ, so the only available reading was a broken
+query.
+
+### Fix · `/stats` reports what the gate removed (`520b8b6d`)
+**`app/routes/brand_watcher_routes.py`**. `StatsResponse` gains `owned_articles`, filled by one
+more count over the same window, brand filter and relevance floor as the article list, selecting
+the rows the earned gate excludes (`analyzed`, not social, `bias_source` starting `owned:` or
+`vendor:`). A zero article count now arrives with the number sitting behind it.
+
+Two comments in `get_stats` claimed the query used "the same gate as the article list". That
+stopped being true when the owned gate landed on 16 Sep. They now say what the query actually
+does and point at `owned_articles`.
+
+**`app/mcp_access/brand_tools.py`**. `get_brand_stats` carries a note explaining the earned-only
+rule and naming `get_brand_articles` as the wider read. When the earned count is zero and owned
+is not, the note says so outright, so an agent querying the API reaches the same conclusion a
+person looking at the dashboard would.
+
+**`ui/src/components/newsfeed/BrandWatcherTab.tsx`** and **`ui/src/services/brandWatcherApi.ts`**.
+Both Articles stat cards show "N owned excluded" under the count when there are owned rows, with
+the explanation in the tooltip. The News list already badged each owned row (shipped 18 Sep); the
+cards did not, which is why the two surfaces read as contradicting each other.
+
+### Verification
+Against the oviva database, the owned count query returns 19 — the same 19 the article list
+shows. After deploying and restarting oviva, `get_brand_stats` over 90 days returns
+`total_articles: 0`, `owned_articles: 19` and the note "no earned coverage in 90 days, against
+19 of the brand's own items". `npm run typecheck` clean: 228 known errors, no new ones, 18
+baseline errors now fixed. The rebuilt bundle `BrandWatcherTab-M0A93yKr.js` contains the new
+string.
+
+### Propagation
+- **bugfixing** (canonical): committed, UI rebuilt and deployed. **Not restarted** — another
+  session had a live LLM research call in flight at the time. It picks the change up on the
+  next restart.
+- **oviva**: backend patched, UI bundle and the six React templates rsynced, service restarted,
+  verified live.
+- **wiley**, **wileytest**: backend patched, **not restarted**, UI left alone. Their
+  `brand_watcher_routes.py` is ~135 lines behind canonical (the entity-resolution work), so the
+  patch was applied surgically rather than by copying the file. Their UI bundles are from 16 Sep
+  and syncing canonical's would carry five days of unrelated UI changes into a paying customer's
+  site for a one-line label. `owned_articles` is additive, so their API is correct without the
+  restart; the label appears at their next UI deploy.
+
+### Lessons
+When two endpoints answer the same question differently on purpose, the difference has to be in
+the payload, not only in a comment in the SQL. Nobody reading `get_brand_stats` could tell zero
+earned coverage from a broken query, and the first person to hit it concluded the wrong one.
+
 ## 2026-09-21 — Topic reports called every customer Wiley
 
 ### Goal
