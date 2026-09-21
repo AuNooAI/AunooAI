@@ -1,5 +1,75 @@
 # Changes
 
+## 2026-09-21 — Entity resolution pilot: which company, if any, owns a social account
+
+### Goal
+TypeSafe published a field guide of thirty Jev use cases. Entity resolution was the one that
+matched a problem we already have, so Oliver asked for a pilot. The problem: `social_accounts`
+holds 1,294 accounts on bugfixing that belong to no company, because `entity_identity.py` will
+only confirm a mapping on a stable platform id, a verified domain link, or a person saying so.
+A name resemblance may propose and can never confirm. That rule is right, and the consequence
+is that nothing proposes at all, so the backlog never moves.
+
+### Feature · entity_identity_shadow (record-only)
+**`app/services/entity_identity_shadow.py`** (new). Code picks a shortlist of at most eight
+companies whose names or keywords could plausibly be the account, and Jev answers over that
+shortlist only: a Choice for the owner (or none), a Choice for what a curator should do
+(`propose_owned`, `propose_community`, `propose_person`, `leave`), and five checks — is it a
+company account at all, a person, a community, an impersonation, and is a name resemblance the
+only thing linking it to the chosen company. That last question is the doctrine of
+`entity_identity.py` asked as a typed question.
+
+Nothing reads the rows. `bw_entity_social_identities` is not written to, no mapping is proposed,
+and `entity_identity.py` is unchanged. There is no inline caller: the batch is run by hand,
+which is honest, because the production path that would host it does not exist yet.
+
+**`alembic/versions/ts_014_entity_identity_shadow.py`** creates `entity_identity_shadow`, which
+stores the shortlist, what a plain name-match proposer would have picked, and Jev's answers.
+
+The shortlist filter needed two fixes found by running it, both in the file:
+- A shared word only counts when it is at least four characters, otherwise every `.com` handle
+  matched every `.com` company — Secure.com was a candidate for arc-codex.com and jobhuntify.com.
+- `com`, `net`, `org`, `www`, `official`, `team` and `global` joined the stop list.
+
+### Verification
+Two batches over the real backlog on bugfixing, 61 accounts each, 0 errors, 592 ms average
+(686 ms worst). Of 1,294 unmapped accounts only 61 have any plausible company at all, and only
+two carry evidence beyond a handle — no bio, no linked site, no profile summary.
+
+Jev named an owning company for exactly those two, and refused the other 59. That is the
+module's own doctrine reproduced without being told the rule: it will not confirm a company
+from a name. The softer curator question is where the value is — 57 `propose_owned`, 3
+`propose_person`, 1 `leave`.
+
+A gate of action confidence >= 0.4 removes every misrouted account; the three real vendors it
+put in the person lane (Tuskira, Simbian, Zaun) all sat at 0.18-0.32 confidence.
+
+The action confidence alone is not enough. `dropzone-gaming.bsky.social`, a gaming account, was
+queued under the vendor Dropzone AI at 0.84. Three more junk rows cleared the gate the same way.
+The `company_account` check caught all four: they score 0.27-0.53 while every real company
+account sits at 0.57 or above. Combining the two is what works:
+
+| Gate | Queued | Found that exact name matching misses | Known junk |
+|---|---|---|---|
+| action >= 0.4 | 53 | 11 | 4 |
+| action >= 0.4 and company >= 0.55 | 39 | 7 | 0 |
+| action >= 0.4 and company >= 0.60 | 33 | 5 | 0 |
+
+`QUEUE_ACTION_MIN = 0.4` and `QUEUE_COMPANY_MIN = 0.55` are recorded in the module as the
+measured values. Nothing uses them.
+
+### Propagation
+bugfixing only, and it stays that way. Entity Intelligence is a bugfixing feature, bugfixing is
+the site that asked for it, and wiley, wileytest and wbm do not have the
+`bw_entity_social_identities` table at all. Migration applied on bugfixing (head ts_013 to
+ts_014). No service restart: nothing in the running app calls the module.
+
+### Limits
+Seven accounts is a small win and the separation between real and junk sits between 0.53 and
+0.57, which is tight. The honest reading is that the model is tracking evidence faithfully and
+there is almost no evidence to track — 65 of the 1,294 unmapped accounts have a bio. Filling in
+profile data would help this more than tuning thresholds would.
+
 ## 2026-09-20 — MCP server: the timeline mementos as three tools (list_timelines, get_timeline, what_changed)
 
 ### Goal
