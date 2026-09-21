@@ -1,5 +1,80 @@
 # Changes
 
+## 2026-09-21 — Two market findings were measuring our collection, not the market
+
+### What Oliver saw
+Two of the five highlights on aisocnews.com looked worthless and never changed:
+
+> Vendors announce products far more often than customers.
+> For most developments the only source is the vendor.
+
+He asked whether we were collecting data at all.
+
+### We are. The findings were circular
+Collection is fine: 4,000–6,000 articles a week, 1,478 in the AI-SOC market corpus in 30 days.
+
+The problem is what reaches the *event* corpus that findings are computed from. All five enabled
+extractors read vendor-owned surfaces — vendor LinkedIn, vendor sites, LinkedIn jobs. The
+`coverage` extractor that would read trade press is registered and switched off
+(`app/services/entity_event_extractors/__init__.py`), because deterministic rules cannot tell a
+passing mention from a story about the company. So 938 of the 940 events ever recorded carry
+`corroboration = 'vendor_claim'`.
+
+Run on that corpus both findings are arithmetic with one reachable answer. "The only source is the
+vendor" restates our own inputs. And vendors post launches more than customer wins, so counting
+only vendor posts guarantees the product/customer result — which this period was 72 against 34,
+clearing a threshold of 68 by four and then calling it "far more often".
+
+`MIN_COVERAGE_SHARE` did not catch this. It asks whether we reached enough vendors, which we do.
+It never asks whether we reached anyone but vendors.
+
+### Fix · one gate, on that second question
+**`MIN_INDEPENDENT_SHARE`** (`app/services/market_assessment.py`, default 0.35, override
+`MARKET_FINDING_MIN_INDEPENDENT`). A finding may not characterise the market unless at least a
+third of developments carry a source other than the vendor.
+
+It gates the corroboration finding and the *whole* product-vs-customer block, both branches.
+Gating only the comparison would have let the `dominant_kind` fallback fire instead — "Product
+launch is the most common kind of development" — which has the same defect in different words.
+
+The report does not read the stored `corroboration` column; it rebuilds provenance at report time
+by matching corpus records onto events. That recovers more than the column suggests, but still
+only 12 of 101 developments, and 19 of the 31 independent evidence items behind those are social
+posts rather than reporting. A first pass set the threshold at 0.05 against the stored column and
+suppressed nothing.
+
+### Effect
+aisocnews.com highlights are now:
+
+    1 acquisition in the period.
+    New funding for StrikeReady.
+    Customer announcements from Wirespeed, Spectrum Security, HarkX, Anvilogic and 12 more.
+    58 of 97 vendors had a development.
+
+`adoption` takes the freed slot: named developments instead of a market-wide ratio claim.
+
+### Tenants
+Applied surgically to oviva and sunstar rather than by file copy — both had drifted from bugfixing
+(~116 and ~153 lines). oviva was affected and is fixed: one market, independent share 0.0, both
+findings were firing. sunstar has no Market Monitor markets at all (`bw_markets` is empty; its
+seven "markets" are keyword groups), so the patch is inert there. All three restarted and verified.
+
+### Tests
+`tests/test_market_assessment.py`: 53 pass. `test_no_market_comparison_is_made_below_the_coverage_threshold`
+had its fixture given independent provenance so the vendor-coverage gate stays the thing under
+test. Two added: nothing characterises the market on a vendor-only corpus, and both findings
+return once outside sourcing is present.
+
+### Still open
+The gate is a suppression, not a repair. The findings only become worth printing once the
+`coverage` extractor exists and earned press reaches events. Two things block that:
+`market_post_review.candidates()` scopes to `a.bias_source = 'vendor:linkedin'`, so trade press is
+never given a verdict (236 of 243 earned-press articles in the corpus have none), and
+`owned_post.run()` filters to `l.channel IN ('owned_social','owned_web')`, so a reviewed news
+article would be dropped anyway.
+
+Also: a tweet counts as an "independent" voice in `_evidence_from_record`. Left alone here.
+
 ## 2026-09-21 — A market topic now means a country, because we resolve the publisher ourselves
 
 ### Goal
