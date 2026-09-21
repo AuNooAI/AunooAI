@@ -174,6 +174,35 @@ def _title_key(title: str) -> str:
     return " ".join(t.split()[:12])
 
 
+# Tenants that predate per-group collection countries have no
+# ``keyword_groups.country`` column at all. Asking anyway makes the facade log
+# an ERROR for every topic of every report, on tenants where the answer can
+# only ever be "no country". Establish once whether the column exists.
+_HAVE_GROUP_COUNTRY: "bool | None" = None
+
+
+def _group_country_column_exists(db) -> bool:
+    global _HAVE_GROUP_COUNTRY
+    if _HAVE_GROUP_COUNTRY is None:
+        try:
+            # information_schema always exists, so this asks the question
+            # without provoking the error we are trying to avoid.
+            from sqlalchemy import text as _sa_text
+            row = db.facade._execute_with_rollback(_sa_text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'keyword_groups' AND column_name = 'country' "
+                "LIMIT 1"
+            )).fetchone()
+            _HAVE_GROUP_COUNTRY = row is not None
+        except Exception as e:
+            _log.debug("report corpus: could not inspect keyword_groups: %s", e)
+            _HAVE_GROUP_COUNTRY = False
+        if not _HAVE_GROUP_COUNTRY:
+            _log.info("report corpus: no keyword_groups.country on this tenant; "
+                      "country filtering is off, the other rules still apply")
+    return _HAVE_GROUP_COUNTRY
+
+
 def market_country_for_topic(topic: str):
     """The ISO2 country a topic is supposed to be about, or None.
 
@@ -187,6 +216,8 @@ def market_country_for_topic(topic: str):
         from app.database import get_database_instance
         from sqlalchemy import text as _sa_text
         db = get_database_instance()
+        if not _group_country_column_exists(db):
+            return None
         row = db.facade._execute_with_rollback(_sa_text(
             "SELECT country FROM keyword_groups "
             "WHERE topic = :t AND country IS NOT NULL AND country <> '' LIMIT 1"

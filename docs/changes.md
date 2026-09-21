@@ -173,6 +173,34 @@ The non-English markets barely move: France loses exactly the one article that p
 has no country filter, so the topic has always been global English wearing a US label. The United
 Kingdom at 7 of 74 confirms independently why that topic was archived earlier today.
 
+### Propagation · the Wiley tenants
+wiley and wileytest now have the registry migration, `source_country.py`, all four corpus rules
+and the round-robin seed. `report_corpus.py` had zero drift on both and was copied;
+`wiley_candidate_pipeline.py` (22 lines of drift), `database_models.py` (4) and
+`database_query_facade.py` (107 and 112) were patched surgically. `keyword_monitor.py` was left
+alone: those tenants predate per-group collection countries entirely, so there is nothing for the
+ingest filter to filter on.
+
+This is where the aggregator and wire rules earn their keep. The eligible evidence pool on
+wileytest holds 17,827 GlobeNewswire articles, 7,725 from Yahoo Finance, 7,065 from Google News,
+6,196 from Head Topics, 5,584 from OpenPR, 3,639 from Business Wire and 3,269 from PR Newswire.
+Against the real deck corpora, at alignment above 0.7 over 180 days:
+
+| Topic | Corpus | After the rules |
+|---|---|---|
+| M&A Updates | 180 | 116 |
+| Quantum Computing | 180 | 129 |
+| AI & Content Licensing | 180 | 130 |
+
+Between a quarter and a third of what a Wiley deck could have cited was a press release or an
+aggregator re-hosting somebody else's story.
+
+One fix came out of this. `market_country_for_topic` asked `keyword_groups` for a `country`
+column that does not exist on tenants predating per-group countries, so the facade logged an ERROR
+for every topic of every report. It now establishes once, through `information_schema`, whether
+the column is there, says so at INFO, and skips the query thereafter. The other three rules are
+unaffected.
+
 ### Propagation
 bugfixing (canonical) and sunstar have the service, the migration applied, and both filters.
 `keyword_monitor.py` and `database_query_facade.py` have drifted between trees and were patched
