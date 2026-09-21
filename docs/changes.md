@@ -217,12 +217,38 @@ it, and wiley, wileytest and wbm do not have the `bw_entity_social_identities` t
 Migrations applied on bugfixing (ts_013 through ts_015). No service restart: nothing in the
 running app calls the shadow, and the Voices lookup is a no-op where the table is absent.
 
-The Voices wiring is the one piece whose value is somewhere else. Oviva is the site with the
-patients and the prescribing clinicians, and the 49 accounts the mapping would place there — 32
-customers, 9 commentators, 7 promoters and 1 employee — are sitting in a scratchpad file, not in
-a database. Putting them in front of Voices on oviva needs three things and Oliver's go, because
-it means running a shadow against a customer site: migrations ts_014 and ts_015 there, the
-shadow module and the updated `audience_voices.py` copied over, and a batch run. Not done.
+**Live on oviva, on Oliver's go.** Its migration chain stops at ts_005 and does not carry
+bugfixing's ts_006 onwards, so the table was created there by an oviva-scoped migration,
+`ident_001`, following the `voice_001` and `tl_001` precedent in the same directory. It creates
+the table in one step, with the same columns as ts_014 and ts_015 together.
+`entity_identity_shadow.py` and `audience_voices.py` were copied across, both byte-identical to
+canonical beforehand, so nothing local was overwritten. Migration applied, batch run on oviva
+writing 120 rows to its own database, service restarted with no background jobs in flight and
+no errors on startup.
+
+### Incident · the wiring's only contribution on oviva was wrong, and is now gated out
+The batch placed 49 accounts with a mappable affiliation. 47 of them were already placed by the
+market profile, which is the stronger source and runs first, so the new source contributed
+exactly one account — and that one was wrong. `winstvu` was called a `customer` of Noom at 0.89
+while the account's own profiler note reads "No clear connection. The account mentioned Noom
+once in a critical reaction post about program leadership."
+
+Checked across all 49, the affiliation answer agrees with the profiler note 47 times. Both
+disagreements were `customer` read off a single critical mention, and both scored low on whether
+the profile states the connection: 0.09 and 0.24. So `AFFILIATION_MIN_STATED = 0.3` now gates
+the Voices lookup as well as the curator queue.
+
+It costs nothing today, because everything the profiler did corroborate was already placed by
+the market profile. After the floor the new source places nothing on oviva, which is the right
+answer: 88 of 688 posting accounts are placed, 85 by market profile and 3 by post votes,
+unchanged from before this work.
+
+**What this says about the wiring.** It is correct and it is live, and on today's data it is a
+no-op. The gap it was built for is real — 599 of 688 posting accounts reach Voices as
+bystanders — but the shadow only judged 35 of those 599, because an account has to name one of
+the eight brands somewhere before it is asked about. The other 553 mention no brand at all.
+Naming what kind of voice those accounts are is a question for the post-level social
+evaluation, not for a module whose question is "which company does this account belong to".
 
 ### Limits
 Seven accounts is a small win and the separation between real and junk sits between 0.53 and

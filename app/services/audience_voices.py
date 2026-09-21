@@ -141,6 +141,12 @@ AFFILIATION_ROLE_MAP = {
     "not_a_person": None,
 }
 AFFILIATION_MIN_CONFIDENCE = 0.4
+# The affiliation has to be one the profile declares, not one inferred from a
+# passing mention. On oviva 47 of 49 affiliations agreed with the account's own
+# profiler note; both that disagreed were "customer" read off a single critical
+# post, at 0.09 and 0.24 here. Everything the profiler did corroborate was
+# already placed by the market profile, so this floor costs nothing today.
+AFFILIATION_MIN_STATED = 0.3
 
 HEALTH_ROLES = {"patient", "clinician", "caregiver"}
 # "practitioner" on a market profile means "in the market's field", which
@@ -267,11 +273,13 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
              WHERE s.jev_error IS NULL
                AND s.jev_affiliation IS NOT NULL
                AND COALESCE(s.jev_affiliation_confidence, 0) >= :minconf
+               AND COALESCE(s.jev_affiliation_stated, 0) >= :minstated
                AND (LOWER(sa.platform), sa.handle_canonical)
                    IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
              ORDER BY LOWER(sa.platform), sa.handle_canonical, s.recorded_at DESC
         """), {"plats": plats, "handles": handles,
-               "minconf": AFFILIATION_MIN_CONFIDENCE}).fetchall() if has_table else []
+               "minconf": AFFILIATION_MIN_CONFIDENCE,
+               "minstated": AFFILIATION_MIN_STATED}).fetchall() if has_table else []
     except Exception as e:  # noqa: BLE001 - the shadow table is not on every site
         logger.debug("account_audiences: affiliation lookup failed: %s", e)
         affiliated = []
