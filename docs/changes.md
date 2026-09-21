@@ -58,6 +58,38 @@ account sits at 0.57 or above. Combining the two is what works:
 `QUEUE_ACTION_MIN = 0.4` and `QUEUE_COMPANY_MIN = 0.55` are recorded in the module as the
 measured values. Nothing uses them.
 
+### Verification · second read on the oviva site (read-only)
+Oliver asked for the same logic against oviva's 688 unmapped accounts. Run from this tree with
+a scratchpad runner: oviva's database was read and nothing was written to it, no files were
+placed in its tree, and no table was created there. What went to TypeSafe was public profile
+metadata — handle, display name, bio, follower counts — and oviva's own brand names. No
+articles, no customer content.
+
+Oviva's accounts carry far more evidence than this site's: 105 of 688 have a bio, against 65 of
+1,294 here. 22 accounts had a plausible company, 7 of those had a bio or a profile summary, and
+all four curator lanes were used for the first time.
+
+Every one of the 7 accounts with evidence was judged correctly:
+
+- `oviva_de`, `oviva_uk` and `noom` named as the companies' own pages, confidence 0.99-1.00,
+  and these were the only three accounts Jev would name an owner for.
+- `_theemilyera`, `downsizing_danielle_ww` and `sophpezzuti` named as individuals, person
+  0.94-0.97 against company 0.02-0.04. They are WeightWatchers members, not the brand.
+- `ovivabelt` set aside. It is a period-pain TENS device company that happens to share the
+  Oviva name — the exact collision `entity_identity.py` exists to prevent. Jev read it as a
+  real company account (0.94) that is not the listed one, name-resemblance-only at 0.70.
+
+Five accounts beginning "noom" (`noomabidjan`, `noomvibe`, `noomnoomspider`, `noomhome`,
+`noom.living`) are not Noom. The company-account check scored them 0.15-0.49 and the gate
+excluded all five. Two Instagram recipe and coaching accounts were called communities.
+
+**The company threshold does not travel between sites.** The band between the worst real
+company page and the best impostor was 0.53-0.57 here and 0.54-0.61 on oviva, so the 0.55
+constant costs a real page on oviva (Numan's LinkedIn). What does travel is the evidence test:
+on both sites every account carrying a bio, a linked site or a profile summary was judged
+correctly, and every mushy 0.6-0.9 answer came from an account with nothing but a name. The
+comment above the constants in the module now says so.
+
 ### Propagation
 bugfixing only, and it stays that way. Entity Intelligence is a bugfixing feature, bugfixing is
 the site that asked for it, and wiley, wileytest and wbm do not have the
