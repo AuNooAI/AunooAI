@@ -197,6 +197,35 @@ Effect on wileytest's decks, seed capped at 60:
 
 Between 8 and 17 of every 60 candidates were a wire, an aggregator or a blocked publisher.
 
+### Incident · wileytest never got the Three Horizons token ceiling
+Two of the six wileytest decks failed to rebuild with "Three Horizons response was not valid
+JSON". Not a model producing bad JSON: both broke at roughly 8,500 characters, which is
+truncation. `wiley_candidate_pipeline.py` on wiley and wileytest still called
+`agenerate_response` without raising the wrapper's 2,000-token default. Canonical and sunstar have
+carried the fix since 2 September; it was never propagated.
+
+Patent Cliffs and Quantum Advantage happen to produce the longest payloads, so they were the two
+that hit it. Ported to both tenants; both rebuilt on the retry.
+
+Worth knowing on its own: the failure surfaces as a JSON parsing error, which sends you looking at
+the model's output rather than at the token ceiling. Any deck on those tenants whose payload ran
+long has been failing this way.
+
+All six wileytest decks now carry zero wire, aggregator or blocked-publisher rows:
+
+| Deck | Articles |
+|---|---|
+| Open Science Transition Uncertainty | 52 |
+| Attacks on Expertise & Peer Review | 49 |
+| Patent Cliffs | 49 |
+| Scientific Publishers — General Monitoring | 49 |
+| Quantum Advantage | 43 |
+| U.S. Federal R&D Pullback | 43 |
+
+All six are `auto_generated` and await approval; the three that were `human_reviewed` have their
+previous overlays backed up. The wiley tenant was left alone by choice and its five approved decks
+still sit on the unfiltered corpus.
+
 ### Propagation · the Wiley tenants
 wiley and wileytest now have the registry migration, `source_country.py`, all four corpus rules
 and the round-robin seed. `report_corpus.py` had zero drift on both and was copied;
