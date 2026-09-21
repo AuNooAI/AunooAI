@@ -102,9 +102,31 @@ The United States falls furthest because it was the least American: what survive
 News, Times Argus), trade and national titles (TechTimes, US Magazine, TheStreet, SciTechDaily)
 and an American Heart Association newsroom release.
 
-Still open and deliberately not changed: press-release wires. One PR Newswire item and one
-vendor-placed piece on a local paper survive the rules, because a wire is a different category
-from an aggregator and excluding it is an editorial decision of its own.
+### Fix · press-release wires excluded as well
+`_DEFAULT_WIRE_SOURCES`, override `REPORT_WIRE_BLOCKLIST`, empty turns it off. A wire item is a
+company talking about itself, carried verbatim — not a newsroom's judgement about the world — and
+counting it as evidence lets anyone with a budget place a claim in a customer's deck. It is a
+third list rather than an extension of the other two because the problem is authorship, not
+re-hosting, and nobody is alleging bad faith.
+
+Grounded in Sunstar's corpus: prtimes.jp (168 articles), globenewswire.com (145), openpr.com
+(100), prnewswire.com (33), businesswire.com (10), presseportal.de (5), prweb.com (3), plus the
+usual international ones for cover.
+
+Two near-misses were deliberately left off. `europapress.es` and its health vertical
+`infosalus.com` match "press" by name but are Spain's second news agency. `newsroom.heart.org` is
+the American Heart Association publishing its own research, which is a primary source rather than
+a paid distribution channel.
+
+Seed corpus with all four rules: Japan 31 → 24, United States 60 → 13, Germany 20 → 14, France
+7 → 6, Spain 4 → 3, Italy and Brazil unchanged. The wire rule costs one article each on Japan,
+Germany and the United States today, but removes 446 wire items from the corpus the decks draw on
+as they deepen.
+
+Note for anyone reusing this: the four rules apply to every topic the report corpus builds, not
+only market ones. That is right for foresight and topic reports, where a wire is weak evidence,
+and would be wrong for brand monitoring, where a company announcement is the point. Brand Watcher
+does not call this module.
 
 ### Verification
 France, read path, 7 candidate articles in and 6 out. The one dropped is the BBC Afrique story
