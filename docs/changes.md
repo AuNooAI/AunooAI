@@ -1,5 +1,71 @@
 # Changes
 
+## 2026-09-21 — Market topics filter by language, not country, and the obvious fix does not work
+
+### Goal
+Oliver saw a BBC article under Sunstar's French analysis and asked why.
+
+### Finding · the BBC article is French
+It is from BBC Afrique, BBC's French-language African service. Its stored `original_title` is
+"Voici ce qu'il faut manger pour protéger les bonnes bactéries de votre bouche". The English
+headline on screen is our own translate-at-insert, not an English source leaking in.
+
+### Fix · pass the country filter to every collector that takes it
+**`app/tasks/keyword_monitor.py`**, in `_search_with_collector`. The code passed a group's
+`country` only to collectors whose `search_articles` signature has a `country` parameter. NewsData
+uses that name; TheNewsAPI and the firehose call the same concept `locale`. So the only collector
+that ever received a country filter was NewsData, which is returning "exceeded your assigned API
+credits" on Sunstar. The signature check now tries `country` then `locale`.
+
+### Finding · that fix does not actually give us a country filter
+Measured against the live API before claiming otherwise. TheNewsAPI **ignores** `locale` on the
+`/v1/news/all` endpoint the collector uses:
+
+| Endpoint | no locale | locale=gb | locale=us | locale=fr |
+|---|---|---|---|---|
+| `/v1/news/all`, search "gum disease" | 190 | 190 | 190 | — |
+| `/v1/news/top`, search "health" | 992,762 | 35,195 | — | 5,807 |
+
+On `/news/all` the counts *and* the returned sources are identical for gb, us, in and no locale at
+all. On `/news/top` it works properly, and the sources come back national
+(morningstaronline.co.uk for gb, limportant.fr and france24.com for fr) — but that endpoint serves
+top stories only and would starve a niche query like "parodontite". The firehose accepts `locale`
+and ignores it by design, per its own docstring.
+
+The change is kept because it costs nothing and is correct for NewsData, and the measurement is
+recorded in the comment so the next person does not spend the afternoon re-discovering it.
+
+### Correction · the scale of the problem, measured properly
+A first pass counted national top-level domains and reported that only 8 of France's 35 articles
+were French. That was wrong. French outlets routinely use `.com` — futura-sciences.com,
+presse-citron.net and jameneledessert.com are all French. Counted by actual outlet:
+
+| France topic | Collected | Feeding the deck |
+|---|---|---|
+| French outlets | 29 | 4 |
+| Outside France (20min.ch, dhnet.be, bbc.com/afrique, digitalbusiness.africa) | 6 | 1 |
+
+So the contamination is about one article in six collected, not three in four. It is glaring in
+the deck only because the French deck rests on five approved articles, four of which are the same
+Alzheimer-and-gums story. One foreign article out of five is 20% of the evidence.
+
+### Open · what would actually fix it
+Two options, both measured:
+- A per-market `domains` allow-list. The collector already supports it and it works — a French
+  search narrowed from 21 results to 2 when restricted to three French domains. Precision goes to
+  100%, recall falls hard, which is painful on markets this thin.
+- Name the topics after languages rather than countries, which is what they have always been.
+
+A third, cheaper option given the numbers: exclude the short list of known non-national outlets per
+market and widen the thin markets' keywords, so a single Belgian article stops being a fifth of
+the evidence.
+
+### Propagation
+Five trees carry this block and all five were patched surgically, not copied: bugfixing
+(canonical), sunstar, bwtemplate, oviva, panaya. wiley and wileytest predate per-group country
+entirely and have no such block. oviva and panaya restarted clean; sunstar restarts after its
+re-collection finishes.
+
 ## 2026-09-21 — Sunstar: three new market topics, seven per-market tracker decks, and why a UK topic cannot work
 
 ### Goal

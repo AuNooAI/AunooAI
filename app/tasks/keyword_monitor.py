@@ -323,15 +323,40 @@ class KeywordMonitor:
             else:
                 logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
 
-            # Only collectors that take a country filter get one (NewsData does;
-            # TheNewsAPI, the firehose and the social collectors do not accept the
-            # keyword and would raise TypeError).
+            # Pass the group's country filter under whichever name the collector
+            # takes: NewsData calls it ``country``, TheNewsAPI and the firehose
+            # call it ``locale``. Matching on ``country`` alone meant only
+            # NewsData ever got it.
+            #
+            # MEASURED 21 Sep 2026, and the honest answer is that this does not
+            # give us a country filter. TheNewsAPI IGNORES ``locale`` on the
+            # /v1/news/all endpoint this collector uses: searching "gum disease"
+            # returned the same 190 articles and the same sources for locale=gb,
+            # locale=us, locale=in and no locale at all. It does work on
+            # /v1/news/top (992,762 unfiltered vs 35,195 for gb, 5,807 for fr,
+            # with correctly national sources), but that endpoint serves top
+            # stories only and would starve a niche query. The firehose accepts
+            # ``locale`` and ignores it by design (see its docstring).
+            #
+            # So every market group is still filtering by LANGUAGE alone, and a
+            # "France" topic collects Belgian, Swiss and BBC Afrique press. The
+            # parameter is passed anyway because it costs nothing and is correct
+            # for NewsData. Do NOT "fix" the market topics by re-adding a locale
+            # argument here — it has been tried. The real options are a per-market
+            # ``domains`` allow-list (works: 21 results narrowed to 2) or naming
+            # the topics after languages rather than countries.
+            # Sunstar's "France" topic was really francophone press, and carried
+            # Belgian, Swiss and BBC Afrique stories; only 8 of its 35 articles
+            # were on a French domain. Social collectors take neither name and
+            # would raise TypeError, so the signature check still guards the call.
             extra = {}
             if self.country:
                 try:
                     sig = inspect.signature(collector.search_articles).parameters
-                    if 'country' in sig:
-                        extra['country'] = self.country
+                    for _param in ('country', 'locale'):
+                        if _param in sig:
+                            extra[_param] = self.country
+                            break
                 except (TypeError, ValueError):
                     pass
             # A social provider returns the N most recent posts per platform, so the
