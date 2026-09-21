@@ -65,6 +65,47 @@ France source topic still cited the BBC Afrique story. Its seed now goes through
 `filter_report_corpus` too, which also gives it the publisher blocklist and headline dedup the
 report corpus already had. France's seed drops from 7 articles to 6, losing exactly that story.
 
+### Fix · the blocklist gap and the aggregators the foreign articles were hiding
+Rebuilding the United States deck on genuinely US publishers exposed two quality problems that
+23 foreign articles had been masking.
+
+**`naturalhealth365.com` was not on the report blocklist.** The list exists to keep
+health-misinformation sites out of customer decks and holds naturalnews.com, newstarget.com,
+healthranger.com, brighteon.com and beforeitsnews.com. naturalhealth365.com is a different domain
+of the same character, so it slipped through and put two articles into an oral-health customer's
+deck. Added.
+
+**Aggregators are now excluded from report corpora.** `_DEFAULT_AGGREGATOR_SOURCES` in
+**`app/services/report_corpus.py`**, overridable with `REPORT_AGGREGATOR_BLOCKLIST` and
+switch-off-able by setting it empty. They are real domains in real countries, so the publisher
+country filter has no reason to drop them, but a row from one is somebody else's story re-hosted:
+it credits the aggregator instead of the newsroom and double-counts a story we usually already
+hold from the original. The list is grounded in what Sunstar actually collected, not guessed:
+news.yahoo.co.jp (111 articles), us.headtopics.com (55), news.google.com (42), the Yahoo finance
+and vertical domains (57), bundle.app, lomazoma.com, smartnews.com, newsbreak.com,
+topics.smt.docomo.ne.jp, plus msn, flipboard, inkl, apple.news, ground.news and dailyhunt.
+
+Seed corpus per market with all three rules applied (country, blocklist, aggregators):
+
+| Market | Seed before | After country | After all three |
+|---|---|---|---|
+| Japan | 31 | 27 | 25 |
+| United States | 60 | 21 | 14 |
+| Germany | 20 | 17 | 15 |
+| France | 7 | 6 | 6 |
+| Spain | 4 | 3 | 3 |
+| Italy | 3 | 3 | 3 |
+| Brazil | 2 | 2 | 2 |
+
+The United States falls furthest because it was the least American: what survives is local TV
+(KCTV5, NBC San Diego, KUTV), local press (Herald-Review, Aspen Times, Star-Telegram, Journal
+News, Times Argus), trade and national titles (TechTimes, US Magazine, TheStreet, SciTechDaily)
+and an American Heart Association newsroom release.
+
+Still open and deliberately not changed: press-release wires. One PR Newswire item and one
+vendor-placed piece on a local paper survive the rules, because a wire is a different category
+from an aggregator and excluding it is an editorial decision of its own.
+
 ### Verification
 France, read path, 7 candidate articles in and 6 out. The one dropped is the BBC Afrique story
 Oliver reported, correctly stamped `gb`. The Research topic declares no country and all 81 of its

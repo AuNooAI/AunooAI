@@ -38,6 +38,36 @@ _DEFAULT_BLOCKED_SOURCES = (
     "healthranger.com",
     "brighteon.com",
     "beforeitsnews.com",
+    # Same character as the rest of this list and a different domain from
+    # naturalnews.com, which is why it slipped through. It put two articles
+    # into a rebuilt United States deck for an oral-health customer.
+    "naturalhealth365.com",
+)
+
+
+# Aggregators and syndication portals. They are real domains in real countries,
+# so the publisher-country filter has no reason to drop them, but a row from
+# one is somebody else's story re-hosted: it credits the aggregator instead of
+# the newsroom, and it double-counts a story we often already hold from the
+# original. A market topic asking "what is the French press saying" is not
+# answered by a Google News entry. Override with REPORT_AGGREGATOR_BLOCKLIST;
+# set it empty to turn the whole rule off.
+_DEFAULT_AGGREGATOR_SOURCES = (
+    "news.google.com",
+    "headtopics.com",
+    "newsbreak.com",
+    "msn.com",
+    "flipboard.com",
+    "smartnews.com",
+    "inkl.com",
+    "apple.news",
+    "ground.news",
+    "dailyhunt.in",
+    "bundle.app",
+    "lomazoma.com",
+    "yahoo.com",
+    "yahoo.co.jp",
+    "smt.docomo.ne.jp",
 )
 
 
@@ -45,6 +75,13 @@ def blocked_sources() -> set:
     raw = _os.getenv("REPORT_SOURCE_BLOCKLIST")
     if raw is None:
         return set(_DEFAULT_BLOCKED_SOURCES)
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def aggregator_sources() -> set:
+    raw = _os.getenv("REPORT_AGGREGATOR_BLOCKLIST")
+    if raw is None:
+        return set(_DEFAULT_AGGREGATOR_SOURCES)
     return {s.strip().lower() for s in raw.split(",") if s.strip()}
 
 
@@ -146,11 +183,14 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
                      "source_country; not country-filtering", topic, want_country)
         want_country = None
 
+    aggregators = aggregator_sources()
+
     seen: set = set()
     out: list = []
     n_blocked = 0
     n_dupe = 0
     n_country = 0
+    n_agg = 0
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -160,6 +200,9 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
         if _is_blocked(row, blocked):
             n_blocked += 1
             continue
+        if _is_blocked(row, aggregators):
+            n_agg += 1
+            continue
         key = _title_key(row.get("title") or "")
         if key and key in seen:
             n_dupe += 1
@@ -167,6 +210,8 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
         if key:
             seen.add(key)
         out.append(row)
+    if n_agg:
+        _log.info("report corpus: dropped %d aggregator row(s) for topic %r", n_agg, topic)
     if n_country:
         _log.info("report corpus: dropped %d article(s) not published in %s for topic %r",
                   n_country, want_country, topic)
