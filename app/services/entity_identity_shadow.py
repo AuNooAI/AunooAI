@@ -51,6 +51,17 @@ NONE_KEY = "none"
 # the mushy 0.6-0.9 answers all came from accounts with nothing but a name.
 QUEUE_ACTION_MIN = 0.4
 QUEUE_COMPANY_MIN = 0.55
+# A person reaches the queue only with a connection the profile states.
+# QUEUE_STATED_MIN is the line between a declared connection and an observed
+# one. Both are real: on oviva all 23 people with a claimed affiliation had a
+# genuine link to a brand. Above the line the profile says so -- a coach, an
+# affiliate code, "lifetime member" -- and a curator can check it. Below it
+# the link comes from what they post: patients prescribed the app, two
+# clinicians who prescribe it. Those are the wrong rows for an identity
+# mapping and the right ones for brand Voices, which is a different consumer.
+PERSON_AFFILIATIONS = frozenset({"employee", "executive", "customer", "promoter", "commentator"})
+QUEUE_AFFILIATION_MIN = 0.4
+QUEUE_STATED_MIN = 0.5
 
 
 def queue_decision(row: Dict[str, Any]) -> Optional[str]:
@@ -77,13 +88,18 @@ def queue_decision(row: Dict[str, Any]) -> Optional[str]:
         # matter: on oviva it put two personal creator accounts in this lane
         # while its own check scored them 0.18 and 0.25. Make the check agree.
         return "community" if (row.get("jev_community") or 0.0) >= 0.5 else None
-    # The person lane is recorded but never queued. Every account it picked on
-    # oviva really was an individual, and only three of ten had anything to do
-    # with the company: the rest were people who mentioned a brand once. That
-    # is a question nobody asks here -- "is this person connected to the
-    # company" -- and jev_name_only does not stand in for it, scoring 0.13-0.32
-    # for the affiliated and unaffiliated alike. Add the question before
-    # queueing the lane.
+    if action == "propose_person":
+        # This lane is gated on the affiliation answer, not on the action
+        # confidence: the action Choice was suppressing correct finds, among
+        # them a WeightWatchers affiliate whose profile carries her discount
+        # code. What matters is that something connects the person to the
+        # company and that the profile declares it, because a curator has to
+        # be able to check it.
+        affil = row.get("jev_affiliation")
+        if (affil in PERSON_AFFILIATIONS
+                and (row.get("jev_affiliation_confidence") or 0.0) >= QUEUE_AFFILIATION_MIN
+                and (row.get("jev_affiliation_stated") or 0.0) >= QUEUE_STATED_MIN):
+            return "person"
     return None
 
 
@@ -236,6 +252,29 @@ def _questions(candidates: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             "criteria": {"true": "It presents as a company it is probably not, or the handle looks squatted",
                          "false": "No sign of impersonation"},
         },
+        "affiliation": {
+            "type": "choice",
+            "instructions": ("If `account` belongs to an individual, what connects that person to the "
+                             "company chosen in `owner`, or failing that to the closest company in "
+                             "`candidates`? Read the profile as written; do not infer a job from an "
+                             "interest in the subject."),
+            "criteria": {
+                "not_a_person": "The account is not an individual's",
+                "none": "An individual with no stated connection to any company in the list",
+                "employee": "Works there, or says they do",
+                "executive": "Founded it, or leads it: founder, chief, head, director, partner",
+                "customer": "Uses the product or service, including as a patient or member",
+                "promoter": "Paid or partnered to promote it: coach, ambassador, affiliate, reseller",
+                "commentator": "Writes or speaks about it professionally: journalist, analyst, clinician",
+            },
+        },
+        "affiliation_stated": {
+            "type": "noul",
+            "instructions": ("Is the connection named in `affiliation` stated in the profile itself, "
+                             "rather than guessed from the subjects the account talks about?"),
+            "criteria": {"true": "The profile names the company, the role, or both",
+                         "false": "Nothing states it; it would be a guess from the topic"},
+        },
         "action": {
             "type": "choice",
             "instructions": ("What should a curator do with `account`? This is a softer call than `owner`: "
@@ -294,11 +333,15 @@ def resolve(account: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[s
         choice = owner.get("choice")
         brand_id = None if choice in (None, NONE_KEY) else int(choice)
         action = a["action"]
+        affil = a.get("affiliation") or {}
         return {
             "jev_owner_brand_id": brand_id,
             "jev_owner_confidence": float(owner.get("confidence") or 0.0),
             "jev_action": action.get("choice"),
             "jev_action_confidence": float(action.get("confidence") or 0.0),
+            "jev_affiliation": affil.get("choice"),
+            "jev_affiliation_confidence": float(affil.get("confidence") or 0.0),
+            "jev_affiliation_stated": float((a.get("affiliation_stated") or {}).get("noul") or 0.0),
             "jev_company_account": float(a["company_account"]["noul"]),
             "jev_person": float(a["person"]["noul"]),
             "jev_community": float(a["community"]["noul"]),
@@ -333,6 +376,7 @@ COLS = ["batch_key", "social_account_id", "platform", "handle", "display_name",
         "candidate_brand_ids", "candidate_count", "name_match_brand_id", "name_match_exact",
         "evidence_beyond_name",
         "jev_owner_brand_id", "jev_owner_confidence", "jev_action", "jev_action_confidence",
+        "jev_affiliation", "jev_affiliation_confidence", "jev_affiliation_stated",
         "jev_company_account", "jev_person",
         "jev_community", "jev_name_only", "jev_impersonation",
         "jev_model", "jev_latency_ms", "jev_error"]
@@ -431,6 +475,8 @@ def run_for_unmapped(limit: Optional[int] = None, *, scan: int = 400,
         "skipped_no_evidence": skipped_no_evidence,
         "queued": {k: sum(1 for r in ok if queue_decision(r) == k)
                    for k in ("owned", "person", "community")},
+        "affiliations": {k: sum(1 for r in ok if r.get("jev_affiliation") == k)
+                         for k in ("employee", "executive", "customer", "promoter", "commentator")},
         "actions": {k: sum(1 for r in ok if r.get("jev_action") == k)
                     for k in ("propose_owned", "propose_community", "propose_person", "leave")},
         "not_company_accounts": sum(1 for r in ok if (r.get("jev_company_account") or 0) < 0.5),

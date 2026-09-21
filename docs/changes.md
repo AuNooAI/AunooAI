@@ -132,6 +132,43 @@ check to clear 0.5 empties the lane on oviva, which is the right answer.
 
 After both corrections each site queues three accounts, and all six are right.
 
+### Feature · the affiliation question
+**`alembic/versions/ts_015_entity_identity_shadow_affiliation.py`** and the two new questions in
+the shadow. The person lane could tell an individual from a company and nothing else, so it was
+recorded and never queued. It now asks what connects the person to the company — `not_a_person`,
+`none`, `employee`, `executive`, `customer`, `promoter`, `commentator` — and separately whether
+the profile states that connection or the reader would be inferring it from what they post. The
+answer vocabulary is the one the system already uses: `employee` and `executive` are the
+relationships `entity_identity.py` models, and customer, clinician and journalist are Voices
+author roles.
+
+Re-ran both sites. bugfixing: the three company accounts and the meetup came back
+`not_a_person` at 0.99-1.00, the two unconnected individuals `none`, and jonathans_blog — a
+security startup CTO whose startup is not one of our brands — `none` at 0.51. Nothing queued in
+the person lane, which is right.
+
+oviva: 120 accounts, no errors, 71 seconds. 23 people carried a claimed affiliation and, checked
+against our own profiler notes, **every one of the 23 had a genuine link to a brand**. The
+question works. What the second answer does is rank how explicitly the profile declares it:
+
+- Above 0.5, the profile says so and a curator can check it: a WeightWatchers Coach Creator, a
+  customer-turned-coach, an affiliate whose bio carries her discount code, two accounts of a
+  self-described WW "lifetime member", an Oviva app user, a Noom event promoter.
+- Below it, the link comes from what they post rather than their profile: patients prescribed
+  the Oviva app, a former WeightWatchers employee, and two clinicians who prescribe Oviva to
+  their own patients.
+
+Both sets are real. The queue takes the declared ones because an identity mapping has to be
+checkable. The observed ones are the wrong rows for this module and exactly the right ones for
+brand Voices, which is a different consumer — 15 accounts on oviva, including the two
+prescribing clinicians.
+
+**The action confidence was the wrong instrument for this lane and is gone from it.** It had
+been suppressing correct finds, among them the affiliate with the discount code in her bio.
+Gating on the affiliation answer alone takes oviva's person queue from 3 to 8, and all 8 are
+right. Two I had written off as false positives were not: our own profiler says antjehh uses
+the Oviva app and bonvivant08 promotes Noom's events in Abidjan.
+
 ### Propagation
 bugfixing only, and it stays that way. Entity Intelligence is a bugfixing feature, bugfixing is
 the site that asked for it, and wiley, wileytest and wbm do not have the
