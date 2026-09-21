@@ -135,9 +135,17 @@ needs a higher number. That is the one thing to remember before touching
 `MARKET_POLL_INTERVAL_HOURS`.
 
 ### Verification
-Arithmetic from this month's run log, not a projection: 2,020 records at $3.03 is $0.00150 per
-record. At 5 per vendor a run fetches about 480 records, so roughly $0.73 a run and $1.46 a day
-against $6.06 now. Effect on collection is checked at the next scheduled run.
+Measured on the first run under the new bound, run 2246 at 20:47 on 21 Sep: **430 records,
+$0.645, 25 new posts, 147 seconds**. The 08:32 run that morning, the last at the old default:
+2,020 records, $3.03, 3 new posts, 489 seconds. 79% less spent.
+
+The 3-to-25 jump in new posts is not the fix, it is the calendar — the earlier run covered a
+weekend and this one a full working day.
+
+Nothing was clipped. Across the 12-hour window the busiest vendor published 2 posts and most
+published 1, against a bound of 5, and coverage runs unbroken from 11:35 that morning. The real
+rate is about $1.29 a day rather than the $1.46 projected, because vendors carry an average of
+4.5 recent posts rather than the full 5.
 
 Not a problem, and worth recording because it looks like one: new posts per run fell to 3-5 over
 19-21 Sep. That is the weekend. These vendors post 30-60 times a day Monday to Friday and 5-7 on
@@ -155,12 +163,15 @@ The same shape exists on the other two: oviva spends $8.13 of its $50 cap on
 `linkedin_company_post` against $0.75 on everything else; panaya $0.38 against $0.18. Smaller
 only because they track fewer vendors.
 
-### Still to decide
-September is already spent. At the new rate the remaining $7.15 lasts about five days, so paid
-collection for market 2 pauses around 26 September instead of 22. The cap is market-wide, so the
-pause also stops Crunchbase, jobs and profiles, which cost $1.56 between them. Raising
-`MARKET_MONTHLY_BUDGET_USD` is the only way to finish the month; that is a spending decision,
-not a code one.
+### Ops · budget cap raised to finish September
+September was already 93% spent when the fix landed, so even at the new rate market 2 would have
+paused paid collection around the 26th — and the cap is market-wide, so that pause also stops
+Crunchbase, jobs and profiles, which cost $1.56 between them.
+
+On Oliver's instruction, `MARKET_MONTHLY_BUDGET_USD` on bugfixing goes 100 to 150 (backup
+`.env.bak-marketcap-20260921_165235`). Month to date is then about $93.50 of $150, 62%, so the
+warning that started this work stops and the nine days left cost roughly $12. oviva stays at 50
+and panaya at 100; neither is near its cap.
 
 ## 2026-09-21 — Market topics filter by language, not country, and the obvious fix does not work
 
