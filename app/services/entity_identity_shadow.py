@@ -36,12 +36,19 @@ USE_CASE = "services.entity_identity_shadow:resolve"
 MAX_CANDIDATES = 8          # how many companies Jev may choose between
 NONE_KEY = "none"
 
-# Measured on the first batch of 61 accounts (2026-09-21), and not used by
-# anything yet. A future decide() would queue an account for a curator when
-# the action is propose_owned, its confidence clears ACTION_MIN, and the
-# account reads as a company at all. The second test is what matters: on its
-# own the action confidence queued dropzone-gaming.bsky.social under the
-# vendor Dropzone AI at 0.84, and company_account caught it at 0.53.
+# Measured on 2026-09-21 over 61 accounts here and 22 on the oviva site, and
+# not used by anything yet. A future decide() would queue an account for a
+# curator when the action is propose_owned, its confidence clears ACTION_MIN,
+# and the account reads as a company at all. The second test is what matters:
+# on its own the action confidence queued dropzone-gaming.bsky.social under
+# the vendor Dropzone AI at 0.84, and company_account caught it at 0.53.
+#
+# COMPANY_MIN is a starting point, not a constant to trust across sites. The
+# band between the worst real company account and the best impostor was
+# 0.53-0.57 here and 0.54-0.61 on oviva, so 0.55 costs a real page (Numan)
+# there. What travels is the evidence test: every account carrying a bio, a
+# linked site or a profile summary was judged correctly on both sites, and
+# the mushy 0.6-0.9 answers all came from accounts with nothing but a name.
 QUEUE_ACTION_MIN = 0.4
 QUEUE_COMPANY_MIN = 0.55
 
