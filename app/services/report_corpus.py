@@ -95,6 +95,32 @@ def _title_key(title: str) -> str:
     return " ".join(t.split()[:12])
 
 
+def market_country_for_topic(topic: str):
+    """The ISO2 country a topic is supposed to be about, or None.
+
+    A market topic is one whose collection group declares a country —
+    "Oral Health & Whole-Body Health - France" carries ``fr``. Ordinary topics
+    declare nothing and are never country-filtered.
+    """
+    if not topic:
+        return None
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text as _sa_text
+        db = get_database_instance()
+        row = db.facade._execute_with_rollback(_sa_text(
+            "SELECT country FROM keyword_groups "
+            "WHERE topic = :t AND country IS NOT NULL AND country <> '' LIMIT 1"
+        ), {"t": topic}).fetchone()
+    except Exception as e:
+        _log.debug("report corpus: country lookup failed for %s: %s", topic, e)
+        return None
+    if row is None:
+        return None
+    val = (dict(row._mapping).get("country") or "").strip().lower()
+    return val or None
+
+
 def filter_report_corpus(rows: list, *, topic: str = "") -> list:
     """Drop blocked publishers and near-duplicate headlines, in order.
 
@@ -105,12 +131,31 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
     if not rows:
         return []
     blocked = blocked_sources()
+
+    # A market topic must only cite its own country's press. Until Sep 2026 it
+    # could not: no collector honours a country filter, so "France" meant
+    # French-LANGUAGE press and a BBC Afrique story counted as French evidence.
+    # Publisher country is now resolved per domain and stamped on the article,
+    # so the corpus can simply require it.
+    want_country = market_country_for_topic(topic)
+    have_column = any(isinstance(r, dict) and "source_country" in r for r in rows)
+    if want_country and not have_column:
+        # The caller's SELECT does not fetch the column. Filtering on a key that
+        # is absent would discard the entire corpus, so decline and say so.
+        _log.warning("report corpus: topic %r wants country %s but rows carry no "
+                     "source_country; not country-filtering", topic, want_country)
+        want_country = None
+
     seen: set = set()
     out: list = []
     n_blocked = 0
     n_dupe = 0
+    n_country = 0
     for row in rows:
         if not isinstance(row, dict):
+            continue
+        if want_country and (row.get("source_country") or "").lower() != want_country:
+            n_country += 1
             continue
         if _is_blocked(row, blocked):
             n_blocked += 1
@@ -122,6 +167,9 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
         if key:
             seen.add(key)
         out.append(row)
+    if n_country:
+        _log.info("report corpus: dropped %d article(s) not published in %s for topic %r",
+                  n_country, want_country, topic)
     if n_blocked or n_dupe:
         _log.info(
             "report corpus%s: dropped %d blocked-publisher and %d duplicate "

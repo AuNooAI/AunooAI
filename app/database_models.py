@@ -379,6 +379,12 @@ t_articles = Table(
     Column('mbfc_credibility_rating', Text),
     Column('bias_source', Text),
     Column('bias_country', Text),
+    # Publisher country (ISO 3166-1 alpha-2) resolved by
+    # app/services/source_country.py, with the rung of the ladder that
+    # answered. Distinct from bias_country, which is free text written by
+    # the bias analysis and is empty on 99% of rows.
+    Column('source_country', String(2)),
+    Column('source_country_method', String(16)),
     Column('press_freedom', Text),
     Column('media_type', Text),
     Column('popularity', Text),

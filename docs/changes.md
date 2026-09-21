@@ -1,5 +1,98 @@
 # Changes
 
+## 2026-09-21 — A market topic now means a country, because we resolve the publisher ourselves
+
+### Goal
+Oliver saw a BBC article under Sunstar's French analysis, and the obvious fix — pass the group's
+country to the collector — turned out to be a dead end. He asked for a long-term fix rather than a
+band aid.
+
+### Why no collector can do this
+Measured against the live API. TheNewsAPI ignores `locale` on `/v1/news/all`, the endpoint the
+collector searches: "gum disease" returns the same 190 articles and the same sources for gb, us,
+in and no locale at all. Its own source directory ignores every filter too, and leaves `locale`
+empty even for `faz.net` and `sueddeutsche.de`. Per-article responses carry `language` but no
+country. Our own firehose accepts `locale` and discards it by design. NewsData honours `country`
+and is out of credits. So a country filter cannot be bought from a vendor.
+
+### Feature · publisher country as something we own
+**`app/services/source_country.py`** (new) resolves the country of a publisher *domain* once and
+caches it. Publishers repeat: on Sunstar 50 domains carry 90% of 25,698 articles and 250 carry
+96%, so the cost collapses after the first pass.
+
+The ladder, most trustworthy first, with the rung recorded per row so a wrong answer can be found
+rather than re-guessed:
+
+| Rung | What it is | Domains resolved on Sunstar |
+|---|---|---|
+| `manual` | an operator wrote it; never overwritten | 0 |
+| `tld` | a country-code suffix. Exact and free | 275 |
+| `mediabias` | the MBFC-seeded `mediabias` table we already ship, labels normalised | 160 |
+| `model` | a cheap model given the domain alone | 260 |
+| `model+` | the same model given two headlines in the publisher's own language | 16 |
+
+**711 of 711 publishers across the market topics resolved, nothing left unplaceable.** Tested
+first on twelve deliberately awkward publishers: the domain-only rung got ten, and both failures
+were an honest "unclear" rather than a wrong country, which is the failure mode that matters.
+Headlines resolved the last two. Spot checks after the real run: `20min.ch`→ch, `dhnet.be`→be,
+`futura-sciences.com`→fr, `zwp-online.info`→de, `excelsior.com.mx`→mx, `jameneledessert.com`→fr.
+
+**`alembic/versions/sc_001_source_country.py`** adds `news_source_countries` (keyed on the
+registrable domain, with `country`, `method`, `resolver_version`) and `articles.source_country` +
+`articles.source_country_method`. A NULL country is a real cached answer — "we looked and could
+not tell" — so an unanswerable domain is not paid for twice. Fully idempotent, because these
+trees have diverged: canonical branches off `ts_015`, sunstar off `art_text_001`.
+
+### Feature · the filter, on both sides
+**Collection** — `_filter_by_source_country` in **`app/tasks/keyword_monitor.py`** drops articles
+whose publisher is not in the group's country, before ingest and before the AI analysis step,
+which is also where the spending is. Groups without a country pass straight through, so nothing
+else on any tenant changes. Live France run: **27 French articles kept, 10 foreign dropped, zero
+unplaceable.**
+
+**Reporting** — `filter_report_corpus` in **`app/services/report_corpus.py`** holds a market topic
+to its own country when building a report, so the articles already collected under the old
+behaviour stop becoming evidence. It looks the country up from the topic's group, so no caller
+changed. It refuses to filter, loudly, if the caller's SELECT does not fetch `source_country` —
+filtering on an absent key would discard an entire corpus silently. `get_relevant_articles_for_topic`
+now fetches the column.
+
+Strict by choice: a publisher we cannot place is dropped, not kept.
+
+### Verification
+France, read path, 7 candidate articles in and 6 out. The one dropped is the BBC Afrique story
+Oliver reported, correctly stamped `gb`. The Research topic declares no country and all 81 of its
+articles pass untouched.
+
+What strict filtering does to each Sunstar market, from the stamped corpus:
+
+| Market | Collected | In country | Foreign | Approved before | Approved after |
+|---|---|---|---|---|---|
+| Japan | 678 | 646 | 32 | 21 | 19 |
+| Germany | 138 | 126 | 12 | 18 | 17 |
+| Italy | 61 | 56 | 5 | 3 | 3 |
+| Spain | 64 | 52 | 12 | 3 | 2 |
+| France | 36 | 30 | 6 | 6 | 5 |
+| Brazil | 15 | 11 | 4 | 2 | 2 |
+| United States | 1,385 | **527** | 858 | 80 | **45** |
+| United Kingdom | 74 | **7** | 67 | 0 | 0 |
+
+The non-English markets barely move: France loses exactly the one article that prompted this.
+**The United States loses 44% of its evidence**, because that group runs our own firehose, which
+has no country filter, so the topic has always been global English wearing a US label. The United
+Kingdom at 7 of 74 confirms independently why that topic was archived earlier today.
+
+### Propagation
+bugfixing (canonical) and sunstar have the service, the migration applied, and both filters.
+`keyword_monitor.py` and `database_query_facade.py` have drifted between trees and were patched
+surgically, never copied. wiley and wileytest predate per-group country entirely and have no
+country to filter on.
+
+### Lessons
+Check that a vendor honours a parameter before building on it, and record the measurement where
+the next person will look. Two sessions could have been spent re-passing `locale` to an endpoint
+that silently discards it.
+
 ## 2026-09-21 — Market Monitor bought 25 LinkedIn posts per vendor to collect one
 
 ### Goal

@@ -252,6 +252,61 @@ class KeywordMonitor:
         """Legacy method - now delegates to _init_collectors for multi-collector support"""
         return self._init_collectors()
 
+    def _filter_by_source_country(self, articles: List[Dict], keyword_text: str) -> List[Dict]:
+        """Keep only articles whose PUBLISHER sits in the group's country.
+
+        ``self.country`` is the group's ISO 3166-1 alpha-2 code and is None for
+        groups that do not care, which is most of them — those pass straight
+        through. For a market group it is the whole point: "France" is supposed
+        to mean French press, and until now it meant French-LANGUAGE press, so
+        Belgian, Swiss and BBC Afrique stories counted as French coverage.
+
+        Strict by design: a publisher we cannot place is dropped, not kept. The
+        registry resolved 711 of 711 publishers across sunstar's market topics,
+        so an unresolved one is rare and is better excluded than silently
+        counted as domestic evidence.
+        """
+        if not self.country or not articles:
+            return articles
+        try:
+            from app.services.source_country import (
+                countries_for_domains, domain_for_article,
+            )
+        except Exception as e:
+            # Never let a branding-style lookup stop a collection run.
+            logger.warning("source-country filter unavailable, passing through: %s", e)
+            return articles
+
+        want = self.country.lower()
+        domains = []
+        for art in articles:
+            dom = domain_for_article(art.get("url"), art.get("source"))
+            art["_source_domain"] = dom
+            if dom and dom not in domains:
+                domains.append(dom)
+        try:
+            resolved = countries_for_domains(self.db, domains)
+        except Exception as e:
+            logger.warning("source-country lookup failed, passing through: %s", e)
+            return articles
+
+        kept, dropped_foreign, dropped_unknown = [], 0, 0
+        for art in articles:
+            got = resolved.get(art.get("_source_domain"))
+            if got == want:
+                kept.append(art)
+            elif got:
+                dropped_foreign += 1
+            else:
+                dropped_unknown += 1
+        if dropped_foreign or dropped_unknown:
+            logger.info(
+                "Country filter (%s) on '%s': kept %d, dropped %d foreign and "
+                "%d unplaceable",
+                want, keyword_text, len(kept), dropped_foreign, dropped_unknown,
+            )
+        return kept
+
     def _deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
         """Remove duplicate articles based on URL, prioritizing providers with better metadata"""
         seen_urls = {}
@@ -629,6 +684,15 @@ class KeywordMonitor:
 
                     if not articles:
                         logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
+                        continue
+
+                    # A group that declares a country wants that country's PRESS.
+                    # No collector can give us that — see app/services/source_country
+                    # for the measurements — so we resolve the publisher ourselves
+                    # and drop what does not belong before anything is ingested or
+                    # enriched, which is also where the saving is.
+                    articles = self._filter_by_source_country(articles, keyword_text)
+                    if not articles:
                         continue
 
                     logger.info(f"Found {len(articles)} unique articles for keyword: {keyword_text} (from {len(all_articles)} total across collectors)")

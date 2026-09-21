@@ -1299,6 +1299,9 @@ class DatabaseQueryFacade:
             articles.c.summary,
             articles.c.publication_date,
             articles.c.news_source,
+            # Carried so the report corpus can hold a market topic to its own
+            # country — see app/services/report_corpus.filter_report_corpus.
+            articles.c.source_country,
             articles.c.topic_alignment_score,
         ).where(
             and_(
