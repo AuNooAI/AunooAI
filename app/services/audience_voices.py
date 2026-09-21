@@ -126,6 +126,22 @@ MARKET_ROLE_MAP = {
     "promoter_or_bot": "brand",
     "unrelated": None,             # says nothing about who they are; keep the post's reading
 }
+# The identity shadow's affiliation answer, in the same shape. "promoter"
+# follows promoter_or_bot to the brand voice, whose own label already covers
+# "affiliates, resellers or paid promotion". "commentator" is treated like
+# practitioner: it covers a reporter and a prescribing GP alike, so the post
+# decides and the industry default only steps in when the post says nothing.
+AFFILIATION_ROLE_MAP = {
+    "employee": "employee",
+    "executive": "employee",
+    "customer": "customer",
+    "promoter": "brand",
+    "commentator": None,
+    "none": None,
+    "not_a_person": None,
+}
+AFFILIATION_MIN_CONFIDENCE = 0.4
+
 HEALTH_ROLES = {"patient", "clinician", "caregiver"}
 # "practitioner" on a market profile means "in the market's field", which
 # covers both a prescribing GP and the patient on the programme. The profile
@@ -146,11 +162,13 @@ def _author_key(platform: Optional[str], author: Optional[str]) -> Optional[tupl
 def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple, Dict[str, Any]]:
     """Audience role per (platform, handle) from the account, not the post.
 
-    Two sources, in order of strength: the market profile's role when the
-    account was profiled, else a majority vote over every post of theirs
-    the social evaluation has classified (at least two posts, at least 60 %
-    agreeing, ``unknown`` never votes). Returns only the accounts where one
-    of the two gave an answer.
+    Three sources, in order of strength: the market profile's role when the
+    account was profiled; else a majority vote over every post of theirs the
+    social evaluation has classified (at least two posts, at least 60 %
+    agreeing, ``unknown`` never votes); else what the identity shadow read
+    off the profile itself, which is the only one of the three that can place
+    an account with no classified posts and no market profile. Returns only
+    the accounts where one of the three gave an answer.
 
     ``health`` decides what a profiled practitioner is; None = decide from
     the votes themselves (any patient/clinician/caregiver reading means a
@@ -232,6 +250,43 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
         if total >= _VOTE_MIN_POSTS and n / total >= _VOTE_MIN_SHARE:
             out[key] = {"role": role, "source": "account_posts", "market_role": None,
                         "org": None, "n": total}
+
+    # Third source, for accounts neither of the first two could place: what the
+    # identity shadow read off the profile. Silent where the table is absent.
+    try:
+        # Ask whether the table is there rather than finding out by failing:
+        # a failed statement aborts the transaction, and the caller's
+        # connection has to survive a site that never ran the migration.
+        has_table = conn.execute(
+            text("SELECT to_regclass('entity_identity_shadow')")).scalar() is not None
+        affiliated = conn.execute(text("""
+            SELECT DISTINCT ON (LOWER(sa.platform), sa.handle_canonical)
+                   LOWER(sa.platform), sa.handle_canonical, s.jev_affiliation
+              FROM entity_identity_shadow s
+              JOIN social_accounts sa ON sa.id = s.social_account_id
+             WHERE s.jev_error IS NULL
+               AND s.jev_affiliation IS NOT NULL
+               AND COALESCE(s.jev_affiliation_confidence, 0) >= :minconf
+               AND (LOWER(sa.platform), sa.handle_canonical)
+                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+             ORDER BY LOWER(sa.platform), sa.handle_canonical, s.recorded_at DESC
+        """), {"plats": plats, "handles": handles,
+               "minconf": AFFILIATION_MIN_CONFIDENCE}).fetchall() if has_table else []
+    except Exception as e:  # noqa: BLE001 - the shadow table is not on every site
+        logger.debug("account_audiences: affiliation lookup failed: %s", e)
+        affiliated = []
+    for plat, handle, affiliation in affiliated:
+        key = (plat, handle)
+        if key in out or affiliation not in AFFILIATION_ROLE_MAP:
+            continue
+        mapped = AFFILIATION_ROLE_MAP[affiliation]
+        if mapped:
+            out[key] = {"role": mapped, "source": "account_affiliation",
+                        "market_role": None, "org": None, "n": None}
+        elif affiliation == "commentator":
+            out[key] = {"role": None, "source": "account_affiliation", "market_role": None,
+                        "org": None, "n": None,
+                        "fallback": "clinician" if health else "journalist"}
     return out
 
 
@@ -242,7 +297,7 @@ def apply_account_roles(conn, posts: List[Dict[str, Any]], *,
 
     Each post keeps its own reading in ``post_role`` and says where the final
     role came from in ``author_role_source`` (post, account_profile,
-    account_posts). Glassdoor rows (employee by construction) and posts with
+    account_posts, account_affiliation). Glassdoor rows (employee by construction) and posts with
     no author are left alone. Returns how many posts changed.
     """
     pairs = {}

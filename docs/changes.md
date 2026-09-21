@@ -169,11 +169,60 @@ Gating on the affiliation answer alone takes oviva's person queue from 3 to 8, a
 right. Two I had written off as false positives were not: our own profiler says antjehh uses
 the Oviva app and bonvivant08 promotes Noom's events in Abidjan.
 
+### Feature · the affiliation rows feed Brand Voices
+**`app/services/audience_voices.py`**. `account_audiences` already resolved an author's role
+from the account rather than the post, using two sources: the market profile, else a majority
+vote over the account's classified posts. Both need something to already exist — a profile, or
+at least two posts the social evaluation has classified. An account with neither is invisible,
+and lands in Voices as a bystander.
+
+The identity shadow's affiliation answer is now a third source, consulted only where the first
+two gave nothing, so it can never override a stronger reading. The mapping mirrors the
+market-role map next to it:
+
+| Affiliation | Author role | Why |
+|---|---|---|
+| employee, executive | `employee` | as `vendor_staff` already maps |
+| customer | `customer` | folds to `patient` on a health brand, as customer rows already do |
+| promoter | `brand` | follows `promoter_or_bot`; the brand label already reads "affiliates, resellers or paid promotion" |
+| commentator | the post decides | treated like `practitioner`: it covers a reporter and a prescribing GP alike, so the industry default (clinician on a health site, journalist elsewhere) only applies when the post says nothing |
+
+Both halves of the affiliation answer feed this, declared and observed alike. The identity queue
+wants only declared connections because a curator has to check them; Voices wants anyone with a
+genuine link, and the observed rows are the patients and clinicians.
+
+### Verification · the third source
+Tested on bugfixing with temporary rows against three accounts that neither existing source
+could place, then removed:
+
+- `promoter` resolved to `brand`, source `account_affiliation`.
+- `commentator` resolved to no role with a `journalist` fallback, and to `clinician` when the
+  caller says it is a health site.
+- An account already placed by post votes kept its `account_posts` reading, so the new source
+  does not override a stronger one. The same held for torq_io, which the market profile places
+  as the brand.
+- Dropping the confidence below 0.4 placed nothing.
+
+**The lookup asks whether the table exists rather than finding out by failing.** A failed
+statement aborts the transaction on Postgres, and this code runs on sites that never ran the
+migration; the caller's connection has to survive that. Confirmed the connection is still usable
+after the call.
+
+Nothing changes on bugfixing in practice: its own shadow rows all came back `none` or
+`not_a_person`, since the accounts it can see are vendor pages, a news feed and a meetup.
+
 ### Propagation
-bugfixing only, and it stays that way. Entity Intelligence is a bugfixing feature, bugfixing is
-the site that asked for it, and wiley, wileytest and wbm do not have the
-`bw_entity_social_identities` table at all. Migration applied on bugfixing (head ts_013 to
-ts_014). No service restart: nothing in the running app calls the module.
+bugfixing only. Entity Intelligence is a bugfixing feature, bugfixing is the site that asked for
+it, and wiley, wileytest and wbm do not have the `bw_entity_social_identities` table at all.
+Migrations applied on bugfixing (ts_013 through ts_015). No service restart: nothing in the
+running app calls the shadow, and the Voices lookup is a no-op where the table is absent.
+
+The Voices wiring is the one piece whose value is somewhere else. Oviva is the site with the
+patients and the prescribing clinicians, and the 49 accounts the mapping would place there — 32
+customers, 9 commentators, 7 promoters and 1 employee — are sitting in a scratchpad file, not in
+a database. Putting them in front of Voices on oviva needs three things and Oliver's go, because
+it means running a shadow against a customer site: migrations ts_014 and ts_015 there, the
+shadow module and the updated `audience_voices.py` copied over, and a batch run. Not done.
 
 ### Limits
 Seven accounts is a small win and the separation between real and junk sits between 0.53 and
