@@ -90,6 +90,48 @@ on both sites every account carrying a bio, a linked site or a profile summary w
 correctly, and every mushy 0.6-0.9 answer came from an account with nothing but a name. The
 comment above the constants in the module now says so.
 
+### Feature · the gate is evidence, not a threshold
+Oliver's call after the oviva read: gate on evidence. `run_for_unmapped` now takes
+`require_evidence`, defaulting to true, and skips any account carrying nothing but a name.
+`queue_decision(row)` states the whole rule in one place, so a future decide() has one thing to
+call.
+
+Gating on evidence only helps if evidence-bearing accounts are found in the first place, and
+the bio matching was throwing most of them away. It squashed the text and tested for a
+substring, so "Voy" matched "envoy" while a four-letter brand like "Noom" was skipped entirely
+for being under the five-character floor. It now matches whole words across the bio, the
+profile summary and the brand context. The effect is large on a site with real profile data:
+
+| Site | Shortlisted before | after | Of those, carrying evidence, before | after |
+|---|---|---|---|---|
+| oviva | 22 | 135 | 7 | 120 |
+| bugfixing | 61 | 66 | 2 | 7 |
+
+### Verification · both sites under the gate
+bugfixing judged 7 accounts and skipped 59 for having no evidence. It queued torq_io and
+Secure_com_Official with the owner named, and jetstream-sec.bsky.social on the company reading.
+It set aside a Japanese security news feed, a Boston security meetup and two individuals.
+
+oviva judged 120 accounts in 70 seconds with no errors, and the shape is finally realistic:
+86 `leave`, 24 `propose_person`, 7 `propose_community`, 3 `propose_owned`. The three owned are
+noom, oviva_de and oviva_uk, each at confidence 1.00 with the owner named. The 86 set aside
+include football fans, K-pop accounts, a political account and a UCLA research centre that is a
+real organisation but not one of the eight brands.
+
+**The person lane is recorded and never queued.** Every account it picked really was an
+individual, but only three of ten had anything to do with the company — a WeightWatchers coach
+and two members. The other seven were a software engineer, a German GP, a climate campaigner
+and others who mentioned a brand once. Nothing in the questions asks whether a person is
+connected to the company, and `jev_name_only` does not stand in for it: it scored 0.13-0.32 for
+affiliated and unaffiliated alike. The lane needs its own question before it is worth a
+curator's time.
+
+**The community lane now needs its own check to agree.** The action Choice put two personal
+creator accounts in it while its own community check scored them 0.18 and 0.25. Requiring the
+check to clear 0.5 empties the lane on oviva, which is the right answer.
+
+After both corrections each site queues three accounts, and all six are right.
+
 ### Propagation
 bugfixing only, and it stays that way. Entity Intelligence is a bugfixing feature, bugfixing is
 the site that asked for it, and wiley, wileytest and wbm do not have the

@@ -53,6 +53,40 @@ QUEUE_ACTION_MIN = 0.4
 QUEUE_COMPANY_MIN = 0.55
 
 
+def queue_decision(row: Dict[str, Any]) -> Optional[str]:
+    """What a curator queue should be offered for this account, or None.
+
+    Evidence first. An account with nothing but a name is not judged at all,
+    because on both sites every such answer landed in an indecisive 0.6-0.9
+    band while every account carrying a bio, a linked site or a profile
+    summary was judged correctly. A threshold on the company score cannot
+    stand in for that: its safe value differed between the two sites.
+    """
+    if row.get("jev_error") or not row.get("evidence_beyond_name"):
+        return None
+    action = row.get("jev_action")
+    conf = row.get("jev_action_confidence") or 0.0
+    if action == "propose_owned":
+        # Naming an owner is the stronger statement; accept it on its own.
+        if row.get("jev_owner_brand_id") is not None:
+            return "owned"
+        return "owned" if (conf >= QUEUE_ACTION_MIN
+                           and (row.get("jev_company_account") or 0.0) >= QUEUE_COMPANY_MIN) else None
+    if action == "propose_community" and conf >= QUEUE_ACTION_MIN:
+        # The action Choice and the community check disagree often enough to
+        # matter: on oviva it put two personal creator accounts in this lane
+        # while its own check scored them 0.18 and 0.25. Make the check agree.
+        return "community" if (row.get("jev_community") or 0.0) >= 0.5 else None
+    # The person lane is recorded but never queued. Every account it picked on
+    # oviva really was an individual, and only three of ten had anything to do
+    # with the company: the rest were people who mentioned a brand once. That
+    # is a question nobody asks here -- "is this person connected to the
+    # company" -- and jev_name_only does not stand in for it, scoring 0.13-0.32
+    # for the affiliated and unaffiliated alike. Add the question before
+    # queueing the lane.
+    return None
+
+
 def enabled() -> bool:
     from app.services import typesafe_client
     return (os.getenv("TYPESAFE_SHADOW_IDENTITY", "false").lower() in {"1", "true", "yes"}
@@ -83,6 +117,18 @@ def _significant(s: Optional[str]) -> List[str]:
     return [t for t in _tokens(s) if t not in _STOP and len(t) > 2]
 
 
+def _words(s: Optional[str]) -> str:
+    """Lowercased text with punctuation collapsed to single spaces, padded so a
+    whole-word test is a plain substring test."""
+    return " " + " ".join(_tokens(s)) + " "
+
+
+def _named_in(name: str, prose: str) -> bool:
+    """Is ``name`` present in ``prose`` as a whole word or phrase?"""
+    phrase = " ".join(_tokens(name))
+    return len(phrase) >= 3 and f" {phrase} " in prose
+
+
 def _brand_names(brand: Dict[str, Any]) -> List[str]:
     """Every string that could stand for this company in a handle."""
     out = [brand.get("display_name") or "", brand.get("name") or ""]
@@ -103,10 +149,12 @@ def shortlist(account: Dict[str, Any], brands: List[Dict[str, Any]],
     acct_norm = {_norm(account.get("handle")), _norm(account.get("display_name"))}
     acct_norm.discard("")
     acct_tokens = set(_significant(account.get("handle")) + _significant(account.get("display_name")))
-    # The bio is weaker evidence than the handle, and it is where the cases
-    # that most need judging live: a person naming their employer, a community
-    # named after a product, an account that only talks about a company.
-    bio_norm = _norm(account.get("bio"))
+    # The bio and the profile summary are weaker evidence than the handle, and
+    # they are where the cases that most need judging live: a person naming
+    # their employer, a community named after a product, an account that only
+    # talks about a company. Match whole words there — squashing the text and
+    # testing for a substring makes "Voy" match "voyage" and "envoy".
+    prose = _words(" ".join(str(account.get(k) or "") for k in ("bio", "summary", "brand_context")))
     scored: List[Tuple[float, bool, Dict[str, Any]]] = []
     for b in brands:
         best, exact = 0.0, False
@@ -124,7 +172,7 @@ def shortlist(account: Dict[str, Any], brands: List[Dict[str, Any]],
             # ".com" company.
             if sig and sig <= acct_tokens and any(len(t) >= 4 for t in sig):
                 best = max(best, 0.6 if not exact else best)
-            elif len(n) >= 5 and n in bio_norm:     # named in the bio only
+            elif _named_in(nm, prose):              # named in the bio only
                 best = max(best, 0.3)
         if best > 0:
             scored.append((best, exact, b))
@@ -316,11 +364,15 @@ def _insert(rows: List[Dict[str, Any]]) -> int:
     return n
 
 
-def run_for_unmapped(limit: Optional[int] = None, *, scan: int = 400) -> Dict[str, Any]:
+def run_for_unmapped(limit: Optional[int] = None, *, scan: int = 400,
+                     require_evidence: bool = True) -> Dict[str, Any]:
     """Judge the unmapped accounts that have at least one plausible company.
 
     ``scan`` accounts are read, the shortlist filter decides which of them are
-    worth asking about, and at most ``limit`` are sent. Returns a summary.
+    worth asking about, and at most ``limit`` are sent. With
+    ``require_evidence`` (the default) an account is only sent when it carries
+    something a person could check beyond its name; pass False to measure what
+    the model does without that, which is what the first batches did.
     """
     if not enabled():
         return {"skipped": "disabled"}
@@ -339,11 +391,15 @@ def run_for_unmapped(limit: Optional[int] = None, *, scan: int = 400) -> Dict[st
 
     batch_key = uuid.uuid4().hex[:16]
     rows: List[Dict[str, Any]] = []
+    skipped_no_evidence = 0
     for acct in accounts:
         if len(rows) >= limit:
             break
         cands, name_match, exact = shortlist(acct, brands)
         if not cands:
+            continue
+        if require_evidence and not has_evidence(acct):
+            skipped_no_evidence += 1
             continue
         row = {
             "batch_key": batch_key,
@@ -372,6 +428,9 @@ def run_for_unmapped(limit: Optional[int] = None, *, scan: int = 400) -> Dict[st
         "name_only_evidence": sum(1 for r in ok if (r.get("jev_name_only") or 0) >= 0.5
                                   and r.get("jev_owner_brand_id") is not None),
         "with_evidence_beyond_name": sum(1 for r in rows if r.get("evidence_beyond_name")),
+        "skipped_no_evidence": skipped_no_evidence,
+        "queued": {k: sum(1 for r in ok if queue_decision(r) == k)
+                   for k in ("owned", "person", "community")},
         "actions": {k: sum(1 for r in ok if r.get("jev_action") == k)
                     for k in ("propose_owned", "propose_community", "propose_person", "leave")},
         "not_company_accounts": sum(1 for r in ok if (r.get("jev_company_account") or 0) < 0.5),
