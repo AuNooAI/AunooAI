@@ -1,5 +1,68 @@
 # Changes
 
+## 2026-09-21 — Market Monitor bought 25 LinkedIn posts per vendor to collect one
+
+### Goal
+The AI-in-the-SOC market (market 2 on bugfixing) was logging "90% of provider budget used
+(92.85/100.00)" on every cycle. Oliver asked what was spending it.
+
+### Root cause: one source, one unpassed argument
+`linkedin_company_post` is $91.29 of the $92.85 — 98%. The other three paid sources cost $1.56
+between them. Over 42 runs this month it paid for 60,858 records and kept 1,297.
+
+Bright Data bills per record delivered, about $0.0015 each. Its posts dataset cannot filter by
+date, which `app/services/brightdata_linkedin.py:317` already says: recency is enforced when the
+records are ingested, after they are paid for. The one cost lever is `limit_per_input`, and the
+call site in `app/tasks/market_monitor.py` never passed it, so it took the client default of 25.
+
+96 vendors x 25 posts = about 2,020 records a run, twice a day at `MARKET_POLL_INTERVAL_HOURS=12`,
+$3.03 a run and $6.06 a day. What those vendors actually publish, measured over the 14 days to
+21 Sep: 480 posts across 85 companies, 1.2 per company per day on average, 2 at the 95th
+percentile, 5 on the single busiest company-day. The market was buying 25 posts per company to
+collect about one.
+
+Cost tracked the vendor list, not anything else: $2.67 a run at 42 vendors in late August,
+$6.10 at 96 in mid-September. August's total was $18.97, but paid collection only started being
+costed on 26 August, so September is the first full month at the current size.
+
+### Fix · bound the records each run buys (`app/tasks/market_monitor.py`)
+New `_posts_per_vendor()`, read from `MARKET_POSTS_PER_VENDOR`, default 5, passed to
+`trigger_posts` as `limit_per_input`. Five covers the busiest single company-day in the measured
+window. The docstring carries the measurements so the next person to change it knows what the
+number was sized against.
+
+The bound is per run and a post Bright Data does not offer is not re-offered, so a slower cadence
+needs a higher number. That is the one thing to remember before touching
+`MARKET_POLL_INTERVAL_HOURS`.
+
+### Verification
+Arithmetic from this month's run log, not a projection: 2,020 records at $3.03 is $0.00150 per
+record. At 5 per vendor a run fetches about 480 records, so roughly $0.73 a run and $1.46 a day
+against $6.06 now. Effect on collection is checked at the next scheduled run.
+
+Not a problem, and worth recording because it looks like one: new posts per run fell to 3-5 over
+19-21 Sep. That is the weekend. These vendors post 30-60 times a day Monday to Friday and 5-7 on
+Saturday and Sunday.
+
+### Propagation
+Patched in bugfixing (canonical), oviva, panaya, sunstar and bwtemplate — every tree with
+`market_monitor.py`. Applied surgically; the five files differ from each other.
+
+Restarted: bugfixing, oviva, panaya. Sunstar and bwtemplate do not set
+`MARKET_MONITORING_ENABLED`, so Market Monitor is off there and the patch waits for their next
+restart.
+
+The same shape exists on the other two: oviva spends $8.13 of its $50 cap on
+`linkedin_company_post` against $0.75 on everything else; panaya $0.38 against $0.18. Smaller
+only because they track fewer vendors.
+
+### Still to decide
+September is already spent. At the new rate the remaining $7.15 lasts about five days, so paid
+collection for market 2 pauses around 26 September instead of 22. The cap is market-wide, so the
+pause also stops Crunchbase, jobs and profiles, which cost $1.56 between them. Raising
+`MARKET_MONTHLY_BUDGET_USD` is the only way to finish the month; that is a spending decision,
+not a code one.
+
 ## 2026-09-21 — Market topics filter by language, not country, and the obvious fix does not work
 
 ### Goal

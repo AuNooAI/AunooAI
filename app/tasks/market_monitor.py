@@ -111,6 +111,23 @@ def _max_vendors_per_run() -> int:
     return _env_int("MARKET_MAX_VENDORS_PER_RUN", 20)
 
 
+def _posts_per_vendor() -> int:
+    """How many recent posts to buy per vendor per run.
+
+    Bright Data bills per record delivered and its posts dataset cannot filter
+    by date, so this bound is the only cost lever the post source has. Left at
+    the client default of 25 it bought 2,020 records a run twice a day for the
+    AI-in-the-SOC market and kept about three of them, which was 98% of that
+    market's provider spend (91.29 of 92.85 in September 2026).
+
+    Five covers the busiest single day any one vendor managed over the two
+    weeks to 21 Sep 2026; the median vendor posts 1.2 times a day and the 95th
+    percentile is 2. Raise it if the cadence goes slower than daily, because
+    the bound is per run and a missed post is not re-offered.
+    """
+    return _env_int("MARKET_POSTS_PER_VENDOR", 5)
+
+
 def _monthly_budget() -> float:
     try:
         return float(os.getenv("MARKET_MONTHLY_BUDGET_USD", "") or 0)
@@ -1821,7 +1838,8 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
     try:
         if source == SOURCE_POSTS:
             result = await client.trigger_posts(
-                urls, since=since, webhook_url=callback_url(run_id),
+                urls, since=since, limit_per_input=_posts_per_vendor(),
+                webhook_url=callback_url(run_id),
                 webhook_auth=webhook_auth_value())
         else:
             result = await client.trigger_profiles(
