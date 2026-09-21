@@ -101,6 +101,60 @@ Eleven other sites carry `topic_report_pptx.py` (abbott, abm, bwtemplate, ibaset
 oviva, panaya, pbm, pearson, sage, wbm) and were **not** updated. Any of them that generates a
 topic report will still address it to Wiley.
 
+### Fix · the default itself was the leak, and the seeded profile carried Wiley's name
+Propagating the above to the other eleven sites showed the first cut did not go far enough.
+Two defaults still pointed at Wiley.
+
+`DEFAULT_EYEBROW` was `WILEY HORIZONS`, so any site that had not set `REPORT_BRAND_EYEBROW` —
+which was all of them except sunstar — still put Wiley on the cover. pearson and sage are Wiley's
+competitors and run on this platform. The default is now `AUNOO INTELLIGENCE`, and the Wiley
+sites opt in explicitly.
+
+Worse, most sites are seeded with the same seven sample organisational profiles, and the one
+marked default is named "Wiley Scientific Publisher". panaya and wbm both resolved to it. A site
+that never set up its own profile would have gone on naming Wiley even with the fix in place.
+`_STOCK_PROFILE_NAMES` now treats a default still sitting on any seeded name as unknown, so the
+copy names nobody rather than naming the wrong organisation.
+
+wiley, wileytest, wbm and bugfixing now carry `REPORT_BRAND_EYEBROW=WILEY HORIZONS`,
+`REPORT_BRAND_ORG=Wiley` and `REPORT_BRAND_SECTOR=scientific publishing`, which reproduces their
+previous deck exactly. Everything else fails safe to the Aunoo brand and name-free wording.
+
+### Propagation · the other eleven sites
+Every one of the eleven carried an unmodified older copy of canonical, no local edits: abm,
+ibaset, interroll and wbm sat at 2026-08-03, pbm at 2026-07-30, and abbott, pearson and sage at
+2026-06-18. bwtemplate, oviva and panaya were already current.
+
+The current renderers need two modules the older trees lack, both self-contained and stdlib-only:
+`app/services/topic_report_errors.py` (18 lines) and the `app/compliance/` package (161 lines,
+the EU AI Act Article 50 disclosure). Both were copied where missing. abbott, pearson and sage
+additionally needed the newer `html_report_common.py`, which is purely additive — no name that
+the old one exported is gone.
+
+Ten of eleven now import all six report modules cleanly. **pbm is the exception**: the sandbox
+refused four attempts to write `html_report_common.py` into that tree, so pbm was reverted to
+its previous state and is unchanged. It still addresses topic reports to Wiley.
+
+What each running site resolves to now:
+
+| Site | Cover | Named as | Sector |
+|---|---|---|---|
+| sunstar | AUNOO INTELLIGENCE | Sunstar | consumer health / oral care |
+| oviva | AUNOO INTELLIGENCE | Oviva | digital health / weight management |
+| wbm | WILEY HORIZONS | Wiley | scientific publishing |
+| abm, panaya | AUNOO INTELLIGENCE | nobody | none claimed |
+
+abm and panaya name nobody because both still sit on a seeded profile — abm on "Generic
+Enterprise", panaya on "Wiley Scientific Publisher". Neither can generate a topic report today
+(zero rows in `future_horizons_runs`), so nothing is broken; giving panaya its own profile is the
+real fix and also changes how its analysis is framed, so it is left for a decision.
+
+The seven stopped sites keep their environment files encrypted, so no variables could be set
+there. They have the code and will resolve from their own profile when started.
+
+Restarted and healthy: sunstar, wiley, wileytest, wbm, oviva, abm, panaya. No cached decks existed
+on any of the eleven, so nothing stale needed replacing.
+
 ### Lessons
 The brand line variable existed since the Future Horizons export was built, and three renderers
 were written afterwards without reading it. A per-site string that has a variable is not fixed

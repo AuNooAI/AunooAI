@@ -35,14 +35,32 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Unchanged default: the Wiley tenants set no branding variables and must
-# keep rendering the deck they have been signing off on.
-DEFAULT_EYEBROW = "WILEY HORIZONS"
+# The default is the neutral Aunoo brand, NOT a customer's. A tenant that
+# has configured nothing must not ship a report headed with somebody else's
+# name — pearson and sage are Wiley's competitors and run on this platform.
+# The Wiley tenants opt in with REPORT_BRAND_EYEBROW=WILEY HORIZONS.
+DEFAULT_EYEBROW = "AUNOO INTELLIGENCE"
 
 # Wording used when we know neither the customer nor the sector.
 _UNKNOWN_ORG = "your organisation"
 _UNKNOWN_ORG_HEADING = "Your Organisation"
 _UNKNOWN_SECTOR = "your sector"
+
+# The organisational profiles every tenant is seeded with. They are sample
+# rows, not a customer, and one of them is named after a real customer — a
+# tenant that never set its own profile would otherwise address its report
+# to Wiley. Treat a default that is still one of these as "unknown", so the
+# copy names nobody instead of naming the wrong body.
+_STOCK_PROFILE_NAMES = {
+    "wiley scientific publisher",
+    "generic enterprise",
+    "cybersecurity organization",
+    "financial institution",
+    "insurance company",
+    "manufacturing company",
+    "concerned activist",
+}
+
 
 # Sectors for which the research-integrity framing on the team slide is
 # the right one. Anywhere else, paper mills and citation rings are not
@@ -120,6 +138,11 @@ def report_identity(db=None) -> dict:
     than print the fallback and hope.
     """
     profile = _default_profile(db)
+
+    # A profile still sitting on its seeded name tells us nothing about who
+    # this tenant is, so neither its name nor its industry may be printed.
+    if (profile.get("name") or "").strip().lower() in _STOCK_PROFILE_NAMES:
+        profile = {}
 
     org = (os.getenv("REPORT_BRAND_ORG") or "").strip() or (profile.get("name") or "").strip()
     sector = (os.getenv("REPORT_BRAND_SECTOR") or "").strip() or (profile.get("industry") or "").strip()
