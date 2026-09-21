@@ -1,5 +1,87 @@
 # Changes
 
+## 2026-09-21 — Sunstar: three new market topics, seven per-market tracker decks, and why a UK topic cannot work
+
+### Goal
+Oliver asked for more topics on Sunstar's Topics page and Forecast Tracker: oral health and
+whole-body health per country, the way the existing markets are set up, plus a synthesis.
+
+### Ops · three new market topics
+Before creating anything, the paid collector was measured rather than guessed at, because its
+quota is shared with the paying site. Ninety-day counts for one seed term: United Kingdom 190,
+Spain 47, Italy 27, Brazil 24, against Germany 46 and Japan 318. Every candidate beat France, the
+thinnest market Sunstar already runs.
+
+`keyword_groups` 19-21 (Italy `it`/`it`, Spain `es`/`es`, Brazil `pt`/`br`), six keywords each,
+daily rather than twelve-hourly so they cost about 18 collector requests a day between them.
+Matching ontologies were cloned from the Germany topic into sunstar's `app/config/config.json`,
+which is the step that decides whether the AI analysis step labels anything at all. It works:
+"Sviluppata una terapia mirata per la parodontite" came back as *Preventive products and health
+claims*, and an Italian Alzheimer piece as *Oral microbiome and neurological disease*.
+
+First pass: Italy 61 articles, Spain 63, Brazil 15.
+
+### Finding · a second English-language market cannot work on this platform
+A United Kingdom topic was created and does not work. Two passes, 74 articles collected, zero kept.
+
+The first pass used our own aggregator, which has no country filter, so it returned global English
+news — a hair-loss feature and an Indian government story among them. Pointing the group at the
+collector that honours `locale` did not help either: four of its six keywords are already run by
+the Research, United States and Consumer Voice groups, and the article store keeps one row per
+article, so everything the collector returned was already there under another topic. Only three
+articles reached the ingest pipeline out of roughly 120 collected.
+
+The four original markets work because each is a different **language**, not because each is a
+different country. English is taken.
+
+Group 18 is now `is_active=false` and its tracker deck is `status=archived`. Its ontology is left
+in the config in case the topic is ever re-scoped to UK dental access, which is a different
+subject and would survive the alignment gate on its own terms.
+
+Worth noting separately: the "United States" group runs the aggregator with no locale, so it is
+really *global English* and already sweeps UK press up under a US label.
+
+### Ops · per-market Forecast Tracker decks
+`forecast_topic_metadata` rows named `Oral-Systemic Health - <Country>`, each pinned by
+`source_topics` to its own collection topic. Decks built for the four markets with a corpus:
+
+| Deck | Articles in the assessment |
+|---|---|
+| United States | 60 (the cap) |
+| Japan | 31 |
+| Germany | 20 |
+| France | 7 |
+
+All four carry a `.proposed` overlay and show `overlay_status=auto_generated`, so they wait on an
+analyst the same way the original deck did. Italy, Spain and Brazil have 3, 3 and 1 enriched
+articles and were deliberately not built; five enriched articles was the gate used.
+
+The synthesis deck `Oral-Systemic Health` now lists nine source topics instead of six. It was
+**not** rebuilt: its overlay is `human_reviewed` and a rebuild would replace the approved file
+with a fresh proposal.
+
+### Verification
+The relevance gate was checked before being blamed for the thin corpora. It is working:
+`topic_alignment_score` gives 0.80 to an Alzheimer-and-oral-health piece and 0.10 to one on dental
+implant myths. The topic is scoped to the mouth-body link, so general dentistry is correctly
+discarded. Roughly one article in twenty survives, which is why the new markets need several
+cycles.
+
+Overlay files written by the hand-run pipeline landed root-owned while the service runs as
+`orochford` and writes them on approval; ownership was corrected.
+
+### Open · the collector quota is already exceeded
+`thenewsapi_collector.py` sets `daily_limit = 100` per process and the key is shared with
+wileytest and wbm. Sunstar's active groups ask for about 201 a day, so its collection is truncated
+partway through each day and has been for some time. The three new markets add only about 18; the
+existing twelve-hourly market and brand groups are the bulk of it. Rebalancing touches brand
+monitoring, so it is left for a decision.
+
+### Lessons
+Measure a paid collector before creating topics against it, and check whether a proposed topic's
+keywords are already claimed by an existing group — on a single-row-per-article store, a topic
+whose keywords are taken collects nothing and looks like a collector fault.
+
 ## 2026-09-21 — Brand Watcher stat cards said 0 articles above a list of 19
 
 ### Goal
