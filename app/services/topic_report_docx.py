@@ -30,6 +30,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 from app.services.topic_report_pptx import _decode_raw_output
+from app.services.report_branding import brand_eyebrow_title, brand_footer_credit
 from app.services.html_report_common import (
     clean_article_ref, split_citation_groups, scrub_invented_consensus,
 )
@@ -245,7 +246,7 @@ def _bullet(doc: Document, text: str, articles=None) -> None:
 
 def _render_cover(doc: Document, period_label: str, period: str,
                   topics: list) -> None:
-    _eyebrow(doc, "Wiley Horizons · Foresight")
+    _eyebrow(doc, f"{brand_eyebrow_title()} · Foresight")
     _heading(doc, period, size_pt=26, color=WILEY_NAVY,
              before_pt=2, after_pt=4)
     _heading(doc, "Topic Foresight Report", size_pt=14,
@@ -615,7 +616,7 @@ def build_topic_report_docx(items: list, *, period_label: str,
     _add_body_with_citations(
         doc,
         f"Topic report rendered {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
-        f"  ·  AunooAI Wiley Horizons Foresight",
+        f"  ·  {brand_footer_credit()}",
         italic=True, color=WILEY_MUTED, size_pt=9, space_after_pt=0,
     )
     # EU AI Act Art. 50 visible disclosure

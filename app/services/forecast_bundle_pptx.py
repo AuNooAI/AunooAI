@@ -20,6 +20,7 @@ from pptx.util import Inches
 from pptx.enum.text import PP_ALIGN
 
 from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+from app.services.report_branding import brand_eyebrow
 
 from app.services.forecast_pptx_export import (
     PINK, PINK_DEEP, WHITE, NAVY, SLATE_DARK, SLATE_MID, SLATE_LIGHT,
@@ -726,8 +727,9 @@ def _add_no_prior_stub_slide(prs, assessment: dict):
 def _add_bundle_cover(prs, period_label: str, cadence: str, topics: list, *, updates_only: bool):
     """Bundle cover — clean Aunoo black-and-pink layout.
 
-    Full-bleed dark slate (near-black), big pink "WILEY HORIZONS · TRACKER"
-    eyebrow, large white period label, white subtitle, Aunoo brandmark
+    Full-bleed dark slate (near-black), big pink brand eyebrow from
+    REPORT_BRAND_EYEBROW (default "WILEY HORIZONS", so the Wiley tenants
+    are unchanged), large white period label, white subtitle, Aunoo brandmark
     top-right. No atmospheric image — relies on the brand contrast.
     """
     blank = prs.slide_layouts[6]
@@ -748,7 +750,7 @@ def _add_bundle_cover(prs, period_label: str, cadence: str, topics: list, *, upd
     }.get(cadence, "Foresight update")
 
     _text(slide, x=0.6, y=2.0, w=sw-1.2, h=0.4,
-          text=f"WILEY HORIZONS · FORESIGHT{suffix}",
+          text=f"{brand_eyebrow()} · FORESIGHT{suffix}",
           font_size=12, bold=True, color=WILEY_TEAL)
     _text(slide, x=0.6, y=2.45, w=sw-1.2, h=1.0, text=period_label,
           font_size=44, bold=True, color=WHITE)

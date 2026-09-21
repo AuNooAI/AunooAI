@@ -538,12 +538,20 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
 # market through ``bw_markets.config['collection_terms']``.
 DEFAULT_MARKET_TERMS: List[str] = []
 
-# Ordinary words that happen to be vendor names. Bare, each one is a noise
-# generator; the length check below also catches anything short.
+# Names that are not safe to search bare. Most are ordinary words that happen
+# to be vendor names, where the bare term is a noise generator; the length
+# check below also catches anything short.
+#
+# "uipath" is here for a different reason. It is distinctive, but the company
+# is a general automation platform tracked in the Enterprise Test Automation
+# market for its testing line only, so a bare search returns its whole RPA and
+# agentic-automation output. Qualified, the collector demands the market's
+# qualifier word alongside it, which is exactly the scope that market wants.
 _AMBIGUOUS_NAMES = {
     "nua", "joon", "mave", "zaun", "cantina", "mate", "beacon", "sevii",
     "crogl", "prophet", "radiant", "method", "variance", "intrinsic",
     "andesite", "almanax", "opnova", "cotool", "elezar",
+    "uipath",
 }
 
 # Appended to an ambiguous name so the collector requires both words.

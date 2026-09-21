@@ -364,7 +364,10 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
             "search across every topic. Brand and market tools take the names "
             "listed under brands / markets. Before choosing a tool, call "
             "suggest_tool with the user's request: it returns at most one "
-            "suggestion with probabilities, or none when no tool is needed."
+            "suggestion with probabilities, or none when no tool is needed. "
+            "For 'what has happened with X' or 'anything new on X', prefer "
+            "get_timeline and what_changed (the site's own dated memory, with "
+            "the articles each event was computed from) over a fresh search."
         ),
     }
     # The brand and market names, so a model can go straight to the brand
@@ -554,3 +557,9 @@ from . import tool_suggestion as _tool_suggestion  # noqa: E402
 
 TOOLS.update(_tool_suggestion.SPECS)
 _LOCAL_HANDLERS.update(_tool_suggestion.HANDLERS)
+
+# ── Timeline mementos: the per-brand / per-topic memory ─────────────────────
+from . import timeline_tools as _timeline_tools  # noqa: E402
+
+TOOLS.update(_timeline_tools.SPECS)
+_LOCAL_HANDLERS.update(_timeline_tools.HANDLERS)

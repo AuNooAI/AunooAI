@@ -24,8 +24,9 @@ from typing import Optional
 
 from app.services.topic_report_pptx import _decode_raw_output
 from app.services.html_report_common import (
-    clean_article_ref, split_citation_groups, scrub_invented_consensus,
+    clean_article_ref, split_citation_groups, scrub_invented_consensus, esc,
 )
+from app.services.report_branding import brand_eyebrow, brand_footer_credit
 from app.compliance.ai_disclosure import (
     disclosure_footer_html as _ai_footer,
     html_meta_tags as _ai_meta,
@@ -585,7 +586,8 @@ def build_topic_report_html(items: list, *, period_label: str,
     body_parts: list = []
     # Cover
     body_parts.append('<div class="cover">')
-    body_parts.append('<div class="eyebrow">WILEY HORIZONS · FORESIGHT</div>')
+    body_parts.append(
+        f'<div class="eyebrow">{esc(brand_eyebrow())} · FORESIGHT</div>')
     body_parts.append(f'<h1>{_esc(period_display)}</h1>')
     body_parts.append('<div class="subtitle">Topic Foresight Report  ·  Produced by AunooAI</div>')
     body_parts.append(f'<div style="margin-top:1rem;color:#fbcfe4;font-size:.92rem">'
@@ -679,7 +681,7 @@ def build_topic_report_html(items: list, *, period_label: str,
     body_parts.append(
         '<footer class="meta">'
         f'Topic report rendered {_esc(datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))}'
-        '  ·  AunooAI Wiley Horizons Foresight'
+        f'  ·  {esc(brand_footer_credit())}'
         '</footer>'
     )
     body_parts.append(_ai_footer())  # EU AI Act Art. 50 visible disclosure

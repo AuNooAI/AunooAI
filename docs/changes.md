@@ -1,5 +1,111 @@
 # Changes
 
+## 2026-09-21 — Topic reports called every customer Wiley
+
+### Goal
+Oliver was on sunstar's Trend Convergence page and noticed the topic report deck says Wiley on
+the cover. It says it in eight more places. The deck, the Word document and the HTML export all
+carried the Wiley name and the scientific-publishing framing as literal strings, so every
+customer site that is not Wiley shipped a report addressed to Wiley.
+
+### Fix · the brand line and the customer now come from the site, not from the source code
+**`app/services/report_branding.py`** (new). Two sources feed the copy that used to be hardcoded.
+
+The brand line comes from `REPORT_BRAND_EYEBROW`. That variable already existed and
+`horizons_html.py` and `consensus_html.py` already read it, so this reuses it instead of adding a
+second one. It still falls back to `WILEY HORIZONS`, which is why the Wiley sites, which set
+nothing, render the deck they have been signing off on.
+
+The customer name and the sector come from the site's default organisational profile — the
+`is_default` row of `organizational_profiles`. That is the same profile the analysis prompts are
+already framed with, so the slide claiming the analysis is calibrated to an organisation now
+names the organisation it was actually calibrated to. `REPORT_BRAND_ORG` and
+`REPORT_BRAND_SECTOR` override it.
+
+Wiley needs the override. Its profile is named "Wiley Scientific Publisher", which reads badly as
+a slide title — "How Analysis Is Calibrated to Wiley Scientific Publisher". `REPORT_BRAND_ORG=Wiley`
+was added to the `.env` of wiley, wileytest and bugfixing, each with a timestamped backup.
+
+Where neither source answers, the wording names nobody rather than printing a fallback and hoping.
+
+### Fix · the nine places the name was printed
+**`app/services/topic_report_pptx.py`** — five of them, all in the eight-slide intro pack.
+The cover eyebrow; the platform slide's "foresight analyses for scientific publishers"; the
+pipeline slide's "speaks directly to Wiley's strategic position" and its "Framed for scientific
+publishing" footer; the calibration slide's title, subtitle and first card footer. The intro pack
+resolves the identity once per deck and passes it to the four slides that use it, so they cannot
+disagree with each other.
+
+The team slide's research-integrity framing — paper mills, fabricated reviewers, citation fraud —
+now only appears when the sector is a publishing one. Everywhere else the same sentence reads
+"coordinated campaigns, astroturfing and manufactured consensus", which is the same capability
+described in terms the reader recognises. Sunstar sells oral care; paper mills mean nothing there.
+
+**`app/services/forecast_bundle_pptx.py`** — `_add_bundle_cover` is the sixth place, and it is
+easy to miss because it belongs to the Wiley quarterly bundle. The topic report calls it too, so
+every topic deck carried a second Wiley cover on slide 9.
+
+**`app/services/topic_report_docx.py`** and **`app/services/topic_report_html.py`** — the eyebrow
+and the footer credit in each, four more.
+
+### Fix · "AunooAI Aunoo Intelligence Foresight"
+The footer credit hardcoded the AunooAI prefix in front of the brand line. Sunstar sets the brand
+line to AUNOO INTELLIGENCE, so the credit stuttered. `brand_footer_credit()` drops the prefix when
+the brand line is already an Aunoo one. This defect was already shipping in the Future Horizons
+HTML export, which is the other download on the same Trend Convergence page, and is fixed there
+too (**`app/services/horizons_html.py`**).
+
+### Verification
+Sunstar's live cached deck, built at 13:37 under the old code, had nine Wiley or
+scientific-publishing strings across six of its 78 slides. Re-rendered from the same pinned
+forecast runs under the new code: **zero**, same 78 slides. The replacement was written back into
+`/tmp/topic_report_render_cache_sunstar/` so the next download serves it without re-running the
+multi-agent pipeline.
+
+What sunstar's deck says now, resolved from its own profile with no configuration beyond the
+eyebrow it already had:
+
+| Slide | Before | After |
+|---|---|---|
+| 1, 9 | WILEY HORIZONS · FORESIGHT | AUNOO INTELLIGENCE · FORESIGHT |
+| 2 | for scientific publishers | for the consumer health / oral care sector |
+| 3 | paper mills, fabricated reviewers | coordinated campaigns, astroturfing |
+| 5 | Wiley's strategic position | Sunstar's strategic position |
+| 5 | Framed for scientific publishing | Framed for consumer health / oral care |
+| 7 | How Analysis Is Calibrated to Wiley | How Analysis Is Calibrated to Sunstar |
+| 7 | Relevant to a scientific publisher | Relevant to consumer health / oral care |
+
+Sunstar's Word export: zero Wiley strings, footer reads "Aunoo Intelligence Foresight". Its HTML
+export: same.
+
+The Wiley side was rendered from wileytest with its `.env` loaded. All five name positions still
+read Wiley. Two sector phrases changed wording, because wileytest's profile industry field says
+"Academic Publishing" and the code used to say "scientific publishing": slide 2 now reads "for the
+academic publishing sector" and slide 7 "Relevant to academic publishing". Setting
+`REPORT_BRAND_SECTOR="scientific publishing"` restores the old words if that is preferred.
+
+### Propagation
+| Site | Files | `REPORT_BRAND_ORG` | Restarted |
+|---|---|---|---|
+| bugfixing (canonical) | committed | added | no — another session has uncommitted code in this tree |
+| sunstar | copied | not needed | yes, 13:58, clean startup |
+| wiley | copied | added | yes, 13:59, clean startup |
+| wileytest | copied | added | no — an automated ingest run was mid-flight at 13:57 |
+
+Neither skipped restart changes any output: wiley and wileytest render identically before and
+after, so they pick the code up whenever they next restart. Wiley cannot build the deck at all —
+its venv has no `python-pptx`, which is a pre-existing gap, so only the Word and HTML exports
+apply there.
+
+Eleven other sites carry `topic_report_pptx.py` (abbott, abm, bwtemplate, ibaset, interroll,
+oviva, panaya, pbm, pearson, sage, wbm) and were **not** updated. Any of them that generates a
+topic report will still address it to Wiley.
+
+### Lessons
+The brand line variable existed since the Future Horizons export was built, and three renderers
+were written afterwards without reading it. A per-site string that has a variable is not fixed
+until every renderer reads the variable — grep for the literal, not for the variable.
+
 ## 2026-09-21 — Entity resolution pilot: which company, if any, owns a social account
 
 ### Goal

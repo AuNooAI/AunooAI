@@ -188,9 +188,9 @@
         "Switzerland neutrality initiative Russia",
         "Desinformation Schweiz",
         "Einflussnahme Schweiz",
-        "Neutralitätsinitiative Russland",
-        "désinformation Suisse",
-        "ingérence Suisse",
+        "Neutralit\u00e4tsinitiative Russland",
+        "d\u00e9sinformation Suisse",
+        "ing\u00e9rence Suisse",
         "\"neutrality initiative\"",
         "\"Swiss federal elections\""
       ]
@@ -248,6 +248,51 @@
         "disinformation referendum Europe",
         "EU DisinfoLab",
         "election deepfake Europe"
+      ]
+    },
+    {
+      "name": "Market Monitoring Enterprise Test Automation",
+      "description": "Market monitoring topic for Enterprise Test Automation. Tracks vendor coverage, positioning and material change across the market's registry.",
+      "categories": [
+        "Product & Innovation",
+        "Financial Performance",
+        "Leadership & Governance",
+        "Brand Sentiment & Perception",
+        "Competitive Landscape",
+        "Legal & Regulatory",
+        "Partnerships & Alliances",
+        "ESG & Social Responsibility",
+        "Customer & Product Issues",
+        "Market Strategy & Expansion",
+        "Media & Advertising"
+      ],
+      "future_signals": [
+        "Vendor gaining momentum",
+        "Vendor losing momentum",
+        "New entrant",
+        "Consolidation underway",
+        "Category boundary shifting",
+        "Funding cycle turning",
+        "Customer adoption accelerating",
+        "Competitive threat detected"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
       ]
     }
   ],
