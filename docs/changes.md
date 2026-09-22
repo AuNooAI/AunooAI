@@ -139,6 +139,50 @@ unknown plan name is refused by the route before it reaches `price_id`, which ra
 `STRIPE_PRICE_SUB_DATASET` is still set in the environment and is now unused — harmless, and the
 Stripe price itself is untouched, so the decision to archive it there is yours.
 
+### Fix · event titles were cut at the first abbreviation
+The third finding from the section check, and the only one that was real. The sentence splitter
+in **`app/services/entity_event_extractors/owned_post.py`** broke on any full stop, and its own
+docstring admitted it: *"A real segmenter would handle 'Inc.' and 'e.g.' better, and would be a
+dependency and a model's worth of latency for a headline."* The cost was not latency, it was
+meaning.
+
+The worst case inverted a fact on the public page. The post read *"Coalition, Inc. acquired us
+for our ability to stop cyber threats in milliseconds."* The splitter cut after `Inc.`, the
+extractor took the remainder as the news, and the title builder prefixed the vendor the post
+belongs to:
+
+    was: Wirespeed: acquired us for our ability to stop cyber threats in milliseconds
+    now: Wirespeed: Coalition, Inc. acquired us for our ability to stop cyber threats in milliseconds
+
+Wirespeed was acquired by Coalition. The page said the opposite. The same cut amputated people's
+names in appointment posts — *"Thrilled to welcome J.T."*, *"We're thrilled to welcome Dr."*,
+*"Today, we're welcoming Maxwell H."* — each stopping at the abbreviation before the name.
+
+A list of abbreviations is cheaper than a segmenter and fixes the case that bit: company forms,
+titles, initials, and the common Latin ones. Two smaller fixes came out of the same posts:
+
+- **Arrival verbs joined the hiring markers.** A post announcing a hire and closing with "P.S.
+  We're hiring" titled on the postscript. Kai Security read *"We're hiring:
+  https://bit.ly/4vn6KtT"* instead of *"Thomas N. joins Kai as VP of Product Marketing"*.
+- **A bare link is not a headline.** "We're hiring: https://bit.ly/4vn6KtT" cleared the
+  thirty-character bar on the URL alone. A candidate now has to clear it with the URLs removed.
+
+### Verification · titles
+Both versions were run over all 807 active vendor-post events and compared:
+
+| | old | new |
+|---|---|---|
+| Events where no sentence carries the news | 409 | 296 |
+| Became unusable that were usable before | — | 4 |
+
+So it finds a headline in 113 more cases than before. The four it gives up on are all bare
+links — "Full case study → https://lnkd.in/…" — and they fall back to the post's own title,
+which the function's docstring already calls no worse than before.
+
+86 stored titles were rewritten to what the fixed code produces, with every old value saved to
+`scratchpad/title_backup.json` first. Restarted, cache purged, and the corrected titles confirmed
+on the live public page; section counts unchanged at 30, 40, 6 and 17.
+
 ### False alarm · two reported defects that are not defects
 Asked to check the remaining sections, I reported two problems and started fixing them. Both
 were wrong. Everything was reverted — code by `git checkout`, data by hand — and the site is

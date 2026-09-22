@@ -45,7 +45,13 @@ _KIND_MARKERS = {
     'funding': ('raise', 'raised', 'funding', 'series ', 'seed', 'led by',
                 'investment', 'backed by'),
     'acquisition': ('acquir', 'acquisition', 'has been acquired', 'merge'),
-    'hiring': ('hiring', 'join our team', 'we are looking for', 'open role',
+    # Arrival verbs first in intent, though order here does not decide the
+    # winner — the earliest matching sentence does. A post that announces a
+    # hire and closes with "P.S. We're hiring" used to title on the P.S.:
+    # "Kai Security: We're hiring: https://bit.ly/4vn6KtT" instead of
+    # "Thomas N. joins Kai as VP of Product Marketing".
+    'hiring': ('joins ', 'joined ', 'welcome ', 'welcoming ', 'is joining',
+               'hiring', 'join our team', 'we are looking for', 'open role',
                "we're growing", 'growing our team'),
 }
 
@@ -68,16 +74,37 @@ _DEFERRING_ANYWHERE = (
 _TITLE_CHARS = 200
 
 
+# An abbreviation that ends in a full stop but not a sentence. Splitting on
+# one decapitates the sentence, and the subject is the first casualty: the
+# post "Coalition, Inc. acquired us for our ability to stop cyber threats"
+# split after "Inc.", the extractor took the remainder as the news and
+# prefixed the vendor it belongs to, and the report read "Wirespeed: acquired
+# us…" — the opposite of what happened. A list is cheaper than a segmenter
+# and fixes the case that actually bit.
+_ABBREV_END = re.compile(
+    r'(?:\b(?:Inc|Ltd|Co|Corp|Corp|LLC|LLP|PLC|Plc|GmbH|AG|NV|BV|AB|Oy|SA|SAS|Pty|'
+    r'Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|Mt|Ave|Rd|No|Fig|vs|etc|al|approx)'
+    r'|\b[A-Z]|\b(?:e\.g|i\.e|U\.S|U\.K|a\.m|p\.m))\.$')
+
+
 def _sentences(text_blob: str) -> list:
-    """Split on sentence ends, keeping it dumb on purpose.
+    """Split on sentence ends, keeping it simple.
 
-    A real segmenter would handle "Inc." and "e.g." better, and would be a
-    dependency and a model's worth of latency for a headline.
+    A real segmenter would be a dependency and a model's worth of latency for
+    a headline. The one case worth handling without one is an abbreviation
+    before the subject's verb, because splitting there changes who did what.
     """
-    import re
-
     parts = re.split(r'(?<=[.!?])\s+|\n+', text_blob or '')
-    return [p.strip() for p in parts if p and p.strip()]
+    out: list = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if out and _ABBREV_END.search(out[-1]):
+            out[-1] = out[-1] + ' ' + part
+        else:
+            out.append(part)
+    return out
 
 
 def announcing_sentence(body: str, kind: str) -> Optional[str]:
@@ -99,6 +126,11 @@ def announcing_sentence(body: str, kind: str) -> Optional[str]:
         cleaned = re.sub(r'^(and|but|so|that\u2019s why|that\'s why|which is why)\s+',
                          '', sentence, flags=re.I).strip()
         if len(cleaned) < 30:
+            continue
+        # A link is not a headline. "We're hiring: https://bit.ly/4vn6KtT"
+        # clears the length bar on the URL alone, and the URL is the half a
+        # reader cannot use.
+        if len(re.sub(r'https?://\S+', '', cleaned).strip()) < 30:
             continue
         low_clean = cleaned.lower()
         if low_clean.startswith(_DEFERRING_OPENERS):
