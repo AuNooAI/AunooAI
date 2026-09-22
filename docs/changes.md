@@ -45,6 +45,35 @@ canonical on both other sites and has been copied to both; neither had any event
 wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
 the scheduled collection, not from resident state.
 
+### Ops · the $179 Stripe price is archived
+`price_1UDhWUKKEEttoL4kT7CC2e8Z`, $179/month USD, is now `active=false` in live Stripe.
+
+Checked before touching it: zero subscriptions on that price in Stripe at any status, matching
+the empty `market_subscriptions` table. The call carried its own guards and would have refused
+to run otherwise — it asserts the price is the $179 one, is not the MCP price, and has no
+subscriptions.
+
+**Only the price is archived, not the product.** Both plans hang off the same Stripe product,
+`prod_VE9qgiCSBCWNfa` "AI SOC News intelligence feed", so archiving the product would have taken
+the $279 plan down with it. The product is untouched and still active.
+
+Verified after the change:
+
+| | result |
+|---|---|
+| $179 price | `active=false` |
+| $279 MCP price | `active=true` |
+| Shared product | `active=true`, untouched |
+| `is_configured()` | true; the app still sells |
+| Live Checkout session for the MCP plan | created, then expired again as a test |
+| Live Checkout with the archived price | refused: "The price specified is inactive" |
+
+**Two loose ends, both yours.** `STRIPE_PRICE_SUB_DATASET` is still set in bugfixing's `.env` and
+is now unused; it is harmless because nothing reads it, and clearing it needs the encrypt and
+decrypt cycle. And the Stripe product is still named "AI SOC News intelligence feed", which is
+what a buyer sees on Checkout and on the receipt — a slight misnomer now that the only thing
+sold is MCP access.
+
 ### Change · the $179 plan is gone from the subscribe page
 It bought nothing once the pages opened, so it is withdrawn. Nobody held one: `market_subscriptions`
 has no rows on either plan, so there was no customer to migrate and no access to preserve.
