@@ -68,11 +68,17 @@ Verified after the change:
 | Live Checkout session for the MCP plan | created, then expired again as a test |
 | Live Checkout with the archived price | refused: "The price specified is inactive" |
 
-**Two loose ends, both yours.** `STRIPE_PRICE_SUB_DATASET` is still set in bugfixing's `.env` and
-is now unused; it is harmless because nothing reads it, and clearing it needs the encrypt and
-decrypt cycle. And the Stripe product is still named "AI SOC News intelligence feed", which is
-what a buyer sees on Checkout and on the receipt — a slight misnomer now that the only thing
-sold is MCP access.
+**The product is renamed too**, on Oliver's go: `prod_VE9qgiCSBCWNfa` from "AI SOC News
+intelligence feed" to **"AI SOC News MCP access"**. The brand stays in front so a buyer
+recognises the charge on a receipt. Name is the only customer-facing field set on it —
+description, statement descriptor and unit label are all empty — so the rename is the whole job.
+Confirmed on a live Checkout session, which now reads "AI SOC News MCP access — 279.00
+USD/month"; the session was expired again straight after.
+
+**One loose end, yours.** `STRIPE_PRICE_SUB_DATASET` is still set in bugfixing's `.env` and is
+now unused. It is harmless because nothing reads it, and clearing it needs the encrypt and
+decrypt cycle. The product also has no description, so Checkout shows the name alone; a sentence
+there would be an improvement but it is copy a customer sees, so it is left for you.
 
 ### Change · the $179 plan is gone from the subscribe page
 It bought nothing once the pages opened, so it is withdrawn. Nobody held one: `market_subscriptions`
