@@ -4179,10 +4179,20 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
         for d in heads:
             attrs = d.get("attributes") or {}
             vendor = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
-            prev, latest = attrs.get("previous"), attrs.get("latest")
+            # The extractor stores the two readings as "from" and "to" and
+            # stores no percentage at all; this read "previous", "latest" and
+            # "pct", so every row said "LinkedIn headcount" and "—%" instead
+            # of "6 to 16 on LinkedIn" and "+166.7%". The older names are kept
+            # as a fallback in case a future producer uses them.
+            prev = attrs.get("previous", attrs.get("from"))
+            latest = attrs.get("latest", attrs.get("to"))
             detail = (f"{prev} to {latest} on LinkedIn"
                       if prev is not None and latest is not None else "LinkedIn headcount")
-            pct = f"{_signed(attrs.get('pct'))}%"
+            pct_value = attrs.get("pct")
+            if (pct_value is None and isinstance(prev, (int, float))
+                    and isinstance(latest, (int, float)) and prev):
+                pct_value = round((float(latest) - float(prev)) / float(prev) * 100, 1)
+            pct = f"{_signed(pct_value)}%"
             blur = ""
             if d.get("withheld"):
                 detail = re.sub(r"\d", "8", detail)

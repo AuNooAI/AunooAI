@@ -45,6 +45,40 @@ canonical on both other sites and has been copied to both; neither had any event
 wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
 the scheduled collection, not from resident state.
 
+### Fix · the headcount panel read attribute names nothing writes
+**`app/services/market_report_html.py`**. Every row of "Vendors whose LinkedIn headcount moved
+10% or more" said "LinkedIn headcount" and "—%" instead of naming the two readings and the
+change. The renderer read `attributes.previous`, `attributes.latest` and `attributes.pct`. The
+profile extractor writes `from` and `to`, and writes no percentage at all, which the stored rows
+confirm: the only keys present are `field`, `from`, `to`, `source` and `observed_between`. All
+three lookups returned nothing, so the detail fell back to its placeholder and `_signed(None)`
+rendered an em-dash.
+
+It now reads `from` and `to`, keeps the older names as a fallback in case a future producer uses
+them, and computes the percentage when one is not stored. Live on bugfixing after a restart:
+
+    Mave                 20 to 22 on LinkedIn    +10%
+    PRE Security         37 to 33 on LinkedIn    -10.8%
+    Rilian               33 to 37 on LinkedIn    +12.1%
+    System Two Security   6 to 16 on LinkedIn   +166.7%
+
+Those four are exactly the headcount events that survived the new two-person floor, so the panel
+and the timeline now agree.
+
+**Not a bug, and left alone: the vendor names and the blur.** The same rows read "a vendor not
+shown in this view" and the page carries blurred blocks, which is the shared view working as the
+route's docstring describes — the plain URL is what an operator pastes, so it shows what the
+recipient will see. Adding `full=1` to a session request renders the names and removes the blur,
+and the app's own Report button already adds it.
+
+### Propagation · the panel fix
+bugfixing patched, committed and restarted; no background jobs were in flight and the only error
+since the restart is the known unset NewsData key. oviva and sunstar carry the same defect but
+their copy of this file has drifted from canonical by 1,441 and 1,554 lines, so each was patched
+surgically rather than overwritten. Sunstar runs an older version of the block with no percentage
+column at all, so it got the narrower half of the fix. Both compile. Neither was restarted: the
+change is cosmetic and they will pick it up on their next restart.
+
 ### Sweep · the other four extractors
 Oliver asked for the same question to be put to the rest: where does a rule turn "a field
 changed" into "something happened" without saying which direction counts?
