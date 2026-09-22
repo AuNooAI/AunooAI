@@ -271,6 +271,35 @@ intact on every one, so each was patched surgically rather than overwritten. All
 report a 90-day cutoff. Jobs checked before each restart; all four live sites came back clean,
 the only error being panaya's pre-existing unset NewsData key.
 
+### Fix · a headline that asks a question or opens with a hook
+**`app/services/market_assessment.py`**. `headline_of` replaced a headline only when it was
+junk, empty or cut mid-sentence. A complete but empty opener passed straight through, so the
+page carried "Anvilogic: SAP kept Splunk." with "The result: 35% more MITRE coverage in one week
+and more than $1M in annual savings" sitting two lines below it, and "Simbian: The best AI for
+your SOC?" where the news was in the next sentence.
+
+Two more cases now trigger the body-sentence picker: a headline that ends in a question mark,
+and one under 30 characters. Both only when the headline is also the opening of the body, which
+is what marks it as a post fragment rather than a title. That condition matters — without it the
+rule rewrote the generated hiring labels, turning "29 open roles" into "29 distinct open roles
+on job boards during the period (engineering 22, sales 6)", which is worse. The picker also
+refuses to hand back the hook it was called to replace.
+
+Live on the public page: the Anvilogic entry now reads "Anvilogic: The result: 35% more MITRE
+coverage in one week and more than $1M in annual savings." "SAP kept Splunk" and "best AI for
+your SOC" no longer appear as headlines anywhere in the section, and the moves count is
+unchanged at 30.
+
+**A measurement mistake worth recording.** The first check compared `headline_of` run over
+`material_developments` output and reported "0 of 94 changed". That output had already been
+through `headline_of`, so the comparison was of a processed value against itself and proved
+nothing. I reverted the change on the strength of it before spotting the error and restoring it.
+Compare rendered output, or raw stored fields, not a value the function under test has already
+touched.
+
+Propagated to oviva, sunstar, panaya and bwtemplate; all compile, and the three live ones
+restarted clean.
+
 ### False alarm · two reported defects that are not defects
 Asked to check the remaining sections, I reported two problems and started fixing them. Both
 were wrong. Everything was reverted — code by `git checkout`, data by hand — and the site is

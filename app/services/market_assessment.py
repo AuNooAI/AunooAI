@@ -423,9 +423,21 @@ def headline_of(record: Dict[str, Any]) -> str:
         last in _DANGLING
         or (len(headline) >= 60 and bool(summary)
             and summary.lower().startswith(headline[:30].lower())))
-    if (_JUNK_HEADLINE.search(headline) or not headline or truncated) and summary:
+    # A question is not news, and a three-word opener is a hook. "Simbian: The
+    # best AI for your SOC?" and "Anvilogic: SAP kept Splunk." were both on the
+    # page while the sentence carrying the news sat two lines down.
+    #
+    # Only when the headline is the body's own opening, which is what makes it
+    # a post fragment rather than a title. A generated label such as "29 open
+    # roles" is short and is not the start of anything, and replacing it with
+    # its own explanatory sentence made the hiring section worse.
+    hook = bool(headline) and bool(summary) and (
+        headline.rstrip().endswith("?") or len(headline) < 30
+    ) and summary.lower().startswith(headline.strip().lower()[:20])
+    if (_JUNK_HEADLINE.search(headline) or not headline or truncated or hook) and summary:
         usable = [x for x in _sentences(summary)
-                  if len(x) >= 12 and "http" not in x]
+                  if len(x) >= 12 and "http" not in x
+                  and not (hook and x.strip().lower() == headline.strip().lower())]
         # The first sentence that says something; a four-word opener is a
         # hook, not a headline.
         first = next((x for x in usable if len(x) >= 40), usable[0] if usable else "")
