@@ -1,5 +1,55 @@
 # Changes
 
+## 2026-09-22 — A Crunchbase field going blank was published as a funding round
+
+### Incident
+Oliver found this in the Market moves panel:
+
+> **StrikeReady: last funding type changed from series_a to series_unknown**
+> crunchbase_company reported a change in last_funding_type. The date of the round itself is
+> not given by this source.
+
+StrikeReady's Crunchbase `last_funding_type` read `series_a` on four consecutive weekly
+observations from 31 August to 14 September. On 21 September it came back `series_unknown`.
+`series_unknown` is not a later round than `series_a`; it is Crunchbase saying it no longer
+knows. We published that as an undated funding event on a customer-facing page.
+
+### Fix · the stage field now gets the suspicion the dollar total already had
+**`app/services/entity_event_extractors/funding.py`**. The module's own docstring says a falling
+dollar total is "a correction or a mistake rather than news", and the code refuses to announce
+one. The text fields had no equivalent test: any change fired, in either direction.
+
+A new `UNINFORMATIVE` set names the values that mean the source stopped knowing —
+`series_unknown`, `undisclosed`, `unknown`, `not stated` and similar — and a move **into** one
+of them is never an event. A move **out of** one is kept, because a round becoming known is the
+visible trace of a raise being disclosed, which is what the extractor is for. The run summary
+gained `ignored_uninformative` beside the existing `ignored_total_decrease`.
+
+The round-progression list in `market_analysis.py` is no use as a guard and the comment in the
+file says so: it sorts a chart from seed to exit and places `series_unknown` after `series_h`,
+so a forward-only rule built on it would have published this very event.
+
+### Verification
+- Rule checked directly: `series_unknown`, `undisclosed`, `Undisclosed`, `not stated` and
+  `not_stated` all read as uninformative; `series_a`, `seed`, `post_ipo_equity` and `grant` do
+  not. An empty value never reaches the rule, because the guard above it already returns.
+- Extractor re-run over all 353 readings: `created 0`, `ignored_uninformative 1`, and the
+  funding event count stayed at 25.
+- The published row (id 24092) was set to `status='rejected'`, which is the state
+  `market_findings` already excludes. Re-running the report's own event query confirms it is
+  gone and that StrikeReady's real funding announcement (id 17745) still shows.
+
+### Propagation
+Market Monitor runs on bugfixing, oviva and sunstar only. The file was byte-identical to
+canonical on both other sites and has been copied to both; neither had any event of this shape.
+wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
+the scheduled collection, not from resident state.
+
+### Lessons
+A deterministic pipeline is not a correct one. The report body calls no model, so it cannot
+fabricate a citation — and it can still promote a source-data regression to a market event. When
+a rule turns "a field changed" into "something happened", it needs to say which direction counts.
+
 ## 2026-09-21 — Two market findings were measuring our collection, not the market
 
 ### What Oliver saw

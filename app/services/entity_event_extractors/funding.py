@@ -25,6 +25,28 @@ logger = logging.getLogger(__name__)
 
 WATCHED = ('last_funding_type', 'funding_status', 'funding_total_musd')
 
+# Values that mean "the source no longer knows", not "something happened".
+# Crunchbase moved StrikeReady from series_a to series_unknown on 2026-09-21
+# after four weeks of series_a, and we published it as a funding round: an
+# undated market move whose entire content was Crunchbase losing a field.
+#
+# The stage field needs the same suspicion the dollar total already gets a few
+# lines below. A move *into* one of these is a data-quality regression at the
+# source. A move *out of* one is kept, because a round becoming known is the
+# visible trace of a raise being disclosed, which is what this extractor is
+# for. The round-progression list in market_analysis is no use as a guard: it
+# sorts a chart from seed to exit and puts series_unknown after series_h, so a
+# forward-only rule built on it would publish this very event.
+UNINFORMATIVE = frozenset({
+    'series_unknown', 'undisclosed', 'unknown', 'not stated', 'not_stated',
+    'n/a', 'na', 'none', 'null', 'other',
+})
+
+
+def _uninformative(value: str) -> bool:
+    return (value or '').strip().lower().replace(' ', '_') in {
+        v.replace(' ', '_') for v in UNINFORMATIVE}
+
 
 def run(conn, *, brand_id: Optional[int] = None,
         limit: Optional[int] = None) -> Dict[str, Any]:
@@ -49,7 +71,7 @@ def run(conn, *, brand_id: Optional[int] = None,
          LIMIT :lim
     """), params).mappings().all()
 
-    created = merged = ignored_decrease = 0
+    created = merged = ignored_decrease = ignored_uninformative = 0
     for row in rows:
         if row['prev_id'] is None:
             continue
@@ -67,6 +89,11 @@ def run(conn, *, brand_id: Optional[int] = None,
         else:
             old, new = row['prev_text'], row['value_text']
             if not old or not new or old == new:
+                continue
+            if _uninformative(new):
+                # The source stopped knowing. Not news, whether it came from a
+                # named round or from another unknown.
+                ignored_uninformative += 1
                 continue
             title = f'{row["field_key"].replace("_", " ")} changed from {old} to {new}'
             attrs = {'from': old, 'to': new}
@@ -97,4 +124,5 @@ def run(conn, *, brand_id: Optional[int] = None,
         merged += 0 if outcome['created'] else 1
 
     return {'readings_compared': len(rows), 'created': created,
-            'merged': merged, 'ignored_total_decrease': ignored_decrease}
+            'merged': merged, 'ignored_total_decrease': ignored_decrease,
+            'ignored_uninformative': ignored_uninformative}
