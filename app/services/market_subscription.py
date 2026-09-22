@@ -1,10 +1,13 @@
 """The intelligence feed: monthly subscriptions sold from the front page.
 
-Two plans. **Intelligence feed** ($179/month) turns the shared view into
-the whole market: every vendor named, the KPIs and metrics that the
-public tier withholds, on every page of the site. **Intelligence feed +
-MCP access** ($279/month) adds a bearer key for the app's MCP server, so
-the buyer's AI tools can query the same data programmatically.
+One plan. **MCP access** ($279/month) is a bearer key for the app's MCP
+server, so the buyer's AI tools query the data directly instead of reading
+it off a page.
+
+There used to be a second plan at $179 that turned a restricted view into
+the whole market. On 2026-09-22 the pages were opened to every reader, so
+that plan bought nothing and was withdrawn. Nobody held one. What is sold
+now is not access to the figures but not having to read them.
 
 The buyer pays on Stripe's hosted Checkout page in subscription mode.
 What they receive is an access link — the site URL with a ``key=``
@@ -64,18 +67,12 @@ MCP_SERVICE_USERNAME = "mcp-subscriber"
 MCP_SERVICE_EMAIL = "mcp-subscriber@aisocnews.com"
 
 PLANS: Dict[str, Dict[str, Any]] = {
-    "dataset": {
-        "label": "Intelligence feed", "cents": 17900,
-        "env_price": "STRIPE_PRICE_SUB_DATASET",
-        "blurb": "The whole site with nothing held back. You see every vendor "
-                 "we monitor and the numbers behind the rankings: who is "
-                 "getting attention, who is hiring, and how they compare."},
     "mcp": {
-        "label": "Intelligence feed + MCP access", "cents": 27900,
+        "label": "MCP access", "cents": 27900,
         "env_price": "STRIPE_PRICE_SUB_MCP",
-        "blurb": "Everything in the intelligence feed, plus a key for our MCP "
-                 "server. Claude, ChatGPT or your own agents can then query "
-                 "the data directly instead of reading the pages."},
+        "blurb": "A key for our MCP server. Claude, ChatGPT or your own agents "
+                 "query the articles, posts, vendor profiles and sentiment "
+                 "directly, instead of reading them off a page."},
 }
 
 
@@ -508,35 +505,28 @@ def roster_counts(c, market_id: int) -> Dict[str, int]:
 
 
 def _whats_inside(totals: Optional[Dict[str, int]]) -> str:
-    """The concrete difference between the free view and the feed. Every
-    line here must stay true to what the entitlement code actually
-    withholds; when the policy moves, this list moves with it."""
+    """What the key reaches. This used to list what the free view held back;
+    since 2026-09-22 it holds back nothing, so the honest version describes
+    the layer under the pages rather than a tier above them."""
     if not totals:
         return ""
-    total, named = totals["total"], totals["named"]
+    total = totals["total"]
     return (
-        "<h2>What the free view holds back</h2>"
-        f"<p>We monitor {total} vendors in this market. The free view reports on all of "
-        f"them by name, but its rankings and figures stop at the {named} most-covered "
-        "companies. The feed removes that cap everywhere:</p>"
+        "<h2>What the key reaches</h2>"
+        f"<p>The pages report on all {total} vendors we monitor in this market, and they "
+        "are free to read. The MCP server gives your tools the layer underneath them:</p>"
         "<ul>"
-        f"<li>The attention chart shows engagement and earned-coverage figures, with "
-        f"movement against the period before, for all {total} vendors instead of {named}.</li>"
-        "<li>The hiring section names who is hiring. The free view keeps the counts "
-        "but withholds which vendor each one belongs to.</li>"
-        "<li>The analyst view — the benchmark that scores and compares every vendor's "
-        "activity, coverage and momentum — is masked on the free site and open in "
-        "the feed.</li>"
-        "<li>Every section page, period and chart works the same way: no withheld "
-        "rows, no masked names.</li>"
+        "<li>The collected articles and posts themselves, with their sources and dates, "
+        "rather than the counts drawn from them.</li>"
+        f"<li>Vendor profiles and sentiment for all {total} vendors, queryable by name, "
+        "by period, or by what changed.</li>"
+        "<li>Marketing reach data: each vendor's audience, posting activity, engagement "
+        "and earned coverage, as numbers your own model can compare.</li>"
+        "<li>The announcements as we collect them — launches, funding, partnerships, "
+        "customer wins — so an agent can watch the market without polling a page.</li>"
         "</ul>"
-        f"<p>You also get industry benchmarking data for all {total} vendors, their "
-        "latest announcements as we collect them (launches, funding, partnerships, "
-        "customer wins), and marketing reach data: each vendor's audience, posting "
-        "activity, engagement and earned coverage.</p>"
-        "<p>The MCP plan adds the layer under the pages: the collected articles and "
-        "posts, vendor profiles and sentiment, queryable by your own tools rather "
-        "than read off a chart.</p>")
+        "<p>Ask your assistant what changed this week and it answers from the data, "
+        "with the articles behind it, instead of you reading a chart and guessing.</p>")
 
 
 def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href: str,
@@ -544,21 +534,31 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
                          values: Optional[Dict[str, Any]] = None,
                          totals: Optional[Dict[str, int]] = None) -> str:
     v = values or {}
-    chosen = v.get("plan") or "dataset"
+    chosen = v.get("plan") or next(iter(PLANS))
     opts = []
-    for plan, opt in PLANS.items():
+    if len(PLANS) == 1:
+        # One plan is not a choice. The radio would be a control with nothing
+        # to switch to, so the plan is stated and carried in a hidden field.
+        only, opt = next(iter(PLANS.items()))
         opts.append(
-            f'<label class="opt"><input type="radio" name="plan" value="{plan}"'
-            + (" checked" if plan == chosen else "") + ">"
+            f'<input type="hidden" name="plan" value="{only}">'
+            '<div class="opt opt-only">'
             f'<strong>{esc(opt["label"])}</strong>'
             f'<span class="price">{fmt_amount(opt["cents"])}/mo</span>'
-            f'<p>{esc(opt["blurb"])}</p></label>')
+            f'<p>{esc(opt["blurb"])}</p></div>')
+    else:
+        for plan, opt in PLANS.items():
+            opts.append(
+                f'<label class="opt"><input type="radio" name="plan" value="{plan}"'
+                + (" checked" if plan == chosen else "") + ">"
+                f'<strong>{esc(opt["label"])}</strong>'
+                f'<span class="price">{fmt_amount(opt["cents"])}/mo</span>'
+                f'<p>{esc(opt["blurb"])}</p></label>')
     inner = (
-        "<section><p>The free view shows every vendor's news and posts, but it names only "
-        "the most-covered companies in the rankings and keeps the figures for paying "
-        "readers. The intelligence feed opens the rest of the site: the full vendor list, "
-        "the numbers behind the charts, and the analyst view. If you would rather have the "
-        "same data in your AI tools than on a page, the MCP plan adds a key for that.</p>"
+        "<section><p>Every page on this site is open: every vendor named, every figure, "
+        "every chart, no sign-in. There is nothing to buy in order to read it. What a "
+        "subscription buys is a key for our MCP server, so your own tools can ask the "
+        "data questions instead of you reading the answer off a chart.</p>"
         + _whats_inside(totals)
         + (f'<p class="err" role="alert">{esc(error)}</p>' if error else "")
         + f'<form method="post" action="{esc(action)}">'
@@ -573,10 +573,10 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
         "Cancel any time from the Stripe receipt; access runs to the end of the paid month. "
         "The access link and key are for you and your team, not for republication.</p>"
         "</form></section>")
-    return _shell(market, title=f"Intelligence feed — {market['name']}",
-                  kicker="Intelligence feed", h1="Read the whole market",
-                  sub="A monthly subscription that opens the whole site, with "
-                      "optional MCP access for your AI tools.",
+    return _shell(market, title=f"MCP access — {market['name']}",
+                  kicker="MCP access", h1="Put this market in your AI tools",
+                  sub="A monthly key for our MCP server. The pages stay free; "
+                      "this is for asking the data questions directly.",
                   inner=inner, front_href=front_href, about_href=about_href)
 
 

@@ -45,6 +45,48 @@ canonical on both other sites and has been copied to both; neither had any event
 wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
 the scheduled collection, not from resident state.
 
+### Change · the $179 plan is gone from the subscribe page
+It bought nothing once the pages opened, so it is withdrawn. Nobody held one: `market_subscriptions`
+has no rows on either plan, so there was no customer to migrate and no access to preserve.
+
+**`app/services/market_subscription.py`**. `PLANS` now holds one entry. The surviving plan was
+"Intelligence feed + MCP access" at $279, which only made sense as the upgrade from the other
+one; it is now simply **MCP access**, same price, with a blurb about what the key reaches rather
+than what it adds.
+
+The page was written around the split and every line of it was false by this morning:
+
+- The opening paragraph said the free view "names only the most-covered companies in the
+  rankings and keeps the figures for paying readers". It now says every page is open and states
+  what a subscription actually buys.
+- `_whats_inside` was a list headed "What the free view holds back". Its own docstring said every
+  line had to stay true to what the entitlement code withholds, and it withholds nothing now. It
+  is rewritten as "What the key reaches" and describes the layer under the pages: the articles
+  and posts themselves, vendor profiles and sentiment, reach figures, and the announcements as
+  they are collected.
+- The page was titled "Intelligence feed" and headed "Read the whole market", which is now free.
+  It is titled "MCP access" and headed "Put this market in your AI tools".
+- One plan is not a choice, so the radio list is replaced by a stated plan and a hidden field.
+  The form still posts `plan=mcp` and the route still validates it against `PLANS`.
+- **`app/routes/market_subscription_routes.py`**: the rejection message said "Pick one of the two
+  plans."
+
+### Verification · the subscribe page
+Fetched live from the restarted service:
+
+| | live page |
+|---|---|
+| "Intelligence feed", "$179" | 0, 0 |
+| "What the free view holds back" | 0 |
+| "MCP access", "$279" | 3, 1 |
+| Radio inputs / hidden plan field | 0 / 1 |
+
+`is_configured()` still returns true with the tenant environment loaded, so the offer renders;
+it now depends on `STRIPE_PRICE_SUB_MCP` alone, since it checks every plan in `PLANS`. An
+unknown plan name is refused by the route before it reaches `price_id`, which raises for one.
+`STRIPE_PRICE_SUB_DATASET` is still set in the environment and is now unused — harmless, and the
+Stripe price itself is untouched, so the decision to archive it there is yours.
+
 ### Change · the report is open, and the thing we sell is MCP access
 Oliver's call: remove the blur entirely and offer MCP access instead.
 
