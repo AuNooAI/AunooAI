@@ -85,10 +85,13 @@ wrote about itself.
 - Copied to oviva and sunstar, both byte-identical to canonical beforehand. Neither has a
   single-person headcount event.
 
-**Not done, and it is your call.** The seven weak headcount events are still on the page. They
-are true facts that no longer meet the bar, not errors like the funding one, so suppressing them
-is a different decision from fixing the rule. Say the word and I will mark them rejected, which
-is reversible.
+**The seven weak headcount events were withdrawn on Oliver's go.** They were selected by the new
+rule rather than by hand — `headcount_change`, active, absolute delta under two — and set to
+`status='rejected'`, the state `market_findings` already excludes. The panel now shows four
+headcount moves: 33→37, 20→22, 37→33 and 6→16.
+
+These were true readings, not errors, so the rejection is a judgement that a one-person move at
+a five-person company is not a market event. Flipping the status back restores them.
 
 ### Lessons
 A deterministic pipeline is not a correct one. The report body calls no model, so it cannot
