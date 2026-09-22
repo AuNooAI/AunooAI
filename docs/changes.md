@@ -183,6 +183,37 @@ which the function's docstring already calls no worse than before.
 `scratchpad/title_backup.json` first. Restarted, cache purged, and the corrected titles confirmed
 on the live public page; section counts unchanged at 30, 40, 6 and 17.
 
+### Propagation · the title fix to the other tenants
+Five trees carry `owned_post.py`; four held it byte-identical to bugfixing's pre-fix version, so
+all four had the bug in code. The fixed file is now on all of them, compiled and matching
+canonical.
+
+The stored damage was far smaller than here, and nothing outside bugfixing was inverted:
+
+| Tenant | Candidate events | Titles wrong | Service |
+|---|---|---|---|
+| oviva | 81 | 3 | restarted, clean |
+| panaya | 38 | 0 | restarted, clean |
+| sunstar | 0 | 0 | restarted, clean |
+| bwtemplate | no `bw_entity_events` table | 0 | inactive, not started |
+
+Only one of oviva's three was the abbreviation cut, the same shape as Wirespeed's but without
+the reversal: *"a new at-home biomarker test kit for U.S."* stopped at the abbreviation, where
+the body continues "for U.S. members". The other two came from the smaller fixes — a leading
+emoji stripped from a Noom appointment post, and a Juniper hiring post where the arrival verb
+now wins, replacing "Swipe through to explore open roles across EMEA" with "Last cycle, 183 new
+Eucalypts joined our EMEA team". That last one is a judgement rather than a defect, and it reads
+better.
+
+All three oviva titles were rewritten with the old values saved to
+`scratchpad/oviva_title_backup.json`, and each `UPDATE` matched on the old title as well as the
+id, so a row that had changed under me would not have been overwritten. Background jobs were
+checked on each tenant before its restart; all three were idle. The only error since is panaya's
+unset NewsData key, which is pre-existing.
+
+**bwtemplate was not started.** It is the dedicated Brand Watcher template and it was already
+inactive; it has the fixed file for whenever it is next brought up.
+
 ### False alarm · two reported defects that are not defects
 Asked to check the remaining sections, I reported two problems and started fixing them. Both
 were wrong. Everything was reverted — code by `git checkout`, data by hand — and the site is
