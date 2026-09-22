@@ -85,9 +85,17 @@ It deliberately echoes the subscribe page's own blurb, so a buyer reads one prom
 than two slightly different ones, and it says the site is free rather than leaving them to infer
 what they are paying for. Confirmed on a live Checkout session, expired again straight after.
 
-**One loose end, yours.** `STRIPE_PRICE_SUB_DATASET` is still set in bugfixing's `.env` and is
-now unused. It is harmless because nothing reads it, and clearing it needs the encrypt and
-decrypt cycle.
+**The unused variable is cleared.** `STRIPE_PRICE_SUB_DATASET` is out of bugfixing's `.env`,
+backed up first to `.env.bak-stripeprice-20260922_114544`. Exactly one line was removed, and the
+edit refused to run if it would have matched any other number; a diff of the variable *names*
+before and after shows that one name and nothing else. 190 lines remain, with the other six
+Stripe variables and all seventeen TypeSafe ones intact.
+
+Then the usual cycle: `env_encryption.py encrypt`, `decrypt`, and `chown orochford .env`.
+Reloaded afterwards to confirm the file still parses — the removed variable is absent, the MCP
+price, the secret key, the webhook secret and the TypeSafe key are all present, and
+`is_configured()` still returns true. **No restart.** Nothing reads the removed variable, so the
+running process and the file agree on everything that matters; the site is up and serving.
 
 ### Change · the $179 plan is gone from the subscribe page
 It bought nothing once the pages opened, so it is withdrawn. Nobody held one: `market_subscriptions`
