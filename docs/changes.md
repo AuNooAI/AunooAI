@@ -139,6 +139,42 @@ unknown plan name is refused by the route before it reaches `price_id`, which ra
 `STRIPE_PRICE_SUB_DATASET` is still set in the environment and is now unused — harmless, and the
 Stripe price itself is untouched, so the decision to archive it there is yours.
 
+### False alarm · two reported defects that are not defects
+Asked to check the remaining sections, I reported two problems and started fixing them. Both
+were wrong. Everything was reverted — code by `git checkout`, data by hand — and the site is
+byte-for-byte what it was. Recorded here so the next session does not "fix" them again.
+
+**"79 page-edit events are published as market developments."** They are not published at all.
+`market_assessment.material_developments` skips any event carrying a `page_kind` attribute, with
+the comment "A changed page on the vendor's own site: we know something changed and not what.
+Not a development." Counting developments that carry a `page_kind` returns zero. I saw the rows
+in `bw_entity_events` filed as `customer_win` and `product_launch` and assumed the report showed
+them, without tracing the display path. The tell was there and I missed it: rejecting all 79
+left every section byte-identical.
+
+**"A hiring post is labelled an executive appointment."** Both are real appointments. The path
+is `market_assessment` line 1381: a `hiring_spike` event with no `postings` attribute came from a
+vendor's own post rather than from job listings, and becomes an appointment only when `_SENIOR`
+matches. Reading the full post text settles it:
+
+- Kai Security, which I called a generic marketing line: *"…Thomas N. joins Kai as VP of Product
+  Marketing to make the case for the alternative. P.S. We're hiring: …"*
+- Mate Security: *"Excited to welcome Noam Bar-Lev to Mate as our Director of Brand and AI
+  Marketing."*
+
+I had judged the first from the headline alone. The headline is the post's opening sentence,
+which is the separate third finding about titles — that one stands, and is untouched.
+
+**What was undone:** the `hiring` entry restored to `_REVIEW_KIND_MAP`; `web_diff.KIND_TO_EVENT`
+restored; `site_update` removed from `EVENT_TYPES`; the 80 `site_update` rows deleted, with a
+check for orphaned entity and evidence rows (none); the 79 page-edit events set back to
+`active`. Restarted, cache purged, and the four sections confirmed identical to before: moves
+30, launches 40, cases 6, hiring 17, and this morning's real headcount fix still rendering
++10%, -10.8%, +12.1% and +166.7%.
+
+**Lesson.** A row in a table is not a thing on a page. Before calling something a defect, trace
+it from the store to the rendered bytes; and when a claim rests on a headline, read the body.
+
 ### Change · the report is open, and the thing we sell is MCP access
 Oliver's call: remove the blur entirely and offer MCP access instead.
 
