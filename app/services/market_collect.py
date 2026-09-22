@@ -17,7 +17,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -464,6 +464,15 @@ def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: v for k, v in meta.items() if v is not None and v != []}
 
 
+def posts_max_age_days() -> int:
+    """How far back an ingested company post may be dated. 0 disables it."""
+    import os
+    try:
+        return max(0, int(os.getenv("MARKET_POSTS_MAX_AGE_DAYS", "") or 90))
+    except ValueError:
+        return 90
+
+
 def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
                  url_to_brand: Dict[str, int],
                  brand_names: Dict[int, str]) -> Dict[str, int]:
@@ -472,12 +481,25 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
     Attribution is direct: we asked for this company's page, so a post from it
     is that company's. No term gate — unlike a full-text search against SEC or
     Crossref, a vendor's own post routinely never names the vendor.
+
+    **Old posts are dropped here.** The posts dataset cannot filter by date and
+    over-delivers against ``limit_per_input``, so a run returns a slice of a
+    company's history rather than its latest few. ``trigger_posts`` already
+    said recency was "enforced when the records are ingested"; it was not, and
+    the consequence showed on the oviva market: of 387 posts collected in a
+    month only 18 were published in that month, the rest reaching back a year.
+    Each one became an event dated when it was published, so a 30-day report
+    saw almost nothing while the review model was paid to read all of them.
+
+    A post with no date is kept — we cannot say it is old.
     """
+    max_age = posts_max_age_days()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age)) if max_age else None
     from app.services.brightdata_linkedin import (
         map_company_post, normalize_linkedin_key,
     )
 
-    stored = attributed = dropped = unmatched = 0
+    stored = attributed = dropped = unmatched = stale = 0
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -495,6 +517,10 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
             continue
         display_name = brand_names.get(brand_id, "")
         published = mapped.get("published_at")
+        if (cutoff is not None and isinstance(published, datetime)
+                and published.astimezone(timezone.utc) < cutoff):
+            stale += 1
+            continue
         is_new = land_article(
             conn, uri=uri, title=mapped["title"], summary=mapped.get("summary"),
             news_source="linkedin", topic=f"{display_name} - Brand Watch",
@@ -512,7 +538,7 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
             summary=mapped.get("summary") or "", source=LINKEDIN_POST_SOURCE,
         ) else 0
     return {"stored": stored, "attributed": attributed,
-            "dropped": dropped, "unmatched": unmatched}
+            "dropped": dropped, "unmatched": unmatched, "stale": stale}
 
 
 # ---------------------------------------------------------------------------

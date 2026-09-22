@@ -214,6 +214,53 @@ unset NewsData key, which is pre-existing.
 **bwtemplate was not started.** It is the dedicated Brand Watcher template and it was already
 inactive; it has the fixed file for whenever it is next brought up.
 
+### Fix · the posts collector was ingesting a year of history every day
+Oviva's market report showed six developments in a month, all of them job counts. The cause was
+not the market being quiet.
+
+**The trail.** Of 387 vendor posts collected on oviva in 30 days, only 18 were *published* in
+those 30 days; the rest reached back to September 2025, with June the largest month. Events take
+their date from the post's publication date, so a post collected yesterday and published in
+April lands in April and never appears in a 30-day window. Job listings are dated when they are
+seen, which is why they were the only thing left in the window.
+
+Everything else in the chain was working and was checked: event extraction runs daily and
+succeeds, all 260 recent corpus entries are reviewed, every one of the 387 posts has a clean ISO
+date, and the two product launches in the window are page-diff events the assessment layer
+excludes on purpose.
+
+**The defect.** `brightdata_linkedin.trigger_posts` documents that the dataset "does not filter
+by date — recency is enforced when the records are ingested". It was not enforced anywhere.
+`market_collect.ingest_posts` took every record it was handed. The dataset also over-delivers
+against `limit_per_input`: the limit is 5 per vendor and 7 vendors, so 35 a run, and runs
+averaged 149 over a fortnight.
+
+**`app/services/market_collect.py`** now drops a post dated before
+`MARKET_POSTS_MAX_AGE_DAYS`, default 90 — three times the report window, so nothing a reader
+sees is lost. A post with no date is kept, because we cannot say it is old. The run summary
+gained a `stale` count beside `dropped` and `unmatched`.
+
+Measured against what each market actually collected in the last 30 days:
+
+| Market | Collected | Would be kept | Would be dropped |
+|---|---|---|---|
+| oviva | 387 | 140 | 247 |
+| bugfixing | 4,643 | 2,367 | 2,276 |
+
+That is also model spend: every dropped post is one the review model no longer has to read.
+
+**Not touched: the over-delivery itself.** `limit_per_input` is being sent and ignored, which is
+a paid dataset's behaviour, and the standing rule is never to trial-and-error a paid dataset.
+Worth raising with Bright Data with these numbers rather than probing it.
+
+### Propagation · the posts cutoff
+bugfixing, oviva, sunstar and panaya all patched; bwtemplate too, which is inactive. oviva,
+sunstar and bwtemplate had drifted from canonical in this file, but the drift is an unrelated
+comment block and a market-specific name in a noise list, and the `ingest_posts` block was
+intact on every one, so each was patched surgically rather than overwritten. All five compile and
+report a 90-day cutoff. Jobs checked before each restart; all four live sites came back clean,
+the only error being panaya's pre-existing unset NewsData key.
+
 ### False alarm · two reported defects that are not defects
 Asked to check the remaining sections, I reported two problems and started fixing them. Both
 were wrong. Everything was reverted — code by `git checkout`, data by hand — and the site is
