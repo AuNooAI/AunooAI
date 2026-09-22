@@ -45,6 +45,59 @@ canonical on both other sites and has been copied to both; neither had any event
 wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
 the scheduled collection, not from resident state.
 
+### Change · the report is open, and the thing we sell is MCP access
+Oliver's call: remove the blur entirely and offer MCP access instead.
+
+The restricted view was about sixty call sites — blurred blocks, blurred registry rows, digits
+scrubbed to 8s, a ten-vendor cap, "a vendor not shown in this view", a trial form and the
+"Request a trial" links pointing at it. Every one of them keys off the same flag,
+`allowed_brand_ids is not None`, which comes from the entitlement's vendor limit. So the change
+is one function rather than sixty edits: **`market_entitlements.resolve` now returns `FULL` for
+every reader.** With no vendor limit there is no restricted set, so the whole apparatus renders
+nothing.
+
+Access itself is untouched and is still decided before `resolve` is called: a signed link, a
+session, a subscriber's key, or a public market. A request with none of those is refused by the
+route and never reaches this code. What changed is how much a reader who is already through the
+door sees, and that is now all of it.
+
+The machinery is deliberately left in place — `authorized_brand_ids`, `withheld_names` and the
+fail-closed `enforce_no_withheld` guard. It costs nothing while no reader is limited, and
+restoring a tier later is a change to `resolve` alone.
+
+**`app/services/market_report_html.py`** carries the new offer. The subscribe line read "The
+intelligence feed opens the whole site for $179 a month; with MCP access for your AI tools it is
+$279." Nothing is held back now, so there is nothing to sell a reader; what is worth paying for
+is not having to read. It now reads "Everything here is open to read. MCP access gives Claude,
+ChatGPT or your own agents a key to query this data directly, for $279 a month." The header
+button changed from "Intelligence feed" to "MCP access".
+
+### Verification · the open report
+Rendered as an anonymous reader of the public market, then fetched live from the restarted
+service with no cookie:
+
+| | anonymous, live |
+|---|---|
+| Blur classes on content | 0 (they survive in the stylesheet only) |
+| Trial form, trial links | 0, 0 |
+| "a vendor not shown in this view" | 0 |
+| "shared view", "Request a trial" | 0, 0 |
+| Vendors on the front page | 28 |
+| MCP offer | present, twice |
+
+`resolve` was also checked on all four access paths — public, signed link, session and no
+credential — and every one returns tier `full` with no vendor limit.
+
+### Propagation · the open report
+bugfixing only, and deliberately. This is a pricing and disclosure decision for the public
+Market Monitor site, not a fix, so it does not travel to oviva or sunstar even though both run
+Market Monitor. Restarted with no jobs in flight; the only error since is the known unset
+NewsData key.
+
+**Still to decide.** The subscribe page itself still lists both plans, the $179 intelligence
+feed and the $279 feed-plus-MCP. With the pages open, the $179 plan now buys nothing. Removing
+it means touching live Stripe prices, so it is left as it is.
+
 ### Fix · the headcount panel read attribute names nothing writes
 **`app/services/market_report_html.py`**. Every row of "Vendors whose LinkedIn headcount moved
 10% or more" said "LinkedIn headcount" and "—%" instead of naming the two readings and the

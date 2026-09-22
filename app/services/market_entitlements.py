@@ -79,23 +79,25 @@ def resolve(*, session: Any, signed_link: bool,
             market_is_public: bool) -> Entitlement:
     """What this request is entitled to.
 
-    A session is the operator looking at their own market, so it sees
-    everything. A signed link and a public market are both *shared* views and
-    get the same restricted treatment — a signed link is not more trusted than
-    a public one, it is only harder to guess, and the recipient is equally
-    someone outside the account.
+    Everyone who gets through the door sees the whole market. Oliver's call on
+    2026-09-22: the pages stop being a sample of themselves, and the thing we
+    sell is MCP access, not the right to read a page without a blur over it.
+    So the vendor cap, the blurred blocks, the scrubbed digits and the trial
+    form are all gone — every one of them keys off a vendor limit, and there
+    is no longer a reader who has one.
+
+    Access itself is unchanged and is still decided before this is called: a
+    valid signed link, a session, a subscriber's key, or a public market. A
+    request with none of those is refused by the caller and never arrives
+    here. This function answers "how much of it do they see", and the answer
+    is now always "all of it".
+
+    The machinery this used to drive is deliberately left in place —
+    ``authorized_brand_ids``, ``withheld_names``, the fail-closed
+    ``enforce_no_withheld`` guard. It costs nothing while no reader is
+    limited, and restoring a tier is then a change to this function alone.
     """
-    if session:
-        return FULL
-    if signed_link:
-        return Entitlement("restricted", public_vendor_limit(),
-                           "shared report link")
-    if market_is_public:
-        return Entitlement("restricted", public_vendor_limit(),
-                           "public market")
-    # No way in. The caller is expected to have refused already; returning the
-    # tightest possible answer means a missed check cannot become full access.
-    return Entitlement("restricted", 1, "no credential")
+    return FULL
 
 
 def authorized_brand_ids(conn, market_id: int,

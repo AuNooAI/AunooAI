@@ -2299,7 +2299,7 @@ def _subscribe_link(market: Dict[str, Any]) -> str:
     if not market.get("is_public") or not msub.is_configured():
         return ""
     return (f'<a class="n-book" href="{msub.subscribe_href(market["id"])}">'
-            "Intelligence feed</a>")
+            "MCP access</a>")
 
 
 def _subscribe_line(market_id: int) -> str:
@@ -2309,9 +2309,12 @@ def _subscribe_line(market_id: int) -> str:
 
     if not msub.is_configured():
         return ""
-    return (f'<p>The <a href="{msub.subscribe_href(market_id)}">intelligence feed</a> '
-            "opens the whole site for $179 a month; with MCP access for your AI "
-            "tools it is $279.</p>")
+    # The pages are open to everyone, so there is nothing left to sell a
+    # reader. What is worth paying for is not having to read: a key for the
+    # MCP server, so an agent queries the data instead of scraping the page.
+    return (f'<p>Everything here is open to read. <a href="{msub.subscribe_href(market_id)}">'
+            "MCP access</a> gives Claude, ChatGPT or your own agents a key to "
+            "query this data directly, for $279 a month.</p>")
 
 
 def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:
