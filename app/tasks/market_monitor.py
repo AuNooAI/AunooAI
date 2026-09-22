@@ -849,7 +849,23 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         result = await mpr.review(
             conn, market_id, market["name"],
             limit=int(os.getenv("MARKET_POST_REVIEW_LIMIT", "200")))
-        counts = result["counts"]
+        counts = dict(result["counts"])
+
+        # Trade press, read in the same run and the same way. The pass above
+        # establishes what the companies said about themselves; this one is
+        # the only thing that can corroborate it, and it is far smaller — tens
+        # of articles a month against hundreds of posts. A failure here does
+        # not fail the vendor pass that already succeeded.
+        try:
+            earned = await mpr.review_earned(
+                conn, market_id, market["name"],
+                limit=int(os.getenv("MARKET_EARNED_REVIEW_LIMIT", "100")))
+            result["earned"] = earned
+            result["candidates"] += earned["candidates"]
+            for verdict, n in earned["counts"].items():
+                counts[verdict] = counts.get(verdict, 0) + n
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("market %s earned review failed: %s", market_id, exc)
         # A run where every batch failed is a failed run, not a quiet one.
         if result["batches"] and result["failed_batches"] == result["batches"]:
             status = "failed"

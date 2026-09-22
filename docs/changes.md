@@ -1,5 +1,212 @@
 # Changes
 
+## 2026-09-22 — Every analyst citation on the front page now names a report you can go and find
+
+### Goal
+Oliver read the Research firms panel and asked what had happened to the headlines. Two items
+said "Gartner research" and nothing else.
+
+### Nothing regressed; one fix made an old fallback conspicuous
+**`app/services/market_research.py`** builds a report title from a report family plus its topic,
+or from a quoted title in the vendor's post. With neither, `label_of` falls back to
+`f"{firm} research"` — and has since the panel shipped in `01fb89b8`. What changed last week was
+`207d5c50`, which taught the parser to recognise Gartner's "AI Vendor Race". That gave one Torq
+post a proper label and left its twin beside it as a bare "Gartner research".
+
+### Fix · fold a citation that named no report into the report it describes
+`_fold_nameless` is a second reconciliation pass. The existing one starts from the family and
+fills in a missing topic, so a post naming no family at all is invisible to it. Kai posted twice
+about one Gartner mention: one post said "in its Emerging Tech Impact Radar", the other said only
+"Autonomous Exposure Remediation". Same report, two rows, one unnamed.
+
+The new pass matches on the vendors' own wording, which is what two posts about one report
+actually share. Firm must agree and the texts must share at least `_FOLD_MIN_SHARED` (2)
+distinctive words, with the firm's name, the vendors' names and citation boilerplate removed —
+those are present by construction and identify nothing. Two is the floor rather than one because
+a citation headline is a whole sentence, so a single shared word happens by chance far more often
+than it does between a news article and an event.
+
+Vendors are deliberately not required to match. Two companies named in one report belong in one
+group, which is the point of grouping.
+
+### Fix · drop citations that name no report at all
+`_names_a_report` keeps a group when it has a report family, a quoted title, or a stated position
+in one — "a Leader", "a Sample Vendor". Without any of the three the item was a vendor mentioning
+the firm, rendered as "Gartner research", which claims a report the reader cannot check.
+
+**Folding runs before dropping, and the order is load-bearing.** Kai's nameless twin carried a
+real position, so it would have survived the drop as a duplicate; it also carried the *later*
+date, so dropping it first would have lost the citation's correct date.
+
+### Verification
+`pytest tests/test_market_research.py` — 16 passed, including the 12 that already existed. Four
+added: the fold, that two different firms do not fold together on shared subject words, that a
+mention naming no report is not listed, and that a stated position still counts without a named
+report — the last guards against the drop taking real recognitions with it.
+
+Whole market and entity suites: 603 passed, 19 failed, the same 19 failing before this change.
+
+On the live 30-day panel, 16 groups became 8. Two folded (Kai Security, Torq — both still listed,
+now under their real report titles). Six dropped:
+
+| Dropped | Why |
+|---|---|
+| Arambh Labs | "named us one of 11 startups to watch" — no report |
+| Anvilogic | "SAP kept Splunk." |
+| @Gruve_ai | a trend claim, not a vendor being named |
+| @KylaDion_ | CrowdStrike Customers' Choice — Peer Insights, already treated as reviews not research |
+| @EmmanuelInvest | an investor thread about ARR growth |
+| computerworld.com | a BigBear phishing story, never a citation at all |
+
+Fetched from the running service afterwards: no `<firm> research` label anywhere, and the eight
+remaining read as Emerging Tech Impact Radar, Innovation Insight, AI Vendor Race, Magic Quadrant
+for SSE and SASE, two GigaOm Radars, Forrester Landscape and IDC MarketScape.
+
+### Propagation
+bugfixing (canonical), oviva and sunstar, applied surgically; all three restarted and healthy
+(HTTP 307, no startup errors). The only drift in the two tenant copies was a single line — the
+"AI Vendor Race" family from `207d5c50`, another session's fix. It was **not** carried across, so
+oviva and sunstar will not recognise that family until someone propagates it.
+
+### Lessons
+- When a fallback label starts showing up, check whether a recent parser improvement created the
+  contrast rather than assuming the fallback is new. The bare label here was three weeks old and
+  only became visible when its twin learned a better name.
+- ALWAYS fold before dropping. The duplicate row and the real citation can be the same row, and
+  dropping first silently loses whichever fields only it carried.
+
+## 2026-09-22 — Trade press reaches the event timeline, and can raise belief in what a vendor claimed
+
+### Goal
+Yesterday two report highlights were suppressed because they rested only on what vendors say
+about themselves, and the entry for that work named what would have to exist before they could
+return. This builds it: the `coverage` extractor, switched off since `ei_003` shipped.
+
+### Why it had stayed off
+The reason attached to the switch was that deterministic rules cannot tell an article *about* a
+company from one that merely names it. That was true and still is. What changed is where the
+judgement happens, not whether the extractor is deterministic.
+
+Three things were missing, not one. Earned articles enter the corpus by theme match — the
+`matched_terms` on a trade story read "security operations", "AI SOC" — so nothing attributed
+them to a vendor: 30 of 249 had a company attached. Nothing reviewed them either, because
+`market_post_review.candidates()` was scoped to `a.bias_source = 'vendor:linkedin'`, leaving 236
+of 243 earned articles with no verdict. So the extractor had nothing to read.
+
+### Feature · a second review pass for somebody else's reporting
+**`app/services/market_post_review.py`** gains `EARNED_PROMPT`, `earned_candidates`,
+`_judge_earned`, `store_earned` and `review_earned`. The vendor pass asks one question, because
+the row already says who wrote the post. This pass asks two: which company the article is
+*about*, and what happened.
+
+A SQL term scan over `bw_entity_query_terms` narrows the batch before the model sees it, so we
+do not pay to read articles naming no vendor. The scan proposes and never decides. The model
+must pick from the list it was shown — a name it invented is dropped rather than matched
+loosely, because attributing an event to the wrong vendor is worse than to none. An article
+about nobody cannot be `signal`, enforced in code as well as in the prompt.
+
+It writes the verdict onto the existing `bw_market_articles` row and a
+`bw_entity_content_links` row on the `earned_news` channel with relationship `about`. That link
+is what the extractor reads. Model follows `MARKET_POST_REVIEW_MODEL`, and the run is bounded by
+`MARKET_EARNED_REVIEW_LIMIT` (default 100).
+
+Two bugs found in testing and fixed before the run. `LIMIT` was applied before the
+names-a-vendor filter, so it bounded the *scan* rather than the model work — a limit of 10
+returned the ten newest earned articles and kept the one that named a vendor. The condition is
+now an `EXISTS` in the `WHERE`. And every earned row in this corpus has an empty `url`, so keys
+fell through to `source:<news_source>`; the corpus holds both `Futurum` and `futurum.com`, which
+verbatim are two independent voices corroborating each other.
+
+### Feature · the coverage extractor
+**`app/services/entity_event_extractors/coverage.py`** (new) reads the review's decision and
+calls no model, the same arrangement `owned_post` already had. Registered enabled in
+**`app/services/entity_event_extractors/__init__.py`**, and ordered last on purpose: everything
+above records what companies said about themselves, and this offers outside reporting to those
+events. Run first it would find nothing to corroborate.
+
+Creating events is the smaller half. The larger half is **raising belief in events we already
+hold**: a vendor's launch post is a `vendor_claim`, and a trade report of the same launch moves
+it to `single_source` without displacing the post, which stays the first place we saw it.
+
+Matching is deliberately hard to satisfy. Sharing a company and an event type is not enough —
+one vendor can ship twice in a fortnight, and attaching the press about the second to the first
+would manufacture exactly the false agreement this system exists to detect. The two texts must
+also share a **distinctive token**: one carrying a digit, a capitalised word, or a long word that
+is not market boilerplate. The vendor's own name is excluded from that test, because both texts
+carry it by construction. When the rule is unsure it creates a separate event, which is the
+recoverable mistake. `MARKET_COVERAGE_MATCH_DAYS` (default 14) bounds how far apart a report and
+its event may sit.
+
+A press-release wire is not a newsroom. GlobeNewswire and the rest carry the company's
+announcement verbatim for a fee, so treating one as an outside source would let any vendor buy
+its way to `corroborated`. Those articles still record their event; their evidence is keyed
+`owned:wire:<vendor>` so it lifts nothing. The list comes from `report_corpus.wire_sources()`
+rather than a second copy.
+
+The extractor requires `l.relationship = 'about'`. The link table already held 56 `earned_news`
+rows written by the mention pipeline, which records only that a name appeared, and building an
+event from an appearance is the mistake the extractor was switched off to avoid.
+
+### Ops · the earned pass runs with the vendor pass
+**`app/tasks/market_monitor.py`** calls `review_earned` inside `_review_posts`, after the vendor
+review and in the same run record. A failure there does not fail the vendor pass that already
+succeeded.
+
+### Verification
+`pytest tests/test_entity_coverage_extractor.py tests/test_entity_events_narratives.py
+tests/test_market_assessment.py` — 82 passed. The new file is 8 tests, most of them pinning the
+extractor *declining* to match: the vendor name alone, market boilerplate, two launches a
+fortnight apart, $33M against $60M. Two run against the real schema and roll back.
+
+Whole market and entity suites: 599 passed, 19 failed. The same 19 fail with this session's
+changes stashed, so all 19 are other sessions' work from today.
+
+Measured on the live AI-SOC corpus, 26 earned articles reviewed:
+
+| | |
+|---|---|
+| Existing events corroborated | 7 |
+| `vendor_claim` → `single_source` | 4 |
+| New press-only events | 3 |
+| Wire releases attached, lifting nothing | 4 |
+| Skipped, kind maps to no event type | 2 |
+
+`bw_entity_events` active rows went from 938 `vendor_claim` / 2 other to **926 `vendor_claim`,
+8 `single_source`**. The review wrote 15 `about` links on `earned_news` (12 signal, 1
+commentary). Three events reached the market wire that were previously invisible: a Cribl
+acquisition, a $26M Method Security round, and a Cribl/DeepTempo partnership. Acquisitions and
+funding rank highest in the event taxonomy and neither was reachable through vendor LinkedIn.
+
+### The findings stay suppressed, and that is the right answer
+`independent_share` on the 30-day report moved 0.119 to **0.118**, against a gate of 0.35. The
+report still shows four findings and neither suppressed one is back.
+
+The binding constraint has moved from extraction to **collection**. This market holds about 250
+earned-press articles in total, roughly 30 a month, against ~100 developments a month across 97
+vendors. The extractor now uses everything there is. Turning the findings back on needs more
+trade-press intake, not more code.
+
+### Propagation
+bugfixing (canonical), oviva and sunstar have all four files; all three restarted and healthy
+(HTTP 307, no tracebacks). `market_monitor.py` had drifted 98 lines on oviva and 269 on sunstar,
+so the edits were surgical, not a file copy; `__init__.py` was identical across trees and was
+copied whole. Checked afterwards that an unrelated prompt refinement sitting in bugfixing's
+`market_post_review.py` was **not** dragged along.
+
+sunstar has `ENTITY_INTELLIGENCE_EVENTS_ENABLED` unset, so extraction does not run there at all.
+oviva has it on. Neither tenant has had `review_earned` run yet, so the extractor has nothing to
+read on either until it does. Not propagated to wiley or wileytest, which do not run Market
+Monitor.
+
+### Lessons
+- ALWAYS ask whether a `LIMIT` bounds the population you are paying for. Filtering in Python
+  after the query makes the limit bound the scan, and the symptom is a silently tiny batch.
+- A paid distribution channel is the subject speaking. NEVER let a wire, a syndicated copy or a
+  reprint count toward corroboration; key it to the vendor instead of dropping the article, so
+  the event survives and the belief does not move.
+- An independence key built from a free-text source name needs normalising first. Two spellings
+  of one publisher are two voices, and two voices are a corroboration nobody earned.
+
 ## 2026-09-22 — The market report is open, and stopped publishing things that never happened
 
 ### Goal

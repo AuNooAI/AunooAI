@@ -6,12 +6,14 @@ deterministic extraction runs first and establishes what happened, so that when
 a model is later used it is structuring prose around known facts rather than
 supplying the facts itself.
 
-Two extractors named in the plan are registered and switched off, with the
-reason attached. ``coverage`` needs relevance judgements this codebase makes
-with a model, and ``social`` needs a volume baseline that fourteen evaluated
-mentions cannot provide. Declaring them and refusing to run them is better than
-either omitting them silently or shipping something that produces plausible
-output from insufficient data.
+``coverage`` was one of two extractors registered and switched off, because no
+deterministic rule separates an article about a company from one that merely
+names it. It runs now, and the rule has not changed: the judgement moved.
+``market_post_review.review_earned`` reads each trade-press article once, says
+which company it concerns and what it reports, and the extractor reads that
+decision — the same arrangement ``owned_post`` already had with the vendor-post
+review. ``social`` stays off; it needs a volume baseline that fourteen
+evaluated mentions cannot provide.
 
 Dates are the recurring difficulty. When a source states when something
 happened — a job posting's date, a page's Last-Modified header — that is the
@@ -27,7 +29,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.entity_event_extractors import (
-    funding, jobs, owned_post, profile, web_diff,
+    coverage, funding, jobs, owned_post, profile, web_diff,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,9 +41,11 @@ EXTRACTORS: Dict[str, tuple] = {
     'funding': (funding.run, True, None),
     'web_diff': (web_diff.run, True, None),
     'jobs': (jobs.run, True, None),
-    'coverage': (None, False,
-                 'needs model-scored relevance on earned coverage; deterministic '
-                 'rules cannot tell a mention from a story about the company'),
+    # Runs last on purpose. Everything above records what the companies said
+    # about themselves; this one offers somebody else's reporting to those
+    # events and raises their corroboration. Running it first would find
+    # nothing to corroborate and create separate events instead.
+    'coverage': (coverage.run, True, None),
     'social': (None, False,
                'needs a conversation baseline to call a spike; 14 evaluated '
                'mentions is not a baseline'),

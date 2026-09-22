@@ -151,6 +151,76 @@ Posts:
 {posts}"""
 
 
+# ---------------------------------------------------------------------------
+# Earned coverage — the same question asked of somebody else's reporting
+# ---------------------------------------------------------------------------
+#
+# The vendor review above reads posts we already know the author of: the row
+# carries ``bias_source = 'vendor:linkedin'``, so the subject is settled before
+# the model is asked anything. Trade press is not like that. An article lands
+# in the corpus because it matched a market phrase — "security operations",
+# "AI SOC" — and those say nothing about which company it concerns. Of 249
+# earned-press articles in the AI-SOC corpus, 30 had a company attached.
+#
+# So this pass asks two questions where the vendor pass asks one: *who is this
+# about*, and *what happened*. The first is the one that kept the ``coverage``
+# extractor switched off, because no deterministic rule separates an article
+# about a company from an article that mentions it in a list.
+#
+# A cheap term scan narrows the batch before the model sees it, so we are not
+# paying to read articles that name no vendor at all. The scan proposes; it
+# never decides.
+
+#: Candidate vendors shown per article. Enough for a roundup that names
+#: several, small enough that the prompt stays cheap.
+EARNED_MAX_CANDIDATES = 8
+
+EARNED_PROMPT = """Below are news articles from the trade press, each followed by the
+companies in the {market} market whose name appears in it.
+
+For each article decide two things.
+
+First, which company the article is *about* — the one whose news it reports.
+Give its name exactly as listed under that article, or null. These are null:
+
+- a roundup, listicle or "top N vendors" piece that names several companies
+  and reports news about none of them
+- an article about something else that cites the company as an example, quotes
+  its staff as commentators, or lists it among competitors
+- a market-size, forecast or industry-trend piece
+- an article about a different company that merely mentions this one
+
+Name a company only when something happened to *that* company and the article
+reports it. When two companies share the news — an acquisition, a partnership —
+name the one the headline leads with.
+
+Second, what kind of development it reports: launch, funding, customer,
+partnership, acquisition, award, hiring, research, opinion, event, other.
+
+Then a verdict:
+- "signal": the article reports a specific development at the named company.
+- "commentary": substantive analysis of the market, or of the company, with no
+  new development in it.
+- "noise": a passing mention, a jobs roundup, a press-release rewrite with
+  nothing specific in it, or an article about something else entirely.
+
+If "company" is null the verdict cannot be "signal". If you give kind "event"
+or "opinion" the verdict cannot be "signal".
+
+"reason" is a short phrase naming what happened, and it must name the thing:
+"$33M Series A led by Accel", "acquires Wirespeed", "launches Torq Auto Triage".
+Not "funding announced" — the name is what makes it checkable.
+
+Reply with a JSON array, one object per article, in the same order, no prose:
+[{{"n": 1, "company": "Torq", "kind": "funding", "verdict": "signal",
+  "reason": "$33M Series A led by Accel"}},
+ {{"n": 2, "company": null, "kind": "other", "verdict": "noise",
+  "reason": "vendor roundup, no news"}}]
+
+Articles:
+{posts}"""
+
+
 def _model() -> str:
     """The model to review with.
 
@@ -536,4 +606,268 @@ async def review(conn, market_id: int, market_name: str, *,
                                                    limit=limit, batch=batch)
     except Exception as exc:  # noqa: BLE001
         logger.warning("customer reading pass failed: %s", exc)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Earned coverage — candidates, judgement, storage
+# ---------------------------------------------------------------------------
+
+#: Registry terms shorter than this are not scanned for on their own. "Arc",
+#: "Hunt" and "Radiant" are company names and also ordinary words, and the
+#: registry already marks those ``qualification_required``; this is a floor
+#: under the ones it has not marked.
+EARNED_MIN_TERM = 4
+
+
+def _earned_press_sql(alias: str = "a") -> str:
+    """Trade press: not a social post, not the company's own publishing.
+
+    ``social_sources.earned_news_sql`` is the house predicate and would be the
+    obvious thing to call, but it also requires ``analyzed = true``. That gate
+    exists for Brand Watcher's metric queries, where an unenriched row would
+    skew a count. Nothing here reads an enrichment field — the model is given
+    the title and summary, which every row has — and the gate would discard 93
+    of 249 earned articles in the AI-SOC corpus. Dropping a third of the
+    scarcest input to satisfy a gate written for a different purpose would
+    defeat the feature, so the two source tests are used without it.
+    """
+    from app.services.social_sources import owned_src_sql, social_src_sql
+
+    return (f"NOT {social_src_sql(alias + '.news_source')}"
+            f" AND NOT {owned_src_sql(alias + '.bias_source')}")
+
+
+def earned_candidates(conn, market_id: int, *, limit: int = 100,
+                      days: Optional[int] = None,
+                      redo: bool = False) -> List[Dict[str, Any]]:
+    """Trade-press articles naming at least one of the market's vendors.
+
+    The term scan is a prefilter, not an attribution. It answers "is it worth
+    paying a model to read this", and the model decides who the article is
+    actually about. A term that appears only in the body still qualifies the
+    article for reading, because a funding story often names the company once
+    in the lede and the scan cannot tell the lede from the tail.
+
+    Terms come from ``bw_entity_query_terms``, which the registry already
+    maintains, so a vendor whose display name differs from how the press
+    writes it is found through its aliases.
+    """
+    where = ["ma.market_id = :m", _earned_press_sql("a")]
+    params: Dict[str, Any] = {"m": market_id, "lim": int(limit),
+                              "minlen": EARNED_MIN_TERM}
+    if not redo:
+        where.append("ma.review_verdict IS NULL")
+    if days:
+        from datetime import timedelta
+
+        where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = (datetime.now(timezone.utc)
+                           - timedelta(days=int(days))).strftime("%Y-%m-%dT%H:%M:%S")
+
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary, a.news_source, a.url,
+               COALESCE(a.publication_date, a.submission_date) AS published,
+               ARRAY(
+                   SELECT DISTINCT b.display_name
+                     FROM bw_entity_query_terms t
+                     JOIN bw_brands b ON b.id = t.brand_id
+                     JOIN bw_market_brands mb ON mb.brand_id = t.brand_id
+                                             AND mb.market_id = ma.market_id
+                    WHERE t.enabled
+                      AND mb.role <> 'excluded'
+                      AND LENGTH(t.normalized_term) >= :minlen
+                      AND (a.title ILIKE '%' || t.term || '%'
+                           OR a.summary ILIKE '%' || t.term || '%')
+                    LIMIT {EARNED_MAX_CANDIDATES}
+               ) AS vendors
+          FROM bw_market_articles ma
+          JOIN articles a ON a.uri = ma.article_uri
+         WHERE {' AND '.join(where)}
+           -- Naming a vendor is a condition of selection, not a filter applied
+           -- afterwards. Left to Python, ``limit`` would bound the *scan*: a
+           -- limit of 10 returned the ten newest earned articles and then kept
+           -- the one that named a vendor. The caller is budgeting model calls,
+           -- so the limit has to count articles that will actually be read.
+           AND EXISTS (
+               SELECT 1
+                 FROM bw_entity_query_terms t
+                 JOIN bw_market_brands mb ON mb.brand_id = t.brand_id
+                                          AND mb.market_id = ma.market_id
+                WHERE t.enabled
+                  AND mb.role <> 'excluded'
+                  AND LENGTH(t.normalized_term) >= :minlen
+                  AND (a.title ILIKE '%' || t.term || '%'
+                       OR a.summary ILIKE '%' || t.term || '%'))
+         ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+         LIMIT :lim
+    """), params).mappings().all()
+
+    return [dict(r) for r in rows if r["vendors"]]
+
+
+def _render_earned(posts: List[Dict[str, Any]]) -> str:
+    lines = []
+    for i, post in enumerate(posts, 1):
+        body = (post.get("summary") or "").strip().replace("\n", " ")
+        named = ", ".join(post.get("vendors") or [])
+        lines.append(f"{i}. {post.get('title') or ''}\n"
+                     f"   {body[:SUMMARY_CHARS]}\n"
+                     f"   companies named: {named}")
+    return "\n".join(lines)
+
+
+async def _judge_earned(market_name: str, posts: List[Dict[str, Any]],
+                        model: str) -> List[Dict[str, Any]]:
+    """One model call over one batch of trade-press articles."""
+    import litellm
+
+    from app.ai_models import extract_json_response, resolve_litellm_call_params
+
+    prompt = EARNED_PROMPT.format(market=market_name,
+                                  posts=_render_earned(posts))
+    response = await litellm.acompletion(
+        **resolve_litellm_call_params(model),
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=min(4096, 220 * len(posts) + 400),
+    )
+    raw = (response.choices[0].message.content or "").strip()
+    parsed = extract_json_response(raw)
+    if isinstance(parsed, dict):
+        parsed = parsed.get("results") or parsed.get("articles") or []
+    if not isinstance(parsed, list):
+        raise ValueError(f"model returned {type(parsed).__name__}, not a list")
+
+    by_index: Dict[int, Dict[str, Any]] = {}
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        try:
+            n = int(item.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= len(posts):
+            by_index[n] = item
+
+    out = []
+    for i, post in enumerate(posts, 1):
+        item = by_index.get(i)
+        if not item:
+            continue
+        verdict = str(item.get("verdict") or "").strip().lower()
+        if verdict not in VERDICTS:
+            continue
+        kind = (str(item.get("kind") or "other").strip().lower())[:24]
+        company = (str(item.get("company") or "").strip() or None)
+
+        # The prompt states both rules; models agree and then do it anyway, so
+        # each is enforced here too. An article about nobody cannot be signal,
+        # whatever the model called it.
+        if company is None and verdict == "signal":
+            verdict = "commentary" if kind not in ("event", "other") else "noise"
+        if kind in ("event", "opinion") and verdict == "signal":
+            verdict = "commentary" if kind == "opinion" else "noise"
+
+        # The model must pick from the list it was shown. A name it invented,
+        # or one belonging to a company we did not offer, is dropped rather
+        # than matched loosely — attributing an event to the wrong vendor is
+        # worse than attributing it to none.
+        offered = {v.lower(): v for v in (post.get("vendors") or [])}
+        matched = offered.get((company or "").lower())
+        if company and not matched:
+            company, verdict = None, ("noise" if verdict == "signal" else verdict)
+
+        out.append({
+            "uri": post["uri"],
+            "verdict": verdict,
+            "kind": kind,
+            "reason": (str(item.get("reason") or "").strip())[:400],
+            "vendor": matched,
+        })
+    return out
+
+
+def store_earned(conn, market_id: int, verdicts: List[Dict[str, Any]],
+                 model: str) -> int:
+    """Write the verdict, and link the article to the company it is about.
+
+    The link is what the ``coverage`` extractor reads. It is written on the
+    ``earned_news`` channel, which is what makes the evidence independent when
+    the extractor keys it: a publisher's domain is one voice, and it is not
+    the vendor's.
+    """
+    from app.services import entity_content
+
+    written = 0
+    for v in verdicts:
+        conn.execute(text("""
+            UPDATE bw_market_articles
+               SET review_verdict = :verdict,
+                   review_kind    = :kind,
+                   review_reason  = :reason,
+                   review_model   = :model,
+                   reviewed_at    = NOW()
+             WHERE market_id = :m AND article_uri = :uri
+        """), {"m": market_id, "uri": v["uri"], "verdict": v["verdict"],
+               "kind": v["kind"], "reason": v["reason"], "model": model})
+
+        if v.get("vendor"):
+            brand_id = conn.execute(text("""
+                SELECT b.id FROM bw_brands b
+                 JOIN bw_market_brands mb ON mb.brand_id = b.id
+                                         AND mb.market_id = :m
+                WHERE b.display_name = :name
+                LIMIT 1
+            """), {"m": market_id, "name": v["vendor"]}).scalar()
+            if brand_id:
+                entity_content.link_content(
+                    conn, brand_id=int(brand_id), article_uri=v["uri"],
+                    relationship="about", channel="earned_news",
+                    attribution_method="classifier",
+                    metadata={"model": model, "kind": v["kind"]})
+        written += 1
+    return written
+
+
+async def review_earned(conn, market_id: int, market_name: str, *,
+                        limit: int = 100, batch: int = DEFAULT_BATCH,
+                        days: Optional[int] = None, redo: bool = False,
+                        dry_run: bool = False) -> Dict[str, Any]:
+    """Read unreviewed trade-press articles and record who and what."""
+    model = _model()
+    posts = earned_candidates(conn, market_id, limit=limit, days=days,
+                              redo=redo)
+    result: Dict[str, Any] = {
+        "model": model, "candidates": len(posts), "reviewed": 0,
+        "batches": 0, "failed_batches": 0, "dry_run": dry_run,
+        "attributed": 0, "counts": {v: 0 for v in VERDICTS}, "samples": [],
+    }
+    if not posts or dry_run:
+        result["samples"] = [{"title": p["title"], "vendors": p["vendors"]}
+                             for p in posts[:10]]
+        return result
+
+    for start in range(0, len(posts), batch):
+        chunk = posts[start:start + batch]
+        result["batches"] += 1
+        try:
+            verdicts = await _judge_earned(market_name, chunk, model)
+        except Exception as exc:  # noqa: BLE001 — one bad batch is not a failed run
+            result["failed_batches"] += 1
+            logger.warning("earned review batch failed (%d articles): %s",
+                           len(chunk), exc)
+            continue
+        by_uri = {p["uri"]: p for p in chunk}
+        for v in verdicts:
+            result["counts"][v["verdict"]] += 1
+            if v.get("vendor"):
+                result["attributed"] += 1
+            if v["verdict"] == "signal" and len(result["samples"]) < 15:
+                result["samples"].append({
+                    "vendor": v.get("vendor"),
+                    "title": by_uri.get(v["uri"], {}).get("title"),
+                    "kind": v["kind"], "reason": v["reason"],
+                })
+        result["reviewed"] += store_earned(conn, market_id, verdicts, model)
+        conn.commit()
     return result

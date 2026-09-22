@@ -101,6 +101,61 @@ def test_summit_attendance_peer_insights_and_a_stray_statistic_are_not_research(
     assert mres.cite(_row(4, "Strike48: Security leaders told Gartner attendees what they think.")) is None
 
 
+def test_a_post_that_names_no_report_folds_into_the_one_it_describes():
+    """A vendor posts twice about one analyst mention and names the report
+    series in only one of them. Both are the same report and belong in one
+    group, or the panel prints the named report beside a bare
+    "Gartner research" carrying the same news.
+
+    The family-based reconciliation cannot reach this: it starts from the
+    family and fills in a missing topic, so a post naming no family at all is
+    invisible to it.
+    """
+    named = _row(1, "Kai: Gartner® named Kai a Sample Vendor in Autonomous Exposure Remediation "
+                    "(AER) last week, in its Emerging Tech Impact Radar: Preemptive "
+                    "Cybersecurity, 2028", vendor="Kai Security", published="2026-09-18")
+    bare = _row(2, "Kai: Gartner® named Kai a Sample Vendor in Autonomous Exposure "
+                   "Remediation last week.", vendor="Kai Security", published="2026-09-21")
+    groups = mres.group_citations([named, bare])
+    assert len(groups) == 1
+    assert groups[0]["label"].startswith("Gartner Emerging Tech Impact Radar")
+    # The later sighting is kept, so the panel dates the citation correctly.
+    assert groups[0]["latest"] == "2026-09-21"
+
+
+def test_two_firms_do_not_fold_into_each_other():
+    """Shared subject words are not enough. A different firm is a different
+    report however alike the sentences read."""
+    g = _row(1, "Acme: Gartner named Acme a Sample Vendor in Autonomous Exposure Remediation, "
+                "in its Emerging Tech Impact Radar: Preemptive Cybersecurity",
+             vendor="Acme", published="2026-09-18")
+    f = _row(2, "Acme: Forrester named Acme a Leader in Autonomous Exposure Remediation.",
+             vendor="Acme", published="2026-09-19")
+    labels = {x["label"] for x in mres.group_citations([g, f])}
+    assert len(labels) == 2
+
+
+def test_a_mention_that_names_no_report_is_not_listed():
+    """"Gartner research" claimed a report the reader could not go and find.
+    A vendor saying the firm's name is not a citation of anything."""
+    rows = [
+        _row(1, "Arambh Labs: Gartner named us one of 11 startups to watch in agentic AI.",
+             vendor="Arambh Labs"),
+        _row(2, "Gruve: Gartner just named AI-driven vulnerability discovery the top "
+                "emerging risk, a first.", vendor="Gruve"),
+    ]
+    assert mres.group_citations(rows) == []
+
+
+def test_a_stated_position_still_counts_without_a_named_report():
+    """Dropping must not take the real recognitions with it. "a Leader" names
+    something checkable even when the post never says which report."""
+    row = _row(1, "Acme: Acme was named a Leader by Forrester this week.", vendor="Acme")
+    groups = mres.group_citations([row])
+    assert len(groups) == 1
+    assert groups[0]["vendors"][0]["position"] == "Leader"
+
+
 def test_a_family_only_mention_joins_the_one_report_of_that_year():
     rows = [
         _row(1, "Qevlar AI: No Gartner Hype Cycle for Security Operations goes by without Qevlar AI.",
