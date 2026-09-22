@@ -75,10 +75,19 @@ description, statement descriptor and unit label are all empty — so the rename
 Confirmed on a live Checkout session, which now reads "AI SOC News MCP access — 279.00
 USD/month"; the session was expired again straight after.
 
+**The product description is written too**, so Checkout no longer shows a bare name:
+
+> A monthly key for the AI SOC News MCP server. Claude, ChatGPT or your own agents query the
+> market's articles, posts, vendor profiles and sentiment directly, instead of reading them off
+> a page. The site itself stays free.
+
+It deliberately echoes the subscribe page's own blurb, so a buyer reads one promise twice rather
+than two slightly different ones, and it says the site is free rather than leaving them to infer
+what they are paying for. Confirmed on a live Checkout session, expired again straight after.
+
 **One loose end, yours.** `STRIPE_PRICE_SUB_DATASET` is still set in bugfixing's `.env` and is
 now unused. It is harmless because nothing reads it, and clearing it needs the encrypt and
-decrypt cycle. The product also has no description, so Checkout shows the name alone; a sentence
-there would be an improvement but it is copy a customer sees, so it is left for you.
+decrypt cycle.
 
 ### Change · the $179 plan is gone from the subscribe page
 It bought nothing once the pages opened, so it is withdrawn. Nobody held one: `market_subscriptions`
