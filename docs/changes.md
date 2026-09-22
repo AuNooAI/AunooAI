@@ -1,8 +1,18 @@
 # Changes
 
-## 2026-09-22 — A Crunchbase field going blank was published as a funding round
+## 2026-09-22 — The market report is open, and stopped publishing things that never happened
 
-### Incident
+### Goal
+Oliver found an entry in the Market moves panel that was not a market move: "StrikeReady: last
+funding type changed from series_a to series_unknown". Pulling that thread ran through every
+extractor that turns a change into an event, then into the titles those events carry, then into
+why oviva's report was nearly empty. Separately he decided the report should stop being a sample
+of itself: the pages are now open to every reader and the only thing sold is MCP access.
+
+Nine changes, four of them on the public page. One reported defect turned out not to be one and
+is written up as a false alarm rather than quietly dropped.
+
+### Incident · a Crunchbase field going blank was published as a funding round
 Oliver found this in the Market moves panel:
 
 > **StrikeReady: last funding type changed from series_a to series_unknown**
