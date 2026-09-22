@@ -36,6 +36,29 @@ WATCHED = {
     'description': ('brand_identity_change', None),
 }
 
+# A percentage on its own says nothing about a small company. Ten per cent of
+# five people is half a person, so every LinkedIn profile that gained or lost
+# one body cleared the bar: seven of the eleven headcount events on the page
+# were single-person moves at companies under forty people, including "Almanax:
+# headcount shrank from 3 to 2". A move has to be both proportionally and
+# absolutely real before it is a market event.
+MIN_HEADCOUNT_DELTA = 2
+
+# Values that mean the source stopped knowing, not that something happened.
+# operating_status only ever reads active, acquired or closed today, so this
+# changes nothing now; it is here because the same hole in the funding
+# extractor published "last funding type changed from series_a to
+# series_unknown" as a funding round on a customer-facing page.
+UNINFORMATIVE = frozenset({
+    'unknown', 'not stated', 'not_stated', 'undisclosed', 'n/a', 'na',
+    'none', 'null', 'other',
+})
+
+
+def _uninformative(value: str) -> bool:
+    return (value or '').strip().lower().replace(' ', '_') in {
+        v.replace(' ', '_') for v in UNINFORMATIVE}
+
 
 def run(conn, *, brand_id: Optional[int] = None,
         limit: Optional[int] = None) -> Dict[str, Any]:
@@ -111,6 +134,8 @@ def _describe(row, threshold: Optional[float]) -> Optional[Dict[str, Any]]:
         delta = (float(new) - float(old)) / float(old)
         if threshold is not None and abs(delta) < threshold:
             return None
+        if abs(float(new) - float(old)) < MIN_HEADCOUNT_DELTA:
+            return None
         direction = 'grew' if delta > 0 else 'shrank'
         return {'from': int(old), 'to': int(new),
                 'title': f'headcount {direction} from {int(old)} to {int(new)}',
@@ -121,6 +146,10 @@ def _describe(row, threshold: Optional[float]) -> Optional[Dict[str, Any]]:
 
     old_text, new_text = row['prev_text'], row['value_text']
     if not old_text or not new_text or old_text == new_text:
+        return None
+    if row['field_key'] != 'description' and _uninformative(new_text):
+        # The source stopped knowing. A self-description is exempt: it is free
+        # text, so "unknown" there is a real thing a company wrote.
         return None
     if row['field_key'] == 'description':
         # A reworded sentence is not a repositioning; require real divergence.

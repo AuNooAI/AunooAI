@@ -45,6 +45,51 @@ canonical on both other sites and has been copied to both; neither had any event
 wiley, wileytest and wbm do not have the extractor at all. No restart: the extractor runs from
 the scheduled collection, not from resident state.
 
+### Sweep · the other four extractors
+Oliver asked for the same question to be put to the rest: where does a rule turn "a field
+changed" into "something happened" without saying which direction counts?
+
+**`jobs.py`, `web_diff.py` and `owned_post.py` are clean**, and each says why in its own
+docstring. Jobs requires three distinct postings in one function before it calls anything a
+hiring spike, and opens with "One job advert is not an event". Web diff refuses to use the
+stored `material` flag at all, because it is `bool(added or removed)` and was therefore true on
+108 of 108 diffs, and computes an eight-word floor of its own instead. Owned post reuses a
+verdict that already exists and starts everything at `vendor_claim`. All three have an absolute
+floor, not just a relative one.
+
+**`profile.py` had two problems, one live and one latent.**
+
+*Live: a percentage with no floor under it.* The headcount rule reported any move of 10% or
+more. Ten per cent of five people is half a person, so every LinkedIn profile that gained or
+lost one body cleared the bar. Seven of the eleven headcount events on the page were
+single-person moves at companies under forty people — "Almanax: headcount shrank from 3 to 2",
+"Huntbase: headcount grew from 4 to 5", "Elezar: headcount shrank from 5 to 4". All eleven fall
+inside the report's 30-day window, so all eleven are on the page today.
+
+`MIN_HEADCOUNT_DELTA = 2` now applies alongside the existing percentage. Checked against the
+real pairs: all seven single-person moves are skipped, and 20→22, 33→37, 37→33 and 6→16 are
+kept, as is the 122→145 example from the module's own docstring.
+
+*Latent: the same hole the funding extractor had.* The generic text branch fired on any change,
+so a status moving to "unknown" would have been published as an `operating_status_change`. It
+changes nothing today — `operating_status` only ever reads active, acquired or closed across 314
+observations, and no event of that type has ever been created — but the guard is now there.
+Self-description is exempt, because that is free text where "unknown" is a real thing a company
+wrote about itself.
+
+### Verification · sweep
+- Rules checked directly against the real value pairs, listed above.
+- `operating_status`: active→acquired and active→closed still report, active→unknown is skipped,
+  and unknown→active still reports, because a source learning the status is news.
+- Extractor re-run over 1,331 readings: `created 0`, event count unchanged at 19.
+- Copied to oviva and sunstar, both byte-identical to canonical beforehand. Neither has a
+  single-person headcount event.
+
+**Not done, and it is your call.** The seven weak headcount events are still on the page. They
+are true facts that no longer meet the bar, not errors like the funding one, so suppressing them
+is a different decision from fixing the rule. Say the word and I will mark them rejected, which
+is reversible.
+
 ### Lessons
 A deterministic pipeline is not a correct one. The report body calls no model, so it cannot
 fabricate a citation — and it can still promote a source-data regression to a market event. When
