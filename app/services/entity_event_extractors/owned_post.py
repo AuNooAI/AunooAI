@@ -11,9 +11,21 @@ the same launch, the fingerprint matches, the evidence merges and the
 corroboration rises to ``single_source`` on its own — without replacing the
 original post, which remains the first place we saw it.
 
-Three kinds are not events. An award, a research write-up and "other" describe
-what a post *is* rather than something that happened to the company, and
-forcing them into an event type would fill the timeline with publications.
+An award and "other" are not events. They describe what a post *is* rather than
+something that happened to the company, and forcing them into an event type
+would fill the timeline with publications.
+
+Research used to sit with them, on the same reasoning, and the reasoning was
+sound for the market this was written against: 43 of the 93 developments in a
+recent 30-day AI-SOC window would have been vendor research posts, most of them
+a benchmark published as content marketing. It is wrong for a market where
+evidence *is* the news. On a health tenant "Weight Watchers Releases GLP-1
+Results Report Demonstrating 61% Greater Weight Loss" is the most consequential
+thing that vendor did that month, and it had nowhere to go.
+
+So research is an event now, and carries the lowest rank in the canonical set,
+which keeps it off the report's lead while letting it be recorded, corroborated
+and counted.
 """
 
 from __future__ import annotations
@@ -153,9 +165,10 @@ KIND_TO_EVENT = {
     'customer': 'customer_win',
     'funding': 'funding_round',
     'acquisition': 'acquisition',
+    'research': 'research_finding',
 }
 
-NOT_EVENTS = {'award', 'research', 'other', 'event', 'opinion'}
+NOT_EVENTS = {'award', 'other', 'event', 'opinion'}
 
 
 def _parsed(value: Optional[str]) -> Optional[datetime]:

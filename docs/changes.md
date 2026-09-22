@@ -1,5 +1,98 @@
 # Changes
 
+## 2026-09-22 — A published study is a development, on the markets that say so
+
+### Goal
+Running the new earned-press review on oviva surfaced a gap. "Weight Watchers Releases GLP-1
+Results Report Demonstrating 61% Greater Weight Loss" was read correctly, attributed correctly,
+and then discarded: `research` was not an event type, so the most consequential thing that vendor
+did that month had nowhere to go.
+
+### Feature · research becomes an event type
+`research_finding` added to **`app/services/entity_events.py`**'s `EVENT_TYPES`, and
+**`owned_post.py`** maps the reviewer's `research` kind onto it instead of listing it under
+`NOT_EVENTS`. `coverage.py` inherits the mapping, so a trade-press report of a study can now
+corroborate the vendor's own announcement of it.
+
+The canonical set in **`market_assessment.py`** gains `("research", "Research finding")` **last**.
+Position there is behaviour, not presentation: `importance_of` reads rank by position, so last
+means every research event is low importance and none can lead a report over an acquisition or a
+funding round. **`market_findings.py`** gains a "Research and evidence" theme and counts the type
+as self-reportable, because a company is authoritative that it published a study — whether the
+finding holds is a different question that field does not answer.
+**`market_report_html.py`** tags it amber, matching the Research firms panel.
+
+No migration: `bw_entity_events.event_type` carries no CHECK constraint.
+
+`owned_post`'s docstring used to say research was excluded because forcing it into an event type
+"would fill the timeline with publications". That was rewritten rather than deleted, because it
+was right about one market and wrong about the other.
+
+### Feature · and it is gated per market, off by default
+`market_assessment.includes_research(market)` reads `config.developments.include_research`.
+
+The measurement is why. Switching research on for AI-in-the-SOC took the 30-day report from 93
+developments to 128. Research became the largest single category at 35, ahead of product launches
+at 30, and most of it is a vendor publishing its own benchmark as content marketing. The share of
+developments carrying an outside source fell from 0.118 to 0.086, because a vendor's own study is
+vendor-only by construction — the report got longer and its corroboration looked worse while
+nothing about the market had changed.
+
+On oviva the same switch produced the tenant's **first corroborated event ever**: Weight Watchers'
+own announcement of its GLP-1 results report, plus HIT Consultant reporting the same study,
+`vendor_claim` → `single_source`.
+
+Two markets, opposite answers, so it is a per-market decision rather than a default.
+
+The filter runs in `material_developments` **after** distilling, not before. A research record can
+still be the evidence that corroborates somebody else's development, and excluding it from the
+candidate pool would throw that away as well. `material_developments` also loads the market's
+config itself when a caller passed only an id, so the flag cannot depend on which entry point
+asked.
+
+The event is recorded, projected and corroboratable either way. The flag decides only whether a
+market's report counts it as a development.
+
+### Verification
+`pytest -k "market or entity"` — 606 passed, 19 failed, the same 19 failing before this change.
+
+Three tests added to `tests/test_market_assessment.py`: the default is off and each config shape
+reads correctly; the flag survives `config` arriving as a JSON *string*, since a switch that
+silently reads False through a different driver is a switch that does nothing; and research ranks
+below funding and acquisition with `importance_of` returning `low` whatever its corroboration.
+
+Measured through `assess()` on both markets:
+
+| Market | Flag | Developments | Research | Independent share |
+|---|---|---|---|---|
+| AI-SOC | off (default) | 93 | 0 | 0.118 |
+| AI-SOC | on | 128 | 35 | 0.086 |
+| Oviva | off | 6 | 0 | 0.0 |
+| Oviva | on (set) | 9 | 3 | 0.0 |
+
+AI-SOC is back to its exact pre-change numbers, and the live page renders no "Research finding"
+tags. Re-running the extractors created 177 events on bugfixing and 19 on oviva.
+
+### Propagation
+bugfixing (canonical), oviva and sunstar. `entity_events.py`, `owned_post.py` and
+`market_findings.py` were byte-identical across trees and copied whole; `market_assessment.py`
+(86/123 lines of drift) and `market_report_html.py` (1444/1570) got surgical edits. All three
+restarted and healthy.
+
+Only oviva's market has the flag on, set with a `jsonb` merge so its existing `collection` and
+`sources` keys were preserved. sunstar has no markets to set it on.
+
+### Lessons
+- A type's position in `market_assessment.EVENT_TYPES` is its importance. `_TYPE_RANK` is built
+  from enumeration order and `importance_of` compares against it, so appending in the wrong place
+  silently promotes a type.
+- ALWAYS read a config flag through a helper that tolerates the value arriving as a JSON string.
+  Some drivers return `jsonb` as text, and a flag that reads False there looks like a feature
+  that does not work rather than a parsing bug.
+- When reversing a documented decision, measure both directions before changing the default. The
+  docstring here was accurate for the market it was written against and wrong for another, which
+  is an argument for a flag rather than for either default.
+
 ## 2026-09-22 — Every analyst citation on the front page now names a report you can go and find
 
 ### Goal

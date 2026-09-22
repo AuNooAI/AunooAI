@@ -706,3 +706,36 @@ def test_two_tickers_is_share_price_talk_and_one_is_a_tag():
               "$CRWD CrowdStrike Unveils the Next Evolution of the Agentic "
               "SOC. Only CrowdStrike can investigate every domain | $CRWD")
     assert not is_noise(tagged)
+
+
+def test_research_counts_as_a_development_only_where_the_market_asks():
+    """Off unless asked for, because the two markets measured want opposite
+    answers. On a health market a published study is the news; on AI-SOC it is
+    mostly content marketing, and counting it added 35 developments to a
+    93-development month while pushing outside sourcing down.
+    """
+    assert ma.includes_research({"id": 1}) is False
+    assert ma.includes_research({"id": 1, "config": {}}) is False
+    assert ma.includes_research(
+        {"id": 1, "config": {"developments": {"include_research": False}}}) is False
+    assert ma.includes_research(
+        {"id": 1, "config": {"developments": {"include_research": True}}}) is True
+
+
+def test_the_flag_is_read_from_config_stored_as_text():
+    """bw_markets.config comes back as a string through some drivers, and a
+    flag that silently reads False there would be a switch that does nothing.
+    """
+    assert ma.includes_research(
+        {"id": 1, "config": '{"developments": {"include_research": true}}'}) is True
+    assert ma.includes_research({"id": 1, "config": "not json"}) is False
+
+
+def test_a_research_finding_never_outranks_a_funding_round():
+    """The canonical list is ordered by importance and `importance_of` reads
+    position, so where research sits in it is behaviour, not presentation."""
+    assert ma.EVENT_TYPES["research"] == "Research finding"
+    assert ma._TYPE_RANK["research"] > ma._TYPE_RANK["funding"]
+    assert ma._TYPE_RANK["research"] > ma._TYPE_RANK["acquisition"]
+    assert ma.importance_of("research", "vendor_source_only") == "low"
+    assert ma.importance_of("research", "multiple_independent_sources") == "low"

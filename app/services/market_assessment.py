@@ -31,6 +31,7 @@ report renders quickly and the same data always gives the same page.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -61,6 +62,10 @@ EVENT_TYPES: "OrderedDict[str, str]" = OrderedDict([
     ("executive_appointment", "Executive appointment"),
     ("headcount_change", "Headcount change"),
     ("significant_hiring", "Hiring"),
+    # Last, so it ranks lowest. `importance_of` reads position, and a
+    # published study is a real development that should never lead a report
+    # over an acquisition or a funding round.
+    ("research", "Research finding"),
 ])
 
 _TYPE_RANK = {t: i for i, t in enumerate(EVENT_TYPES)}
@@ -92,6 +97,7 @@ _STORED_TYPE_MAP = {
     "integration": "product_expansion",
     "partnership": "partnership", "reseller_agreement": "partnership",
     "customer_win": "customer",
+    "research_finding": "research",
     "leadership_change": "executive_appointment",
     "headcount_change": "headcount_change", "layoff": "headcount_change",
 }
@@ -101,6 +107,7 @@ _REVIEW_KIND_MAP = {
     "launch": "product_launch", "funding": "funding", "customer": "customer",
     "partnership": "partnership", "acquisition": "acquisition",
     "hiring": "executive_appointment",
+    "research": "research",
 }
 
 
@@ -1612,6 +1619,39 @@ def _headcount_candidates(conn, market: Dict[str, Any], days: int
     return out
 
 
+def includes_research(market: Dict[str, Any]) -> bool:
+    """Whether this market counts a published study as a development.
+
+    Off unless the market asks for it, via ``config.developments
+    .include_research``. Off is the conservative default because switching it
+    on changes the shape of a report rather than adding to its edges, and the
+    two markets we have measured want opposite answers.
+
+    On a health market the evidence *is* the news: "Weight Watchers Releases
+    GLP-1 Results Report Demonstrating 61% Greater Weight Loss" was the most
+    consequential thing that vendor did that month, and it also produced
+    Oviva's first corroborated event, because an outside publication reported
+    the same study.
+
+    On AI-in-the-SOC it is mostly content marketing. Counting research there
+    added 35 developments to a 93-development month — more than product
+    launches — and pushed the share of developments with an outside source
+    down from 0.118 to 0.086, because a vendor's own benchmark is vendor-only
+    by construction. The report got longer and its corroboration looked worse
+    while nothing about the market had changed.
+
+    The event itself is recorded either way. This decides whether the market's
+    report counts it, not whether we know about it.
+    """
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    return bool((cfg.get("developments") or {}).get("include_research"))
+
+
 def material_developments(conn, market_id: int, days: int = 30, *,
                           market: Optional[Dict[str, Any]] = None
                           ) -> Dict[str, Any]:
@@ -1624,6 +1664,13 @@ def material_developments(conn, market_id: int, days: int = 30, *,
     from app.services import market_corpus as mcorp
 
     market = market or {"id": market_id}
+    # A caller that passed only an id still gets the market's own answer;
+    # defaulting it to "off" here would make the flag depend on which entry
+    # point asked.
+    if "config" not in market:
+        market = dict(market, config=conn.execute(text(
+            "SELECT config FROM bw_markets WHERE id = :m"),
+            {"m": market_id}).scalar())
     stored, held = _stored_candidates(conn, market_id, days)
     corpus, discussion, total_records, by_class = _corpus_candidates(
         conn, market_id, days, held)
@@ -1642,6 +1689,12 @@ def material_developments(conn, market_id: int, days: int = 30, *,
 
     merged = dedupe(stored + corpus + jobs + heads, stop=stop)
     developments = [finish(d) for d in merged]
+    # Dropped after distilling, not before: a research record can still be the
+    # evidence that corroborates somebody else's development, and excluding it
+    # from the candidate pool would throw that away too.
+    if not includes_research(market):
+        developments = [d for d in developments
+                        if d["event_type"] != "research"]
     developments.sort(key=rank_key)
     for i, dev in enumerate(developments, 1):
         dev["rank"] = i

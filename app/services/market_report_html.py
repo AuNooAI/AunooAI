@@ -2451,6 +2451,8 @@ _KIND_COLOUR = {
     "product_launch": "var(--n-blue)", "product_expansion": "var(--n-blue)",
     "executive_appointment": "var(--n-accent)",
     "significant_hiring": "var(--n-green)", "headcount_change": "var(--n-green)",
+    # Amber, matching the Research firms panel, so the two read as one subject.
+    "research": "var(--n-amber)",
 }
 
 #: Colour for an observation state's dot.

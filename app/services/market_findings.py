@@ -59,6 +59,7 @@ THEMES: List[Tuple[str, Tuple[str, ...]]] = [
                               "office_opening")),
     ("Leadership and strategy", ("leadership_change", "strategy_shift",
                                  "brand_identity_change", "rebrand")),
+    ("Research and evidence", ("research_finding",)),
     ("Attention and narrative", ("coverage_spike", "sentiment_shift")),
 ]
 
@@ -101,6 +102,9 @@ SELF_REPORTABLE = frozenset({
     "product_launch", "product_update", "certification", "integration",
     "leadership_change", "office_opening", "rebrand", "brand_identity_change",
     "hiring_spike", "headcount_change", "strategy_shift",
+    # A company is authoritative that it published a study. Whether the
+    # finding holds is a separate question this field does not answer.
+    "research_finding",
 })
 
 # Which evidence relationships count toward supporting a finding. The same set

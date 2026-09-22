@@ -60,7 +60,7 @@ EVENT_TYPES = (
     'leadership_change', 'product_launch', 'pricing_change', 'partnership',
     'customer_win', 'geographic_expansion', 'headcount_change',
     'hiring_spike', 'brand_identity_change', 'controversy',
-    'regulatory_legal', 'narrative_spike',
+    'regulatory_legal', 'narrative_spike', 'research_finding',
 )
 
 # Ordered weakest to strongest, so an upgrade is a comparison.
