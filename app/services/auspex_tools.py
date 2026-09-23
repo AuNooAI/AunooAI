@@ -988,7 +988,6 @@ Analyzing the {len(articles)} most recent articles
             candidates=candidates,
             text_fn=lambda c: f"{c.get('title') or ''}. {c.get('summary') or ''}",
             top_k=limit,
-            topic=topic,
         )
         # rerank() adds this key when it ran; without it the order is cosine
         # for the vector half and term-overlap for the keyword half. Say which,
@@ -1183,9 +1182,8 @@ Analyzing the {len(articles)} most recent articles
                 articles = await rerank(
                     query=enhanced_query,
                     candidates=articles,
-                    text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
+                    text_fn=lambda c: f"{c.get('title') or ''}. {c.get('summary') or ''}",
                     top_k=25,
-                    topic=self._normalize_topic(topic),
                 )
 
             # Perform analysis on follow-up results
