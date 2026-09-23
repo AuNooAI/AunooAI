@@ -1,5 +1,95 @@
 # Changes
 
+## 2026-09-23 — sunstar has a Market Monitor market, and it reached `corroborated` on day one
+
+### Goal
+The earned review could not run on sunstar because sunstar had no market: `bw_markets`,
+`bw_market_brands`, `bw_market_articles` and `bw_entity_query_terms` were all empty. Its seven
+"markets" are `keyword_groups` — topics feeding the tracker decks — which is a different feature.
+
+### None of this is in git
+The whole setup is database rows in the sunstar tenant plus one `.env` line. Nothing is version
+controlled, nothing propagates, and a tenant cloned from canonical will not have it. **This entry
+is the only durable record.** Recreating it means redoing the five steps below by hand.
+
+### Setup · the Oral Care market (sunstar, market id 1)
+- `bw_markets` row: name "Oral Care", slug `oral-care`, `enabled`, `is_public = false`.
+- Six vendors in `bw_market_brands`, from the brands the tenant already had: Sunstar, Lion
+  Corporation, Kao Corporation, Colgate-Palmolive, P&G Oral-B, Haleon. Kao carries
+  `collection_enabled = false`, mirroring its disabled `bw_brands` row — somebody turned that off
+  deliberately and this did not override it.
+- 48 `bw_entity_query_terms` seeded by `entity_content.seed_query_terms`, which picked up real
+  product vocabulary: Sensodyne, Parodontax, Crest Pro-Health, Oral-B iO, NONIO, elmex, meridol.
+  That is what the earned review's prefilter runs on, and sunstar had none.
+- `config.developments.include_research = true`. Same call as oviva: in oral care the evidence is
+  the news.
+- `ENTITY_INTELLIGENCE_EVENTS_ENABLED=true` appended to `.env` (backed up first as
+  `.env.bak-events-20260923_075307`). It had been unset, so extraction had never run there.
+
+### The collection terms, which were wrong the first time
+The first set was consumer retail language — toothpaste, toothbrush, mouthwash, oral care, oral
+hygiene. `market_corpus.scan(dry_run=True)` matched **3,375 of 3,377 articles**, essentially the
+whole corpus, and the sample was Portuguese and Spanish Bluesky discount spam ("Colgate Plax Odor
+Control Mouthwash 750ml R$13.35") plus Colgate the *university* — an Obama speech, college
+football scores. It was not written.
+
+The committed set is company and market language: oral care market, oral care industry, oral
+health market, oral-systemic health, periodontal disease, interdental cleaning, oral care
+portfolio, dental hygiene market. That matches **656**, an 80% cut.
+
+Residual noise is still mostly social, because sunstar's article corpus is dominated by consumer
+chatter from its Consumer Voice topic and any oral-health term reaches it. It does not affect the
+earned review, which filters to earned press, but it will show in the market's corpus counts.
+`market_corpus.scan` has no source filter — worth knowing before building a market on a tenant
+whose corpus is mostly social.
+
+### Result · the first `corroborated` event on any tenant
+The corpus was built from the 26,674 articles sunstar had already collected. Of 656 matched rows,
+196 are earned press, and 137 of those are Semantic Scholar papers, so real trade press is about
+59 articles.
+
+The earned review read 9 candidates: 6 signal, 3 noise, 6 attributed. The coverage extractor then
+created 1 event and corroborated 3, taking one from `single_source` to **`corroborated`**:
+
+    product_launch · corroborated
+    Sensodyne expands oral care portfolio with Pronamel Kids
+    business-standard.com, latestly.com, thehindubusinessline.com, thehindu.com
+
+Four independent publishers, four distinct domain keys. The vendor never announced it to us; the
+event is built entirely from earned press. It is the first time anything has reached the rung
+above `single_source`.
+
+`owned_post` found 0 candidates — sunstar's brand-watch LinkedIn posts are not in this market's
+corpus as reviewed signal.
+
+### Two name collisions the model rejected
+Both are why the term prefilter proposes and the model decides:
+
+- "The Oral-Brain Axis: Mechanistic Insights Linking Periodontitis With Alzheimer's" matched the
+  query term **Oral-B**, inside the word *Oral-Brain*.
+- Two Japanese periodontal-cognition studies matched Oral-B the same way.
+
+All three came back noise with no vendor attributed.
+
+### Not done
+`collection-setup` was **not** run. It creates the keyword group and the config.json topic and
+starts polling news providers on this market's own budget, and sunstar has already exceeded its
+TheNewsAPI daily cap. The market works today on the corpus already collected; live collection is
+a separate spend decision.
+
+### Verification
+sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
+`bw_entity_events` = 1 active and `corroborated`.
+
+### Lessons
+- A market's collection terms must be the language of what the *companies* do, not what they
+  *sell*. Retail product words match every discount post in a corpus containing consumer social,
+  and on this tenant that was 99% of everything.
+- ALWAYS `dry_run` a corpus scan before writing it. The first term set here would have written
+  3,375 junk rows, and the dry run cost nothing.
+- A market on a tenant whose corpus is mostly social will be noisy whatever the terms, because
+  `market_corpus.scan` reads every article and has no source filter.
+
 ## 2026-09-22 — A published study is a development, on the markets that say so
 
 ### Goal
