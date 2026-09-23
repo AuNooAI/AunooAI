@@ -635,7 +635,10 @@ async def _rerun_future_horizons_for_topic(
         sql = sa_text(f"""
             SELECT uri, title, summary, publication_date, sentiment, category,
                    future_signal, driver_type, time_to_impact, quality_score,
-                   news_source, topic_alignment_score, topic
+                   news_source, topic_alignment_score, topic,
+                   -- carried so filter_report_corpus can hold a market deck to
+                   -- its own country; without it the filter declines and warns
+                   source_country
             FROM articles
             WHERE topic = ANY(:topics)
               AND analyzed = TRUE

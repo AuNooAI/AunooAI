@@ -1552,7 +1552,8 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
         sample_size = calculate_optimal_sample_size("gpt-5.4", sample_size_mode="auto")
         from sqlalchemy import text as sa_text
         sql = sa_text(f"""
-            SELECT uri, title, news_source, publication_date, summary
+            SELECT uri, title, news_source, publication_date, summary,
+                   source_country
             FROM articles
             WHERE topic = :topic
               AND analyzed = TRUE

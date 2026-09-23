@@ -383,6 +383,32 @@ def countries_for_domains(db, domains: Iterable[str], *,
     return resolved
 
 
+def countries_with_method(db, domains: Iterable[str], *,
+                          use_model: bool = True) -> Dict[str, Tuple[Optional[str], str]]:
+    """Resolve many domains and say which rung of the ladder answered.
+
+    Returns ``{domain: (iso2 or None, method)}``. ``countries_for_domains``
+    writes every domain it touches into the registry, so the method comes back
+    from one cache read rather than being threaded back through each rung. A
+    caller that stamps the answer on a row wants the method stored with it,
+    because that is what makes a wrong code findable later.
+    """
+    resolved = countries_for_domains(db, domains, use_model=use_model)
+    if not resolved:
+        return {}
+    cached = _fetch_cached(db, list(resolved))
+    out = {}
+    for d, c in resolved.items():
+        if d in cached:
+            out[d] = (c, cached[d][1])
+        else:
+            # The registry write or this re-read failed quietly. "unresolved"
+            # would mislabel a real answer, so say only that we do not know
+            # which rung produced it.
+            out[d] = (c, "unknown" if c else "unresolved")
+    return out
+
+
 def country_for_domain(db, domain: Optional[str], *, use_model: bool = True) -> Optional[str]:
     """ISO2 for one publisher domain, or None if we could not tell."""
     rd = registered_domain(domain)

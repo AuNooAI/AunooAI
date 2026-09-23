@@ -195,12 +195,97 @@ def _group_country_column_exists(db) -> bool:
             )).fetchone()
             _HAVE_GROUP_COUNTRY = row is not None
         except Exception as e:
-            _log.debug("report corpus: could not inspect keyword_groups: %s", e)
-            _HAVE_GROUP_COUNTRY = False
+            # Not cached: one failed query must not switch country filtering
+            # off for the life of the process. Ask again next time.
+            _log.warning("report corpus: could not inspect keyword_groups, "
+                         "not country-filtering this report: %s", e)
+            return False
         if not _HAVE_GROUP_COUNTRY:
             _log.info("report corpus: no keyword_groups.country on this tenant; "
                       "country filtering is off, the other rules still apply")
     return _HAVE_GROUP_COUNTRY
+
+
+# Tenants without the Forecast Tracker have no ``forecast_topic_metadata``
+# table. Same treatment as the country column: ask information_schema once.
+_HAVE_FORECAST_META: "bool | None" = None
+
+
+def _forecast_meta_table_exists(db) -> bool:
+    global _HAVE_FORECAST_META
+    if _HAVE_FORECAST_META is None:
+        try:
+            from sqlalchemy import text as _sa_text
+            row = db.facade._execute_with_rollback(_sa_text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'forecast_topic_metadata' LIMIT 1"
+            )).fetchone()
+            _HAVE_FORECAST_META = row is not None
+        except Exception as e:
+            # Not cached, for the same reason as the country column above.
+            _log.warning("report corpus: could not inspect forecast metadata, "
+                         "deck names will not resolve to a country this time: %s", e)
+            return False
+    return _HAVE_FORECAST_META
+
+
+def _unanimous_country(db, topics):
+    """The one country every collection group behind ``topics`` declares.
+
+    Unanimous or nothing. A market deck is backed by its market topic and
+    nothing else, so one dissenting group — or one topic with no group at all —
+    means we do not know what country this report is about and must not filter.
+
+    Two real cases this protects. The ``Oral-Systemic Health`` synthesis deck is
+    backed by nine source topics across seven countries, and holding it to one
+    of them would throw away most of its evidence. And a brand topic is often
+    carried by two groups, an English one declaring nothing and a Japanese one
+    declaring ``jp``; the old ``LIMIT 1`` picked whichever row came back and
+    would have filtered a global brand report to Japanese press alone.
+    """
+    from sqlalchemy import text as _sa_text
+    wanted = [t for t in (topics or []) if (t or "").strip()]
+    if not wanted:
+        return None
+    rows = db.facade._execute_with_rollback(_sa_text(
+        "SELECT topic, lower(trim(coalesce(country, ''))) AS country "
+        "FROM keyword_groups WHERE topic = ANY(:ts)"
+    ), {"ts": wanted}).fetchall()
+    if not rows:
+        return None
+    covered, seen = set(), set()
+    for r in rows:
+        d = dict(r._mapping)
+        covered.add(d.get("topic"))
+        seen.add((d.get("country") or "").strip())
+    if covered != set(wanted):
+        # A source topic with no collection group: we cannot vouch for it.
+        return None
+    if len(seen) != 1:
+        return None
+    return seen.pop() or None
+
+
+def _source_topics_for(db, topic: str):
+    """The collection topics behind a tracked (deck) topic name, or []."""
+    if not _forecast_meta_table_exists(db):
+        return []
+    from sqlalchemy import text as _sa_text
+    row = db.facade._execute_with_rollback(_sa_text(
+        "SELECT source_topics FROM forecast_topic_metadata WHERE topic = :t LIMIT 1"
+    ), {"t": topic}).fetchone()
+    if row is None:
+        return []
+    raw = dict(row._mapping).get("source_topics")
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [t.strip() for t in raw if isinstance(t, str) and t.strip()]
 
 
 def market_country_for_topic(topic: str):
@@ -209,26 +294,28 @@ def market_country_for_topic(topic: str):
     A market topic is one whose collection group declares a country —
     "Oral Health & Whole-Body Health - France" carries ``fr``. Ordinary topics
     declare nothing and are never country-filtered.
+
+    Callers pass two different kinds of name. The ingest-side ones pass a
+    collection topic, which names a group directly. The deck builders pass the
+    TRACKED topic — sunstar's decks are called "Oral-Systemic Health - France"
+    while the group's topic is "Oral Health & Whole-Body Health - France" — so
+    a direct lookup answered None for every deck and the country rule never
+    fired. A tracked name is resolved through its ``source_topics``.
     """
     if not topic:
         return None
     try:
         from app.database import get_database_instance
-        from sqlalchemy import text as _sa_text
         db = get_database_instance()
         if not _group_country_column_exists(db):
             return None
-        row = db.facade._execute_with_rollback(_sa_text(
-            "SELECT country FROM keyword_groups "
-            "WHERE topic = :t AND country IS NOT NULL AND country <> '' LIMIT 1"
-        ), {"t": topic}).fetchone()
+        direct = _unanimous_country(db, [topic])
+        if direct:
+            return direct
+        return _unanimous_country(db, _source_topics_for(db, topic))
     except Exception as e:
         _log.debug("report corpus: country lookup failed for %s: %s", topic, e)
         return None
-    if row is None:
-        return None
-    val = (dict(row._mapping).get("country") or "").strip().lower()
-    return val or None
 
 
 def filter_report_corpus(rows: list, *, topic: str = "") -> list:

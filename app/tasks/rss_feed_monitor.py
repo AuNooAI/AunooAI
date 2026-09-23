@@ -134,9 +134,19 @@ class RSSFeedMonitor:
                         logger.warning("re-stamp check skipped for '%s': %s",
                                        feed_name, check_error)
 
+                # Where each publisher sits, resolved once for the batch.
+                # A feed is usually a single domain, so this is one registry
+                # read. It has to happen at insert: nothing downstream can
+                # work out a publisher's country from a stored row, and the
+                # keyword-monitor path never passes through here.
+                # Off the event loop: a domain the registry has never seen
+                # costs a synchronous model call, and this task shares the
+                # loop with every web request on the tenant.
+                countries = await asyncio.to_thread(self._resolve_countries, articles)
+
                 # Store articles using database facade (same as keyword monitor)
                 for article in articles:
-                    stored = await self._store_article(article, topic)
+                    stored = await self._store_article(article, topic, countries)
                     if stored:
                         new_articles_count += 1
 
@@ -205,8 +215,56 @@ class RSSFeedMonitor:
 
             return 0
 
-    async def _store_article(self, article: Dict, topic: str) -> bool:
-        """Store an article directly (no keyword association for RSS)."""
+    def _resolve_countries(self, articles: List[Dict]) -> Dict[str, tuple]:
+        """Publisher country and method per domain for one batch of articles.
+
+        Returns ``{domain: (iso2 or None, method)}``, or an empty map if the
+        registry is unavailable. Never fatal: an article we cannot place is
+        still worth storing, so every failure here leaves the rows unstamped
+        rather than stopping the feed.
+        """
+        try:
+            from app.services.source_country import (
+                countries_with_method, domain_for_article,
+            )
+        except Exception as e:                                    # noqa: BLE001
+            logger.warning("source-country registry unavailable, RSS rows "
+                           "will be stored unstamped: %s", e)
+            return {}
+
+        domains = []
+        for art in articles:
+            dom = domain_for_article(art.get('url'), art.get('source'))
+            if dom and dom not in domains:
+                domains.append(dom)
+        if not domains:
+            return {}
+        try:
+            return countries_with_method(self.db, domains)
+        except Exception as e:                                    # noqa: BLE001
+            logger.warning("source-country lookup failed for %s: %s", domains, e)
+            return {}
+
+    @staticmethod
+    def _country_for(url: str, article: Dict, countries) -> tuple:
+        """The (country, method) pair for one article, or (None, None)."""
+        if not countries:
+            return (None, None)
+        try:
+            from app.services.source_country import domain_for_article
+            dom = domain_for_article(url, article.get('source'))
+        except Exception:                                         # noqa: BLE001
+            return (None, None)
+        return countries.get(dom) or (None, None)
+
+    async def _store_article(self, article: Dict, topic: str,
+                             countries: Optional[Dict[str, tuple]] = None) -> bool:
+        """Store an article directly (no keyword association for RSS).
+
+        ``countries`` is the batch map from :meth:`_resolve_countries`; a
+        domain missing from it stores a NULL country, which readers treat as
+        "we could not place this publisher".
+        """
         from sqlalchemy import insert as sql_insert
         from app.database_models import t_articles
 
@@ -222,6 +280,7 @@ class RSSFeedMonitor:
             if not article_exists:
                 # Store article directly
                 conn = self.db._temp_get_connection()
+                country, method = self._country_for(url, article, countries)
                 conn.execute(sql_insert(t_articles).values(
                     uri=url,
                     title=(article.get('title', '') or '')[:500],
@@ -229,6 +288,8 @@ class RSSFeedMonitor:
                     publication_date=article.get('published_date'),
                     summary=(article.get('summary', '') or '')[:2000],
                     topic=topic,
+                    source_country=country,
+                    source_country_method=method,
                     analyzed=False
                 ))
                 conn.commit()
