@@ -60,10 +60,41 @@ RERANK_MAX_CANDIDATES: int = int(os.getenv("RERANK_MAX_CANDIDATES", "200"))
 
 RERANK_BATCH_SIZE: int = int(os.getenv("RERANK_BATCH_SIZE", "32"))
 
+# Where the cross-encoder runs. This host's GPU is fully committed - vLLM
+# holds 17 of its 20 GB, alongside the e5 and DeBERTa encoder services - so a
+# CUDA load raises "CUDA error: out of memory", and because the failure path
+# is a silent no-op every tenant had been reranking nothing since the GPU
+# filled up. CPU is the default: a slower rerank beats no rerank. Set
+# RERANK_DEVICE=cuda on a host with room.
+RERANK_DEVICE: str = os.getenv("RERANK_DEVICE", "cpu")
+_ON_CPU: bool = RERANK_DEVICE.split(":")[0].lower() == "cpu"
+
+# Torch threads for CE inference. Measured here (20 cores, under normal
+# load): eight threads score as fast as twenty, because the pass is bound by
+# memory bandwidth rather than cores, and eight leaves the other tenants and
+# the pipeline worker their share.
+RERANK_THREADS: int = int(os.getenv("RERANK_THREADS", "8"))
+
 # Per-candidate text length cap. BGE-reranker-v2-m3 has an 8K-token window;
 # 4000 chars ≈ 1000 tokens, enough for body paragraphs where topical signal
-# actually lives for news articles (not just headline+lede).
-RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "4000"))
+# actually lives for news articles (not just headline+lede). On CPU the
+# sequence length is most of the cost - 32 candidates take 15s at 1000 chars
+# against 39s at 2000 - so CPU trades the body for the title and lede.
+RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "1000" if _ON_CPU else "4000"))
+
+# How many candidates the cross-encoder actually scores, as opposed to how
+# many are fetched. This is the latency dial: bge-reranker-v2-m3 costs about
+# 0.4s per pair on this CPU, so sixteen candidates is around six seconds and
+# fifty would be twenty. Candidates past the cap keep their cosine order
+# behind the scored ones instead of being dropped, so a caller asking for
+# top_k=100 still gets 100 rows - only the first sixteen are reordered.
+RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "16" if _ON_CPU else "200"))
+
+# assign_exclusive scores every article against every scenario, so its pair
+# count is a product and grows fast. Past this ceiling it returns unassigned
+# and Forecast Assessment falls back to topic-only attribution, rather than
+# occupying a worker for the best part of an hour.
+RERANK_MAX_PAIRS: int = int(os.getenv("RERANK_MAX_PAIRS", "600" if _ON_CPU else "20000"))
 
 
 def overfetch_limit(top_k: int) -> int:
@@ -94,8 +125,14 @@ def _get_model():
         return None
     try:
         from sentence_transformers import CrossEncoder
-        logger.info("Loading retrieval reranker: %s", RERANK_MODEL_NAME)
-        _model = CrossEncoder(RERANK_MODEL_NAME, max_length=512)
+        logger.info("Loading retrieval reranker: %s on %s", RERANK_MODEL_NAME, RERANK_DEVICE)
+        if _ON_CPU and RERANK_THREADS > 0:
+            try:
+                import torch
+                torch.set_num_threads(RERANK_THREADS)
+            except Exception:  # noqa: BLE001
+                logger.debug("Could not cap torch threads", exc_info=True)
+        _model = CrossEncoder(RERANK_MODEL_NAME, max_length=512, device=RERANK_DEVICE)
         return _model
     except Exception:
         logger.exception(
@@ -183,9 +220,11 @@ async def rerank(
 
     extractor = text_fn if text_fn is not None else (lambda c: _default_text(c, text_key))
 
-    # Cap the pool actually scored; caller may have fetched more than
-    # RERANK_MAX_CANDIDATES inadvertently.
-    pool = candidates[:RERANK_MAX_CANDIDATES]
+    # Cap the pool actually scored. Everything past the cap keeps its cosine
+    # order behind the scored rows, so a caller asking for top_k=100 still
+    # gets 100 - it is the reordering that is bounded, not the result set.
+    pool = candidates[:RERANK_MAX_SCORED]
+    unscored = candidates[RERANK_MAX_SCORED:]
     query_trimmed = query.strip()[:RERANK_MAX_TEXT_LEN]
     pairs = [(query_trimmed, extractor(c)) for c in pool]
 
@@ -205,7 +244,7 @@ async def rerank(
         scored.append((s, out))
 
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    ranked = [c for _, c in scored]
+    ranked = [c for _, c in scored] + unscored
 
     # Shadow (brand and market topics only): record Jev's per-candidate
     # relevance next to this order. Own thread, never changes `ranked`.
@@ -292,6 +331,19 @@ async def assign_exclusive(
     for a_text in article_texts:
         for s_text in scenario_texts:
             pairs.append((a_text, s_text))
+
+    if len(pairs) > RERANK_MAX_PAIRS:
+        logger.warning(
+            "assign_exclusive asked for %d pairs (%d articles x %d scenarios), "
+            "over the %d ceiling — returning unassigned so the caller falls "
+            "back to topic-only attribution",
+            len(pairs), len(articles), len(scenarios), RERANK_MAX_PAIRS,
+        )
+        return [
+            {"scenario_idx": None, "score": None, "margin": None,
+             "best_alt_scenario_idx": None, "all_scores": []}
+            for _ in articles
+        ]
 
     try:
         raw_scores = await asyncio.to_thread(_predict_scores, model, pairs)
