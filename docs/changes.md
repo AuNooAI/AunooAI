@@ -1,5 +1,33 @@
 # Changes
 
+## 2026-09-23 — The market highlight still named no buyer for the Wirespeed acquisition
+
+### Goal
+Before posting aisocnews.com on LinkedIn, we noticed that the first highlight on the front page
+read "acquired us for our ability to stop cyber threats in milliseconds", with no buyer named. On
+22 September we had recorded this as fixed. Coalition acquired Wirespeed.
+
+### The highlight had its own sentence split
+f416743b fixed the vendor-post extractor, so the stored event (`bw_entity_events` 19554) already
+had the right title and description. The highlight is built by different code. `plain_summary` in
+**`app/services/market_assessment.py`** splits the summary on full stops and drops short
+fragments as filler. It cut after "Inc.", and then dropped "Coalition, Inc." for being four words
+or fewer. The buyer's name went with it. `_sentences` in the same module had the same fault, which
+`_first_sentence` inherits.
+
+### Fix
+A new `_join_abbreviations` rejoins a piece that was cut after an abbreviation, using the
+extractor's `_ABBREV_END` list. Both splitters call it. Commit 6fd0deb2.
+
+After a restart, the live front page reads "Coalition, Inc. acquired us for our ability to stop
+cyber threats in milliseconds", and no line on the page starts "acquired us". The
+market-assessment tests show the same six failures before and after the change.
+
+### Other sites
+We patched the same change into oviva, panaya and sunstar and restarted each one. The old file
+is kept as `market_assessment.py.bak-abbrev`. Panaya took both halves. Oviva and sunstar are
+behind bugfixing and have no `plain_summary`, so only the `_sentences` half applied there.
+
 ## 2026-09-23 — The digest told a customer a number had dropped when it had not moved for twenty days
 
 ### Goal
