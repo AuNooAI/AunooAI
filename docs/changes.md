@@ -1,5 +1,100 @@
 # Changes
 
+## 2026-09-23 — The digest told a customer a number had dropped when it had not moved for twenty days
+
+### Goal
+Oliver read the morning adverse-media digest on oviva and asked why it said Noom's employee
+outlook had dropped "to 14% from an unspecified higher level". The word "unspecified" was the
+tell. The number had not moved.
+
+### The digest invented a change it could not see
+**`app/services/bw_digest_service.py`** builds a facts sheet of bullets per brand, then asks a
+model to write the opening paragraph from those bullets alone (`_prose_summary`, called at line
+418 with the composed markdown and nothing else).
+
+The employee-signal bullet was a bare snapshot of the cached Glassdoor blob — `2.6★ Glassdoor ·
+outlook 14%`. No previous value, for any brand. The only comparison anywhere in the facts was the
+news-sentiment gap against the competitor average.
+
+The prompt then told the model to "order brands by size of change, largest first, say what
+changed with the numbers". Asked to rank by something the facts never gave it, it produced a
+change, and hedged the missing baseline as "an unspecified higher level". It also picked Noom,
+which was the one brand that had not moved at all.
+
+The numbers say so plainly. `bw_glassdoor_snapshots` on oviva has Noom at 2.6 and 0.14 on every
+one of the twenty daily rows from 09-03 to 09-22. Numan is the only brand in that set that
+changed in the period, 29% to 28% on 09-14. There was one alert event in the whole two days
+before the digest and it was Oviva's, not Noom's, and the digest event recorded `sent_uris: []`,
+so no driver articles were attached either. Noom's entire contribution to the facts sheet was
+that one snapshot line.
+
+### The bullet now reads its own history back
+`_employee_trend` walks `bw_glassdoor_snapshots` — the daily per-brand table
+`snapshot_glassdoor_overview` has been writing since it was added — newest first, treating the
+cached value as today. The first stored value that differs gives the before-value and the date it
+last held; if nothing differs, it reports how long the number has stood. Two helpers go with it:
+`_fmt_glassdoor` renders a stored value the way the bullet renders it, and `_as_date` copes with
+a driver that hands back `snapshot_date` as text.
+
+The bullet now reads `2.6★ Glassdoor (unchanged 20d) · outlook 14% (unchanged 20d)` or
+`outlook 28% (was 29% on 09-13)`. A tenant with no history, one row, or no
+`bw_glassdoor_snapshots` table gets the plain snapshot it got before — the query is wrapped and
+rolls back on failure, because a failed statement would otherwise poison the rest of the digest
+transaction.
+
+### The prompt no longer asks for a change that may not exist
+Same file, `_prose_summary`. It now asks the model to lead with a change **where a bullet states
+one**, to report a lone current value as a current value, and to rank by size of change only
+among brands whose bullets carry one. The guard line gained an explicit ban: never refer to a
+previous value the bullets do not give, no "an unspecified higher level", no "from an earlier
+level".
+
+### Verification
+`_employee_trend` run against the live oviva database from the patched file, all enabled brands:
+
+```
+- Employee signal: 4.1★ Glassdoor (was 4.2★ on 09-06) · outlook 85% (was 84% on 09-20)
+- Employee signal: 2.6★ Glassdoor (unchanged 20d) · outlook 14% (unchanged 20d)
+- Employee signal: 2.5★ Glassdoor (unchanged 20d) · outlook 28% (was 29% on 09-13)
+- Employee signal: 4★ Glassdoor (was 4.1★ on 09-20) · outlook 73% (unchanged 18d)
+- Employee signal: 3.4★ Glassdoor (was 3.5★ on 09-13) · outlook 57% (unchanged 20d)
+- Employee signal: 3★ Glassdoor (was 3.1★ on 09-20) · outlook 24% (was 26% on 09-20)
+```
+
+Noom reads `unchanged 20d`, which is what the digest should have said this morning.
+WeightWatchers did move on both figures and the old bullet showed neither.
+
+`python -m py_compile` passes on all twelve trees. `bw_glassdoor_snapshots` row counts at the
+time of the change: abm 518, wbm 318, wileytest 318, oviva 117, sunstar 84, bugfixing (`test`)
+49, panaya 1, wiley 0. The eight restarted services all report `active`; oviva on :10026 and wbm
+on :10018 both answer 307 to an unauthenticated request, which is the login redirect.
+
+The lead paragraph itself is **not** verified end to end — the digest fired at 06:09 UTC before
+the fix and its dedup key blocks a second send for the day. The next real one is tomorrow 06:00
+UTC on each tenant.
+
+### Propagation
+Committed in bugfixing (canonical) on `fix/market-monitor-voices-relevance`.
+
+Eight trees held a file byte-identical to canonical and took a straight copy: abm, bwtemplate,
+oviva, panaya, sunstar, wbm, wiley, wileytest.
+
+Four trees carry their own older wording of the same prompt — abbott, ibaset, interroll and pbm
+still have the pre-`CLINICAL_STYLE_SHORT` version that told the model to "name the brands that
+need attention first". They took the same two changes by hand, through a variant-aware script,
+rather than a file copy that would have dragged in unrelated drift. All four are stopped
+services, so nothing needed restarting; their databases were not checked, because no `DB_NAME`
+line was found in their `.env`.
+
+The eight running services were restarted: abm, oviva, wbm, wileytest, sunstar, panaya, wiley,
+bugfixing. No queries were in flight at the time and today's digests had already sent.
+
+### Lessons
+- **Never ask a model to describe a change unless the facts carry a before-value.** It will find
+  one. The hedge words are the only visible symptom, and they are easy to read past.
+- **A hedge like "unspecified" in generated customer copy is a bug report.** It means the model
+  was told to say something it had no data for.
+
 ## 2026-09-23 — Panaya gets its own tenant, and a second market on one tenant inherits the first one's vocabulary
 
 ### Goal

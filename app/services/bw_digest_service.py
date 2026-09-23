@@ -84,15 +84,20 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
             "You are writing the one-paragraph lead for an adverse-media digest "
             f"email covering the {period_label}. Below are ALL the facts, as "
             "bullet points per brand. Write 2-4 plain sentences a comms analyst "
-            "would skim: order brands by size of change, largest first, say "
-            "what changed with the numbers, and note anything quiet/stable in "
-            "half a sentence. When the facts say what the coverage or social "
+            "would skim. Where a bullet states a change, lead with it and use "
+            "the numbers as written; where a bullet gives only a current "
+            "value, report it as a current value and do not imply it moved. "
+            "Rank brands by size of change only among those whose bullets "
+            "state one. Note anything quiet or stable in half a sentence. "
+            "When the facts say what the coverage or social "
             "posts are actually about ('What's driving it' / 'What the posts "
             "say'), lead with that substance — counts alone are not the story. "
             "Observations only — no advice, no recommendations, no verdicts on "
             "which brand 'needs attention'." + CLINICAL_STYLE_SHORT +
             " Never state a number or fact that is not in the "
-            "bullets. Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
+            "bullets, and never refer to a previous value the bullets do not "
+            "give — no 'an unspecified higher level', no 'from an earlier "
+            "level'. Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
             "worse than -26) — do not compare them the wrong way round. No "
             "greeting, no markdown, no bullet points — just the "
             "paragraph.\n\nFACTS:\n" + facts[:6000]
@@ -138,6 +143,85 @@ def _story_groups_for(conn, brand_id: int, uris) -> Dict[str, str]:
         WHERE brand_id = :b AND article_uri = ANY(:uris)
     """), {"b": brand_id, "uris": uris}).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+def _fmt_glassdoor(key: str, value: float) -> str:
+    """Render a stored Glassdoor value the same way the bullet renders it."""
+    return f"{round(value * 100)}%" if key == "outlook" else f"{value:g}★"
+
+
+def _as_date(value):
+    """snapshot_date as a date, whether the driver hands back a date or text."""
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return value
+
+
+def _employee_trend(conn, brand_id: int, rating, outlook) -> Dict[str, str]:
+    """Prior value and its date for the Glassdoor rating/outlook, or how long flat.
+
+    The employee-signal bullet used to be a bare snapshot, which left the
+    lead-paragraph model unable to tell a move from a steady number — it
+    described drops that had not happened. bw_glassdoor_snapshots holds a daily
+    row per brand, so read the before-value back from it. No history, or no
+    table on a tenant that has not run the migration, returns empty notes and
+    the bullet stays the plain snapshot it was.
+    """
+    notes = {"rating": "", "outlook": ""}
+    try:
+        rows = conn.execute(text("""
+            SELECT snapshot_date,
+                   data->>'rating' AS rating,
+                   data->>'business_outlook_rating' AS outlook
+            FROM bw_glassdoor_snapshots
+            WHERE brand_id = :b
+            ORDER BY snapshot_date DESC LIMIT 90
+        """), {"b": brand_id}).fetchall()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"glassdoor history unavailable for brand {brand_id}: {e}")
+        try:
+            conn.rollback()  # a failed statement poisons the rest of the digest
+        except Exception:
+            pass
+        return notes
+
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    today = datetime.now(timezone.utc).date()
+    series = {"rating": [(r[0], r[1]) for r in rows],
+              "outlook": [(r[0], r[2]) for r in rows]}
+    for key, current in (("rating", rating), ("outlook", outlook)):
+        cur = _num(current)
+        if cur is None:
+            continue
+        # Walk back from today. The cached value is "now"; the first stored
+        # value that differs from it is what it was before, and the date on
+        # that row is when it last held.
+        flat_since, previous = None, None
+        for raw_date, raw_value in series[key]:
+            val = _num(raw_value)
+            if val is None:
+                continue
+            if abs(val - cur) < 1e-9:
+                flat_since = _as_date(raw_date)
+            else:
+                previous = (_as_date(raw_date), val)
+                break
+        if previous and previous[0] is not None:
+            notes[key] = (f" (was {_fmt_glassdoor(key, previous[1])} "
+                          f"on {previous[0]:%m-%d})")
+        elif flat_since is not None:
+            days = (today - flat_since).days
+            if days >= 2:  # one row is not a trend
+                notes[key] = f" (unchanged {days}d)"
+    return notes
 
 
 def _compose_digest(conn, period_days: int):
@@ -210,9 +294,10 @@ def _compose_digest(conn, period_days: int):
                   AND a.publication_date >= to_char(now() - (:d || ' days')::interval,'YYYY-MM-DD')
             """), {"b": bid, "d": str(period_days)}).fetchone()
             _outlook = _gd.get("business_outlook_rating")
-            _bits = [f"{_gd['rating']}★ Glassdoor"]
+            _trend = _employee_trend(conn, bid, _gd.get("rating"), _outlook)
+            _bits = [f"{_gd['rating']}★ Glassdoor" + _trend["rating"]]
             if _outlook is not None:
-                _bits.append(f"outlook {round(_outlook * 100)}%")
+                _bits.append(f"outlook {round(_outlook * 100)}%" + _trend["outlook"])
             if (_gr[0] or 0) + (_gr[1] or 0):
                 _bits.append(f"reviews this period {_gr[0] or 0}+ / {_gr[1] or 0}−")
             section.append("- Employee signal: " + " · ".join(_bits))
