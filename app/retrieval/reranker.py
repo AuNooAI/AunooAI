@@ -80,15 +80,17 @@ RERANK_THREADS: int = int(os.getenv("RERANK_THREADS", "8"))
 # actually lives for news articles (not just headline+lede). On CPU the
 # sequence length is most of the cost - 32 candidates take 15s at 1000 chars
 # against 39s at 2000 - so CPU trades the body for the title and lede.
-RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "1000" if _ON_CPU else "4000"))
+RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "700" if _ON_CPU else "4000"))
 
 # How many candidates the cross-encoder actually scores, as opposed to how
-# many are fetched. This is the latency dial: bge-reranker-v2-m3 costs about
-# 0.4s per pair on this CPU, so sixteen candidates is around six seconds and
-# fifty would be twenty. Candidates past the cap keep their cosine order
-# behind the scored ones instead of being dropped, so a caller asking for
-# top_k=100 still gets 100 rows - only the first sixteen are reordered.
-RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "16" if _ON_CPU else "200"))
+# many are fetched. This is the latency dial. A pair costs 0.23s on an idle
+# box but 0.72s with this host at its usual load average of 27 on 20 cores,
+# and a search has to stay usable on the bad day: ten candidates is about 5
+# seconds then, and sixteen was measured at 12. Candidates past the cap keep
+# their cosine order behind the scored ones instead of being dropped, so a
+# caller asking for top_k=100 still gets 100 rows - only the head of the list
+# is reordered. Raise it on a quieter host.
+RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "10" if _ON_CPU else "200"))
 
 # assign_exclusive scores every article against every scenario, so its pair
 # count is a product and grows fast. Past this ceiling it returns unassigned
