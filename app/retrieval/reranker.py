@@ -89,8 +89,10 @@ RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "700" if _ON_CPU
 # seconds then, and sixteen was measured at 12. Candidates past the cap keep
 # their cosine order behind the scored ones instead of being dropped, so a
 # caller asking for top_k=100 still gets 100 rows - only the head of the list
-# is reordered. Raise it on a quieter host.
-RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "10" if _ON_CPU else "200"))
+# is reordered. Keep it a clear multiple of a typical top_k: at ten, with
+# callers asking for top_k=10 or 20, the cross-encoder has nothing left to
+# rescue and the pass buys nothing for its seconds.
+RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "16" if _ON_CPU else "200"))
 
 # assign_exclusive scores every article against every scenario, so its pair
 # count is a product and grows fast. Past this ceiling it returns unassigned
