@@ -41,14 +41,24 @@ logger = logging.getLogger(__name__)
 
 RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "false").lower() in {"1", "true", "yes"}
 
-# Default: BAAI/bge-reranker-v2-m3. Multilingual, 8K context (matters for
-# paragraph-level topical relevance rather than just titles+ledes), ~568M
-# params, Apache 2.0. Top of MTEB reranking benchmarks and outputs bounded
-# [0, 1] probabilities after sigmoid — so ``score_pair`` thresholds are
-# interpretable without per-model calibration.
-# Legacy option: ``cross-encoder/ms-marco-MiniLM-L-6-v2`` (~90MB, English,
-# 512 ctx, unbounded logits) if you need a tiny CPU footprint.
-RERANK_MODEL_NAME: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+# Default: BAAI/bge-reranker-base. Multilingual (XLM-RoBERTa base, which the
+# German and Japanese posts on the brand tenants need), ~278M params, Apache
+# 2.0, and like the rest of the BGE family it outputs bounded [0, 1]
+# probabilities after sigmoid — so ``score_pair`` thresholds stay
+# interpretable without per-model calibration. Measured here on a relevant
+# and an irrelevant document for the same query: 0.888 against 0.0001.
+#
+# It replaced BAAI/bge-reranker-v2-m3 (~568M) on 23 September 2026, when the
+# reranker moved to CPU: v2-m3 costs 0.72s per pair on this host under load
+# against this model's 0.14s, which is the difference between reordering 32
+# candidates in 4s and 16 in 12s. The context window is not the trade-off it
+# looks like — ``_get_model`` pins ``max_length=512`` for every model, so
+# v2-m3's 8K window was never reachable either.
+#
+# Legacy option: ``cross-encoder/ms-marco-MiniLM-L-6-v2`` (~90MB, English
+# only, unbounded logits) if a site needs a tiny footprint and has no
+# non-English corpus.
+RERANK_MODEL_NAME: str = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
 
 # How many cosine-ranked candidates to fetch per top_k requested.
 # k=10, factor=5 → pull 50 from pgvector, rerank down to 10.
@@ -75,30 +85,32 @@ _ON_CPU: bool = RERANK_DEVICE.split(":")[0].lower() == "cpu"
 # the pipeline worker their share.
 RERANK_THREADS: int = int(os.getenv("RERANK_THREADS", "8"))
 
-# Per-candidate text length cap. BGE-reranker-v2-m3 has an 8K-token window;
-# 4000 chars ≈ 1000 tokens, enough for body paragraphs where topical signal
-# actually lives for news articles (not just headline+lede). On CPU the
-# sequence length is most of the cost - 32 candidates take 15s at 1000 chars
-# against 39s at 2000 - so CPU trades the body for the title and lede.
+# Per-candidate text length cap, in characters. The tokenizer truncates at
+# 512 tokens (~2000 chars) whatever this says, so the GPU default is really a
+# "don't bother trimming" value. On CPU the sequence length is most of the
+# cost — 32 candidates take 4.3s at 700 chars against 15s at 1500 — so CPU
+# keeps the title and lede and drops the body.
 RERANK_MAX_TEXT_LEN: int = int(os.getenv("RERANK_MAX_TEXT_LEN", "700" if _ON_CPU else "4000"))
 
 # How many candidates the cross-encoder actually scores, as opposed to how
-# many are fetched. This is the latency dial. A pair costs 0.23s on an idle
-# box but 0.72s with this host at its usual load average of 27 on 20 cores,
-# and a search has to stay usable on the bad day: ten candidates is about 5
-# seconds then, and sixteen was measured at 12. Candidates past the cap keep
+# many are fetched. This is the latency dial. A pair costs about
+# 0.14s here with bge-reranker-base, so thirty-two candidates is 4.3s even
+# with this host at its usual load average of 27 on 20 cores. Candidates
+# past the cap keep
 # their cosine order behind the scored ones instead of being dropped, so a
 # caller asking for top_k=100 still gets 100 rows - only the head of the list
 # is reordered. Keep it a clear multiple of a typical top_k: at ten, with
 # callers asking for top_k=10 or 20, the cross-encoder has nothing left to
-# rescue and the pass buys nothing for its seconds.
-RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "16" if _ON_CPU else "200"))
+# rescue and the pass buys nothing for its seconds — measured on oviva, where
+# a ten-candidate budget dropped the best answer to a question before the
+# caller ever saw it.
+RERANK_MAX_SCORED: int = int(os.getenv("RERANK_MAX_SCORED", "32" if _ON_CPU else "200"))
 
 # assign_exclusive scores every article against every scenario, so its pair
 # count is a product and grows fast. Past this ceiling it returns unassigned
 # and Forecast Assessment falls back to topic-only attribution, rather than
 # occupying a worker for the best part of an hour.
-RERANK_MAX_PAIRS: int = int(os.getenv("RERANK_MAX_PAIRS", "600" if _ON_CPU else "20000"))
+RERANK_MAX_PAIRS: int = int(os.getenv("RERANK_MAX_PAIRS", "1500" if _ON_CPU else "20000"))
 
 
 def overfetch_limit(top_k: int) -> int:

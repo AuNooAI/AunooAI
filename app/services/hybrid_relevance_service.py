@@ -54,7 +54,11 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # this input: the reranker was trained on (search query, passage) pairs and a
 # topic label is not a search query. Measured on REAL production documents
 # (title + summary, the same string _compute_cross_encoder_score builds) from
-# wileytest:
+# wileytest — against BAAI/bge-reranker-v2-m3, which was the shared model at
+# the time. The retrieval reranker moved to BAAI/bge-reranker-base on
+# 23 September 2026, so these numbers describe a model this tier no longer
+# loads: re-measure before trusting any threshold here. The tier stays off
+# by default and the reasons below are unchanged either way.
 #
 #   THEME topics  AUC 0.885   relevant median 0.0014   other median 0.00003
 #   BRAND topics  AUC 0.478   relevant median 0.00043  other median 0.00055
