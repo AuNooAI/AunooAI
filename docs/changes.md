@@ -337,11 +337,61 @@ against group 22:
 Keyword list identical before and after, and still `Oral-B` after a restart. A re-run is now a
 no-op instead of destructive.
 
+### Feature · setup reports a keyword that matches nothing we hold
+**`app/services/market_collect.py`** — `zero_match_keywords`, called from
+`plan_market_keywords` and returned as `zero_match` beside the existing `truncated` field. Both
+surface the same class of problem: a term that will quietly do the wrong thing. It runs at
+planning time, which is when changing a term still costs nothing.
+
+The Oral-B keyword is the argument for it. Nothing errored, no alert fired, and a term returning
+no results is indistinguishable from a company having a quiet month. It was only caught because
+somebody happened to check the generated term against the corpus.
+
+Three deliberate constraints:
+
+- Matching reuses `market_corpus._term_regex`, so the check agrees with what the corpus scan
+  would do rather than inventing a second rule that could call a keyword fine while the scan
+  disagrees.
+- It is a **warning, not a verdict**. The collector searches outside; a sound term can have no
+  local history, which is the normal case for a market whose subject we have never collected.
+- Below `MIN_CORPUS_FOR_ZERO_MATCH` (2,000 articles) it reports nothing and does not even probe.
+  On a thin corpus every term matches nothing and the warning would be noise.
+
+A failure computing it logs and returns `None` rather than an empty list, so "could not check"
+never renders as "all terms are fine".
+
+### Ops · three dead keywords dropped from sunstar's market
+The check's first real run flagged three of the eight market terms chosen earlier the same day:
+`dental hygiene market`, `oral care industry` and `oral health market` matched **nothing** in
+sunstar's 26,766 articles, while `oral care market` matched. They had been polling daily for
+nothing.
+
+Removed from `bw_markets.config.collection_terms` — the source the planner reads — and the group
+synced from it, rather than deleting the `monitored_keywords` rows. Deleting the rows is the
+Oral-B mistake again: the next re-run regenerates from `collection_terms` and they come back.
+
+Group 22 is now 10 keywords. `zero_match` returns `[]`, and a second re-run reported
+`keywords_added: []` and `keywords_removed: []`, so the group is idempotent.
+
+### Incident · a test helper shadowed one that already existed
+Adding the tests for the above appended a class named `_FakeConn` to
+`tests/test_market_collection.py`, which **already had a `_FakeConn`** at line 1353 used by two
+other tests. Python takes the last definition, so those two ran against the wrong fake and failed
+with `'_R' object has no attribute 'mappings'` inside `app/tasks/market_monitor.py`.
+
+Caught by the failure count moving 19 → 21 and confirmed against a stashed baseline rather than
+assumed. Renamed to `_CorpusProbeConn`; back to 19.
+
+Blast radius was the test suite only — no application code imports it. The cost was a suite run
+reporting a number that looked like a real regression.
+
 ### Verification
 sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
 `bw_entity_events` = 1 active and `corroborated`. Group 22 holds 13 keywords on a 24h schedule.
-`pytest -k "market or entity"` — **611 passed, 19 failed**, the same 19 failing before any of
-today's changes. (609 before the two `search_name` tests were added.)
+`pytest -k "market or entity"` — **614 passed, 19 failed**, the same 19 failing before any of
+today's changes. The count walked 609 → 611 → 614 as the `search_name` and zero-match tests were
+added. A run taken during the `_FakeConn` collision reported 21 failed / 612 passed; that number
+is an artefact of the collision, not a regression in the code under test.
 The ampersand fix is applied to bugfixing, oviva and sunstar.
 
 Correction: when this was first written only oviva and sunstar had been restarted, and the line
@@ -369,6 +419,9 @@ checked, which is the mistake worth recording here.
 - NEVER fix a generated keyword by editing `monitored_keywords`. `setup_market_collection` syncs
   the group to the plan by difference and deletes anything the plan no longer contains, so a
   hand-edit survives exactly until the next re-run. Put the override where the planner reads it.
+- ALWAYS grep for a helper's name before defining it in a long test file. Appending a class to
+  the end of a 1,500-line module silently rebinds any earlier definition of the same name, and
+  the failure surfaces far from the cause.
 - A display name and a search term are different things. `display_name` is for the reader; when
   the press writes the company differently, set a `search_name` identifier instead of renaming
   the vendor and losing what the report tells a reader.

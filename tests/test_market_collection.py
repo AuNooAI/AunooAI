@@ -1517,3 +1517,62 @@ def test_the_override_is_only_consulted_per_vendor_not_globally():
                            ("Colgate-Palmolive", "Colgate-Palmolive"),
                            ("Haleon", "Haleon")):
         assert keyword_for_vendor(name, "oral care")[0] == expected
+
+
+class _CorpusProbeConn:
+    """Answers the two queries ``zero_match_keywords`` asks: the corpus size,
+    then one existence probe per keyword."""
+
+    def __init__(self, total, matching=()):
+        self.total, self.matching, self.asked = total, set(matching), []
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        conn = self
+
+        class _R:
+            def scalar(self):
+                if "COUNT(*)" in sql:
+                    return conn.total
+                conn.asked.append(params["rx"])
+                # Compare against the real builder rather than re-deriving
+                # the escaping here, so the fake cannot drift from it.
+                from app.services.market_corpus import _term_regex
+                return 1 if any(params["rx"] == _term_regex(m)
+                                for m in conn.matching) else None
+        return _R()
+
+
+def test_a_keyword_matching_nothing_is_reported_at_planning_time():
+    """A keyword that matches nothing fails silently and permanently: no
+    error, no alert, and a term returning no results looks exactly like a
+    company having a quiet month. sunstar searched the phrase "P&G Oral-B",
+    which appears zero times in its own 26,766 articles.
+    """
+    from app.services.market_collect import zero_match_keywords
+
+    conn = _CorpusProbeConn(26766, matching={"Oral-B", "periodontal disease"})
+    flagged = zero_match_keywords(conn, ['"P&G Oral-B"', "Oral-B",
+                                         "periodontal disease"])
+    assert [f["term"] for f in flagged] == ['"P&G Oral-B"']
+
+
+def test_the_phrase_quotes_are_not_searched_for():
+    """The quotes are the collector's phrase marker, not part of the text.
+    Left in, every quoted vendor name would be reported as dead."""
+    from app.services.market_collect import zero_match_keywords
+
+    conn = _CorpusProbeConn(26766, matching={"Lion Corporation"})
+    assert zero_match_keywords(conn, ['"Lion Corporation"']) == []
+    assert conn.asked and '"' not in conn.asked[0]
+
+
+def test_a_corpus_too_small_to_judge_reports_nothing():
+    """On a tenant with little collected, every term matches nothing and the
+    warning would be noise. Say nothing rather than condemn every keyword."""
+    from app.services.market_collect import (MIN_CORPUS_FOR_ZERO_MATCH,
+                                             zero_match_keywords)
+
+    conn = _CorpusProbeConn(MIN_CORPUS_FOR_ZERO_MATCH - 1)
+    assert zero_match_keywords(conn, ["anything at all"]) == []
+    assert conn.asked == [], "must not probe a corpus it cannot judge"

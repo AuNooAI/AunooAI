@@ -18,7 +18,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import text
 from app.utils.timestamps import submission_stamp
@@ -712,6 +712,57 @@ VENDOR_NAME_MODES = ("none", "funded", "all")
 DEFAULT_VENDOR_NAME_MODE = "funded"
 
 
+#: A corpus smaller than this cannot tell a dead keyword from a new market.
+#: On a tenant with 200 articles every term matches nothing and the warning is
+#: noise; on sunstar's 26,766 a zero means the term is wrong.
+MIN_CORPUS_FOR_ZERO_MATCH = 2000
+
+
+def zero_match_keywords(conn, keywords: Sequence[str]) -> List[Dict[str, Any]]:
+    """Planned keywords that match nothing in the articles we already hold.
+
+    A keyword that matches nothing fails silently and permanently. Nothing
+    errors, no alert fires, and a term returning no results looks exactly like
+    a company having a quiet month — sunstar's oral-care market searched for
+    the phrase "P&G Oral-B", which appears zero times in its own 26,766
+    articles against 380 for "Oral-B", and would have run daily forever
+    finding nothing.
+
+    Checked against our own corpus rather than the providers, because that is
+    free and already here. It is a **warning, not a verdict**: the collector
+    searches outside, so a term can be sound and still have no local history,
+    which is the normal case for a market whose subject we have never
+    collected. Below ``MIN_CORPUS_FOR_ZERO_MATCH`` articles the question
+    cannot be answered at all and nothing is reported.
+
+    Matching uses ``market_corpus``'s own regex so this agrees with what the
+    corpus scan would do, rather than inventing a second rule that could say
+    a keyword works when the scan disagrees.
+    """
+    from app.services.market_corpus import _term_regex
+
+    total = conn.execute(text(
+        "SELECT COUNT(*) FROM articles")).scalar() or 0
+    if total < MIN_CORPUS_FOR_ZERO_MATCH:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for kw in keywords or []:
+        # The quotes are the collector's phrase marker, not part of the text.
+        term = (kw or "").strip().strip('"')
+        rx = _term_regex(term)
+        if not rx:
+            continue
+        hit = conn.execute(text("""
+            SELECT 1 FROM articles
+             WHERE (COALESCE(title,'') || ' ' || COALESCE(summary,'')) ~* :rx
+             LIMIT 1
+        """), {"rx": rx}).scalar()
+        if not hit:
+            out.append({"term": kw, "searched_as": term})
+    return out
+
+
 def plan_market_keywords(conn, market_id: int,
                          qualifier: str = DEFAULT_QUALIFIER,
                          vendor_names: str = DEFAULT_VENDOR_NAME_MODE
@@ -766,10 +817,21 @@ def plan_market_keywords(conn, market_id: int,
         for term in keywords
         for shortened in [check_term(term)] if shortened
     ]
+    # And surface a term that matches nothing we hold, for the same reason:
+    # both fail without saying so. This one is checked at planning time
+    # because that is when it costs nothing to change the term.
+    try:
+        zero_match = zero_match_keywords(conn, keywords)
+    except Exception as exc:                                       # noqa: BLE001
+        # A warning that cannot be computed must not stop a market being set
+        # up. Say it is unknown rather than implying every term is fine.
+        logger.warning("market %s: zero-match check failed: %s", market_id, exc)
+        zero_match = None
 
     return {
         "market_terms": terms,
         "truncated": truncated,
+        "zero_match": zero_match,
         "vendor_keywords": vendor_keywords,
         "keywords": keywords,
         "qualified": qualified,

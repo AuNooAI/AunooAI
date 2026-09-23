@@ -50,6 +50,15 @@ checking the corpus.
 audited for the same problem. The check is cheap: compare each generated keyword against the
 tenant's own articles and look for zeros.
 
-**A worthwhile follow-on** is making that check part of setup rather than a thing someone thinks
-to do — report any generated keyword with no corpus matches at the time the market is configured,
-when it costs nothing to fix. That is a few hours of work for an AI.
+**The follow-on is done.** Setting up a market now reports any search term that matches nothing
+in the articles that customer site already holds, at the moment the market is configured. It is
+a warning rather than a block, because a term can be sound and simply have no local history, and
+it stays silent on a site with too few articles to judge.
+
+On its first real run it flagged three more dead terms in the same sunstar market — phrases like
+"oral care industry" that read fine and appear nowhere in 26,766 collected articles. Those were
+dropped; the market went from thirteen search terms to ten, all of which return something.
+
+**What it still does not do** is notice a term that goes dead later. A phrase that worked when
+the market was set up and stops matching a year on looks exactly like a quiet market. The check
+runs at setup, not continuously.
