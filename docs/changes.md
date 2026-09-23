@@ -69,9 +69,40 @@ time of the change: abm 518, wbm 318, wileytest 318, oviva 117, sunstar 84, bugf
 49, panaya 1, wiley 0. The eight restarted services all report `active`; oviva on :10026 and wbm
 on :10018 both answer 307 to an unauthenticated request, which is the login redirect.
 
-The lead paragraph itself is **not** verified end to end — the digest fired at 06:09 UTC before
-the fix and its dedup key blocks a second send for the day. The next real one is tomorrow 06:00
-UTC on each tenant.
+### The first live run got the figures right and the brands wrong
+Forcing a send on oviva — outside the schedule, skipping the dedup claim and the `sent_uris`
+write so tomorrow's real digest is untouched, to the single configured recipient
+(`oliver.rochford@aunoo.ai`) — produced a paragraph with no invented baseline, and a new mistake:
+
+> Second Nature, WeightWatchers, Voy **and Numan** each saw 0.1-point declines in their Glassdoor
+> ratings […] Noom **and Numan** show stable employee sentiment […] with unchanged outlooks
+
+Numan's rating bullet says `unchanged 20d` and its outlook bullet says `was 29% on 09-13`. The
+model had both facts in front of it and swapped them, then contradicted itself two clauses later.
+Every number it printed existed in the facts; the attribution did not.
+
+Three samples of that prompt on the same facts gave one clean paragraph out of three. The second
+failure was the same shape on a different brand — "Noom and WeightWatchers showed unchanged
+employee sentiment" when WeightWatchers had moved on both figures.
+
+So the prompt gained one more constraint: a brand's rating and its outlook are separate figures, a
+change in one says nothing about the other, a bullet marked unchanged did not move, and no brand
+goes in a list of brands that changed unless its own bullet states that change. Three samples of
+the new wording: three clean. Harness at
+`scratchpad/prompt_ab.py`, six model calls on `gpt-5.4-mini`, which routes to
+`bedrock/moonshotai.kimi-k2.5` on oviva.
+
+The real send that followed, checked figure by figure against the facts:
+
+> Employee outlook at WeightWatchers fell 2 points to 24% and its Glassdoor rating dropped 0.1★ to
+> 3★, while Second Nature's rating also fell 0.1★ to 4★ and Numan's outlook ticked down 1 point to
+> 28%. Voy's rating slipped 0.1★ to 3.4★ and Oviva's dipped 0.1★ to 4.1★ even as its outlook rose
+> 1 point to 85%. Noom saw no movement in either metric over 20 days. […]
+
+Every figure matches its bullet and every brand is attached to the right one. One wording
+imprecision remains and it comes from the bullet, not the model: Noom's news bullet reads
+`0+ / 0− of 1 scored (too few articles to score)`, so the model called it "one unscored article"
+when the article was scored and merely sat below the three-article floor for a net.
 
 ### Propagation
 Committed in bugfixing (canonical) on `fix/market-monitor-voices-relevance`.
@@ -89,11 +120,19 @@ line was found in their `.env`.
 The eight running services were restarted: abm, oviva, wbm, wileytest, sunstar, panaya, wiley,
 bugfixing. No queries were in flight at the time and today's digests had already sent.
 
+The prompt constraint that came out of the live test went to all twelve trees in a second pass and
+the same eight services were restarted again. The nine non-drifted trees agree on one hash.
+
 ### Lessons
 - **Never ask a model to describe a change unless the facts carry a before-value.** It will find
   one. The hedge words are the only visible symptom, and they are easy to read past.
 - **A hedge like "unspecified" in generated customer copy is a bug report.** It means the model
   was told to say something it had no data for.
+- **Giving a model correct facts is not enough — check which brand it hangs them on.** The first
+  fix removed the invented number and left an invented attribution, which is just as wrong and
+  harder to spot, because every figure on the page is real.
+- **Sample a generated paragraph more than once before calling it fixed.** One clean run out of
+  three reads exactly like a working fix.
 
 ## 2026-09-23 — Panaya gets its own tenant, and a second market on one tenant inherits the first one's vocabulary
 

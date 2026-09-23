@@ -50,5 +50,13 @@ figures in the same email are still compared against the peer average rather tha
 week, so the summary cannot say whether a brand's coverage is improving or worsening over time —
 only how it sits against its peers today. That is the obvious next one.
 
-The new summary wording has not yet been seen on a real send. Today's digests had already gone
-out when the fix landed, so the first one written the new way is tomorrow morning.
+We forced a digest to our own address to check the new wording before tomorrow's real send. The
+first attempt got every figure right and hung two of them on the wrong brand — it listed a
+competitor among those whose rating had fallen when that brand's rating had not moved, and called
+its outlook steady when the outlook was the thing that had changed. We tightened the instruction
+again, sampled it three more times with no errors, and the send that followed was correct brand by
+brand.
+
+That is worth knowing about the shape of this feature: the numbers come from the database and are
+reliable, while the sentence that summarises them is written by a model and is the part that can
+still go wrong. It is checked, not guaranteed.
