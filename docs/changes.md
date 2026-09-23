@@ -7,10 +7,15 @@ The earned review could not run on sunstar because sunstar had no market: `bw_ma
 `bw_market_brands`, `bw_market_articles` and `bw_entity_query_terms` were all empty. Its seven
 "markets" are `keyword_groups` — topics feeding the tracker decks — which is a different feature.
 
-### None of this is in git
-The whole setup is database rows in the sunstar tenant plus one `.env` line. Nothing is version
-controlled, nothing propagates, and a tenant cloned from canonical will not have it. **This entry
-is the only durable record.** Recreating it means redoing the five steps below by hand.
+### Most of this is not in git
+One code change came out of the day and is committed: the ampersand fix in
+`app/services/market_collect.py`, with its tests.
+
+Everything else — the market row, its vendors, 48 query terms, the corpus scan, keyword group 22,
+the config.json topic, the six vendor domain identifiers and the `.env` line — is database rows
+and files in the sunstar tenant. None of it is version controlled, none of it propagates, and a
+tenant cloned from canonical will not have it. **For that part this entry is the only durable
+record**, and recreating it means redoing the steps below by hand.
 
 ### Setup · the Oral Care market (sunstar, market id 1)
 - `bw_markets` row: name "Oral Care", slug `oral-care`, `enabled`, `is_public = false`.
@@ -71,15 +76,80 @@ Both are why the term prefilter proposes and the model decides:
 
 All three came back noise with no vendor attributed.
 
-### Not done
-`collection-setup` was **not** run. It creates the keyword group and the config.json topic and
-starts polling news providers on this market's own budget, and sunstar has already exceeded its
-TheNewsAPI daily cap. The market works today on the corpus already collected; live collection is
-a separate spend decision.
+### Setup · live collection, run later the same day
+`collection-setup` was deferred at first as a spend decision, then run on Oliver's go-ahead.
+
+Keyword group **22**, "Oral Care - Market Watch", feeding a new config.json topic "Market
+Monitoring Oral Care" (`config.json` backed up first as
+`config.json.bak-oralcare-20260923_080024`; the setup code appends atomically and never rewrites
+existing topics, but that file is live UI state). 13 keywords: the 8 market terms plus 5 vendor
+names. `bw_markets.config.collection.group_id = 22`, so market and group know about each other.
+
+**`vendor_names="all"` was necessary, not a preference.** The dry run reported
+`funded_vendors: 0` — these are public companies with no funding baseline — so the default
+`"funded"` mode would have built a group that searched the market's language and named no vendor
+at all.
+
+**The schedule was pinned in the same pass.** A new group is created `is_active = true` with a
+NULL `check_interval`, so it would poll on the monitor's fallback cadence. Set to 24h with
+`language = 'en'`, matching sunstar's other market-watch groups, before it could fire once.
+
+### Setup · vendor domains
+Six `domain` + `website_url` identifiers in `bw_vendor_identifiers`, each verified against the
+company's own site or its Wikipedia infobox rather than guessed from the brand slug — the
+onboarding doc records that a wrong slug once marked a live vendor as closed. sunstar's own
+articles carry **no URLs at all** (0 of 26,766), so the corpus could not settle it.
+
+| Vendor | Domain |
+|---|---|
+| Sunstar | sunstar.com |
+| Lion Corporation | lion.co.jp |
+| Kao Corporation | kao.com |
+| Colgate-Palmolive | colgatepalmolive.com |
+| P&G Oral-B | oralb.com |
+| Haleon | haleon.com |
+
+P&G Oral-B keys on `oralb.com` rather than `pg.com` deliberately: the vendor is tracked for its
+oral-care line, and pg.com would pull detergent, razor and baby-care news into an oral-care
+market — the same reasoning the registry already applies to UiPath in Enterprise Test Automation.
+The cost is that P&G's newsroom lives on news.pg.com, so press-feed discovery will find less for
+that vendor than for the other five.
+
+Site and feed discovery, ATS discovery and Crunchbase seeding all key on the domain, so they
+begin on the monitor's next ticks.
+
+### Fix · an ampersand in a vendor's name stopped being deleted
+**`app/services/market_collect.py`** — `normalize_keyword` strips `&` as an invalid character,
+and nothing about the result looks wrong. Setting this market up wrote P&G's keyword as
+`"PG Oral-B"`: a phrase search for something no publication has ever printed, matching nothing,
+silently and indefinitely. Any vendor carrying an ampersand has the same problem — Procter &
+Gamble, Johnson & Johnson, AT&T, H&M.
+
+`normalize_plan_keywords` now protects the ampersand through the call, exactly as it already
+protected double quotes. The containment is deliberate: `normalize_keyword` has nineteen call
+sites whose current answers other things depend on, and this is the one place that plans a
+market's keywords.
+
+Three tests in `tests/test_market_collection.py`, including one asserting the placeholder never
+leaks into a keyword — a stray marker would read as a real search term, which is worse than the
+stripped ampersand.
+
+### The fix is right and does not help this vendor
+Measured in sunstar's own corpus: `Oral-B` appears **380** times, `P&G Oral-B` **0**. So the
+generated keyword is now correct and still useless here, because the display name is not how
+anyone writes the brand. Group 22 carries a hand-set `Oral-B`, which is the term that matches.
+
+**A re-run of `/collection-setup` would replace it with `"P&G Oral-B"` and match nothing.**
+Nothing does that on a schedule — only the route calls `setup_market_collection` — so it is safe
+until someone explicitly re-runs setup. The durable fix is at the registry level, not the
+normalizer: teach `plan_market_keywords` to use brand aliases rather than display names alone, or
+rename the vendor. Neither was done.
 
 ### Verification
 sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
-`bw_entity_events` = 1 active and `corroborated`.
+`bw_entity_events` = 1 active and `corroborated`. Group 22 holds 13 keywords on a 24h schedule.
+`pytest -k "market or entity"` — 609 passed, 19 failed, the same 19 failing before this change.
+The ampersand fix is applied to bugfixing, oviva and sunstar; all three restarted.
 
 ### Lessons
 - A market's collection terms must be the language of what the *companies* do, not what they
@@ -89,6 +159,15 @@ sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
   3,375 junk rows, and the dry run cost nothing.
 - A market on a tenant whose corpus is mostly social will be noisy whatever the terms, because
   `market_corpus.scan` reads every article and has no source filter.
+- A new keyword group is created **active with a NULL interval**. Pin `check_interval` in the
+  same breath as creating it, or it polls on the monitor's fallback cadence against a budget
+  somebody else is also spending.
+- `vendor_names="funded"` is the default and produces **nothing** for a market of public
+  companies, which have no funding baseline. Check `funded_vendors` in the dry run before
+  trusting the plan.
+- A keyword that normalizes to something nobody writes fails silently and forever. After
+  generating search terms, ALWAYS check the generated form against the corpus: `Oral-B` appears
+  380 times in sunstar's articles and `P&G Oral-B` zero, which is the whole argument.
 
 ## 2026-09-22 — A published study is a development, on the markets that say so
 

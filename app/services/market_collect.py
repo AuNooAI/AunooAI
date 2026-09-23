@@ -755,13 +755,32 @@ def plan_market_keywords(conn, market_id: int,
     }
 
 
+#: Stands in for "&" while a keyword goes through ``normalize_keyword``.
+#: A letter run, so nothing else in the normalizer touches it: the boolean-word
+#: filter works on whole words, and the invalid-character class is punctuation.
+_AMP = "zzampzz"
+
+
 def normalize_plan_keywords(keywords: List[str]) -> List[str]:
-    """Normalize planned keywords while keeping a quoted phrase quoted.
+    """Normalize planned keywords, keeping a quoted phrase quoted and its
+    ampersand intact.
 
     ``normalize_keyword`` strips double quotes as invalid characters, which
     would silently turn the phrase search ``keyword_for_vendor`` asks for back
     into the bare AND-of-words form. Normalize the text inside the quotes and
     put them back.
+
+    It strips ``&`` from the same character class, and that is worse, because
+    nothing about the result looks wrong. Setting up sunstar's Oral Care market
+    wrote P&G's keyword as ``"PG Oral-B"`` — a phrase search for something no
+    publication has ever printed, which would have matched nothing silently and
+    indefinitely. Any vendor carrying an ampersand has the same problem:
+    Procter & Gamble, Johnson & Johnson, AT&T, H&M.
+
+    The ampersand is protected through the call rather than allowed in
+    ``normalize_keyword`` itself, which has nineteen call sites whose current
+    answers other things depend on. This is the one place that plans a market's
+    keywords, so it is the right place to be narrow.
     """
     from app.utils.keyword_normalizer import normalize_keyword
     out: List[str] = []
@@ -770,9 +789,11 @@ def normalize_plan_keywords(keywords: List[str]) -> List[str]:
             continue
         term = raw.strip()
         quoted = len(term) >= 2 and term[0] == '"' and term[-1] == '"'
-        inner = normalize_keyword(term[1:-1] if quoted else term)
+        inner = normalize_keyword(
+            (term[1:-1] if quoted else term).replace("&", _AMP))
         if not inner:
             continue
+        inner = inner.replace(_AMP, "&")
         kw = f'"{inner}"' if quoted else inner
         if kw not in out:
             out.append(kw)

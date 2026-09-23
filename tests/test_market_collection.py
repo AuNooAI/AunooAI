@@ -1449,3 +1449,38 @@ async def _scoped_run_non_collecting(monkeypatch):
 
     assert closed and closed[0][0] == 5
     assert closed[0][1]["status"] == "failed"
+
+
+def test_a_vendors_ampersand_survives_keyword_planning():
+    """``normalize_keyword`` strips "&" as an invalid character, and nothing
+    about the result looks wrong. Setting up sunstar's Oral Care market wrote
+    P&G's keyword as "PG Oral-B" — a phrase search for something no
+    publication has ever printed, matching nothing, silently and forever.
+    """
+    from app.services.market_collect import normalize_plan_keywords as plan
+
+    assert plan(['"P&G Oral-B"']) == ['"P&G Oral-B"']
+    assert plan(["Procter & Gamble"]) == ["Procter & Gamble"]
+    assert plan(['"Johnson & Johnson"']) == ['"Johnson & Johnson"']
+    assert plan(["AT&T"]) == ["AT&T"]
+
+
+def test_keyword_planning_still_quotes_phrases_and_leaves_the_rest_alone():
+    """The ampersand fix must not disturb what the normalizer already did."""
+    from app.services.market_collect import normalize_plan_keywords as plan
+
+    assert plan(['"Lion Corporation"']) == ['"Lion Corporation"']
+    assert plan(["oral care market"]) == ["oral care market"]
+    # Quotes come off inside and go back on, so a phrase stays a phrase.
+    assert plan(['"Kao Corporation"'])[0].startswith('"')
+    # Duplicates collapse, order is kept.
+    assert plan(["Haleon", "Haleon", "Sunstar"]) == ["Haleon", "Sunstar"]
+
+
+def test_the_placeholder_is_not_left_behind_in_a_keyword():
+    """A leftover marker would be worse than the stripped ampersand: it would
+    look like a real search term."""
+    from app.services.market_collect import normalize_plan_keywords as plan
+
+    for kw in plan(['"P&G Oral-B"', "AT&T", "plain term"]):
+        assert "zzamp" not in kw.lower()
