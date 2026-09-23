@@ -1079,10 +1079,32 @@ _ACQUIRES = re.compile(
 _PAGE_CHANGED = re.compile(r"\bpage changed\b", re.I)
 
 
+def _join_abbreviations(parts: Iterable[str]) -> List[str]:
+    """Rejoin pieces a split cut after an abbreviation, not a sentence end.
+
+    Splitting "Coalition, Inc. acquired us..." after "Inc." dropped the buyer,
+    and the consolidation highlight read "acquired us for our ability to stop
+    cyber threats" on Wirespeed's row, as if Wirespeed were the buyer. The
+    extractor fixed the same cut in f416743b; this is its list.
+    """
+    from app.services.entity_event_extractors.owned_post import _ABBREV_END
+
+    joined: List[str] = []
+    for part in parts:
+        part = (part or "").strip()
+        if not part:
+            continue
+        if joined and _ABBREV_END.search(joined[-1]):
+            joined[-1] = joined[-1] + " " + part
+        else:
+            joined.append(part)
+    return joined
+
+
 def _sentences(text_value: str) -> List[str]:
     out = []
-    for raw in re.split(r"(?<=[.!?])\s+|\n+", text_value or ""):
-        sent = re.sub(r"^[^A-Za-z0-9$€£\"'(]+", "", raw.strip())
+    for raw in _join_abbreviations(re.split(r"(?<=[.!?])\s+|\n+", text_value or "")):
+        sent = re.sub(r"^[^A-Za-z0-9$€£\"'(]+", "", raw)
         if len(sent) < 12 or sent.lower().startswith("http"):
             continue
         out.append(sent)
@@ -1220,7 +1242,7 @@ def plain_summary(text: str) -> str:
     """The excerpt's sentences with the marketing drumroll left out."""
     if not text:
         return text
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    sentences = _join_abbreviations(re.split(r"(?<=[.!?])\s+", text.strip()))
     kept = [s for s in sentences if not _sentence_is_slop(s)]
     return " ".join(kept)
 
