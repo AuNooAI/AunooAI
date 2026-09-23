@@ -1,5 +1,174 @@
 # Changes
 
+## 2026-09-23 — Panaya gets its own tenant, and a second market on one tenant inherits the first one's vocabulary
+
+### Goal
+Build the tailored demo Amos Bergerbest Eilon asked for after the 17 September call: his market,
+his competitors, his rebrand. Price was already accepted at the 35k tier, so the session was
+about proving the data holds, not selling. Built on bugfixing first, then moved to a dedicated
+tenant when it became obvious that Panaya's Brand Watcher was sitting in a list of 97 AI-SOC
+security vendors.
+
+### Almost none of this is in git
+One code change came out of the day, and another session's `git add -u` swept it into
+**`171ab474`** ("Topic reports: take the brand line and the customer from the tenant, not from
+Wiley"), whose subject does not mention it. It is the `"uipath"` entry in `_AMBIGUOUS_NAMES` in
+**`app/services/market_collect.py`**. UiPath is distinctive, so the name check passed it through
+bare, and a bare search returns the company's whole RPA and agentic-automation output. Amos wants
+the testing line only. Qualified, the collector demands the market's qualifier word alongside it.
+
+Everything else is database rows and files: the market, its vendors, three keyword groups, the
+config.json topic, two observer agents, and a whole new tenant directory. `/home/orochford` is a
+git repo but `git ls-files tenants/panaya.aunoo.ai` and `tenants/bugfixing.aunoo.ai` both return
+zero, so no tenant tree is tracked anywhere. **For that part this entry is the only durable
+record.**
+
+### The tenant · panaya.aunoo.ai
+Port 10027, DB `panaya`/`panaya_user`, schema head `sc_001` (matches bugfixing),
+`ENABLED_MODULES=market_monitor,brand_watcher` so the navigation carries two tabs instead of the
+full product. nginx site copied from oviva's rather than generated, which is how it got the 600s
+proxy timeouts without tripping the modsecurity trap; Let's Encrypt cert issued per-domain.
+
+Built as a directory clone from bugfixing (canonical), a schema-only `pg_dump -s` restore, and a
+selective row copy of market 1312 plus the articles it points at — scripts kept at
+`/var/tmp/panaya_migrate.py` and `panaya_migrate2.py`. A full data clone was rejected: bugfixing
+carries 231,216 articles across 126 topics and 97 brands, all of which would then have needed
+deleting in front of a customer.
+
+`bw_markets.enabled = false` for market 1312 on bugfixing and keyword groups 28, 29 and 30 all
+`is_active = false` there, so only one tenant collects and only one pays. The rows are still
+there if the move needs undoing.
+
+### The trap · a second market inherits the first market's vocabulary
+`market_corpus.context_terms()` falls back to `DEFAULT_CONTEXT_TERMS` when a market has no
+`config.context_terms`. That default is the AI-SOC list — "AI SOC", "SIEM", "alert triage",
+"security operations". The first `corpus_match` tick on the new market pulled **2,321 security
+articles** into a software-testing corpus before anyone looked. `DEFAULT_EXCLUDE_TERMS` is the
+same shape, a consumer-silicon list.
+
+Set `config.context_terms` and `config.exclude_terms` **before the first tick**, not after. The
+market now carries 23 context terms and 33 exclude terms. `min_score` is not per-market
+configurable (`DEFAULT_MIN_SCORE` 12.0, one body mention passes), so exclude terms are the only
+lever for a phrase that flips meaning outside software: "functional testing" matched cardiology,
+and "quality assurance" matched 108 peer-review articles and had to be dropped outright.
+
+A later pass found **109 more articles** that had matched on generic terms — "A test case for the
+GMSA", a thorium reactor story on "clean core", quarterly earnings on "enterprise resource
+planning". Those two terms were dropped and the articles deleted. The tenant now holds only the
+market topic and the tracked vendors' own Brand Watch topics.
+
+### The provider budget is per market, not per tenant
+`_budget_blocks()` in **`app/tasks/market_monitor.py`** sums `cost_amount` `WHERE market_id = :m`.
+bugfixing was at $92.85 of its $100 for September on market 2, and the new market still got its
+own full $100. The tenant's real September ceiling was therefore $200. Worth knowing before a
+third market goes anywhere.
+
+### `vendor_names="funded"` collects no vendor names on a hand-built registry
+`plan_market_keywords` only emits a vendor keyword when
+`baseline.funding_baseline.status == 'Disclosed'`, which nothing sets for a vendor added through
+`POST /markets/{id}/vendors`. Pass `vendor_names="all"` for a small curated registry, or write the
+baseline first.
+
+### The registry · seven vendors, after two reversals
+Six named by Amos: Panaya (the subject, the only one with `brand_monitoring_enabled`), Tricentis,
+smartShift, Nova Intelligence, Worksoft, UiPath. A peer tier of five was added and then dropped on
+instruction; SmartBear was added afterwards on its own evidence.
+
+The peer tier existed because `market_benchmark.MIN_PEERS` is 5. With six vendors Panaya has
+exactly five peers, so every benchmark panel was one failed LinkedIn reading from reading "not
+enough peers". Dropping the peers also moved the numbers a long way, because the peers were the
+small vendors: the headcount median went 246 to 595 and Panaya from the 32nd percentile to the
+25th. SmartBear's arrival takes Panaya back to six peers.
+
+Keyword decisions that must not be undone: never search bare "Nova" (the vendor is "Nova
+Intelligence"; an unrelated **Nova AI** at trynova.ai sells AI QA agents and must not be merged
+with it), bare "Tosca" (the opera), bare "Avo", or bare "BearQ" (ticker and hardware strings).
+Left out deliberately: Basis Technologies (Testimony is gone from its own product pages and a
+Chicago ad-tech firm owns the name), Original Software (two ordinary words), OpenText Functional
+Testing (the product competes, the company would swamp the topic).
+
+### Observer agents
+Two, both scoped to the market topic, both mailing Oliver and nobody at Panaya — Amos is not a
+customer yet. Adverse Media Monitor daily at 08:00 over 14 days; Competitor Activity daily at
+08:30 over 7 days with the vendors as `entities_to_monitor`. Both on `bedrock-kimi-k2-5`.
+`next_run_at` was set to the following morning on creation, on purpose, so creating them did not
+fire two reports into an inbox unasked — see the email-spam note in memory about restarts firing
+overdue agents.
+
+### Incident · five things the clone carried that it should not have
+Each was found by the user, not by me, which is the part worth fixing.
+
+1. **68 of 73 image assets missing.** The rsync exclude `*.png` was meant to drop screenshots at
+   the top of the tenant directory and took `static/` with it. The login page logo 404'd. Restored
+   by an include-list rsync of `static/`; every image referenced in `templates/` now returns 200.
+2. **One user of seven.** The migration carried `WHERE username = 'admin'` only, so `oliver` and
+   `orochford` did not exist and login failed. Both copied; hashes verified byte-identical by
+   `md5(password_hash)` against bugfixing. Password hashing is plain bcrypt with no pepper, so a
+   carried hash validates anywhere.
+3. **Wiley as the default organisation profile.** `organizational_profiles` came across with
+   "Wiley Scientific Publisher" flagged `is_default`, so every view reading the default showed
+   Wiley on a Panaya tenant. Replaced with a Panaya profile. Two profiles naming other real
+   customers, Wiley and Cyberfuturists, were deleted rather than demoted, along with 13 orphaned
+   `topic_candidates` rows.
+4. **Orphaned RSS feeds outlive a dropped vendor.** `vendor_web_discovery` created three
+   `rss_feeds` rows for Applitools. Dropping Applitools from `bw_market_brands` and deleting its
+   `bw_entity_source_policies` left the feeds polling hourly; they had fetched 12 articles before
+   anyone noticed. Deactivate `rss_feeds` when dropping a vendor.
+5. **Two check scripts pointed at the wrong tenant.** Scratchpad scripts written for bugfixing
+   kept `sys.path` on bugfixing after the move, so benchmark and horizon figures reported for
+   several turns were read from the frozen copy of the market. Identical data at the time, wrong
+   the moment the registries diverged.
+
+### Incident · I called a correct agent output a hallucination
+The Competitor Activity agent summarised an Atlassian blog post as "SmartBear launched BearQ". The
+string "SmartBear" appears nowhere in the stored article, so I told the user the agent invented it.
+It had not: BearQ is SmartBear's, announced 18 March 2026, with the Jira agent following on 16
+September, both on SmartBear's own press releases. The agent supplied a vendor name from knowledge
+the source text did not carry, and was right.
+
+The test "is the claim in the source text" is the wrong test for a model that also knows the
+market. The right check is to verify the claim, which is what should have happened first.
+
+### Verification
+- `market_corpus.scan` after the vocabulary fix: 500 scanned, 485 matched, against 2,321 before.
+- Live tenant, measured 2026-09-23: 7 vendors, 1,764 articles, 795 corpus rows, 43 dated events,
+  310 job postings, 79 profiled voices, **$0.88** total provider spend.
+- `market_horizon.compute` rates every eligible vendor; `vendor_benchmarks` for Panaya returns a
+  populated panel with a named cohort, and states in words why headcount change and disclosed
+  funding are empty rather than showing a zero.
+- Voice profiling: 60 accounts then 14 more, 74 built, 0 failed. One X rate limit absorbed by
+  `_build_with_retry` at 10s then 30s.
+- Adverse agent first run 08:02 on 2026-09-23, `success`, 6 alerts. Competitor agent 233 articles,
+  11 alerts, `email_sent: true`.
+- MCP verified end-to-end over the public endpoint: `list_markets` returns the one market.
+- Every image referenced in `templates/` fetched over https: 0 failures.
+- `systemctl is-active panaya.aunoo.ai.service` active; 0 failed collection runs in 24h.
+
+### Propagation
+The `"uipath"` change is in `171ab474` on `fix/market-monitor-voices-relevance` in bugfixing
+(canonical) and has **not** been copied to wiley, wileytest, wbm, oviva or sunstar. It is inert
+anywhere without a vendor called UiPath, so there is no urgency, but a tenant that adds one will
+search bare until the file is copied.
+
+The tenant itself propagates nowhere and never will. Recreating it means redoing the steps above.
+
+### Lessons
+- **ALWAYS set `config.context_terms` and `config.exclude_terms` on a new market before its first
+  tick.** The defaults are market 2's security vocabulary and they will quietly import the other
+  market's corpus.
+- **`MARKET_MONTHLY_BUDGET_USD` is per market.** Two markets on a tenant is two budgets.
+- **NEVER exclude `*.png` wholesale from a tenant rsync.** Anchor it (`/currentstate.png`) or the
+  product loses its logo.
+- **Carry every user, not just `admin`,** when cloning a tenant somebody has to log into.
+- **Check `organizational_profiles.is_default` after a clone.** It is the tenant's identity and it
+  arrives set to the source tenant's customer.
+- **Deactivate `rss_feeds` when dropping a vendor.** Removing the registry row and its policies
+  does not stop feed collection.
+- **Re-point scratchpad scripts after moving a tenant,** or verify the figures came from the
+  tenant you think they did.
+- **Verify an agent's claim before calling it a hallucination.** Absence from the source text is
+  not evidence of invention.
+
 ## 2026-09-23 — sunstar has a Market Monitor market, and it reached `corroborated` on day one
 
 ### Goal
@@ -134,21 +303,45 @@ Three tests in `tests/test_market_collection.py`, including one asserting the pl
 leaks into a keyword — a stray marker would read as a real search term, which is worse than the
 stripped ampersand.
 
-### The fix is right and does not help this vendor
+### The ampersand fix was right and did not help this vendor
 Measured in sunstar's own corpus: `Oral-B` appears **380** times, `P&G Oral-B` **0**. So the
-generated keyword is now correct and still useless here, because the display name is not how
-anyone writes the brand. Group 22 carries a hand-set `Oral-B`, which is the term that matches.
+generated keyword came out correct and still useless, because the display name is not how anyone
+writes the brand. Group 22 carried a hand-set `Oral-B`, and a re-run of `/collection-setup` would
+have deleted it: the sync is by difference, `removed = [kw for kw in current if kw not in
+normalized]`, so any keyword the plan no longer contains goes. Fixed properly below.
 
-**A re-run of `/collection-setup` would replace it with `"P&G Oral-B"` and match nothing.**
-Nothing does that on a schedule — only the route calls `setup_market_collection` — so it is safe
-until someone explicitly re-runs setup. The durable fix is at the registry level, not the
-normalizer: teach `plan_market_keywords` to use brand aliases rather than display names alone, or
-rename the vendor. Neither was done.
+### Fix · a vendor can be searched as something other than its display name
+**`app/services/market_collect.py`** — `plan_market_keywords` built each vendor's keyword from
+`display_name` alone. A display name is written for a reader; a keyword is written for a search
+engine, and they are not always the same string.
+
+New identifier kind `SEARCH_NAME_KIND = "search_name"` in `bw_vendor_identifiers`. When a vendor
+has one, the planner searches by it instead of the display name. No migration — that table's
+`kind` column carries no CHECK constraint.
+
+The substitution is narrow: only the name is replaced, and quoting, qualification and the
+ambiguous-name rules still apply to whatever is set. `plan_market_keywords` now also returns
+`search_name_overrides`, so a dry run shows which vendors are affected rather than hiding it, and
+a vendor without an override still falls back to its display name.
+
+Set for P&G Oral-B on sunstar, with the reason in the row's `provenance`: *"display name P&G
+Oral-B appears 0 times in the corpus; Oral-B appears 380"*. That row is database state on the
+sunstar tenant and is not version controlled.
+
+**Verified by running the operation that used to break it.** `collection-setup` re-run for real
+against group 22:
+
+    keywords_added:   []
+    keywords_removed: []
+
+Keyword list identical before and after, and still `Oral-B` after a restart. A re-run is now a
+no-op instead of destructive.
 
 ### Verification
 sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
 `bw_entity_events` = 1 active and `corroborated`. Group 22 holds 13 keywords on a 24h schedule.
-`pytest -k "market or entity"` — 609 passed, 19 failed, the same 19 failing before this change.
+`pytest -k "market or entity"` — **611 passed, 19 failed**, the same 19 failing before any of
+today's changes. (609 before the two `search_name` tests were added.)
 The ampersand fix is applied to bugfixing, oviva and sunstar.
 
 Correction: when this was first written only oviva and sunstar had been restarted, and the line
@@ -173,6 +366,12 @@ checked, which is the mistake worth recording here.
 - A keyword that normalizes to something nobody writes fails silently and forever. After
   generating search terms, ALWAYS check the generated form against the corpus: `Oral-B` appears
   380 times in sunstar's articles and `P&G Oral-B` zero, which is the whole argument.
+- NEVER fix a generated keyword by editing `monitored_keywords`. `setup_market_collection` syncs
+  the group to the plan by difference and deletes anything the plan no longer contains, so a
+  hand-edit survives exactly until the next re-run. Put the override where the planner reads it.
+- A display name and a search term are different things. `display_name` is for the reader; when
+  the press writes the company differently, set a `search_name` identifier instead of renaming
+  the vendor and losing what the report tells a reader.
 
 ## 2026-09-22 — A published study is a development, on the markets that say so
 

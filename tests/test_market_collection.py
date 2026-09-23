@@ -1484,3 +1484,36 @@ def test_the_placeholder_is_not_left_behind_in_a_keyword():
 
     for kw in plan(['"P&G Oral-B"', "AT&T", "plain term"]):
         assert "zzamp" not in kw.lower()
+
+
+def test_a_vendor_can_be_searched_as_something_other_than_its_display_name():
+    """A display name is written for a reader; a keyword is written for a
+    search engine, and they are not always the same string.
+
+    sunstar's oral-care market tracks "P&G Oral-B", which tells a reader who
+    owns the brand and appears in that tenant's own corpus zero times against
+    380 for "Oral-B". Fixing it in `monitored_keywords` by hand does not hold,
+    because `setup_market_collection` syncs the group to the plan by
+    difference and deletes any keyword the plan no longer contains. The
+    override has to be something the planner reads.
+    """
+    from app.services.market_collect import SEARCH_NAME_KIND, keyword_for_vendor
+
+    assert SEARCH_NAME_KIND == "search_name"
+    # Whatever the override is set to still goes through the normal rules.
+    assert keyword_for_vendor("Oral-B", "oral care") == ("Oral-B", False)
+    # And the display name it replaces is the one that produced the dead term.
+    assert keyword_for_vendor("P&G Oral-B", "oral care") == ('"P&G Oral-B"', False)
+
+
+def test_the_override_is_only_consulted_per_vendor_not_globally():
+    """The planner must fall back to the display name for every vendor that
+    has no override, or setting one for a single company would silently
+    change how the others are searched."""
+    from app.services.market_collect import keyword_for_vendor
+
+    for name, expected in (("Sunstar", "Sunstar"),
+                           ("Lion Corporation", '"Lion Corporation"'),
+                           ("Colgate-Palmolive", "Colgate-Palmolive"),
+                           ("Haleon", "Haleon")):
+        assert keyword_for_vendor(name, "oral care")[0] == expected

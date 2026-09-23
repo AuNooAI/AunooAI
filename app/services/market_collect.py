@@ -581,6 +581,25 @@ _AMBIGUOUS_NAMES = {
 }
 
 # Appended to an ambiguous name so the collector requires both words.
+#: Identifier kind holding what a vendor should be *searched* as, when that
+#: differs from how the report should *name* it.
+#:
+#: The planner used to build a vendor's keyword from ``display_name`` alone,
+#: and a display name is written for a reader, not for a search engine.
+#: sunstar's oral-care market tracks "P&G Oral-B", which tells a reader who
+#: owns the brand and appears in its own corpus **zero** times against 380 for
+#: "Oral-B". The generated keyword was correct and matched nothing.
+#:
+#: Fixing that by hand in ``monitored_keywords`` does not hold: the next
+#: ``setup_market_collection`` syncs the group to the plan by difference, so a
+#: keyword the plan no longer contains is deleted. The override belongs in the
+#: registry, where the planner reads it and a re-run regenerates the same
+#: answer.
+#:
+#: Only the display name is replaced. Qualification, quoting and the
+#: ambiguous-name rules all still apply to whatever is set here.
+SEARCH_NAME_KIND = "search_name"
+
 DEFAULT_QUALIFIER = "security"
 
 # Below this, a single-word name is too short to stand alone whatever it says.
@@ -715,19 +734,25 @@ def plan_market_keywords(conn, market_id: int,
     rows = conn.execute(text("""
         SELECT b.display_name,
                mb.baseline->'funding_baseline'->>'status' AS funding_status,
-               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS raised
+               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS raised,
+               (SELECT i.display_value
+                  FROM bw_vendor_identifiers i
+                 WHERE i.brand_id = b.id AND i.kind = :search_kind
+                   AND i.valid_to IS NULL
+                 ORDER BY i.id LIMIT 1) AS search_name
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.collection_enabled
           AND mb.role <> 'excluded'
         ORDER BY mb.sort_order
-    """), {"m": market_id}).fetchall()
+    """), {"m": market_id, "search_kind": SEARCH_NAME_KIND}).fetchall()
 
     if vendor_names != "none":
-        for display_name, funding_status, raised in rows:
+        for display_name, funding_status, raised, search_name in rows:
             if vendor_names == "funded" and (funding_status or "") != "Disclosed":
                 continue
-            kw, was_qualified = keyword_for_vendor(display_name, qualifier)
+            kw, was_qualified = keyword_for_vendor(search_name or display_name,
+                                                   qualifier)
             if not kw or kw in keywords:
                 continue
             keywords.append(kw)
@@ -749,7 +774,9 @@ def plan_market_keywords(conn, market_id: int,
         "keywords": keywords,
         "qualified": qualified,
         "vendors": len(rows),
-        "funded_vendors": sum(1 for _, s, _r in rows if (s or "") == "Disclosed"),
+        "funded_vendors": sum(1 for _n, st, _r, _sn in rows
+                              if (st or "") == "Disclosed"),
+        "search_name_overrides": {n: sn for n, _st, _r, sn in rows if sn},
         "qualifier": qualifier,
         "vendor_names": vendor_names,
     }
