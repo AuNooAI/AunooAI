@@ -115,8 +115,10 @@ TOOLS: dict[str, ToolSpec] = {
     "semantic_search_and_analyze": ToolSpec(
         name="semantic_search_and_analyze",
         description=(
-            "Find the articles most relevant to a question and return an AI "
-            "analysis of them alongside the articles"
+            "Find the articles most relevant to a question: semantic search "
+            "over the article store, widened by the question's own keywords "
+            "and reranked. Returns the articles with a breakdown of their "
+            "sources, categories, sentiment and dates"
         ),
         properties={
             "query": {"type": "string", "description": "Question or subject to research"},

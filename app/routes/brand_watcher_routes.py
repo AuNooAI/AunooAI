@@ -6254,8 +6254,14 @@ async def get_perception_dimensions(
         #      article-level column when both exist.
         # Source buckets are matched strictly (not the substring helper) so news
         # sites like financetwitter.com don't land in the social bucket. A
-        # vendor's own LinkedIn posts are its voice, not perception of it, so
-        # they fall into an "owned" bucket that no dimension reads.
+        # company's own publishing is its voice, not perception of it, so it
+        # falls into an "owned" bucket that no dimension reads: its LinkedIn
+        # posts (bias_source vendor:) and its own website (owned:<domain>,
+        # stamped by bw_owned). That test comes first, because an owned row
+        # is the brand talking whichever surface it appears on. Until
+        # 23 September 2026 only the LinkedIn half was excluded, so a brand's
+        # blog and press page counted as press coverage of it: oviva's media
+        # score read +45 over 22 articles, every one of them its own.
         topic_vals = ", ".join(f"(:_b{i}, :_t{i})" for i in range(len(brands)))
         topic_params = {}
         for i, b in enumerate(brands):
@@ -6291,12 +6297,12 @@ async def get_perception_dimensions(
                 SELECT DISTINCT ON (l.brand_id, l.article_uri)
                        l.brand_id,
                        CASE
+                         WHEN {_OWNED_ROW} THEN 'owned'
                          WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
                               OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
                          WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
                               OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
                          WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
-                         WHEN LOWER(a.news_source) = 'linkedin' AND a.bias_source LIKE 'vendor:%' THEN 'owned'
                          ELSE 'media'
                        END AS dim,
                        COALESCE(l.sentiment, a.sentiment) AS sentiment

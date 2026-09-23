@@ -79,6 +79,23 @@ def _row_alignment(row: Any) -> float | None:
     return None
 
 
+def _raise_if_tool_reported_failure(tool_name: str, result: Any) -> None:
+    """Turn a tool's own failure report into a real error.
+
+    Several tools answer a failure with ``{"error": ..., "articles": []}``
+    rather than raising. Left alone that reaches the client as a successful
+    empty result and is recorded in ``mcp_tool_calls`` as ``ok``, so a broken
+    tool is indistinguishable from a quiet corpus. Only a top-level ``error``
+    counts: a per-item one (a single market analysis that failed while the
+    others succeeded) leaves the rest of the payload worth returning.
+    """
+    if not isinstance(result, dict):
+        return
+    message = result.get("error")
+    if isinstance(message, str) and message.strip():
+        raise ToolError(f"{tool_name}: {message.strip()}")
+
+
 def gate_low_relevance(result: Any) -> Any:
     """Drop article rows scored below RELEVANCE_FLOOR from a tool result."""
     if not isinstance(result, dict):
@@ -183,6 +200,7 @@ async def dispatch(
         except Exception as exc:  # noqa: BLE001
             logger.exception("mcp: tool %s failed", tool_name)
             raise ToolError(f"{tool_name} failed: {type(exc).__name__}")
+        _raise_if_tool_reported_failure(tool_name, result)
         result = gate_low_relevance(result)
         payload = cap_payload(result, max_bytes=spec.max_bytes)
         response_bytes = len(json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8"))
