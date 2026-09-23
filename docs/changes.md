@@ -149,7 +149,12 @@ rename the vendor. Neither was done.
 sunstar restarted and healthy (HTTP 307, no startup errors). `bw_markets` = 1,
 `bw_entity_events` = 1 active and `corroborated`. Group 22 holds 13 keywords on a 24h schedule.
 `pytest -k "market or entity"` — 609 passed, 19 failed, the same 19 failing before this change.
-The ampersand fix is applied to bugfixing, oviva and sunstar; all three restarted.
+The ampersand fix is applied to bugfixing, oviva and sunstar.
+
+Correction: when this was first written only oviva and sunstar had been restarted, and the line
+claimed all three. bugfixing was still running code from 06:48 against a fix written at 08:08.
+Restarted at 08:19 and confirmed live in the running tree. The claim was committed before it was
+checked, which is the mistake worth recording here.
 
 ### Lessons
 - A market's collection terms must be the language of what the *companies* do, not what they
