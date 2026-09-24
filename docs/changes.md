@@ -1,5 +1,68 @@
 # Changes
 
+## 2026-09-24 — aisocnews.com: labels, headlines and counts now match their sources (`0dc21e90`)
+
+### Goal
+A review of the public AI-SOC page found items the sources did not support. Seven of the ten
+"reported independently" labels were wrong. Five events were listed twice, and two different
+Imperum products were merged into one item. Research cards gave a 2026 Gartner report the
+year 2028 and listed an X account as a Magic Quadrant Leader. The acquisition highlight quoted
+Wirespeed saying "acquired us". The Zscaler, Proofpoint and CrowdStrike launches and Quorum
+Cyber's purchase of Ontinue were collected but never shown, because none of those companies is
+on the vendor list.
+
+### What changed (`app/services/market_assessment.py` unless named)
+- **Corroboration.** A record that can only attach to a development must name its vendor in its
+  headline or opening. For a deal, naming a party in the development's headline is enough.
+  Attached records no longer add their words to what the development matches: Simbian's post
+  had grown to fifteen sources that way. A news record seeds a development only for a vendor its
+  headline names, so CrowdStrike's QuiltWorks release is no longer an Artemis launch.
+- **Merging.** Three-letter names such as DXC count as names. A suffix after an apostrophe is
+  dropped (PARS’ı). One vendor's posts a day apart merge on a name or acronym both headlines
+  share ("MCP support"). A product named in both headlines merges up to 30 days apart (D3's
+  Morpheus 2). "Virtus Sentinel" and "Virtus Cerebrum" stay two items.
+- **Headlines.** When a headline is short and names nothing, it is replaced by the first sentence
+  that names the vendor or a product ("A coverage map tells you a rule exists." became "Armor
+  Detect runs that audit every day…"). The "Mate: Mate is joining…" double prefix, newsletter
+  lead-ins and styled Unicode letters are cleaned up, and an English headline beats a foreign
+  one. `app/utils/title_translation.py` now treats Turkish letters as non-English.
+- **Highlights.** Deals are written in our words: "Coalition, Inc. acquired Wirespeed on 18
+  September." We dropped the fixed sentence about buyers taking on customers, and a funding
+  total ("brings our total funding raised to $29M") is no longer shown as the round.
+- **Types and noise.**
+  - Listicles, posts about blocking one attack, leaderboards and certification programmes are
+    no longer events.
+  - A bare "Partner" no longer makes a partnership.
+  - Contract awards count as customers.
+  - Chip "SoC" news, penny-stock posts, paid tool lists, junior-hire welcomes and lab
+    write-ups are noise. `market_topics.py` and the social panels now filter noise too, which
+    removes the "3 E Network Edge AI SoC" subject.
+- **Research panel** (`market_research.py`, `market_report_html.py`).
+  - A year after "by", "until" or "through" is a forecast, not the report's year, and so is a
+    year more than one past the post's.
+  - A report shows only when a tracked vendor cites it and it has a name.
+  - A quoted report title is read in full.
+  - The card date says "cited".
+- **Counts.** Hiring and headcount readings are counted apart from developments ("73
+  developments, plus 18 hiring or headcount signals"). The vendor sentences now add up to the
+  97 on the list, and vendors tied for third place are all named.
+- **Wider market** (new section). It lists deals and launches by companies outside the vendor
+  list, from news coverage or from two or more accounts, most reported first.
+- **Influencer roles** (`social_profile_service.py`). A profile selling SEO or marketing is not
+  labelled analyst or press. We relabelled the one existing case (social_accounts 1462).
+
+### Data
+- Analysis piece 18 said 7AI's $130M Series A came "in the same week" as Fal.Con. It was
+  December 2025. We corrected it with `save_edit`, which keeps the old text as revision 18.
+- We recomputed the discussed subjects for market 2 (run 27).
+
+### Verification
+- 90 tests in `tests/test_market_assessment.py` and `tests/test_market_research.py` pass,
+  including 21 new ones built from the real items.
+- The same 17 market tests fail with and without this change.
+- Rebuilt for market 2, the three remaining independent labels each have an outside source
+  that names the vendor.
+
 ## 2026-09-23 — The market highlight still named no buyer for the Wirespeed acquisition
 
 ### Goal
