@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -83,6 +84,8 @@ _FAMILY = {
 }
 
 PRODUCT_TYPES = frozenset({"product_launch", "product_expansion"})
+#: Readings, not actions: counted apart from the developments.
+SIGNAL_TYPES = frozenset({"significant_hiring", "headcount_change"})
 ADOPTION_TYPES = frozenset({"customer"})
 CAPITAL_TYPES = frozenset({"funding", "acquisition"})
 
@@ -136,9 +139,20 @@ _PATTERNS: Sequence[Tuple[str, "re.Pattern[str]"]] = (
         r"customer\b|\b(new\s+)?customer\s+(case\s+study|win|story)\b"
         r"|\bcase\s+study:|\bgoes\s+live\s+with\b|\bcontract\s+(with|from)\b"
         r"|\bsigns?\s+(\w+\s+){0,3}(as\s+a\s+)?customer\b|\bchose\s+\w+\s+"
-        r"(to|as|for|over)\b", re.I)),
+        r"(to|as|for|over)\b"
+        # A government award is a customer: "a $30M STRATFI award … to equip
+        # the U.S. Space Force".
+        r"|\bawarded\s+(an?\s+)?(\S+\s+){0,3}contract\b|\bstratfi\b|\bsbir\b",
+        re.I)),
+    # "Partner" alone is not a partnership: "How Prophet AI Protects
+    # High-Exposure Partner Environments" is a blog post about customers'
+    # partners.
     ("partnership", re.compile(
-        r"\bpartner(s|ed|ship|ing)?\b|\balliance\b|\bteams?\s+up\s+with\b"
+        r"\bpartner(s|ed|ing)?\s+with\b|\bpartnership\b|\bpartnering\b"
+        r"|\b(technology|strategic|channel|integration|mssp|launch|design|"
+        r"premier|preferred)\s+partner\b|\bnow\s+an?\s+(\w+\s+){0,3}partner\b"
+        r"|\bjoins?\s+(the\s+)?(\S+\s+){0,4}(program|programme|ecosystem)\b"
+        r"|\bnow\s+part\s+of\b|\balliance\b|\bteams?\s+up\s+with\b"
         r"|\bjoins?\s+forces\b|\breseller\b", re.I)),
     ("product_launch", re.compile(
         r"\blaunch(es|ed|ing)?\b|\bunveils?\b|\bdebuts?\b|\bintroduc(es|ed|ing)\b"
@@ -223,7 +237,31 @@ _NOISE = re.compile(
     # Microsoft Copilot line ran from three accounts in ninety days.
     r"|\bmessage\s+us\b|\bcontact\s+us\s+(today|to|for)\b"
     r"|\bbook\s+a\s+(demo|call)\b|\brequest\s+a\s+demo\b"
-    r"|\bget\s+in\s+touch\s+to\b|\btalk\s+to\s+(us|our\s+team)\b",
+    r"|\bget\s+in\s+touch\s+to\b|\btalk\s+to\s+(us|our\s+team)\b"
+    # Penny-stock promotion and chip news. "SoC" is a system-on-chip there:
+    # six $MASK posts about an "Edge AI SoC" were the second most-discussed
+    # subject on 23 September 2026.
+    r"|\bpre-?market\s+news\b|\$[a-z]{2,5}\s*<\s*\$\d"
+    r"|\bsoc\b.{0,40}\b(pre-?silicon|silicon|chipsets?|semiconductors?|"
+    r"tape-?out|npu)\b|\b(pre-?silicon|silicon|chipsets?|semiconductors?|"
+    r"tape-?out|npu)\b.{0,40}\bsoc\b"
+    # A paid listing release: "SOC Automation Tool List 2026 includes …".
+    r"|\b(tool|vendor|company|companies|solution)s?\s+list\s+20\d\d\s+includes\b"
+    # A junior hire announced by an employer, and a learner's lab write-up.
+    r"|\bjoins\s+our\s+team\s+as\s+(an?\s+)?(\w+\s+){0,3}(analyst|intern|associate)\b"
+    r"|\bi\s+worked\s+through\b|\bletsdefend\b|\bhome\s?lab\b|\bcyberdefenders\b",
+    re.I)
+
+#: Headlines that are not a market event whatever kind the review gave them:
+#: a search-engine listicle, a vendor stopping one attack for one customer, a
+#: leaderboard, a training course. Read against the headline only, because
+#: the words turn up in the body of real launches ("stopped threats").
+_NOT_EVENT = re.compile(
+    r"\b(top|best)\s+\d+\b|\b\d+\s+best\b|\balternatives\s+(to\b|in\s+20\d\d)"
+    r"|\b(shut\s+down|blocked|stopped|contained|neutrali[sz]ed)\s+(\w+\s+){0,3}"
+    r"(malicious|attacks?|executions?|intrusions?|ransomware)\b"
+    r"|\bleaderboard\b"
+    r"|\bcertifi(ed|cation)\s+(\S+\s+){0,5}(program|programme|course)\b",
     re.I)
 
 #: Subreddits that are about getting a job rather than doing one. A post in
@@ -251,6 +289,11 @@ should not no also very more most such only same other another nor yet
 #: or the boilerplate before one. Mirrors ``headlineOf`` in
 #: ``MarketFindingsView.tsx`` so the page and the report agree.
 _JUNK_HEADLINE = re.compile(r"(’s|'s) Post$|https?://|^Full announcement", re.I)
+#: A newsletter's lead-in before the news: "In this issue, topics include
+#: how…", "In our tenth edition, Andesite shares its new partnership…".
+_NEWSLETTER_LEAD = re.compile(
+    r"^in (?:this|our|the latest)(?: \w+)? (?:issue|edition),\s*"
+    r"(?:topics include\s*(?:how\s+)?)?", re.I)
 
 # Words that carry no subject. Generic English plus the vocabulary every
 # announcement in a software market shares; a shared "platform" or "security"
@@ -290,6 +333,8 @@ _GENERIC_CAPS = frozenset({
 
 #: Merge window: two records this many days apart can still be one event.
 MERGE_WINDOW_DAYS = 14
+#: A product named in both headlines can be one launch across this many days.
+PRODUCT_NAME_WINDOW_DAYS = 30
 #: Days an attached report may precede the development it reports.
 ATTACH_LEAD_DAYS = 2
 #: Shared subject words needed to merge two records with no shared name,
@@ -379,7 +424,7 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
     here — they attach to one as evidence, or stay in the corpus.
     """
     text_value = f"{record.get('title') or ''} {record.get('summary') or ''}"
-    if record_is_noise(record):
+    if record_is_noise(record) or _NOT_EVENT.search(headline_of(record)):
         return None
     kind = record.get("article_class")
     if kind == "social":
@@ -415,10 +460,24 @@ def headline_of(record: Dict[str, Any]) -> str:
             continue
         if headline.lower().startswith(f"{name.lower()}:"):
             headline = headline[len(name) + 1:].strip() or headline
+    # The short name a vendor posts under: "Mate: Mate is joining…" under
+    # Mate Security, which then read "Mate Security: Mate: Mate is joining".
+    for alias in sorted(_vendor_aliases(record), key=len, reverse=True):
+        if headline.lower().startswith(f"{alias}:"):
+            headline = headline[len(alias) + 1:].strip() or headline
+            break
+    for v in record.get("vendors") or []:
+        name = (v.get("vendor") or "").strip()
+        if not name:
+            continue
         # A web page's title carries the site name after a bar.
         for sep in (" | ", " – ", " — ", " - "):
             if headline.lower().endswith(f"{sep}{name.lower()}"):
                 headline = headline[:-(len(sep) + len(name))].strip() or headline
+    lead = _NEWSLETTER_LEAD.match(headline)
+    if lead and headline[lead.end():]:
+        rest = headline[lead.end():]
+        headline = rest[0].upper() + rest[1:]
     # A title cut mid-sentence ("Our team prides itself on being
     # customer-centric, and it's where") is the opening of the body; the
     # body's first sentence is the headline.
@@ -450,7 +509,7 @@ def headline_of(record: Dict[str, Any]) -> str:
         first = next((x for x in usable if len(x) >= 40), usable[0] if usable else "")
         if first:
             headline = _clip(first, 160)
-    return headline or "Untitled"
+    return plain_letters(headline) or "Untitled"
 
 
 def _sentences(text_value: str) -> List[str]:
@@ -490,6 +549,10 @@ def _tokens(text_value: str) -> List[str]:
     out = []
     for tok in re.findall(r"[A-Za-z][A-Za-z0-9'’&\-]{2,}", text_value):
         tok = re.sub(r"['’]s$", "", tok)
+        # A name takes its suffix after an apostrophe in Turkish and
+        # elsewhere: "PARS’ı" and "SOCNova’nın" are PARS and SOCNova.
+        if tok[:1].isupper():
+            tok = re.split(r"['’]", tok)[0]
         if len(tok) >= 3:
             out.append(tok)
     return out
@@ -508,12 +571,17 @@ def subject_words(text_value: str, stop: Set[str]) -> Set[str]:
 
 def _capitalised_words(text_value: str, stop: Set[str]) -> Set[str]:
     out = set()
+    letters = [t for t in _tokens(text_value) if t.isalpha()]
+    shouting = bool(letters) and sum(t.isupper() for t in letters) * 2 > len(letters)
     for tok in _tokens(text_value):
         word = tok.strip(".'-&")
         low = word.lower()
         if len(low) < 3 or low in _COMMON or low in stop:
             continue
-        if word in _GENERIC_CAPS or word.upper() == word and len(word) <= 3:
+        # A three-letter acronym is a name (DXC, IBM) unless the post is
+        # shouting, where every word is upper case.
+        if word in _GENERIC_CAPS or (word.upper() == word and (
+                len(word) <= 2 or (len(word) == 3 and shouting))):
             continue
         if word[0].isupper():
             out.add(low)
@@ -600,8 +668,16 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     """
     if _FAMILY.get(a["event_type"]) != _FAMILY.get(b["event_type"]):
         return False
+    va, vb = _vendor_ids(a), _vendor_ids(b)
     if not _within(a.get("day"), b.get("day"), MERGE_WINDOW_DAYS):
-        return False
+        # A product named in both headlines is one launch for longer than
+        # the usual window: D3 announced Morpheus 2 on 28 August and posted
+        # about "new improvements with Morpheus 2" on 17 September, and the
+        # page listed two launches.
+        return bool(
+            _FAMILY.get(a["event_type"]) == "product" and (va & vb)
+            and _within(a.get("day"), b.get("day"), PRODUCT_NAME_WINDOW_DAYS)
+            and b.get("seed") and _product_in_both_titles(a, b, strict=True))
     # A report of an event cannot come out before the event. A record that
     # can only attach (practitioner social, a body-text mention in a news
     # piece) is a report; dated more than two days before the development it
@@ -609,9 +685,31 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     if not b.get("seed") and a.get("day") and b.get("day") \
             and b["day"] < a["day"] - timedelta(days=ATTACH_LEAD_DAYS):
         return False
-    va, vb = _vendor_ids(a), _vendor_ids(b)
     if va and vb and not (va & vb):
         return False
+    if _different_products(a, b):
+        return False
+    # One vendor's blog and LinkedIn post about one release, a day apart,
+    # share the release's name in both headlines even when that name is an
+    # acronym ("MCP support") that never counts as a subject elsewhere.
+    if va & vb and _within(a.get("day"), b.get("day"), 1) \
+            and a.get("title_keys", set()) & b.get("title_keys", set()):
+        return True
+    # A record that can only attach is evidence for the development, so it
+    # has to be about the same thing: it names the development's vendor in
+    # its headline or opening. Without this a string of tweets about the
+    # Zscaler and Proofpoint launches (Sep 2026) attached to a Simbian post
+    # on shared words and made it "reported by multiple independent sources".
+    # A deal is the exception: a report of it may name only the other party
+    # ("Cribl advances with AI SOC acquisition" for Cribl buying Radiant). A
+    # partner such as CrowdStrike or Anthropic is not enough, because every
+    # other post in the market names them.
+    if not b.get("seed") and va and not _names_vendor_of(b, a):
+        if a["event_type"] not in _DEAL_TYPES:
+            return False
+        headline_names = a["names"] & {t.lower() for t in _tokens(_title_of(a))}
+        if not headline_names & (b["names"] | b["words"]):
+            return False
     # A name on one side counts when the other side has the same word in
     # lower case: a vendor writes "Intezer Workflows", a publisher writes
     # "adds automated response workflows".
@@ -625,9 +723,7 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         # long the publisher's summary runs: "introduce Intezer Workflows"
         # and "adds automated response workflows to AI SOC" were two rows
         # because the second had nine subject words and only one in common.
-        title_a = {t.lower() for t in _tokens(_title_of(a))}
-        title_b = {t.lower() for t in _tokens(_title_of(b))}
-        if shared_names & title_a & title_b:
+        if _product_in_both_titles(a, b):
             return True
     if not (va and vb):
         # One side names no tracked vendor: a reposted headline, a tweet. It
@@ -646,6 +742,62 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
             and len(shared_words) / union >= MIN_SHARED_RATIO)
 
 
+def _next_name(title: str, name: str) -> Optional[str]:
+    """The capitalised word right after ``name`` in ``title``, if any:
+    "Sentinel" in "Introducing Virtus Sentinel"."""
+    toks = _tokens(title)
+    for i, tok in enumerate(toks[:-1]):
+        if tok.lower() == name and toks[i + 1][:1].isupper():
+            nxt = toks[i + 1].lower()
+            return None if nxt in _COMMON else nxt
+    return None
+
+
+def _titles_name_pairs(a: Dict[str, Any], b: Dict[str, Any], strict: bool = False):
+    """For each name both headlines carry, the word after it in each.
+    ``strict`` counts only a word both records capitalise: "Program" in one
+    headline and "program" in another are not one product."""
+    shared = a["names"] & b["names"]
+    if not strict:
+        shared |= (a["names"] & b["words"]) | (b["names"] & a["words"])
+    ta, tb = _title_of(a), _title_of(b)
+    in_both = shared & {t.lower() for t in _tokens(ta)} & {t.lower() for t in _tokens(tb)}
+    return [(name, _next_name(ta, name), _next_name(tb, name)) for name in in_both]
+
+
+def _different_products(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Whether the headlines name two products of one family: "Virtus
+    Sentinel" and "Virtus Cerebrum", which Imperum launched ten days apart
+    and the page showed as one launch."""
+    pairs = _titles_name_pairs(a, b)
+    return bool(pairs) and all(na and nb and na != nb for _, na, nb in pairs)
+
+
+def _product_in_both_titles(a: Dict[str, Any], b: Dict[str, Any],
+                            strict: bool = False) -> bool:
+    """Whether both headlines carry the same name, followed by the same
+    word or by none, so it is the same product."""
+    return any(not (na and nb and na != nb)
+               for _, na, nb in _titles_name_pairs(a, b, strict))
+
+
+#: Events whose report may name only the counterparty: the buyer, the investor.
+_DEAL_TYPES = frozenset({"acquisition", "market_exit", "funding"})
+
+#: How much of an attached record's body may name the vendor: the opening,
+#: where a report says who it is about.
+ATTACH_NAME_CHARS = 400
+
+
+def _names_vendor_of(record: Dict[str, Any], dev: Dict[str, Any]) -> bool:
+    """Whether ``record``'s headline or opening names one of ``dev``'s
+    vendors, by full name or by the short name a vendor goes by."""
+    hay = f"{_title_of(record)} {(record.get('summary') or '')[:ATTACH_NAME_CHARS]}"
+    hay = unicodedata.normalize("NFKC", hay).lower()
+    return any(re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", hay)
+               for alias in _vendor_aliases(dev))
+
+
 def prepare_candidate(cand: Dict[str, Any], stop: Set[str]) -> Dict[str, Any]:
     """Add the derived fields deduplication reads."""
     vendor_words = set()
@@ -656,6 +808,12 @@ def prepare_candidate(cand: Dict[str, Any], stop: Set[str]) -> Dict[str, Any]:
     cand["words"] = subject_words(_full_text(cand), all_stop)
     cand["names"] = subject_names(_title_of(cand), cand.get("summary") or "",
                                   all_stop)
+    # What a headline names, for records a day apart: its names, plus the
+    # acronyms subject_names leaves out ("MCP").
+    cand["title_keys"] = {
+        t.lower() for t in _tokens(_title_of(cand))
+        if t.lower() not in all_stop and t.lower() not in _COMMON
+        and (t.lower() in cand["names"] or (t.isupper() and t.isalpha()))}
     cand["day"] = _parse_day(cand.get("date"))
     cand.setdefault("evidence", [])
     cand.setdefault("seed", True)
@@ -677,8 +835,13 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
         if ident not in known:
             dev["vendors"].append(v)
             known.add(ident)
-    dev["words"] |= cand["words"]
-    dev["names"] |= cand["names"]
+    # Only a record that could have seeded the development widens what it
+    # matches. An attached report joining on the development's words and
+    # then lending its own to the next match is how one Simbian post grew to
+    # fifteen sources about other companies' launches.
+    if cand.get("seed"):
+        dev["words"] |= cand["words"]
+        dev["names"] |= cand["names"]
     # The earliest *seed* record dates the event; a repost days later does
     # not, and an attached mention cannot move it either way.
     if cand.get("seed") and cand.get("day") and (
@@ -686,7 +849,16 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
         dev["day"], dev["date"] = cand["day"], cand.get("date")
     # An outside headline beats a vendor's own wording, and any headline
     # beats one built from a post with no first sentence.
-    if cand.get("seed") and cand.get("headline_rank", 9) < dev.get("headline_rank", 9):
+    # An English headline beats a foreign one, whatever the rank: SOCNova
+    # posted PARS in Turkish and in English, and the page showed the Turkish.
+    from app.utils.title_translation import looks_english
+    dev_en = looks_english(dev.get("headline") or "")
+    cand_en = looks_english(cand.get("headline") or "")
+    if dev_en != cand_en:
+        better = cand_en
+    else:
+        better = cand.get("headline_rank", 9) < dev.get("headline_rank", 9)
+    if cand.get("seed") and better:
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
     # A reading the review pass made carries to the development it joins;
@@ -863,7 +1035,7 @@ def _vendor_aliases(dev: Dict[str, Any]) -> set:
         if not name:
             continue
         out.add(name.lower())
-        head = re.split(r"[\s(]", name)[0].lower()
+        head = re.split(r"[\s(,]", name)[0].lower()
         if len(head) > 3:
             out.add(head)
     return out
@@ -1073,6 +1245,10 @@ _ROUND = re.compile(r"\b(pre[- ]seed|seed|series\s+[a-h]|strategic)\b", re.I)
 _ACQUIRED_BY = re.compile(
     r"\b(?:acquired by|acquisition by|bought by|to be acquired by|sold to)\s+"
     r"([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})")
+#: A vendor announcing its own sale: "Coalition, Inc. acquired us".
+_ACQUIRED_US = re.compile(
+    r"\b([A-Z][\w&.'-]*(?:,?\s+[A-Z][\w&.'-]*){0,3})\s+(?:has\s+)?acquired\s+"
+    r"(?:us|our company)\b")
 _ACQUIRES = re.compile(
     r"\b([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})\s+"
     r"(?:acquires|has acquired|to acquire|buys|completes (?:the |its )?acquisition of)\b")
@@ -1144,7 +1320,7 @@ _HEADLINE_BUYER = re.compile(r"^([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\b(?=.
 
 
 def _acquirer(text_value: str, vendor: str, headline: str = "") -> str:
-    m = _ACQUIRED_BY.search(text_value or "")
+    m = _ACQUIRED_BY.search(text_value or "") or _ACQUIRED_US.search(text_value or "")
     if m:
         return m.group(1).strip()
     for m in _ACQUIRES.finditer(text_value or ""):
@@ -1176,7 +1352,11 @@ def why_it_matters(dev: Dict[str, Any]) -> str:
         # "$16.5M in total funding" is the running total, not this round.
         m = _MONEY.search(text_value or "")
         after = text_value[m.end():m.end() + 40].lower() if m else ""
-        if amount and re.search(r"in total|total funding|total raised|to date|so far", after):
+        # "This brings our total funding raised to $29M": the total, said
+        # before the figure (StrikeReady, Sep 2026, shown as "a $29M round").
+        before = text_value[max(0, m.start() - 40):m.start()].lower() if m else ""
+        if amount and (re.search(r"in total|total funding|total raised|to date|so far", after)
+                       or re.search(r"\btotal\b|\bto date\b|\bbrings?\b", before)):
             return f"{amount} raised in total, the vendor says."
         if amount and label:
             return f"A {amount} {label} round."
@@ -1247,6 +1427,94 @@ def plain_summary(text: str) -> str:
     return " ".join(kept)
 
 
+#: Event type -> the extractor's marker kind for the sentence that states it.
+_MARKER_KIND = {
+    "product_launch": "launch", "product_expansion": "launch",
+    "partnership": "partnership", "customer": "customer", "funding": "funding",
+    "acquisition": "acquisition", "executive_appointment": "hiring",
+}
+
+
+_MONTHS_DAYS = frozenset("""
+january february march april may june july august september october november
+december monday tuesday wednesday thursday friday saturday sunday
+""".split())
+#: A headline pointing at something it does not name: "That's the gap we
+#: built Exaforce to close."
+_DEICTIC = re.compile(r"^(?:that['’]?s|that is|this is|here['’]?s|here is)\b", re.I)
+
+
+def _mixed_case_names(sentence: str) -> Set[str]:
+    """Capitalised words after the first that are not months, days or
+    acronyms: the product and company names in a sentence."""
+    toks = _tokens(sentence)[1:]
+    return {t.lower() for t in toks
+            if t[:1].isupper() and not t.isupper()
+            and t.lower() not in _COMMON and t.lower() not in _MONTHS_DAYS}
+
+
+def _names_any(sentence: str, aliases: Set[str]) -> bool:
+    low = sentence.lower()
+    return any(re.search(rf"(?<!\w){re.escape(a)}(?!\w)", low) for a in aliases)
+
+
+def _is_hook(headline: str, aliases: Set[str]) -> bool:
+    """Whether a vendor's headline is the post's opening hook rather than
+    its news: it points at something unnamed, or it names neither the vendor
+    nor any product and is short or names nothing at all."""
+    h = (headline or "").strip()
+    if not h:
+        return False
+    if _DEICTIC.search(h):
+        return True
+    if _names_any(h, aliases):
+        return False
+    # A long sentence is usually a description of the thing even when it
+    # names nothing ("This week we unified Detection and Response into a
+    # single Agents workspace…"); two names is a product ("Introducing
+    # Virtus Sentinel").
+    return len(h) < 60 and len(_mixed_case_names(h)) < 2
+
+
+def announcing_headline(headline: str, summary: str, event_type: str,
+                        vendors: Sequence[Dict[str, Any]] = ()) -> str:
+    """The sentence that states the news, when the headline is the post's
+    hook. "A coverage map tells you a rule exists." and "Most security
+    platforms add a tab." were launch headlines; the product was named two
+    sentences down. The first of the next few sentences that names the
+    vendor or a product wins, one carrying the event's own verb first. A
+    headline that is not a hook is kept."""
+    from app.services.entity_event_extractors.owned_post import (
+        _DEFERRING_OPENERS, _KIND_MARKERS)
+    aliases = _vendor_aliases({"vendors": list(vendors or [])})
+    if not summary or not _is_hook(headline, aliases):
+        return headline
+    markers = _KIND_MARKERS.get(_MARKER_KIND.get(event_type, ""), ())
+    hook = (headline or "").strip().lower().rstrip(".!?")
+    usable = []
+    for sent in _sentences(plain_letters(summary))[:6]:
+        sent = re.sub(r"^\W+", "", sent).strip()
+        low = sent.lower()
+        # A customer's quote is evidence, not a headline.
+        if (len(sent) < 15 or "http" in low or low.rstrip(".!?") == hook
+                or low.startswith(_DEFERRING_OPENERS)
+                or sent[:1] in "\"“'‘" or re.search(r"\bsays?\b", low)
+                or sent.upper() == sent):
+            continue
+        if _names_any(sent, aliases) or _mixed_case_names(sent):
+            usable.append(sent)
+    best = next((x for x in usable if any(m in x.lower() for m in markers)),
+                usable[0] if usable else "")
+    return _clip(best, 160) if best else headline
+
+
+def plain_letters(value: str) -> str:
+    """Posts dressed in mathematical-bold letters (𝐁𝐅𝐒𝐈) as plain letters.
+    Trademark signs go first, because NFKC would spell ™ out as "TM"."""
+    value = re.sub(r"[™®©℠]", "", value or "")
+    return unicodedata.normalize("NFKC", value)
+
+
 def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
     """The headline with its vendor named, when it doesn't name one already.
 
@@ -1259,7 +1527,7 @@ def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
                          for v in vendors or []) if n]
     if not names or not headline:
         return headline
-    for name in names:
+    for name in names + sorted(_vendor_aliases({"vendors": vendors})):
         if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headline, re.IGNORECASE):
             return headline
     return f"{names[0]}: {headline}"
@@ -1282,9 +1550,9 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "date_established": bool(day) and bool(dev.get("date_established", True)),
         "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                     for v in dev.get("vendors") or []],
-        "headline": _named_headline(dev.get("headline") or "Untitled",
+        "headline": _named_headline(plain_letters(dev.get("headline") or "Untitled"),
                                     dev.get("vendors") or []),
-        "summary": plain_summary((dev.get("summary") or "").strip()),
+        "summary": plain_summary(plain_letters((dev.get("summary") or "").strip())),
         "evidence": [{k: e.get(k) for k in
                       ("uri", "title", "source", "published", "voice",
                        "social", "source_type", "key", "author")}
@@ -1423,7 +1691,7 @@ def _stored_candidates(conn, market_id: int, days: int
         if not kind:
             continue
         text_value = f"{f.get('headline') or ''} {f.get('summary') or ''}"
-        if is_noise(text_value):
+        if is_noise(text_value) or _NOT_EVENT.search(f.get("headline") or ""):
             continue
         kind = _refine_product(kind, text_value)
         evidence = []
@@ -1456,9 +1724,11 @@ def _stored_candidates(conn, market_id: int, days: int
             "date_established": f.get("occurred_at") is not None,
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
-            "headline": headline_of({"title": f.get("headline"),
-                                     "summary": f.get("summary"),
-                                     "vendors": f.get("vendors")}),
+            "headline": announcing_headline(
+                headline_of({"title": f.get("headline"),
+                             "summary": f.get("summary"),
+                             "vendors": f.get("vendors")}),
+                f.get("summary") or "", kind, f.get("vendors") or []),
             "summary": f.get("summary") or "",
             "evidence": evidence,
             "evidence_count": f.get("evidence_count"),
@@ -1499,16 +1769,28 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
     """), {"m": market_id, "since": _iso_days_ago(days)}).scalar() or len(rows)
     cands: List[Dict[str, Any]] = []
     discussion: List[Dict[str, Any]] = []
+    wider: List[Dict[str, Any]] = []
     for row in rows:
         text_value = _full_text(row)
         noisy = record_is_noise(row)
         kind = classify_record(row)
         evidence = _evidence_from_record(row)
         klass = row.get("article_class")
+        if klass in ("news", "discussion") and not row.get("vendors") and not noisy:
+            wide = _wider_candidate(row, evidence)
+            if wide:
+                wider.append(wide)
         if row["uri"] in held:
             # Already evidence for a stored event. The event candidate carries
             # it; nothing to add.
             continue
+        # A press release names its partners in the body; "CrowdStrike
+        # Expands Project QuiltWorks" listed Artemis and became an Artemis
+        # product expansion. News seeds only for a vendor its headline names;
+        # otherwise it is a report that can attach to that vendor's own item.
+        if kind and klass == "news" and row.get("vendors") and not _names_vendor_of(
+                {"title": row.get("title") or ""}, row):
+            kind = None
         if kind:
             attrs: Dict[str, Any] = {}
             if kind == "customer" and isinstance(row.get("review_customer"), dict):
@@ -1519,7 +1801,10 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "event_type": kind,
                 "date": (row.get("published") or "")[:10] or None,
                 "vendors": list(row.get("vendors") or []),
-                "headline": headline_of(row),
+                "headline": (headline_of(row) if klass == "news" else
+                             announcing_headline(headline_of(row),
+                                                 row.get("summary") or "", kind,
+                                                 row.get("vendors") or [])),
                 "summary": row.get("summary") or "",
                 "evidence": [evidence],
                 "attributes": attrs,
@@ -1547,7 +1832,70 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 })
             elif klass in ("discussion", "research"):
                 discussion.append(row)
-    return cands, discussion, total, by_class
+    return cands, discussion, total, by_class, wider
+
+
+#: What a company outside the vendor list can do that belongs on the page.
+WIDER_TYPES = frozenset({"acquisition", "market_exit", "funding",
+                         "product_launch", "product_expansion", "partnership"})
+#: The company a news headline leads with, before the verb saying what it did.
+_LEAD_COMPANY = re.compile(
+    r"^([A-Z][\w&.'’-]*(?:\s+(?:[A-Z][\w&.'’-]*|AI|&)){0,3}?)\s+(?i:launches|"
+    r"announces|unveils|introduces|debuts|releases|adds|expands|acquires|to\s+"
+    r"acquire|buys|has\s+acquired|completes|raises|secures|partners|teams\s+up|"
+    r"rolls\s+out|brings|taps|bets|has\s+launched|launched)\b")
+
+
+def _merge_by_company(devs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One item per company and kind of event within the merge window. The
+    usual rules need a shared name besides the company's, and two headlines
+    about Zscaler's Agentic SOC five days apart shared none."""
+    out: List[Dict[str, Any]] = []
+    for dev in sorted(devs, key=lambda d: d.get("day") or date.min):
+        match = next((o for o in out
+                      if _vendor_ids(o) == _vendor_ids(dev)
+                      and _FAMILY.get(o["event_type"]) == _FAMILY.get(dev["event_type"])
+                      and _within(o.get("day"), dev.get("day"), MERGE_WINDOW_DAYS)), None)
+        if match is None:
+            out.append(dev)
+        else:
+            _merge_into(match, {**dev, "seed": True})
+    return out
+
+
+def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
+                     ) -> Optional[Dict[str, Any]]:
+    """A news report of a deal or launch by a company we do not track, as a
+    candidate attributed to the company its headline leads with.
+
+    Zscaler's Agentic SOC, Proofpoint's agent built with OpenAI and Quorum
+    Cyber buying Ontinue were all collected in September 2026 and all
+    dropped, because only the tracked vendors' moves reached the page.
+    """
+    title = row.get("title") or ""
+    if _NOT_EVENT.search(title):
+        return None
+    kind = classify_text(_full_text(row), title=title)
+    lead = _LEAD_COMPANY.match(title.strip())
+    if kind not in WIDER_TYPES or not lead:
+        return None
+    company = re.sub(r"['’]s$", "", lead.group(1).strip())
+    return {
+        "key": f"wider:{row['uri']}",
+        "event_type": kind,
+        "date": (row.get("published") or "")[:10] or None,
+        "vendors": [{"brand_id": None, "vendor": company}],
+        # A shared headline arrives with the poster's links, handles and
+        # hashtags: "… Autonomous Threat Era • @QuorumCyber @OntinueMXDR •
+        # #DRJ https://t.co/…".
+        "headline": re.sub(r"\s+", " ", re.sub(
+            r"https?://\S+|[#@][\w.]+|\s[•|]\s", " ", headline_of(row))).strip(" •|-"),
+        "summary": row.get("summary") or "",
+        "evidence": [evidence],
+        "seed": True, "seed_rank": 1,
+        # A publisher's headline over a post that shares one.
+        "headline_rank": 0 if row.get("article_class") == "news" else 1,
+    }
 
 
 def _hiring_candidates(conn, market_id: int, days: int) -> List[Dict[str, Any]]:
@@ -1694,7 +2042,7 @@ def material_developments(conn, market_id: int, days: int = 30, *,
             "SELECT config FROM bw_markets WHERE id = :m"),
             {"m": market_id}).scalar())
     stored, held = _stored_candidates(conn, market_id, days)
-    corpus, discussion, total_records, by_class = _corpus_candidates(
+    corpus, discussion, total_records, by_class, wider = _corpus_candidates(
         conn, market_id, days, held)
     jobs = _hiring_candidates(conn, market_id, days)
     heads = _headcount_candidates(conn, market, days)
@@ -1724,6 +2072,17 @@ def material_developments(conn, market_id: int, days: int = 30, *,
     # Attached discussion records are evidence now, so the discussion list
     # only holds what nothing claimed.
     attached = {e.get("uri") for d in developments for e in d["evidence"]}
+    # The wider market: other companies' deals and launches, one item per
+    # event, newest first, none that is already evidence for a vendor's own.
+    # A social post alone is one account's word; it takes a news report or
+    # a second account for a company we do not track.
+    wider_devs = [d for d in (finish(d) for d in _merge_by_company(dedupe(
+        [w for w in wider if w["evidence"][0]["uri"] not in attached], stop=stop)))
+        if "news" in d["source_types"] or d["source_count"] >= 2]
+    # Most reported first: the front page shows five, and Zscaler's launch,
+    # reported by ten sources, sat sixth behind single-source items.
+    wider_devs.sort(key=lambda d: (d["source_count"], str(d.get("date") or "")),
+                    reverse=True)
     discussion = [r for r in discussion if r["uri"] not in attached]
 
     return {
@@ -1734,6 +2093,7 @@ def material_developments(conn, market_id: int, days: int = 30, *,
         "collected_records": total_records,
         "records_by_class": by_class,
         "discussion": discussion,
+        "wider": wider_devs,
         "types": [{"event_type": t, "label": EVENT_TYPES[t],
                    "n": sum(1 for d in developments if d["event_type"] == t)}
                   for t in EVENT_TYPES
@@ -1823,9 +2183,10 @@ def vendor_observation(conn, market_id: int, days: int = 30, *,
     """Every vendor's observation state, and the counts by state."""
     if developments is None:
         developments = material_developments(conn, market_id, days)["developments"]
-    changed = {v.get("brand_id") for d in developments for v in d["vendors"]
+    events = [d for d in developments if not is_signal(d)]
+    changed = {v.get("brand_id") for d in events for v in d["vendors"]
                if v.get("brand_id") is not None}
-    changed_names = {(v.get("vendor") or "").lower() for d in developments
+    changed_names = {(v.get("vendor") or "").lower() for d in events
                      for v in d["vendors"]}
 
     vendors = [dict(r) for r in conn.execute(text("""
@@ -1931,24 +2292,53 @@ def _share(part: float, whole: float) -> Optional[float]:
     return round(part / whole, 3) if whole else None
 
 
+def is_signal(dev: Dict[str, Any]) -> bool:
+    """A hiring or headcount reading: counted on its own, not as something
+    a vendor did."""
+    return dev.get("event_type") in SIGNAL_TYPES
+
+
+def top_vendors(by_vendor: Sequence[Dict[str, Any]], n: int = 3) -> List[Dict[str, Any]]:
+    """The ``n`` most active vendors, and every vendor tied with the last of
+    them: Mate Security had as many developments as the third-placed vendor
+    and was left out of "the three most active" (Sep 2026)."""
+    rows = list(by_vendor)
+    if len(rows) <= n:
+        return rows
+    floor = rows[n - 1]["n"]
+    return [r for r in rows if r["n"] >= floor]
+
+
 def distribution(developments: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    """Counts by kind, by vendor, by provenance, and how concentrated."""
+    """Counts by kind, by vendor, by provenance, and how concentrated.
+
+    Hiring and headcount readings are counted by kind and as ``signals``, and
+    left out of everything else: "101 developments" held 18 of them, and the
+    sections listing developments never showed those 18."""
     by_type: Dict[str, int] = {}
     by_vendor: Dict[str, int] = {}
     by_prov: Dict[str, int] = {s: 0 for s in PROVENANCE_STATES}
     for d in developments:
         by_type[d["event_type"]] = by_type.get(d["event_type"], 0) + 1
+    events = [d for d in developments if not is_signal(d)]
+    for d in events:
         by_prov[d["provenance"]] = by_prov.get(d["provenance"], 0) + 1
         for v in d["vendors"]:
             name = v.get("vendor") or "?"
             by_vendor[name] = by_vendor.get(name, 0) + 1
-    total = len(developments)
+    total = len(events)
     vendors_ranked = sorted(by_vendor.items(), key=lambda kv: (-kv[1], kv[0]))
-    top3 = sum(n for _, n in vendors_ranked[:3])
+    # The share of developments that involve any of the most active vendors,
+    # not the sum of their counts: a development naming two of them is one.
+    leaders = {r["vendor"] for r in top_vendors(
+        [{"vendor": v, "n": n} for v, n in vendors_ranked])}
+    top3 = sum(1 for d in events
+               if any((v.get("vendor") or "?") in leaders for v in d["vendors"]))
     product = sum(by_type.get(t, 0) for t in PRODUCT_TYPES)
     adoption = sum(by_type.get(t, 0) for t in ADOPTION_TYPES)
     return {
         "total": total,
+        "signals": len(developments) - total,
         "by_type": [{"event_type": t, "label": EVENT_TYPES[t], "n": by_type[t]}
                     for t in EVENT_TYPES if by_type.get(t)],
         "by_vendor": [{"vendor": v, "n": n} for v, n in vendors_ranked],
@@ -2126,6 +2516,47 @@ def _finding(ident: str, headline: str, body: str, *, evidence: List[str],
     }
 
 
+_LED_BY = re.compile(r"\bled by ([^.;\n]{3,90})", re.I)
+
+
+def _day_month(iso: Optional[str]) -> str:
+    day = _parse_day(iso)
+    return f"{day.day} {day.strftime('%B')}" if day else ""
+
+
+def _deal_sentence(dev: Dict[str, Any]) -> str:
+    """A deal in our words: who bought whom, who raised what, and when.
+
+    The vendor's own first sentence read "Coalition, Inc. acquired us for our
+    ability to stop cyber threats in milliseconds" in the report's voice, and
+    a fixed line about the buyer taking on customers followed it whatever
+    the deal was (Sep 2026). The vendor's sentence stays in the evidence line.
+    """
+    vendor = _dev_vendor_name(dev)
+    when = _day_month(dev.get("date"))
+    on = f" on {when}" if when else ""
+    text_value = _full_text(dev)
+    if dev["event_type"] == "acquisition":
+        buyer = _acquirer(text_value, vendor, _title_of(dev))
+        if buyer:
+            return f"{buyer} acquired {vendor}{on}."
+        return f"{vendor} was acquired{on}; the source does not name the buyer."
+    if dev["event_type"] == "funding":
+        wim = (dev.get("why_it_matters") or "").strip().rstrip(".")
+        total = ""
+        if wim.startswith("A "):
+            said = f"{vendor} raised a {wim[2:]}"
+        else:
+            said = f"{vendor} raised a new round"
+            if "in total" in wim:
+                total = f" It has raised {wim.split(' raised in total')[0]} in total, it says."
+        led = _LED_BY.search(text_value)
+        if led:
+            said += f" led by {led.group(1).strip()}"
+        return f"{said}{on}.{total}"
+    return _first_sentence(dev)
+
+
 def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Three to six findings from the counts, or fewer if the data is thin.
 
@@ -2158,15 +2589,13 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                  f'{d["provenance_label"].lower()})' for d in ownership]
         if acq:
             head = (f"{len(acq)} acquisition"
-                    f"{'s' if len(acq) != 1 else ''} in the period.")
+                    f"{'s' if len(acq) != 1 else ''} among the vendors we track.")
         else:
             head = (f"{len(ownership)} change{'s' if len(ownership) != 1 else ''}"
                     " in who is in the market.")
-        told = " ".join(_first_sentence(d) for d in ownership[:2])
+        told = " ".join(_deal_sentence(d) for d in ownership[:2])
         out.append(_finding(
-            "consolidation", head,
-            told + (" The buyer takes on the acquired company's customers "
-                    "and sales channels." if acq else ""),
+            "consolidation", head, told,
             evidence=lines,
             coverage=_partial_posts_note(inputs),
             developments=ownership))
@@ -2177,7 +2606,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         out.append(_finding(
             "capital",
             f"New funding for {_name_list(funding)}.",
-            " ".join(_first_sentence(d) for d in funding[:3]),
+            " ".join(_deal_sentence(d) for d in funding[:3]),
             evidence=[f'{d["headline"]} ({d["date"] or "date unknown"}, '
                       f'{d["provenance_label"].lower()})' for d in funding],
             coverage=_partial_posts_note(inputs),
@@ -2286,17 +2715,24 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     if len(devs) >= MIN_DEVELOPMENTS_FOR_MIX and dist.get("vendors_with_change"):
         counts = obs.get("counts") or {}
         quiet = counts.get("monitored_no_material_change", 0)
-        top3 = dist["by_vendor"][:3]
+        # Every vendor in the registry is in one sentence or another, so the
+        # figures add up to the total: 55 with a development and 38 without
+        # left four unexplained (Sep 2026).
+        unread = (counts.get("incomplete_coverage", 0) + counts.get("paused", 0)
+                  + counts.get("not_yet_collected", 0))
+        top3 = top_vendors(dist["by_vendor"])
         top3_txt = ", ".join(f"{v['vendor']} {v['n']}" for v in top3)
+        signals = dist.get("signals") or 0
         out.append(_finding(
             "change_concentration",
             f"{dist['vendors_with_change']} of {registry_total} vendors had a "
             "development.",
-            f"{dist['total']} developments in {days} days. The three most active "
-            f"vendors account for {_pct(dist['top3_share'])} of them "
-            f"({top3_txt})."
-            + (f" {quiet} vendors were watched and had none."
-               if quiet else ""),
+            f"{dist['total']} developments in {days} days"
+            + (f", plus {signals} hiring or headcount signals" if signals else "")
+            + f". The {len(top3)} most active vendors account for "
+            f"{_pct(dist['top3_share'])} of them ({top3_txt})."
+            + (f" {quiet} vendors were watched and had none." if quiet else "")
+            + (f" {unread} are not fully collected yet." if unread else ""),
             evidence=_vendor_lines(dist["by_vendor"], "n", "developments",
                                    singular="development", limit=5),
             coverage="",
@@ -2601,6 +3037,7 @@ def assess(conn, market: Dict[str, Any], *, days: int = 30,
         "other_developments": other,
         "collected_records": material["collected_records"],
         "discussion": material["discussion"],
+        "wider": material.get("wider") or [],
         "distribution": dist,
         "observation": observation,
         "findings": findings,

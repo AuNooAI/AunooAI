@@ -3645,6 +3645,11 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
               "thing": "market move",
               "subline": "Deals, funding, partnerships, leadership changes "
                          "and named customers."},
+    "wider": {"heading": "Wider market", "colour": "var(--n-purple)",
+              "thing": "move outside the vendor list",
+              "subline": "Deals and launches by companies outside the vendor "
+                         "list, from news coverage or reported by two or more "
+                         "accounts."},
     "launches": {"heading": "Product launches", "colour": "var(--n-blue)",
                  "thing": "product launch",
                  "subline": "New products, and expansions of existing ones."},
@@ -3672,7 +3677,8 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
 _V2_LAUNCH_TYPES = {"product_launch", "product_expansion"}
 _V2_HIRING_TYPES = {"significant_hiring", "headcount_change"}
 #: How many items a section shows on the front page; its own page shows all.
-_V2_CAPS = {"analysis": 3, "research": 4, "moves": 4, "launches": 4, "hiring": 5, "cases": 3,
+_V2_CAPS = {"analysis": 3, "research": 4, "moves": 4, "wider": 5, "launches": 4,
+            "hiring": 5, "cases": 3,
             "voices": 6, "social": 6}
 #: A new piece of ours leads the front page for this many days after publication.
 _V2_PIECE_LEAD_DAYS = 3
@@ -3762,6 +3768,9 @@ def _v2_is_voice(row: Dict[str, Any]) -> bool:
     verdict = (row.get("review_verdict") or "").lower()
     kind = (row.get("review_kind") or "").lower()
     if row.get("article_class") != "social" or verdict in ("noise", "excluded"):
+        return False
+    from app.services.market_assessment import record_is_noise
+    if record_is_noise(row):
         return False
     return ((verdict == "commentary" and kind in ("opinion", "research"))
             or (verdict == "signal" and kind == "research"))
@@ -4230,6 +4239,7 @@ def _v2_voice_row(row: Dict[str, Any]) -> str:
 
 
 def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> str:
+    from app.services import market_assessment as massess
     out = [_v2_voice_row(r) for r in rows]
     if highlights:
         out.append('<h3 class="v2-sub">Most shared posts</h3>')
@@ -4240,7 +4250,7 @@ def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> 
                        f'<div class="n-social-meta">{esc(who)} · '
                        f'{int(h.get("engagement") or 0)} reactions</div>'
                        f'<p class="n-quote"><a href="{esc(h["uri"])}">'
-                       f'{esc(_clip(h.get("quote") or "", 200))}</a></p></div>')
+                       f'{esc(_clip(massess.plain_letters(h.get("quote") or ""), 200))}</a></p></div>')
     return "".join(out)
 
 
@@ -4249,19 +4259,29 @@ def _v2_research(items: List[Dict[str, Any]], logos: Optional[Dict[str, str]] = 
     vendors named in it (``market_research.group_citations``), then the
     analyst firms' own posts (``market_research.analyst_posts``). The two
     kinds get a sub-heading only when both are present."""
-    groups = [i for i in items if i.get("item") == "group"]
+    # A report shows when one of the market's vendors cites it and it has a
+    # name. "Magic Quadrant for SSE and SASE: @falconupkid (Leader)" had
+    # neither a tracked vendor nor anything to do with the market, and
+    # "Gartner research" names no report (Sep 2026).
+    groups = [i for i in items if i.get("item") == "group"
+              and i.get("tracked", True) and i.get("named", True)]
     posts = [i for i in items if i.get("item") == "post"]
     out: List[str] = []
     if groups and posts:
         out.append('<h3 class="v2-sub">Reports vendors cite</h3>')
     for g in groups:
-        meta = " · ".join(x for x in (g.get("firm"), g.get("family"), _day(g["latest"]) if g.get("latest") else "") if x)
-        named = [v for v in g["vendors"] if v.get("position")]
-        lead_word = "Named" if named and len(named) == len(g["vendors"]) else "Cited by"
+        # The date is when a vendor last cited the report, not when the
+        # firm published it: "GigaOm Radar … 2025" under "17 Sep 2026" read
+        # as a September 2026 report.
+        cited = f'cited {_day(g["latest"])}' if g.get("latest") else ""
+        meta = " · ".join(x for x in (g.get("firm"), g.get("family"), cited) if x)
+        citers = [v for v in g["vendors"] if v.get("tracked", True)]
+        named = [v for v in citers if v.get("position")]
+        lead_word = "Named" if named and len(named) == len(citers) else "Cited by"
         vendors = ", ".join(
             f'<a href="{esc(v["uri"])}">{_mark(logos, v["vendor"], 16)}{esc(v["vendor"])}'
             + (f' ({esc(v["position"])})' if v.get("position") else "") + "</a>"
-            for v in g["vendors"])
+            for v in citers)
         out.append('<div class="n-social v2-rs">'
                    f'<div class="n-social-meta">{esc(meta)}</div>'
                    f'<p class="n-quote"><a href="{esc(g["uri"])}">{esc(_clip(g["label"], 160))}</a></p>'
@@ -4381,13 +4401,15 @@ def _v2_numbers(assessment: Dict[str, Any], hiring: Dict[str, Any], days: int) -
     total = int(obs.get("total") or 0)
     coverage = hiring.get("coverage") or {}
     floor = massess_min_openings()
+    from app.services.market_assessment import is_signal
+    events = [d for d in devs if not is_signal(d)]
     cards = [
-        ("Developments", str(len(devs)), f"in the last {days} days",
+        ("Developments", str(len(events)), f"in the last {days} days",
          "Something a vendor did that we could confirm: a launch, a partnership, "
-         "a customer win, funding, an acquisition, a new executive, "
-         f"{floor} or more open roles, or a headcount change of 10% or more. "
-         "Counted once, however many articles mention it. Opinion and chatter "
-         "don't count."),
+         "a customer win, funding, an acquisition or a new executive. Counted "
+         "once, however many articles mention it. Hiring signals "
+         f"({floor} or more open roles, or a headcount change of 10% or more) "
+         "are counted under Open roles. Opinion and chatter don't count."),
         ("Records analysed", f'{int(assessment.get("collected_records") or 0):,}',
          "articles, posts and pages",
          "Everything we read about this market in the period: news articles, "
@@ -4854,6 +4876,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                          highlights, lead_from_developments=lead_piece is None)
     buckets = parts["buckets"]
     buckets["analysis"] = [p for p in pieces if lead_piece is None or p["id"] != lead_piece["id"]]
+    buckets["wider"] = list(assessment.get("wider") or [])
     # Latest research: reports vendors cite, then the analyst firms' own
     # posts. Both come out of the rows already fetched, which are the masked
     # set in the shared view, so a withheld vendor's citation is not here.
@@ -5052,7 +5075,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</section>")
         for key in V2_SECTIONS:
             items = buckets[key]
-            if key == "analysis" and not items:
+            if key in ("analysis", "wider") and not items:
                 continue   # nothing of ours to show: no empty section (user, 29 Aug)
             if key == "social":
                 shown = _spread_voices(items, _V2_CAPS[key])

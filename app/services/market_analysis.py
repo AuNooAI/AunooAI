@@ -1183,7 +1183,7 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         # usually the post, and the summary is a truncation of it.
         quote = (row.get("title") or row.get("summary") or "").strip()
         # A training log or a job hunt is not an outside voice on the market.
-        if not quote or is_noise(quote):
+        if not quote or is_noise(f"{row.get('title') or ''} {row.get('summary') or ''}"):
             continue
         out.append({
             "uri": row["uri"],

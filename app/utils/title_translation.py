@@ -43,7 +43,9 @@ _ENGLISH_STOPWORDS = frozenset(
     "they you your our we us up out more most".split()
 )
 
-_DIACRITIC_RE = re.compile(r"[àâäáãåæçèéêëìíîïñòóôöõøùúûüýÿßœÀÂÄÁÃÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÖÕØÙÚÛÜÝŒ]")
+# Includes the Turkish letters (ğ ı ş İ Ğ Ş): a SOCNova post announcing PARS
+# in Turkish passed as English and was never translated (Sep 2026).
+_DIACRITIC_RE = re.compile(r"[àâäáãåæçèéêëìíîïñòóôöõøùúûüýÿßœğışÀÂÄÁÃÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÖÕØÙÚÛÜÝŒĞİŞ]")
 
 # Function words of the languages we actually collect in Latin script. Used
 # only for post/summary text: a Latin-script text with none of these and no

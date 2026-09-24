@@ -98,6 +98,7 @@ _POSITION = re.compile(
 _RESEARCH_WORD = re.compile(r"\b(?:research|report|note|study|analysis|brief)\b", re.I)
 _NEAR = 60
 _YEAR = re.compile(r"\b(20\d\d)\b")
+_QUOTED_SPAN = re.compile(r"['\"“‘]([^'\"”’\n]{8,160})['\"”’]")
 #: A title-case run: words starting with a capital or a digit, joined by
 #: connectors, on one line. Stops at punctuation, quotes, a line break and
 #: lower-case words.
@@ -187,6 +188,24 @@ def _vendor_of(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = Non
     return re.sub(r"^www\.", "", host) or "unknown"
 
 
+#: Words that make a year a forecast rather than the report's edition:
+#: "Gartner expects AI agents to remediate 70% of code vulnerabilities by
+#: 2028" labelled a 2026 report "Preemptive Cybersecurity, 2028".
+_FORECAST_BEFORE = re.compile(r"\b(?:by|until|through|before|in\s+the\s+next)\s*$", re.I)
+
+
+def _report_year(window: str, published_year: str = "") -> Optional[str]:
+    """The first year in ``window`` that can be a report's edition: not a
+    forecast, and not later than the year after the post was published."""
+    for m in _YEAR.finditer(window or ""):
+        if _FORECAST_BEFORE.search(window[max(0, m.start() - 20):m.start()]):
+            continue
+        if published_year.isdigit() and int(m.group(1)) > int(published_year) + 1:
+            continue
+        return m.group(1)
+    return None
+
+
 def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
     """The analyst report a record cites, or None.
 
@@ -221,14 +240,29 @@ def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> 
     if family is None and not recognised:
         return None
     vendor = _vendor_of(row, domain_names)
+    # Whether the citer is one of the market's vendors, or an X handle, a
+    # host or a headline's lead name standing in for one.
+    tracked = bool([v for v in (row.get("vendors") or []) if v.get("vendor")]) or (
+        vendor in set((domain_names or {}).values()))
+    published_year = str(row.get("published") or "")[:4]
     topic = year = title = None
     if fam_match:
         m = topic_pat.match(hay, fam_match.end())
         if m:
             topic = _clean_topic(m.group(1), vendor) or None
         around = hay[max(0, fam_match.start() - 40): fam_match.end() + 40]
-        years = _YEAR.findall(around)
-        year = years[0] if years else None
+        year = _report_year(around, published_year)
+        # A quoted report title runs to its closing quote, lower-case words
+        # and all: 'Innovation Insight: Role Agents Have a Mandate, Not a Task
+        # List' was cut to "Role Agents".
+        for qm in _QUOTED_SPAN.finditer(hay):
+            # Only a quote that opens on the report family itself.
+            if qm.start(1) == fam_match.start():
+                rest = re.sub(r"^(?:[\s:–—-]+|for\s+)+", "",
+                              hay[fam_match.end():qm.end(1)]).strip()
+                if topic and len(rest) > len(topic):
+                    topic = _clean_topic(rest, vendor) or topic
+                break
     else:
         after = hay[at: at + 160]
         q = _QUOTED.search(after) or _AFTER_RESEARCH_WORD.search(after)
@@ -236,12 +270,11 @@ def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> 
             title = _clean_topic(q.group(1), vendor) or None
             if title and len(title) < 12:
                 title = None
-        years = _YEAR.findall(hay[max(0, at - 40): at + 80])
-        year = years[0] if years else None
+        year = _report_year(hay[max(0, at - 40): at + 80], published_year)
     return {
         "firm": firm, "family": family, "topic": topic, "year": year, "title": title,
         "position": (position.group(1).title() if position else None),
-        "vendor": vendor, "uri": row.get("uri"),
+        "vendor": vendor, "tracked": tracked, "uri": row.get("uri"),
         "date": str(row.get("published") or "")[:10],
         "headline": row.get("title") or "",
     }
@@ -408,6 +441,7 @@ def group_citations(rows: List[Dict[str, Any]],
         if prev is None or c["date"] > prev["date"]:
             g["vendors"][c["vendor"]] = {"vendor": c["vendor"], "position": c["position"] or
                                          (prev or {}).get("position"),
+                                         "tracked": c.get("tracked", True),
                                          "uri": c["uri"], "date": c["date"]}
         elif c["position"] and not prev.get("position"):
             prev["position"] = c["position"]
@@ -441,6 +475,8 @@ def group_citations(rows: List[Dict[str, Any]],
             continue
         g["vendors"] = sorted(g["vendors"].values(), key=lambda v: v["date"], reverse=True)
         g["label"] = label_of(g)
+        g["tracked"] = any(v.get("tracked", True) for v in g["vendors"])
+        g["named"] = bool(g.get("topic") or g.get("title"))
         g["uri"] = g["vendors"][0]["uri"]
         out.append(g)
     out.sort(key=lambda g: (len(g["vendors"]), g["latest"]), reverse=True)

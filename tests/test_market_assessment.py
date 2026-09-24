@@ -739,3 +739,177 @@ def test_a_research_finding_never_outranks_a_funding_round():
     assert ma._TYPE_RANK["research"] > ma._TYPE_RANK["acquisition"]
     assert ma.importance_of("research", "vendor_source_only") == "low"
     assert ma.importance_of("research", "multiple_independent_sources") == "low"
+
+
+# ---------------------------------------------------------------------------
+# aisocnews data-quality review, 24 Sep 2026: each case is a real item that
+# was wrong on the page.
+# ---------------------------------------------------------------------------
+
+def _post(title, summary="", *, vendor="Simbian", brand_id=5, date="2026-09-02"):
+    return _candidate("product_launch", title, date=date, summary=summary,
+                      vendors=[_vendor(vendor, brand_id)], voice="owned",
+                      source_type="vendor", key=f"owned:linkedin:{brand_id}")
+
+
+def _tweet(title, n, *, date="2026-09-08", kind="product_launch"):
+    return _candidate(kind, title, date=date, vendors=[], seed=False, social=True,
+                      source_type="social", key=f"social:x:account{n}")
+
+
+def test_tweets_about_other_companies_do_not_attach_to_a_vendor_post():
+    """Simbian's post collected fifteen sources: the Zscaler, Proofpoint and
+    CrowdStrike launches, each attaching on words the last one added."""
+    post = _post("As frontier models get better on offense, their defensive "
+                 "growth doesn't keep pace.",
+                 "Frontier models from Anthropic and OpenAI change the SOC.")
+    tweets = [
+        _tweet("Zscaler launches Agentic SOC with AI agents from Anthropic and OpenAI", 1),
+        _tweet("Proofpoint launches AI SOC Analyst Agent with OpenAI models", 2),
+        _tweet("CrowdStrike unveils Charlotte AI Agentic SOC with frontier models", 3),
+    ]
+    devs = ma.dedupe([post] + tweets, stop=set())
+    assert len(devs) == 1 and len(devs[0]["evidence"]) == 1
+    assert ma.finish(devs[0])["provenance"] == "vendor_source_only"
+
+
+def test_a_partner_named_in_a_report_is_not_the_vendor():
+    """A SailPoint release about CrowdStrike is not coverage of Artemis
+    presenting with CrowdStrike."""
+    post = _candidate("partnership", "Presenting alongside CrowdStrike at their own "
+                      "event is a milestone for Artemis and for our partnership.",
+                      date="2026-09-01", vendors=[_vendor("Artemis Security", 6)],
+                      voice="owned", source_type="vendor")
+    other = _tweet("SailPoint Announces Integration with CrowdStrike Falcon Next-Gen SIEM",
+                   4, date="2026-09-01", kind="partnership")
+    devs = ma.dedupe([post, other], stop=set())
+    assert len(devs[0]["evidence"]) == 1
+
+
+def test_a_three_letter_customer_name_merges_two_posts_about_it():
+    a = _candidate("customer", "DXC went from proving the model on its own operations "
+                   "to delivering it to customers worldwide.", date="2026-08-31",
+                   vendors=[_vendor("7ai", 8)], voice="owned", source_type="vendor",
+                   summary="Across 25 delivery centers DXC put agents into production.")
+    b = _candidate("customer", "Before bringing agentic security to customers, DXC "
+                   "Technology ran it across its own global security operations.",
+                   date="2026-09-09", vendors=[_vendor("7ai", 8)], voice="owned",
+                   source_type="vendor", summary="Ask DXC how it went.")
+    assert len(ma.dedupe([a, b], stop=set())) == 1
+
+
+def test_one_release_on_blog_and_linkedin_is_one_launch():
+    blog = _post("Bricklayer Introduces MCP Support", vendor="Bricklayer AI",
+                 brand_id=9, date="2026-09-09",
+                 summary="Bricklayer AI announces support for Model Context Protocol.")
+    post = _post("Today we're announcing MCP support in Bricklayer.", vendor="Bricklayer AI",
+                 brand_id=9, date="2026-09-09",
+                 summary="MCP has quickly become the standard for connecting AI systems.")
+    assert len(ma.dedupe([blog, post], stop=set())) == 1
+
+
+def test_a_product_named_in_both_headlines_merges_across_three_weeks():
+    first = _post("we just launched Morpheus 2, the new and improved version of our "
+                  "agentic SOC platform.", vendor="D3 Security", brand_id=10,
+                  date="2026-08-28")
+    later = _post("We've launched some exciting new improvements with Morpheus 2, which "
+                  "include graded evidence.", vendor="D3 Security", brand_id=10,
+                  date="2026-09-17")
+    assert len(ma.dedupe([first, later], stop=set())) == 1
+
+
+def test_two_products_sharing_a_first_word_stay_apart():
+    a = _post("Introducing Virtus Sentinel", "AI Detection, Enforcement and Response "
+              "across agents and tools.", vendor="Imperum", brand_id=3, date="2026-09-17")
+    b = _post("Imperum Virtus Cerebrum is now live!", "Virtus Cerebrum reasons across "
+              "agents and tools.", vendor="Imperum", brand_id=3, date="2026-09-07")
+    assert len(ma.dedupe([a, b], stop=set())) == 2
+
+
+def test_a_name_with_a_turkish_suffix_is_the_same_name():
+    assert "PARS" in ma._tokens("Bugün SOCNova’nın Agentic Katmanı: PARS’ı duyuruyoruz.")
+
+
+def test_a_short_name_prefix_is_not_doubled():
+    rec = {"title": "Mate: Mate is joining the XAA Ecosystem!",
+           "vendors": [{"vendor": "Mate Security"}]}
+    headline = ma.headline_of(rec)
+    assert headline == "Mate is joining the XAA Ecosystem!"
+    assert ma._named_headline(headline, rec["vendors"]) == headline
+
+
+def test_a_hook_headline_gives_way_to_the_sentence_naming_the_product():
+    got = ma.announcing_headline(
+        "A coverage map tells you a rule exists.",
+        "A coverage map tells you a rule exists. It doesn't tell you the log source "
+        "behind it died in March. Armor Detect runs that audit every day, then fixes "
+        "what it finds.", "product_launch", [{"vendor": "Arambh Labs"}])
+    assert got.startswith("Armor Detect runs that audit")
+    kept = "This week we unified Detection and Response into a single Agents workspace."
+    assert ma.announcing_headline(kept, kept + " More.", "product_expansion",
+                                  [{"vendor": "Cotool"}]) == kept
+
+
+def test_deal_highlights_are_in_our_words():
+    acq = {"event_type": "acquisition", "date": "2026-09-18",
+           "vendors": [{"vendor": "Wirespeed"}],
+           "headline": "Wirespeed: Coalition, Inc. acquired us for our ability to stop "
+                       "cyber threats in milliseconds.", "summary": ""}
+    said = ma._deal_sentence(acq)
+    assert said == "Coalition, Inc. acquired Wirespeed on 18 September."
+    fund = {"event_type": "funding", "date": "2026-09-16", "why_it_matters": "",
+            "vendors": [{"vendor": "StrikeReady"}], "summary": "",
+            "headline": "StrikeReady is excited to share our new investment round led by "
+                        "the venture capital arm of Aramco, Wa'ed Ventures."}
+    assert ma._deal_sentence(fund) == ("StrikeReady raised a new round led by the venture "
+                                       "capital arm of Aramco, Wa'ed Ventures on 16 September.")
+
+
+def test_headlines_that_are_not_market_events():
+    for title in ("The 10 Best Tines Alternatives in 2026: Agentic SOC Platforms Compared",
+                  "Within 35 seconds, we shut down two malicious LOTL executions.",
+                  "We'll take the number 1 spot on HackerOne's US leaderboard.",
+                  "Introducing the Certified AI SOC Analyst (CASA) program by Intezer."):
+        assert ma._NOT_EVENT.search(title), title
+    assert ma.classify_text("How Prophet AI Protects High-Exposure Partner Environments",
+                            title="How Prophet AI Protects High-Exposure Partner "
+                                  "Environments") is None
+    assert ma.classify_text("RedCarbon is now an Armis Technology Partner!",
+                            title="RedCarbon is now an Armis Technology Partner!") == "partnership"
+
+
+def test_chip_news_paid_lists_and_junior_hires_are_noise():
+    assert ma.is_noise("$MASK completes pre-silicon emulation of custom Edge AI SoC")
+    assert ma.is_noise("SOC Automation Tool List 2026 includes Legion Security")
+    assert ma.is_noise("Jamal joins our team as a CSOC Tier 1 Analyst")
+    assert not ma.is_noise("Strike48 announces an agentic SOC appliance for air-gapped sites")
+
+
+def test_styled_letters_read_as_plain_text():
+    assert ma.plain_letters("𝐁𝐅𝐒𝐈 teams") == "BFSI teams"
+    assert ma.plain_letters("iSteps™ show") == "iSteps show"
+
+
+def test_hiring_readings_are_counted_apart_from_developments():
+    devs = [ma.finish(ma.prepare_candidate(c, set())) for c in (
+        _post("Launch one", date="2026-09-01", vendor="A", brand_id=1),
+        _post("Launch two", date="2026-09-02", vendor="B", brand_id=2),
+        {**_post("12 open roles", vendor="A", brand_id=1),
+         "event_type": "significant_hiring"})]
+    dist = ma.distribution(devs)
+    assert dist["total"] == 2 and dist["signals"] == 1
+
+
+def test_vendors_tied_for_third_are_all_named():
+    rows = [{"vendor": v, "n": n} for v, n in
+            (("7ai", 4), ("Anvilogic", 4), ("D3 Security", 4), ("Mate Security", 4),
+             ("Artemis", 3))]
+    assert [r["vendor"] for r in ma.top_vendors(rows)] == [
+        "7ai", "Anvilogic", "D3 Security", "Mate Security"]
+
+
+def test_a_funding_total_is_not_the_round():
+    dev = {"event_type": "funding", "vendors": [{"vendor": "StrikeReady"}],
+           "headline": "StrikeReady is excited to share our new investment round.",
+           "summary": "This brings our total funding raised to $29M with Hitachi."}
+    assert ma.why_it_matters(dev) == "$29M raised in total, the vendor says."

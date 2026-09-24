@@ -22,6 +22,9 @@ from sqlalchemy import text as sql_text
 logger = logging.getLogger(__name__)
 
 _PLATFORMS = ("twitter", "reddit", "instagram", "tiktok", "bluesky")
+#: A profile that sells marketing services, whatever the model called it.
+_MARKETER = re.compile(r"\bseo\b|growth\s+hack|digital\s+marketing|"
+                       r"marketing\s+(consultant|expert|agency)", re.I)
 # The part an account plays in a market, when profiled for one. Stored in
 # social_accounts.metadata as market_role / market_org / market.
 MARKET_ROLES = ("vendor", "vendor_staff", "practitioner", "analyst_or_press",
@@ -456,15 +459,22 @@ class SocialProfileService:
             "brand_context": summary.get("brand_context"),
             "sample_posts": top[:12],
             "last_profiled_at": _now(),
-            "metadata": self._market_meta(summary, context),
+            "metadata": self._market_meta(summary, context, ident),
         }
         return self._upsert(db, row)
 
     @staticmethod
-    def _market_meta(summary: Dict, context: Optional[str]) -> Dict:
+    def _market_meta(summary: Dict, context: Optional[str],
+                     ident: Optional[Dict] = None) -> Dict:
         if not context:
             return {}
-        return {"market_role": summary.get("role"),
+        role = summary.get("role")
+        # A marketer who writes about the market is not press: "Apoorv Sharma
+        # | LLM + SaaS SEO Expert" was listed on aisocnews as Analyst / press.
+        who = f"{(ident or {}).get('display_name') or ''} {(ident or {}).get('bio') or ''}"
+        if role == "analyst_or_press" and _MARKETER.search(who):
+            role = "promoter_or_bot"
+        return {"market_role": role,
                 "market_org": summary.get("organisation"),
                 "audience_role": summary.get("audience"),
                 "market": context, "market_read_at": _now()}
@@ -493,7 +503,7 @@ class SocialProfileService:
              WHERE id = :id
         """), {"summary": summary.get("summary"), "topics": json.dumps(summary.get("topics") or []),
                "brand_context": summary.get("brand_context"),
-               "metadata": json.dumps(self._market_meta(summary, context)), "id": stored["id"]})
+               "metadata": json.dumps(self._market_meta(summary, context, ident)), "id": stored["id"]})
         try:
             conn.commit()
         except Exception:  # noqa: BLE001

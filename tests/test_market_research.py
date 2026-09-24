@@ -273,3 +273,27 @@ def test_sync_feeds_registers_and_switches_off_under_the_market_topic():
         conn.execute(text("DELETE FROM rss_feeds WHERE url = 'https://example.invalid/analyst-test/feed'"))
         conn.commit()
         conn.close()
+
+
+def test_a_forecast_year_is_not_the_report_year():
+    row = _row(1, "Backline: named a Sample Vendor in the Gartner Emerging Tech Impact "
+                  "Radar: Preemptive Cybersecurity. Gartner expects AI agents to remediate "
+                  "70% of vulnerabilities by 2028.", vendor="Backline AI",
+               published="2026-09-15")
+    assert mres.cite(row)["year"] != "2028"
+
+
+def test_a_citer_outside_the_vendor_list_is_marked():
+    tracked = mres.cite(_row(1, "Acme named a Leader in the 2026 Gartner Magic Quadrant "
+                                "for SIEM", vendor="Acme"))
+    handle = mres.cite(_row(2, "Named a Leader in the 2026 Gartner Magic Quadrant for SSE "
+                               "and SASE", author="falconupkid", article_class="discussion"))
+    assert tracked["tracked"] is True and handle["tracked"] is False
+
+
+def test_a_quoted_report_title_is_read_to_its_end():
+    row = _row(1, "Twine Security: proud to be mentioned in a Gartner report",
+               "Twine was included in the 2026 Gartner 'Innovation Insight: Role Agents "
+               "Have a Mandate, Not a Task List' report.", vendor="Twine Security")
+    assert mres.group_citations([row])[0]["label"] == (
+        "Gartner Innovation Insight: Role Agents Have a Mandate, Not a Task List, 2026")

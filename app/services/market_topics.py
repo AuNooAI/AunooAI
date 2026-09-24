@@ -99,7 +99,11 @@ def compute(conn, market: Dict[str, Any]) -> Dict[str, Any]:
             "computed_at": _now().isoformat(), "window_days": WINDOW_DAYS,
             "recent_days": RECENT_DAYS, "model": None,
             "being_discussed": [], "emerging": [], "clusters": [], "items": []}
-    items = [r for r in rows if clean_headline(r.get("title"))]
+    # Noise never names a subject: six $MASK penny-stock posts about an "Edge
+    # AI SoC" chip were the second most-discussed subject on 23 September.
+    from app.services.market_assessment import record_is_noise
+    items = [r for r in rows
+             if clean_headline(r.get("title")) and not record_is_noise(r)]
     if len(items) < MIN_ARTICLES:
         return {**base, "n": len(items), "k": 0,
                 "reason": f"only {len(items)} matched articles with a headline; "
