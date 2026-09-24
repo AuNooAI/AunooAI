@@ -129,14 +129,17 @@ async def main() -> int:
         if not svc._get_model():
             print(f"model {svc.model_name!r} unavailable", file=sys.stderr)
             return 2
-        print(f"classifying with {svc.model_name}")
+        from app.services import author_role_jev
+        print("classifying with " + ("Jev (VOICES_ROLE_MODEL=jev)" if author_role_jev.enabled()
+                                     else svc.model_name))
         written = 0
         roles = Counter()
         for topic in by_topic:
             batch = [p for p in posts if p["topic"] == topic]
             ctx = _brand_context_for_topic(db, topic)
             brand = topic.replace("Brand Monitoring ", "", 1)
-            scored = await svc.classify_roles(batch, brand, brand_context=ctx["description"])
+            scored = await svc.classify_roles(batch, brand, brand_context=ctx["description"],
+                                              competitors=author_role_jev.rival_names(db, brand))
             for s in scored:
                 conn.execute(text(f"""
                     UPDATE articles SET author_role = :role, author_role_reason = :why

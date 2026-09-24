@@ -355,12 +355,19 @@ class SocialEvalService:
             return None
 
     async def classify_roles(self, posts: List[Dict], brand_topic: str,
-                             brand_context: str = "") -> List[Dict]:
+                             brand_context: str = "",
+                             competitors: Optional[List[str]] = None) -> List[Dict]:
         """Author role only, for posts that were scored before roles existed.
 
         Same taxonomy as the combined call; returns [{uri, author_role,
-        author_role_reason}] for the posts the model answered.
+        author_role_reason}] for the posts the model answered. A site with
+        VOICES_ROLE_MODEL=jev gets the role from Jev instead (author_role_jev).
         """
+        from app.services import author_role_jev
+        if posts and author_role_jev.enabled():
+            got = await asyncio.to_thread(author_role_jev.read_roles, brand_topic,
+                                          brand_context, competitors or [], posts)
+            return [{"uri": uri, **r} for uri, r in got.items()]
         if not posts or not self._get_model():
             return []
         sem = asyncio.Semaphore(_MAX_CONCURRENT)
@@ -475,6 +482,18 @@ class SocialEvalService:
             anchors=(profile["anchors"] or None) if topic_mode else None,
             tiers=profile["tiers"] or None,
             topic_mode=topic_mode and bool(profile["description"] or profile["anchors"]))
+        # The model call keeps relevance and sentiment; on a site that has
+        # switched it on, Jev names the author's role (author_role_jev).
+        from app.services import author_role_jev
+        if author_role_jev.enabled() and not topic_mode and scored:
+            brand = brand_topic.replace("Brand Monitoring ", "", 1)
+            by_uri = {p["uri"]: p for p in posts}
+            jev = await asyncio.to_thread(
+                author_role_jev.read_roles, brand, ctx["description"],
+                author_role_jev.rival_names(db, brand),
+                [by_uri[s["uri"]] for s in scored if s["uri"] in by_uri])
+            for s in scored:
+                s.update(jev.get(s["uri"]) or {})
         for s in scored:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
@@ -550,6 +569,8 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
     evaluated = 0
     excluded = 0
     excludes_by_brand: Dict[int, List[str]] = {}
+    from app.services import author_role_jev
+    rivals_by_brand: Dict[str, List[str]] = {}
     for (mention_id, mention_brand, uri, display_name, title, summary,
          entities_on_article, brand_context) in rows:
         # Entity collisions (config.news_keyword_excludes: "Oviva Therapeutics",
@@ -580,6 +601,14 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         if not scored:
             continue
         verdict = scored[0]
+        if author_role_jev.enabled():
+            if display_name not in rivals_by_brand:
+                rivals_by_brand[display_name] = author_role_jev.rival_names(db, display_name)
+            jev = await asyncio.to_thread(
+                author_role_jev.read_role, display_name, brand_context,
+                rivals_by_brand[display_name],
+                {"title": title, "summary": summary, "author": author})
+            verdict.update(jev or {})
         sentiment = (verdict.get("sentiment") or "").lower()
         entity_content.score_mention(
             conn, mention_id, relevance=verdict.get("relevance"),
