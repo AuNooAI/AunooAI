@@ -765,9 +765,15 @@ def zero_match_keywords(conn, keywords: Sequence[str]) -> List[Dict[str, Any]]:
 
 def plan_market_keywords(conn, market_id: int,
                          qualifier: str = DEFAULT_QUALIFIER,
-                         vendor_names: str = DEFAULT_VENDOR_NAME_MODE
+                         vendor_names: str = DEFAULT_VENDOR_NAME_MODE,
+                         check_zero_match: bool = True,
                          ) -> Dict[str, Any]:
     """What a market's collection group would search for. Reads only.
+
+    ``check_zero_match=False`` skips the zero-match warning, which costs one
+    full regex scan of ``articles`` per term that matches nothing (14s on
+    bugfixing's 233k articles). The market page loads the plan on every visit
+    and never shows the warning, so it must not pay for it.
 
     The market's own language always. Vendor names by mode — funded by default,
     because a raise is the best available proxy for a vendor being active
@@ -821,7 +827,8 @@ def plan_market_keywords(conn, market_id: int,
     # both fail without saying so. This one is checked at planning time
     # because that is when it costs nothing to change the term.
     try:
-        zero_match = zero_match_keywords(conn, keywords)
+        zero_match = (zero_match_keywords(conn, keywords)
+                      if check_zero_match else None)
     except Exception as exc:                                       # noqa: BLE001
         # A warning that cannot be computed must not stop a market being set
         # up. Say it is unknown rather than implying every term is fine.

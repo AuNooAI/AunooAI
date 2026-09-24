@@ -1014,14 +1014,21 @@ async def set_collection_terms(market_id: int, payload: CollectionTerms,
 @router.get("/markets/{market_id}/collection-plan")
 async def collection_plan(market_id: int, qualifier: str = Query("security"),
                           vendor_names: str = Query("funded"),
+                          zero_match: bool = Query(False),
                           session=Depends(verify_session_api)):
-    """What the market's collection group would search for. Reads only."""
+    """What the market's collection group would search for. Reads only.
+
+    The zero-match warning is off unless asked for: the market page calls this
+    on every load, and the check alone took 14s there, during which the page
+    showed "No collection configured".
+    """
     def _work():
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
             plan = mc.plan_market_keywords(conn, market_id, qualifier,
-                                           vendor_names)
+                                           vendor_names,
+                                           check_zero_match=zero_match)
             plan["group_name"] = f"{market['name']} - Market Watch"
             plan["topic_name"] = f"Market Monitoring {market['name']}"
             plan["existing"] = (market.get("config") or {}).get("collection")
