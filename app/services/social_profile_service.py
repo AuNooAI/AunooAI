@@ -555,7 +555,11 @@ class SocialProfileService:
 
     def list_profiles(self, db, limit: int = 200) -> List[Dict]:
         conn = db._temp_get_connection()
+        # Profiled or watched only. social_accounts also holds bare rows: every
+        # post author on entity tenants, and accounts registered as a
+        # company's own, which have no profile to show.
         rows = conn.execute(sql_text(f"SELECT {self._SELECT} FROM social_accounts "
+                                     "WHERE last_profiled_at IS NOT NULL OR watchlisted "
                                      "ORDER BY watchlisted DESC, last_profiled_at DESC NULLS LAST "
                                      "LIMIT :lim"),
                             {"lim": limit}).fetchall()

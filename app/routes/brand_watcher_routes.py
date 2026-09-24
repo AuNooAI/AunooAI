@@ -1410,6 +1410,35 @@ incremental article volume.</p>
         conn.close()
 
 
+def _brand_of_topic(topic: Optional[str]) -> str:
+    """Display name of the brand a ``Brand Monitoring <name>`` topic tracks."""
+    name = (topic or "").strip()
+    for prefix in ("Brand Monitoring ", "Market Monitoring "):
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def _owned_social_accounts(conn) -> set:
+    """(brand display name, platform, handle) for every verified own account.
+
+    Empty on a tenant without the Entity Intelligence tables, rather than an
+    error that would abort the transaction the feed is read in.
+    """
+    if conn.execute(text(
+            "SELECT to_regclass('bw_entity_social_identities')")).scalar() is None:
+        return set()
+    rows = conn.execute(text("""
+        SELECT b.display_name, lower(sa.platform), sa.handle_canonical
+          FROM bw_entity_social_identities si
+          JOIN social_accounts sa ON sa.id = si.social_account_id
+          JOIN bw_brands b ON b.id = si.brand_id
+         WHERE si.relationship = 'owned_company' AND si.status = 'verified'
+           AND si.valid_to IS NULL
+    """)).fetchall()
+    return {(r[0], r[1], r[2]) for r in rows}
+
+
 @router.get("/social")
 @bw_cached
 async def get_social_posts(
@@ -1594,6 +1623,21 @@ async def get_social_posts(
         except Exception as e:  # noqa: BLE001
             logger.debug(f"bw/social: account role override failed: {e}")
 
+        # The company's own posts are claims, not opinion about it. The entity
+        # read path drops them by channel; this path has no channel, so it
+        # checks the author against the verified own-account registry for the
+        # brand the topic names. On sunstar, Colgate's regional accounts alone
+        # were ~50 on-brand posts in 90 days, nearly all positive.
+        owned_keys = _owned_social_accounts(conn)
+        for p in posts:
+            author = str((p.get("social_meta") or {}).get("author") or ""
+                         ).strip().lstrip("@").lower()
+            p["is_owned"] = bool(author) and (
+                _brand_of_topic(p.get("topic")), p["platform"], author) in owned_keys
+        owned_excluded = sum(1 for p in posts if p["is_owned"])
+        if not include_owned:
+            posts = [p for p in posts if not p["is_owned"]]
+
         # Optional filter: only posts triggered by a specific keyword (case-insensitive).
         if keyword:
             kw_lc = keyword.strip().lower()
@@ -1618,6 +1662,7 @@ async def get_social_posts(
             "by_sentiment": dict(sent_counts),
             "by_keyword": dict(kw_counts.most_common()),
             "by_role": dict(role_counts.most_common()),
+            "owned_excluded": 0 if include_owned else owned_excluded,
             "posts": posts,
         }
     except Exception as e:
