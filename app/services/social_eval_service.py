@@ -40,13 +40,16 @@ AUTHOR_ROLES = (
     "patient",       # uses or has been referred to a health service or treatment
     "caregiver",     # family member or carer speaking for a patient
     "clinician",     # doctor, GP, nurse, dietitian, pharmacist, therapist, other health professional
+    "dental_professional",  # dentist, hygienist, dental clinic or dental student speaking as such
     "customer",      # end user or buyer of a non-health product/service, incl. prospective
     "academic",      # researcher, lecturer, scientist speaking as such
     "professional",  # works in the brand's industry but not for the brand (analyst, librarian, consultant, commissioner)
     "employee",      # works or worked for the brand
     "journalist",    # press, media outlet account, newsletter author
     "investor",      # shareholder, analyst covering the stock, VC
-    "brand",         # the company itself, an affiliate, reseller or paid promotion
+    "brand",         # the company itself, an affiliate or paid promotion
+    "retailer",      # shop, pharmacy, online seller or distributor selling the brand's products
+    "competitor",    # a rival company in the brand's market, its staff or its paid promotion
     "unknown",
 )
 
@@ -57,11 +60,15 @@ _ROLE_GUIDE = (
     "customer; customer is for non-health products and services only. Anyone who prescribes, "
     "refers, treats, or speaks as a doctor, GP, nurse, dietitian, pharmacist or therapist is a "
     "clinician, including when they say 'we' or 'us' about patients or about being asked to "
-    "prescribe. A relative or carer describing someone else's care is a caregiver. An outlet "
-    "or reporter is a journalist. Only the company's own account, its staff speaking for it, "
-    "affiliates or paid promotion count as brand; a person's own progress log that names the "
-    "brand is not the brand. When nothing in the text shows who is speaking, answer unknown "
-    "rather than guessing. "
+    "prescribe. A dentist, dental hygienist, orthodontist, dental clinic or dental student "
+    "speaking as such is a dental_professional, not a clinician. A relative or carer describing "
+    "someone else's care is a caregiver. An outlet or reporter is a journalist. A shop, "
+    "pharmacy, online seller or distributor offering the brand's products for sale is a "
+    "retailer. A rival company in the same market, its staff or its paid promotion is a "
+    "competitor. Only the company's own account (including its regional and product "
+    "accounts), its staff speaking for it, affiliates or paid promotion count as brand; a "
+    "person's own progress log that names the brand is not the brand. When nothing in the "
+    "text shows who is speaking, answer unknown rather than guessing. "
 )
 
 _SYSTEM = (
@@ -230,7 +237,7 @@ class SocialEvalService:
         # brand_context = the bw_brands description. Without it the model cannot
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
-        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
         # A watch on a subject is not a watch on a company. The extra guidance
         # rides in the user message rather than the system prompt so the brand
         # path sees byte-identical input to what it saw before.
@@ -315,7 +322,7 @@ class SocialEvalService:
         if not model:
             return None
         text = f"{title}\n{body}".strip()[:1500]
-        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
         messages = [
             {"role": "system", "content": _ROLE_SYSTEM},
             {"role": "user", "content": f"BRAND: {brand_topic}{ctx}\n\nPOST:\n{text}"},

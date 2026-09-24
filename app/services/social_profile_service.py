@@ -341,10 +341,12 @@ class SocialProfileService:
                 # programme; the Voices view needs them apart.
                 '"audience": "<exactly one of: patient (uses, is prescribed or referred to a '
                 "vendor's health service), caregiver (speaks for a patient), clinician (doctor, "
-                "GP, nurse, dietitian, pharmacist, therapist speaking as such), customer (end "
+                "GP, nurse, dietitian, pharmacist, therapist speaking as such), dental_professional "
+                "(dentist, hygienist, orthodontist, dental clinic or dental student), customer (end "
                 "user or buyer of a non-health product), academic, professional (works in the "
                 "field but not for a vendor: analyst, commissioner, partner organisation), "
-                "employee (of a vendor), journalist, investor, brand (a vendor's own or affiliate "
+                "employee (of a vendor), journalist, investor, retailer (a shop, pharmacy, online "
+                "seller or distributor selling vendors' products), brand (a vendor's own or affiliate "
                 'account), unknown>"')
         else:
             brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""

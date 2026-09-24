@@ -24,7 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from app.services.social_eval_service import AUTHOR_ROLES, SOCIAL_SOURCES
 
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "patient":      {"label": "Patients",      "plural": "patients",      "hint": "People on, referred to, or weighing up the programme or treatment"},
     "clinician":    {"label": "Clinicians",    "plural": "clinicians",    "hint": "Doctors, GPs, nurses, dietitians and other health professionals speaking as such"},
+    "dental_professional": {"label": "Dental professionals", "plural": "dental professionals", "hint": "Dentists, hygienists, orthodontists, dental clinics and dental students speaking as such"},
     "caregiver":    {"label": "Caregivers",    "plural": "caregivers",    "hint": "Relatives or carers speaking about someone else's care"},
     "customer":     {"label": "Customers",     "plural": "customers",     "hint": "End users or buyers, including prospective ones"},
     "academic":     {"label": "Academics",     "plural": "academics",     "hint": "Researchers, lecturers and scientists"},
@@ -43,15 +44,22 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "employee":     {"label": "Employees",     "plural": "employees",     "hint": "Current or former staff, including Glassdoor reviews"},
     "journalist":   {"label": "Press",         "plural": "journalists",   "hint": "Reporters, outlets and newsletter authors"},
     "investor":     {"label": "Investors",     "plural": "investors",     "hint": "Shareholders, equity analysts and VCs"},
-    "brand":        {"label": "Brand voice",   "plural": "brand accounts", "hint": "The company, affiliates, resellers or paid promotion"},
+    "brand":        {"label": "Brand voice",   "plural": "brand accounts", "hint": "The company, its regional and product accounts, affiliates or paid promotion"},
+    "retailer":     {"label": "Retailers",     "plural": "retailers",     "hint": "Shops, pharmacies, online sellers and distributors selling the brand's products"},
+    "competitor":   {"label": "Competitors",   "plural": "competitors",   "hint": "What rival brands' registered accounts posted in the window, plus any rival posting about this brand. Sentiment is toward the rival's own brand"},
     "unknown":      {"label": "Bystanders",    "plural": "bystanders",    "hint": "Commenting from the sidelines: the post shows no part in the programme, the profession or the company"},
     "unclassified": {"label": "Not yet classified", "plural": "posts not yet classified", "hint": "Scored before roles existed; run the backfill"},
 }
 
 # The pair the view opens on when both sides have posts. Health first, then
 # the equivalent split for other industries.
-PREFERRED_PAIRS = (("clinician", "patient"), ("professional", "customer"),
+PREFERRED_PAIRS = (("clinician", "patient"), ("dental_professional", "customer"),
+                   ("dental_professional", "patient"), ("professional", "customer"),
                    ("academic", "customer"))
+
+# Rows that are not an audience with a view of the brand, so the view never
+# opens on them: the company itself, its rivals, look-alikes, and the rest.
+NOT_AUDIENCES = {"brand", "competitor", "unknown", "unclassified"}
 
 _POS = re.compile(r"positiv|optimis", re.I)
 _NEG = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
@@ -154,7 +162,8 @@ HEALTH_ROLES = {"patient", "clinician", "caregiver"}
 # confirms the account belongs to the conversation; which side it is on comes
 # from what the account's posts say. Only when the posts say nothing does the
 # tenant's industry decide (clinician on a health site, professional elsewhere).
-FIELD_ROLES = {"patient", "clinician", "caregiver", "customer", "professional", "academic"}
+FIELD_ROLES = {"patient", "clinician", "dental_professional", "caregiver", "customer",
+               "professional", "academic"}
 _VOTE_MIN_POSTS = 2
 _VOTE_MIN_SHARE = 0.6
 
@@ -411,8 +420,208 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
     # A profiled account, or an account whose other posts all read the same
     # way, outranks the reading of one post.
     apply_account_roles(conn, out)
-    fold_customers_into_patients(out)
+    apply_registered_owners(conn, out, brand_id)
+    if _customers_are_patients(conn, brand_id):
+        fold_customers_into_patients(out)
+    else:
+        fold_patients_into_customers(out)
     return out
+
+
+def fold_patients_into_customers(posts: List[Dict[str, Any]]) -> int:
+    """On a product brand, show "patient" posts under Customers.
+
+    The mirror of the health-brand fold. Sunstar sells toothpaste and
+    interdental brushes; the classifier reads its "health products" as a
+    health service and calls some users patients, so two people using the
+    same GUM brush landed in different rows. Each post keeps the original
+    reading in ``author_role_folded_from``.
+    """
+    n = 0
+    for p in posts:
+        if p.get("author_role") == "patient":
+            p["author_role_folded_from"] = "patient"
+            p["author_role"] = "customer"
+            n += 1
+    return n
+
+
+# Relationships in the account registry that make an account the company's
+# own voice: the corporate account and its product accounts (Ora2, GUM).
+_OWNED_RELATIONSHIPS = ("owned_company", "product")
+
+
+def registered_owners(conn, pairs) -> Dict[tuple, Dict[int, str]]:
+    """Owning brands per (platform, handle), from the verified account registry.
+
+    ``bw_entity_social_identities`` holds the accounts someone checked by hand
+    and marked as a brand's own (86 on sunstar: Colgate's 37 country accounts,
+    Haleon's Sensodyne and Parodontax accounts, Sunstar's GUM and Ora2
+    accounts). Returns {key: {brand_id: display_name}} for the accounts found.
+    """
+    keys = [k for k in pairs if k]
+    if not keys:
+        return {}
+    try:
+        rows = conn.execute(text("""
+            SELECT LOWER(sa.platform), LOWER(sa.handle_canonical), i.brand_id, b.display_name
+              FROM bw_entity_social_identities i
+              JOIN social_accounts sa ON sa.id = i.social_account_id
+              JOIN bw_brands b ON b.id = i.brand_id
+             WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
+               AND (LOWER(sa.platform), LOWER(sa.handle_canonical))
+                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+        """).bindparams(bindparam("rels", expanding=True)),
+            {"rels": list(_OWNED_RELATIONSHIPS),
+             "plats": [k[0] for k in keys], "handles": [k[1] for k in keys]}).fetchall()
+    except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
+        logger.debug("voices: account registry lookup failed: %s", e)
+        return {}
+    out: Dict[tuple, Dict[int, str]] = {}
+    for plat, handle, bid, name in rows:
+        out.setdefault((plat, handle), {})[int(bid)] = name
+    return out
+
+
+def apply_registered_owners(conn, posts: List[Dict[str, Any]], brand_id: int) -> int:
+    """Registered accounts speak for their owner, in every brand's view.
+
+    An account registered to this brand is its Brand voice. An account
+    registered only to another brand on the site is a Competitor here, with
+    the owner's name in ``account_org``. The registry outranks both the post
+    reading and the account vote, because a person checked it. Returns how
+    many posts changed role.
+    """
+    keys = {id(p): _author_key(p.get("platform"), p.get("author")) for p in posts}
+    owners = registered_owners(conn, set(keys.values()))
+    changed = 0
+    for p in posts:
+        owned_by = owners.get(keys[id(p)])
+        if not owned_by:
+            continue
+        role = "brand" if brand_id in owned_by else "competitor"
+        if role != p.get("author_role"):
+            changed += 1
+        p.setdefault("post_role", p.get("author_role"))
+        p["author_role"] = role
+        p["author_role_source"] = "account_registry"
+        org = ", ".join(sorted(owned_by.values()))
+        p["account_org"] = org
+        p["author_role_reason"] = f"Registered account of {org}"
+    return changed
+
+
+def rival_brands(conn, brand_id: int) -> Dict[int, str]:
+    """The brands this one is compared against.
+
+    The other brands in its market when it sits in one with company there;
+    otherwise every other enabled brand on the site (a Sunstar-style site is
+    one client and its competitors).
+    """
+    try:
+        rows = conn.execute(text("""
+            SELECT DISTINCT b.id, b.display_name
+              FROM bw_market_brands mine
+              JOIN bw_market_brands other ON other.market_id = mine.market_id
+              JOIN bw_brands b ON b.id = other.brand_id
+             WHERE mine.brand_id = :b AND other.brand_id <> :b AND b.enabled = true
+        """), {"b": brand_id}).fetchall()
+    except Exception as e:  # noqa: BLE001 - markets ship with Market Monitor
+        logger.debug("voices: market peers lookup failed: %s", e)
+        rows = []
+    if not rows:
+        rows = conn.execute(text(
+            "SELECT id, display_name FROM bw_brands WHERE enabled = true AND id <> :b"),
+            {"b": brand_id}).fetchall()
+    return {int(r[0]): r[1] for r in rows}
+
+
+def competitor_posts(conn, *, brand_id: int, days_back: int,
+                     min_relevance: float) -> List[Dict[str, Any]]:
+    """What the rivals' own registered accounts posted in the window.
+
+    A rival's post lands under the rival's own topic, never this brand's,
+    so the registry join in ``apply_registered_owners`` alone found no
+    competitor on sunstar (0 of 86 registered accounts had a post under
+    another brand). This reads those posts where they are: every social post
+    by an account registered to a rival brand, above the same relevance
+    floor as the rest of the view. Same shape as ``_rows``.
+    """
+    rivals = rival_brands(conn, brand_id)
+    if not rivals:
+        return []
+    sd, ed = _window(days_back)
+    src = " OR ".join(f"LOWER(a.news_source) LIKE :s{i}" for i in range(len(SOCIAL_SOURCES)))
+    params: Dict[str, Any] = {"sd": sd, "ed": ed, "min_rel": min_relevance}
+    for i, s_ in enumerate(SOCIAL_SOURCES):
+        params[f"s{i}"] = f"%{s_}%"
+    try:
+        rows = conn.execute(text(f"""
+            SELECT DISTINCT ON (a.uri)
+                   a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                   a.social_meta, a.sentiment, a.topic_alignment_score AS relevance,
+                   a.author_role, i.brand_id AS owner_id
+              FROM bw_entity_social_identities i
+              JOIN social_accounts sa ON sa.id = i.social_account_id
+              JOIN articles a
+                ON LOWER(a.social_meta->>'author') = LOWER(sa.handle_canonical)
+               AND LOWER(COALESCE(a.social_meta->>'platform',
+                                  SPLIT_PART(a.news_source, ':', 2))) = LOWER(sa.platform)
+             WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
+               AND i.brand_id IN :rivals
+               AND ({src})
+               AND COALESCE(a.topic_alignment_score, 0) >= :min_rel
+               AND a.publication_date >= :sd AND a.publication_date <= :ed
+               AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews r
+                                WHERE r.article_uri = a.uri AND r.status = 'false_positive')
+             ORDER BY a.uri
+        """).bindparams(bindparam("rels", expanding=True), bindparam("rivals", expanding=True)),
+            {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals)}
+        ).mappings().all()
+    except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
+        logger.debug("voices: competitor posts lookup failed: %s", e)
+        return []
+    out = []
+    for r in rows:
+        meta = _meta(r["social_meta"])
+        org = rivals.get(int(r["owner_id"]), "")
+        out.append({
+            "uri": r["uri"],
+            "title": r["title"],
+            "text": (r["summary"] or r["title"] or "").strip(),
+            "platform": _platform(r["news_source"], None),
+            "publication_date": str(r["publication_date"]) if r["publication_date"] else None,
+            "sentiment": _bucket(r["sentiment"]),
+            "relevance": round(float(r["relevance"]), 3) if r["relevance"] is not None else None,
+            "author": meta.get("author") or meta.get("author_handle") or None,
+            "engagement": sum(int(meta.get(k) or 0) for k in ("likes", "reposts", "comments")),
+            "author_role": "competitor",
+            "post_role": r["author_role"],
+            "author_role_source": "account_registry",
+            "account_org": org,
+            "author_role_reason": f"Registered account of {org}",
+        })
+    out.sort(key=lambda p: p["publication_date"] or "", reverse=True)
+    return out
+
+
+def _customers_are_patients(conn, brand_id: int) -> bool:
+    """Per-brand switch for the customer fold, ``bw_brands.config.voices_customers_are_patients``.
+
+    On for a treatment or programme (Oviva, WeightWatchers), where everyone
+    using it is a patient. Off for a brand that sells products people buy in
+    a shop: Sunstar's toothpaste buyers are customers, and three patient or
+    clinician posts were enough to relabel all 22 of them. Off also shows
+    patients under Customers. Absent means on.
+    """
+    try:
+        v = conn.execute(text(
+            "SELECT config->>'voices_customers_are_patients' FROM bw_brands WHERE id = :b"),
+            {"b": brand_id}).scalar()
+    except Exception as e:  # noqa: BLE001 - config is optional
+        logger.debug("voices: fold switch lookup failed: %s", e)
+        return True
+    return str(v).strip().lower() not in ("false", "0", "no", "off")
 
 
 def fold_customers_into_patients(posts: List[Dict[str, Any]]) -> int:
@@ -516,6 +725,13 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     by_role: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for p in posts:
         by_role[p["author_role"]].append(p)
+    # Rivals' own posts fill the Competitors row. They are not about this
+    # brand, so they stay out of the totals and the classified count.
+    seen = {p["uri"] for p in posts}
+    for p in competitor_posts(conn, brand_id=brand_id, days_back=days_back,
+                              min_relevance=min_relevance):
+        if p["uri"] not in seen:
+            by_role["competitor"].append(p)
 
     roles = []
     for role, items in by_role.items():
@@ -536,18 +752,19 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
             "by_platform": dict(platforms),
             "posts": items[:per_role_limit],
         })
-    roles.sort(key=lambda r: (-r["n"], list(ROLE_LABELS).index(r["role"])
+    # Competitors last: their row counts rivals' own posts, which would
+    # otherwise outrank every audience actually talking about this brand.
+    roles.sort(key=lambda r: (r["role"] == "competitor", -r["n"], list(ROLE_LABELS).index(r["role"])
                               if r["role"] in ROLE_LABELS else 99))
 
-    present = {r["role"] for r in roles if r["role"] not in ("brand", "unknown", "unclassified")}
+    present = {r["role"] for r in roles if r["role"] not in NOT_AUDIENCES}
     focus: List[str] = []
     for a, b in PREFERRED_PAIRS:
         if a in present and b in present:
             focus = [a, b]
             break
     if not focus:
-        focus = [r["role"] for r in roles
-                 if r["role"] not in ("brand", "unknown", "unclassified")][:2]
+        focus = [r["role"] for r in roles if r["role"] not in NOT_AUDIENCES][:2]
 
     unclassified = len(by_role.get("unclassified", []))
     notes: List[str] = []
@@ -703,6 +920,11 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
                               days_back=days_back, mention_read=mention_read,
                               min_relevance=min_relevance)
              if p["author_role"] == role]
+    if role == "competitor":
+        seen = {p["uri"] for p in posts}
+        posts += [p for p in competitor_posts(conn, brand_id=brand_id, days_back=days_back,
+                                              min_relevance=min_relevance)
+                  if p["uri"] not in seen]
     posts.sort(key=lambda p: (-(p["engagement"] or 0), p["publication_date"] or ""))
     posts = posts[:max_posts]
     meta = ROLE_LABELS.get(role, {"label": role, "plural": role})
@@ -735,7 +957,13 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
         lines.append(f"[{i}] ({p['platform']}, {who}, {when}, {p['sentiment'] or 'unrated'}) "
                      f"{p['text'][:500]}")
     ctx = _digest_context(posts)
-    user = (f"BRAND: {display_name}\nAUDIENCE: {meta['plural']}\n"
+    audience = meta["plural"]
+    if role == "competitor":
+        orgs = sorted({p.get("account_org") for p in posts if p.get("account_org")})
+        audience = (f"the rival brands' own accounts ({', '.join(orgs)}). Most of these posts "
+                    f"are the rivals' own marketing and do not mention {display_name}; report "
+                    f"what each rival is saying and promoting, and name the rival for each theme")
+    user = (f"BRAND: {display_name}\nAUDIENCE: {audience}\n"
             f"CONTEXT: {json.dumps(ctx)}\n"
             f"POSTS ({len(posts)}):\n" + "\n".join(lines))
     system = _DIGEST_SYSTEM + CLINICAL_STYLE

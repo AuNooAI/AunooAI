@@ -627,6 +627,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     patient: 'patient', clinician: 'clinician', caregiver: 'caregiver', customer: 'customer',
     academic: 'academic', professional: 'professional', employee: 'employee',
     journalist: 'press', investor: 'investor', brand: 'brand voice',
+    dental_professional: 'dental professional', retailer: 'retailer', competitor: 'competitor',
   };
   const ROLE_CHIP_CLASS: Record<string, string> = {
     patient: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
@@ -639,6 +640,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     journalist: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
     investor: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
     brand: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    dental_professional: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    retailer: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300',
+    competitor: 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300',
     other: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   };
   const platColor = (p: string) => PLATFORM_COLORS[p] || PLATFORM_COLORS.social;
