@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
+import re
 from pathlib import Path
 import os
 import urllib.parse
@@ -1816,6 +1817,61 @@ class _IncidentTrackingRequest(BaseModel):
             return [self.topic]
         return []
 
+
+_MONTH_NAMES = ("January|February|March|April|May|June|July|August|September|October|November|December|"
+                "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec")
+_YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
+_MONTH_YEAR = re.compile(r"\b(" + _MONTH_NAMES + r")\.?(\s+\d{1,2}(?:st|nd|rd|th)?,?)?\s+(19[5-9]\d|20\d\d)\b")
+
+
+def strip_unstated_incident_years(incidents: List[Dict], source_text_by_uri: Dict[str, str],
+                                  published_by_uri: Dict[str, str]) -> None:
+    """Remove event years that no cited article states.
+
+    The article summaries the detector reads are our own model output, and
+    they can carry an invented year: Techmeme's "gained unauthorized access
+    ... in June" became "in June 2023" in the summary and then the incident's
+    event date (wileytest briefing 165, 24 Sep 2026). So a year other than
+    the articles' own publication years must appear in a cited article's
+    title or raw text. When it does not, the incident loses its event date
+    and falls back to "reported <published>", and "June 2023" in the
+    description becomes "June". Incidents whose cited articles have no raw
+    text are left as they are, because a title alone is too thin to judge.
+    """
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        uris = [u for u in (inc.get("article_uris") or []) if isinstance(u, str)]
+        texts = [source_text_by_uri[u] for u in uris if source_text_by_uri.get(u)]
+        if not texts:
+            continue
+        allowed = set()
+        for u in uris:
+            allowed.update(_YEAR.findall(str(published_by_uri.get(u) or "")))
+        for t in texts:
+            allowed.update(_YEAR.findall(t))
+        unstated = set()
+        for field in ("event_date", "timeline", "description"):
+            v = inc.get(field)
+            if isinstance(v, str) and not v.startswith("reported "):
+                unstated.update(y for y in _YEAR.findall(v) if y not in allowed)
+        if not unstated:
+            continue
+        logger.info("Incident '%s': removed year(s) %s that no cited article states",
+                    (inc.get("name") or "")[:80], sorted(unstated))
+        ev = inc.get("event_date") or (inc.get("timeline") if isinstance(inc.get("timeline"), str) else "")
+        if ev and any(y in ev for y in unstated):
+            published = inc.get("published") or next(
+                (str(published_by_uri[u])[:10] for u in uris if published_by_uri.get(u)), "")
+            inc["event_date"] = None
+            inc["timeline"] = f"reported {published}" if published else ""
+        for field in ("description", "summary", "name", "title"):
+            v = inc.get(field)
+            if isinstance(v, str):
+                inc[field] = _MONTH_YEAR.sub(
+                    lambda m: m.group(0) if m.group(3) not in unstated else m.group(1) + (m.group(2) or "").rstrip(","),
+                    v)
+
 @router.post("/incident-tracking")
 async def analyze_incidents(
     req: _IncidentTrackingRequest,
@@ -2286,6 +2342,24 @@ Output a pure JSON array only."""
                 inc["event_date"] = event_date or None
                 inc["published"] = published or None
                 inc["timeline"] = event_date or (f"reported {published}" if published else "")
+
+        try:
+            _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}
+                         for a in articles]
+            _cited = sorted({u for inc in incidents if isinstance(inc, dict)
+                             for u in (inc.get("article_uris") or []) if isinstance(u, str)})
+            _raw = {}
+            if _cited:
+                _ph = ",".join("?" for _ in _cited)
+                for r in db.fetch_all(f"SELECT uri, raw_markdown FROM raw_articles WHERE uri IN ({_ph})", _cited):
+                    _u, _md = (r["uri"], r["raw_markdown"]) if isinstance(r, dict) else (r[0], r[1])
+                    _raw[_u] = _md or ""
+            _text_by_uri = {a['uri']: ((a.get('title') or "") + "\n" + _raw[a['uri']])
+                            for a in _art_rows if _raw.get(a.get('uri'))}
+            strip_unstated_incident_years(
+                incidents, _text_by_uri, {a['uri']: a.get('publication_date') for a in _art_rows})
+        except Exception as _yr_err:
+            logger.warning(f"Incident year check skipped: {_yr_err}")
 
         # --- Credibility post-processing and safeguards ---
         # Build URI -> credibility map from fetched articles
