@@ -35,7 +35,7 @@ _MAX_WORKERS = 8
 CRITERIA: Dict[str, str] = {
     "patient": "Uses, is on, is referred to or prescribed the brand's health, medical, care or treatment SERVICE (not a shop product)",
     "caregiver": "A relative or carer describing someone else's care",
-    "clinician": "Doctor, GP, nurse, dietitian, pharmacist or therapist speaking as such (not dental)",
+    "clinician": "Doctor, GP, nurse, dietitian, pharmacist or therapist speaking as such (not dental), including one who says 'we' or 'us' about their patients, or about being asked to prescribe or refer",
     "dental_professional": "Dentist, dental hygienist, orthodontist, dental clinic or dental student speaking as such",
     "customer": "Describes the brand's product in their own routine, purchase, haul, gift received or use, even without saying 'I use'",
     "academic": "Researcher, lecturer or scientist speaking as such",
@@ -43,7 +43,7 @@ CRITERIA: Dict[str, str] = {
     "employee": "Works or worked for the brand, speaking as staff",
     "journalist": "A news outlet, reporter, newsletter, or a review or comparison site reporting on the brand",
     "investor": "Shareholder, stock commentator or market analyst",
-    "brand": "The brand's own account (incl. regional or product accounts), its staff speaking for it, affiliates, or paid promotion (#ad, #PR, gifted, sponsored, affiliate links)",
+    "brand": "The brand's own account (incl. regional or product accounts), its staff speaking for it, affiliates, or paid promotion (#ad, #PR, gifted, sponsored, affiliate links).",
     "retailer": "A shop, pharmacy, online seller or distributor offering the brand's products for sale",
     "competitor": "The author IS a rival company in the same market, its staff or its paid promotion. A third-party 'X vs Y' or review post is never this",
     "unknown": "Memes, jokes, figures of speech, fan reposts, commentary, or a recipe account naming the brand only as an ingredient or tag; nothing shows use of the product or another role",
@@ -89,6 +89,9 @@ _LEADING_LABEL_CAPS = re.compile(r"^\s*(?:AD|PR|ANZEIGE|WERBUNG)\b")
 # with a discount code is still a retailer, and press is still press.
 _PERSON_ROLES = {"customer", "patient", "caregiver", "unknown"}
 
+# Below this, a "brand" reading is overruled: the post does not speak for it.
+_SPEAKS_FOR_BRAND_MIN = 0.5
+
 
 def enabled() -> bool:
     return (os.getenv("VOICES_ROLE_MODEL") or "").strip().lower() == "jev"
@@ -114,21 +117,39 @@ def read_role(brand: str, context: str, competitors: List[str], post: Dict) -> O
         "post": {"platform": post.get("platform") or "", "author_handle": post.get("author") or "",
                  "title": title, "text": body},
     }
-    questions = {"role": {
-        "type": "choice",
-        "instructions": ("Who is speaking in `post`, relative to `brand`? Judge from what the post says, "
-                         "how the author speaks and the author handle. `brand.context` says what the brand "
-                         "sells; `brand.competitors` are rival companies."),
-        "criteria": CRITERIA,
-    }}
+    questions = {
+        "role": {
+            "type": "choice",
+            "instructions": ("Who is speaking in `post`, relative to `brand`? Judge from what the post says, "
+                             "how the author speaks and the author handle. `brand.context` says what the brand "
+                             "sells; `brand.competitors` are rival companies."),
+            "criteria": CRITERIA,
+        },
+        # A handle that resembles the brand's name pulled Jev towards "brand"
+        # on its own: @OVIVA_OVIVA, a personal account posting about dentist
+        # appointments and robots, read as Oviva 20 times out of 40.
+        "speaks_for_brand": {
+            "type": "noul",
+            "instructions": ("Does the text of `post` itself speak for `brand` or promote its products or "
+                             "services, whatever the author handle says?"),
+            "criteria": {"true": "The post announces, advertises or promotes the brand's products, services or news",
+                         "false": "The post is about something else, or only mentions the brand"},
+        },
+    }
     out = typesafe_client.system_one(state, questions, use_case=USE_CASE)
     if not out:
         return None
-    answer = (out.get("answers") or {}).get("role") or {}
+    answers = out.get("answers") or {}
+    answer = answers.get("role") or {}
     probs = answer.get("probabilities") or {}
     role = max(probs, key=probs.get) if probs else answer.get("answer")
     if role not in CRITERIA:
         return None
+    speaks = (answers.get("speaks_for_brand") or {}).get("noul")
+    if role == "brand" and speaks is not None and speaks < _SPEAKS_FOR_BRAND_MIN:
+        # Not the brand talking: take the next-best reading.
+        rest = {k: v for k, v in probs.items() if k != "brand" and k in CRITERIA}
+        role = max(rest, key=rest.get) if rest else "unknown"
     reason = REASONS[role]
     marker = paid_promotion_marker(f"{title}\n{body}")
     if marker and role in _PERSON_ROLES:
