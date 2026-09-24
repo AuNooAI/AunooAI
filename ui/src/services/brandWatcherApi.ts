@@ -281,6 +281,8 @@ export interface BWSocialResponse {
   by_sentiment: Record<string, number>;
   by_keyword?: Record<string, number>;
   by_role?: Record<string, number>;
+  /** The company's own posts left out of the feed and its sentiment. */
+  owned_excluded?: number;
   posts: BWSocialPost[];
 }
 

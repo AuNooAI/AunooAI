@@ -196,7 +196,21 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
 
     from app.services.social_sources import collapse_reposts
     posts = collapse_reposts(posts)   # retweets and mirrors of one post read as one
-    return _rollup(posts, days_back, min_relevance, include_unevaluated, keyword)
+    result = _rollup(posts, days_back, min_relevance, include_unevaluated, keyword)
+
+    # The company's own posts were left out above. Say how many, as the News
+    # cards do, so a reader can tell "excluded" from "never collected".
+    result['owned_excluded'] = 0
+    if not include_owned:
+        owned_where = [w for w in where if not w.startswith('m.channel IN')]
+        owned_where.append("m.channel = 'owned_social'")
+        result['owned_excluded'] = int(conn.execute(text(f"""
+            SELECT COUNT(DISTINCT m.article_uri)
+              FROM bw_entity_mentions m
+              JOIN articles a ON a.uri = m.article_uri
+             WHERE {' AND '.join(owned_where)}
+        """), {k: v for k, v in params.items() if k != 'lim'}).scalar() or 0)
+    return result
 
 
 def _post(row) -> Dict[str, Any]:

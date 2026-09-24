@@ -4703,7 +4703,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Posts</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{social.total.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">last {social.window_days}d</p>
+                  <p className="text-xs text-gray-400">last {social.window_days}d{(social.owned_excluded || 0) > 0 ? ` · ${social.owned_excluded} owned excluded` : ''}</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Evaluated</p>
