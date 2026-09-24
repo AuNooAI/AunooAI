@@ -21,6 +21,7 @@ import os
 import re
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -72,6 +73,27 @@ PREFERRED_PAIRS = (("clinician", "patient"), ("dental_professional", "customer")
 # Rows that are not an audience with a view of the brand, so the view never
 # opens on them: the company itself, its rivals, look-alikes, and the rest.
 NOT_AUDIENCES = {"brand", "competitor", "journal_society", "unknown", "unclassified"}
+
+@contextmanager
+def _guard(conn):
+    """Run a best-effort lookup inside a SAVEPOINT.
+
+    Several lookups here read tables or columns that not every site has
+    (the account registry, market tables, the identity shadow). Catching the
+    error was not enough: Postgres had already aborted the transaction, so
+    the next query in the same request failed too. On wileytest (no
+    bw_market_brands) the Voices request died that way. The savepoint rolls
+    back only the failed step, and the caller's except clause then supplies
+    its fallback as before.
+    """
+    conn.execute(text("SAVEPOINT audience_voices_lookup"))
+    try:
+        yield
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT audience_voices_lookup"))
+        raise
+    conn.execute(text("RELEASE SAVEPOINT audience_voices_lookup"))
+
 
 _POS = re.compile(r"positiv|optimis", re.I)
 _NEG = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
@@ -226,14 +248,15 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
 
     out: Dict[tuple, Dict[str, Any]] = {}
     try:
-        profiled = conn.execute(text("""
-            SELECT LOWER(platform), handle_canonical, metadata->>'market_role',
-                   metadata->>'market_org', metadata->>'audience_role'
-              FROM social_accounts
-             WHERE metadata->>'market_role' IS NOT NULL
-               AND (LOWER(platform), handle_canonical)
-                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
-        """), {"plats": plats, "handles": handles}).fetchall()
+        with _guard(conn):
+            profiled = conn.execute(text("""
+                SELECT LOWER(platform), handle_canonical, metadata->>'market_role',
+                       metadata->>'market_org', metadata->>'audience_role'
+                  FROM social_accounts
+                 WHERE metadata->>'market_role' IS NOT NULL
+                   AND (LOWER(platform), handle_canonical)
+                       IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+            """), {"plats": plats, "handles": handles}).fetchall()
     except Exception as e:  # noqa: BLE001 - social_accounts may predate metadata
         logger.debug("account_audiences: profile lookup failed: %s", e)
         profiled = []
@@ -281,26 +304,27 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
     # Third source, for accounts neither of the first two could place: what the
     # identity shadow read off the profile. Silent where the table is absent.
     try:
-        # Ask whether the table is there rather than finding out by failing:
-        # a failed statement aborts the transaction, and the caller's
-        # connection has to survive a site that never ran the migration.
-        has_table = conn.execute(
-            text("SELECT to_regclass('entity_identity_shadow')")).scalar() is not None
-        affiliated = conn.execute(text("""
-            SELECT DISTINCT ON (LOWER(sa.platform), sa.handle_canonical)
-                   LOWER(sa.platform), sa.handle_canonical, s.jev_affiliation
-              FROM entity_identity_shadow s
-              JOIN social_accounts sa ON sa.id = s.social_account_id
-             WHERE s.jev_error IS NULL
-               AND s.jev_affiliation IS NOT NULL
-               AND COALESCE(s.jev_affiliation_confidence, 0) >= :minconf
-               AND COALESCE(s.jev_affiliation_stated, 0) >= :minstated
-               AND (LOWER(sa.platform), sa.handle_canonical)
-                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
-             ORDER BY LOWER(sa.platform), sa.handle_canonical, s.recorded_at DESC
-        """), {"plats": plats, "handles": handles,
-               "minconf": AFFILIATION_MIN_CONFIDENCE,
-               "minstated": AFFILIATION_MIN_STATED}).fetchall() if has_table else []
+        with _guard(conn):
+            # Ask whether the table is there rather than finding out by failing:
+            # a failed statement aborts the transaction, and the caller's
+            # connection has to survive a site that never ran the migration.
+            has_table = conn.execute(
+                text("SELECT to_regclass('entity_identity_shadow')")).scalar() is not None
+            affiliated = conn.execute(text("""
+                SELECT DISTINCT ON (LOWER(sa.platform), sa.handle_canonical)
+                       LOWER(sa.platform), sa.handle_canonical, s.jev_affiliation
+                  FROM entity_identity_shadow s
+                  JOIN social_accounts sa ON sa.id = s.social_account_id
+                 WHERE s.jev_error IS NULL
+                   AND s.jev_affiliation IS NOT NULL
+                   AND COALESCE(s.jev_affiliation_confidence, 0) >= :minconf
+                   AND COALESCE(s.jev_affiliation_stated, 0) >= :minstated
+                   AND (LOWER(sa.platform), sa.handle_canonical)
+                       IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+                 ORDER BY LOWER(sa.platform), sa.handle_canonical, s.recorded_at DESC
+            """), {"plats": plats, "handles": handles,
+                   "minconf": AFFILIATION_MIN_CONFIDENCE,
+                   "minstated": AFFILIATION_MIN_STATED}).fetchall() if has_table else []
     except Exception as e:  # noqa: BLE001 - the shadow table is not on every site
         logger.debug("account_audiences: affiliation lookup failed: %s", e)
         affiliated = []
@@ -475,17 +499,18 @@ def registered_owners(conn, pairs) -> Dict[tuple, Dict[int, str]]:
     if not keys:
         return {}
     try:
-        rows = conn.execute(text("""
-            SELECT LOWER(sa.platform), LOWER(sa.handle_canonical), i.brand_id, b.display_name
-              FROM bw_entity_social_identities i
-              JOIN social_accounts sa ON sa.id = i.social_account_id
-              JOIN bw_brands b ON b.id = i.brand_id
-             WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
-               AND (LOWER(sa.platform), LOWER(sa.handle_canonical))
-                   IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
-        """).bindparams(bindparam("rels", expanding=True)),
-            {"rels": list(_OWNED_RELATIONSHIPS),
-             "plats": [k[0] for k in keys], "handles": [k[1] for k in keys]}).fetchall()
+        with _guard(conn):
+            rows = conn.execute(text("""
+                SELECT LOWER(sa.platform), LOWER(sa.handle_canonical), i.brand_id, b.display_name
+                  FROM bw_entity_social_identities i
+                  JOIN social_accounts sa ON sa.id = i.social_account_id
+                  JOIN bw_brands b ON b.id = i.brand_id
+                 WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
+                   AND (LOWER(sa.platform), LOWER(sa.handle_canonical))
+                       IN (SELECT LOWER(p), LOWER(h) FROM UNNEST(:plats, :handles) AS t(p, h))
+            """).bindparams(bindparam("rels", expanding=True)),
+                {"rels": list(_OWNED_RELATIONSHIPS),
+                 "plats": [k[0] for k in keys], "handles": [k[1] for k in keys]}).fetchall()
     except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
         logger.debug("voices: account registry lookup failed: %s", e)
         return {}
@@ -531,13 +556,14 @@ def rival_brands(conn, brand_id: int) -> Dict[int, str]:
     one client and its competitors).
     """
     try:
-        rows = conn.execute(text("""
-            SELECT DISTINCT b.id, b.display_name
-              FROM bw_market_brands mine
-              JOIN bw_market_brands other ON other.market_id = mine.market_id
-              JOIN bw_brands b ON b.id = other.brand_id
-             WHERE mine.brand_id = :b AND other.brand_id <> :b AND b.enabled = true
-        """), {"b": brand_id}).fetchall()
+        with _guard(conn):
+            rows = conn.execute(text("""
+                SELECT DISTINCT b.id, b.display_name
+                  FROM bw_market_brands mine
+                  JOIN bw_market_brands other ON other.market_id = mine.market_id
+                  JOIN bw_brands b ON b.id = other.brand_id
+                 WHERE mine.brand_id = :b AND other.brand_id <> :b AND b.enabled = true
+            """), {"b": brand_id}).fetchall()
     except Exception as e:  # noqa: BLE001 - markets ship with Market Monitor
         logger.debug("voices: market peers lookup failed: %s", e)
         rows = []
@@ -568,28 +594,29 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
     for i, s_ in enumerate(SOCIAL_SOURCES):
         params[f"s{i}"] = f"%{s_}%"
     try:
-        rows = conn.execute(text(f"""
-            SELECT DISTINCT ON (a.uri)
-                   a.uri, a.title, a.summary, a.news_source, a.publication_date,
-                   a.social_meta, a.sentiment, a.topic_alignment_score AS relevance,
-                   a.author_role, i.brand_id AS owner_id
-              FROM bw_entity_social_identities i
-              JOIN social_accounts sa ON sa.id = i.social_account_id
-              JOIN articles a
-                ON LOWER(a.social_meta->>'author') = LOWER(sa.handle_canonical)
-               AND LOWER(COALESCE(a.social_meta->>'platform',
-                                  SPLIT_PART(a.news_source, ':', 2))) = LOWER(sa.platform)
-             WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
-               AND i.brand_id IN :rivals
-               AND ({src})
-               AND COALESCE(a.topic_alignment_score, 0) >= :min_rel
-               AND a.publication_date >= :sd AND a.publication_date <= :ed
-               AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews r
-                                WHERE r.article_uri = a.uri AND r.status = 'false_positive')
-             ORDER BY a.uri
-        """).bindparams(bindparam("rels", expanding=True), bindparam("rivals", expanding=True)),
-            {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals)}
-        ).mappings().all()
+        with _guard(conn):
+            rows = conn.execute(text(f"""
+                SELECT DISTINCT ON (a.uri)
+                       a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                       a.social_meta, a.sentiment, a.topic_alignment_score AS relevance,
+                       a.author_role, i.brand_id AS owner_id
+                  FROM bw_entity_social_identities i
+                  JOIN social_accounts sa ON sa.id = i.social_account_id
+                  JOIN articles a
+                    ON LOWER(a.social_meta->>'author') = LOWER(sa.handle_canonical)
+                   AND LOWER(COALESCE(a.social_meta->>'platform',
+                                      SPLIT_PART(a.news_source, ':', 2))) = LOWER(sa.platform)
+                 WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
+                   AND i.brand_id IN :rivals
+                   AND ({src})
+                   AND COALESCE(a.topic_alignment_score, 0) >= :min_rel
+                   AND a.publication_date >= :sd AND a.publication_date <= :ed
+                   AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews r
+                                    WHERE r.article_uri = a.uri AND r.status = 'false_positive')
+                 ORDER BY a.uri
+            """).bindparams(bindparam("rels", expanding=True), bindparam("rivals", expanding=True)),
+                {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals)}
+            ).mappings().all()
     except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
         logger.debug("voices: competitor posts lookup failed: %s", e)
         return []
@@ -627,9 +654,10 @@ def _customers_are_patients(conn, brand_id: int) -> bool:
     patients under Customers. Absent means on.
     """
     try:
-        v = conn.execute(text(
-            "SELECT config->>'voices_customers_are_patients' FROM bw_brands WHERE id = :b"),
-            {"b": brand_id}).scalar()
+        with _guard(conn):
+            v = conn.execute(text(
+                "SELECT config->>'voices_customers_are_patients' FROM bw_brands WHERE id = :b"),
+                {"b": brand_id}).scalar()
     except Exception as e:  # noqa: BLE001 - config is optional
         logger.debug("voices: fold switch lookup failed: %s", e)
         return True
@@ -672,13 +700,14 @@ def profile_context(conn, brand_id: int, display_name: str) -> str:
     sits in when there is one, so a Noom poster is read against the same
     weight-management market as an Oviva poster; the brand name otherwise."""
     try:
-        row = conn.execute(text("""
-            SELECT m.name FROM bw_market_brands mb
-              JOIN bw_markets m ON m.id = mb.market_id
-             WHERE mb.brand_id = :b ORDER BY m.id LIMIT 1
-        """), {"b": brand_id}).fetchone()
-        if row and row[0]:
-            return str(row[0])
+        with _guard(conn):
+            row = conn.execute(text("""
+                SELECT m.name FROM bw_market_brands mb
+                  JOIN bw_markets m ON m.id = mb.market_id
+                 WHERE mb.brand_id = :b ORDER BY m.id LIMIT 1
+            """), {"b": brand_id}).fetchone()
+            if row and row[0]:
+                return str(row[0])
     except Exception as exc:  # noqa: BLE001 — no market tables on some sites
         logger.debug("profile_context: %s", exc)
     return display_name
@@ -713,12 +742,13 @@ def posters_to_profile(conn, *, brand_id: int, display_name: str, days_back: int
             a["unplaced"] += 1
     if not refresh:
         try:
-            rows = conn.execute(text("""
-                SELECT LOWER(platform), LOWER(handle) FROM social_accounts
-                 WHERE last_profiled_at IS NOT NULL
-                   AND metadata->>'audience_role' IS NOT NULL
-            """)).fetchall()
-            done = {(r[0], r[1]) for r in rows}
+            with _guard(conn):
+                rows = conn.execute(text("""
+                    SELECT LOWER(platform), LOWER(handle) FROM social_accounts
+                     WHERE last_profiled_at IS NOT NULL
+                       AND metadata->>'audience_role' IS NOT NULL
+                """)).fetchall()
+                done = {(r[0], r[1]) for r in rows}
         except Exception as exc:  # noqa: BLE001
             logger.debug("posters_to_profile: %s", exc)
             done = set()
@@ -912,11 +942,12 @@ def _digest_model_name(conn) -> str:
     if env:
         return env
     try:
-        row = conn.execute(text(
-            "SELECT default_llm_model FROM keyword_monitor_settings "
-            "WHERE COALESCE(default_llm_model, '') <> '' LIMIT 1")).fetchone()
-        if row and row[0]:
-            return str(row[0])
+        with _guard(conn):
+            row = conn.execute(text(
+                "SELECT default_llm_model FROM keyword_monitor_settings "
+                "WHERE COALESCE(default_llm_model, '') <> '' LIMIT 1")).fetchone()
+            if row and row[0]:
+                return str(row[0])
     except Exception as e:  # noqa: BLE001 - settings table may not exist on old tenants
         logger.debug("voices digest: default model lookup failed: %s", e)
     return "gpt-5.4-mini"
