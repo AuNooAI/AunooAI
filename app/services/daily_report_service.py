@@ -65,9 +65,10 @@ class DRConfig:
     analysis_timeout: int = 120
     synthesis_timeout: int = 90
     review_timeout: int = 120
-    # Repair: after a failed review the writer fixes the flagged claims and the
-    # reviewer runs again, up to this many times, before the draft is held.
-    max_repair_rounds: int = 2
+    # Repair: after a review with errors or warnings the writer fixes the
+    # flagged claims and the reviewer runs again, up to this many times. Errors
+    # left after the last round hold the draft.
+    max_repair_rounds: int = 3
     repair_timeout: int = 120
 
 
@@ -385,6 +386,23 @@ def _merge_findings(preflight: List[Dict], judge: List[Dict]) -> List[Dict]:
     return out
 
 
+_NO_CHANGE = re.compile(r"\bno (change|fix|correction|action)s? (is )?(needed|required|necessary)\b"
+                        r"|\bno error found\b|\bis correctly attributed\b|\bthe inference is supported\b", re.I)
+
+
+def _needs_repair(review: Dict) -> bool:
+    """Errors and warnings both go to the writer. Only errors hold the
+    briefing, but a warning is still a wrong sentence that the desk would
+    otherwise publish (wileytest 24 Sep 2026: five warnings, none fixed)."""
+    s = review.get("summary", {})
+    return review.get("status") != "review_failed" and (s.get("errors", 0) + s.get("warnings", 0)) > 0
+
+
+def _review_score(review: Dict):
+    s = review.get("summary", {})
+    return (s.get("errors", 0), s.get("warnings", 0))
+
+
 def _sanitize_review_findings(findings) -> List[Dict]:
     """Normalise severities, drop malformed rows, dedup repeats, cap the list."""
     if not isinstance(findings, list):
@@ -400,6 +418,11 @@ def _sanitize_review_findings(findings) -> List[Dict]:
         sev = str(raw.get("severity") or "warning").strip().lower()
         if sev not in ("info", "warning", "error"):
             sev = "warning"
+        fix = str(raw.get("suggested_fix") or "").strip()
+        if _NO_CHANGE.search(fix) or _NO_CHANGE.search(text):
+            # The judge sometimes lists correct claims despite the rubric
+            # (wileytest 24 Sep 2026: 9 of 14 findings said "No change needed").
+            continue
         target = str(raw.get("target") or "summary").strip()[:120]
         key = (target, sev, text[:80].lower())
         if key in seen:
@@ -603,14 +626,14 @@ class DailyReportService:
             # The writer can make a draft worse (wileytest 15 Sep 2026: 2 errors,
             # then 1, then 4). Keep the round with the fewest errors, not the last.
             best_synthesis, best_review = synthesis_result, review
-            best_errors = review.get("summary", {}).get("errors", 0)
+            best_score = _review_score(review)
             best_round = 0
-            while (review.get("status") == "revision_requested"
-                   and len(repair_rounds) < config.max_repair_rounds):
+            while _needs_repair(review) and len(repair_rounds) < config.max_repair_rounds:
                 round_no = len(repair_rounds) + 1
                 errors_before = review.get("summary", {}).get("errors", 0)
+                warnings_before = review.get("summary", {}).get("warnings", 0)
                 yield {"stage": "repair", "status": "started", "progress": 0.0,
-                       "round": round_no, "errors": errors_before}
+                       "round": round_no, "errors": errors_before, "warnings": warnings_before}
                 try:
                     repaired = await asyncio.wait_for(
                         self._repair_synthesis(
@@ -628,7 +651,8 @@ class DailyReportService:
                     repaired = None
                 if not repaired:
                     repair_rounds.append({"round": round_no, "errors_before": errors_before,
-                                          "errors_after": errors_before, "status": "repair_failed"})
+                                          "errors_after": errors_before, "warnings_before": warnings_before,
+                                          "warnings_after": warnings_before, "status": "repair_failed"})
                     break
                 synthesis_result = repaired
                 try:
@@ -649,16 +673,19 @@ class DailyReportService:
                               "model": model, "reviewed_at": datetime.now().isoformat(),
                               "error": "Review timed out"}
                 errors_after = review.get("summary", {}).get("errors", 0)
+                warnings_after = review.get("summary", {}).get("warnings", 0)
                 repair_rounds.append({"round": round_no, "errors_before": errors_before,
-                                      "errors_after": errors_after, "status": review.get("status")})
-                if review.get("status") != "review_failed" and errors_after < best_errors:
-                    best_synthesis, best_review, best_errors, best_round = synthesis_result, review, errors_after, round_no
+                                      "errors_after": errors_after, "warnings_before": warnings_before,
+                                      "warnings_after": warnings_after, "status": review.get("status")})
+                if review.get("status") != "review_failed" and _review_score(review) < best_score:
+                    best_synthesis, best_review, best_score, best_round = synthesis_result, review, _review_score(review), round_no
                 yield {"stage": "repair", "status": "completed", "progress": 1.0,
                        "round": round_no, "errors_before": errors_before, "errors_after": errors_after,
+                       "warnings_before": warnings_before, "warnings_after": warnings_after,
                        "review_status": review.get("status")}
-            if review.get("status") == "revision_requested" and review is not best_review:
-                logger.info("Briefing repair: keeping round %d (%d errors) over the last round (%d errors) for '%s'",
-                            best_round, best_errors, review.get("summary", {}).get("errors", 0), briefing_name)
+            if repair_rounds and review is not best_review:
+                logger.info("Briefing repair: keeping round %d %s over the last round %s for '%s'",
+                            best_round, best_score, _review_score(review), briefing_name)
                 synthesis_result, review = best_synthesis, best_review
             review["repair_rounds"] = repair_rounds
             review["repair_kept_round"] = best_round if repair_rounds else None
