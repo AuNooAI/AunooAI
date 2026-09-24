@@ -1425,17 +1425,21 @@ def _owned_social_accounts(conn) -> set:
     Empty on a tenant without the Entity Intelligence tables, rather than an
     error that would abort the transaction the feed is read in.
     """
-    if conn.execute(text(
-            "SELECT to_regclass('bw_entity_social_identities')")).scalar() is None:
-        return set()
-    rows = conn.execute(text("""
+    try:
+        if conn.execute(text(
+                "SELECT to_regclass('bw_entity_social_identities')")).scalar() is None:
+            return set()
+        rows = conn.execute(text("""
         SELECT b.display_name, lower(sa.platform), sa.handle_canonical
           FROM bw_entity_social_identities si
           JOIN social_accounts sa ON sa.id = si.social_account_id
           JOIN bw_brands b ON b.id = si.brand_id
          WHERE si.relationship = 'owned_company' AND si.status = 'verified'
            AND si.valid_to IS NULL
-    """)).fetchall()
+        """)).fetchall()
+    except Exception as e:  # noqa: BLE001 - the feed stands without the filter
+        logger.warning(f"bw/social: own-account lookup failed: {e}")
+        return set()
     return {(r[0], r[1], r[2]) for r in rows}
 
 
@@ -1542,6 +1546,10 @@ async def get_social_posts(
             LIMIT :lim
         """), params).fetchall()
 
+        # Read now, while the transaction is clean: a later best-effort lookup
+        # (account roles) can fail and leave it aborted.
+        owned_keys = _owned_social_accounts(conn)
+
         def _platform(ns):
             s = (ns or "").lower()
             if s.startswith("xpoz:"):
@@ -1628,7 +1636,6 @@ async def get_social_posts(
         # checks the author against the verified own-account registry for the
         # brand the topic names. On sunstar, Colgate's regional accounts alone
         # were ~50 on-brand posts in 90 days, nearly all positive.
-        owned_keys = _owned_social_accounts(conn)
         for p in posts:
             author = str((p.get("social_meta") or {}).get("author") or ""
                          ).strip().lstrip("@").lower()
