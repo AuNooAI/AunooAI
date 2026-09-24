@@ -30,6 +30,34 @@ _ENGAGEMENT_SQL = ("(COALESCE((social_meta->>'likes')::float,0) + 2*COALESCE((so
                    " + COALESCE((social_meta->>'comments')::float,0) + COALESCE((social_meta->>'plays')::float,0)/100)")
 
 
+def not_own_account_sql(conn, alias: str = "articles") -> str:
+    """SQL condition that drops posts from the brand's own registered accounts.
+
+    A post counts as the brand's own when its author is a verified account in
+    ``bw_entity_social_identities`` registered to the brand the row's topic
+    watches (``Brand Monitoring <name>``). The Social tab already leaves these
+    out of its feed and sentiment; the alert rules did not, and only skipped
+    handles starting with the brand's name, so @ora2_official could count
+    towards a negative spike for Sunstar. "TRUE" on a tree without the
+    registry, so the rules run unchanged there.
+    """
+    try:
+        if conn.execute(text("SELECT to_regclass('bw_entity_social_identities')")).scalar() is None:
+            return "TRUE"
+    except Exception as e:  # noqa: BLE001 - alerts stand without the filter
+        logger.warning("alerts: own-account registry probe failed: %s", e)
+        return "TRUE"
+    return (f"NOT EXISTS (SELECT 1 FROM bw_entity_social_identities _oi"
+            f" JOIN social_accounts _osa ON _osa.id = _oi.social_account_id"
+            f" JOIN bw_brands _ob ON _ob.id = _oi.brand_id"
+            f" WHERE _oi.relationship IN ('owned_company', 'product')"
+            f" AND _oi.status = 'verified' AND _oi.valid_to IS NULL"
+            f" AND {alias}.topic = 'Brand Monitoring ' || _ob.display_name"
+            f" AND LOWER(_osa.handle_canonical) = LOWER({alias}.social_meta->>'author')"
+            f" AND LOWER(_osa.platform) = LOWER(COALESCE({alias}.social_meta->>'platform',"
+            f" SPLIT_PART({alias}.news_source, ':', 2))))")
+
+
 def fetch_negative_social_posts(conn, topic: str, hours: int, author: Optional[str] = None,
                                 min_engagement: Optional[float] = None, limit: int = 6) -> List[Dict[str, Any]]:
     """The negative on-brand social posts behind a social alert, most-engaged first.
@@ -56,6 +84,7 @@ def fetch_negative_social_posts(conn, topic: str, hours: int, author: Optional[s
           AND publication_date >= to_char(now() - (:h || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
           AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                           WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')
+          AND {not_own_account_sql(conn)}
           {extra}
         ORDER BY eng DESC NULLS LAST, publication_date DESC
         LIMIT :lim

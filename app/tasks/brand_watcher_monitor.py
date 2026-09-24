@@ -579,6 +579,7 @@ def evaluate_adverse_alerts(db) -> int:
     from app.services.brand_alert_service import (
         get_alert_config, deliver_pending_events,
         fetch_negative_social_posts, narrate_social_posts, social_posts_md,
+        not_own_account_sql,
     )
 
     def _social_body(lead: str, bname_, posts) -> str:
@@ -619,6 +620,10 @@ def evaluate_adverse_alerts(db) -> int:
 
         brands = conn.execute(_text(
             "SELECT id, display_name, name, brand_keywords FROM bw_brands WHERE enabled = true")).fetchall()
+        # Posts from the brand's own registered accounts are the brand talking,
+        # not public reaction; the handle-prefix test below misses accounts
+        # named after a product (@ora2_official for Sunstar).
+        _not_own = not_own_account_sql(conn)
         import json as _json
         import re as _re
         for bid, bname, bslug, bkw in brands:
@@ -641,7 +646,7 @@ def evaluate_adverse_alerts(db) -> int:
                       COUNT(*) FILTER (WHERE publication_date <  to_char(now() - interval '48 hours','YYYY-MM-DD"T"HH24:MI:SS')
                                          AND publication_date >= to_char(now() - interval '96 hours','YYYY-MM-DD"T"HH24:MI:SS')) AS prior
                     FROM articles
-                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND {_not_fp_sql()}
                 """), {"t": topic}).fetchone()
                 recent, prior = row[0] or 0, row[1] or 0
@@ -649,7 +654,7 @@ def evaluate_adverse_alerts(db) -> int:
                         and not _fired_recently(conn, bid, "neg_social_spike", cooldown_h)):
                     uris = [r[0] for r in conn.execute(_text(f"""
                         SELECT uri FROM articles
-                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                           AND publication_date >= to_char(now() - interval '48 hours','YYYY-MM-DD"T"HH24:MI:SS')
                           AND {_not_fp_sql()}
                     """), {"t": topic}).fetchall()]
@@ -675,7 +680,7 @@ def evaluate_adverse_alerts(db) -> int:
                 rows = conn.execute(_text(f"""
                     SELECT uri, {_ENGAGEMENT_SQL}
                     FROM articles
-                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
                       AND {_ENGAGEMENT_SQL} >= :minEng
                       AND {_not_fp_sql()}
@@ -852,7 +857,7 @@ def evaluate_adverse_alerts(db) -> int:
                         SELECT LOWER(COALESCE(social_meta->>'author','')) AS author,
                                publication_date, {_ENGAGEMENT_SQL} AS eng
                         FROM articles
-                        WHERE topic = :t AND {_SOCIAL_SRC_SQL}
+                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own}
                           AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                           AND COALESCE(social_meta->>'author','') <> ''
                           AND publication_date >= to_char(now() - (:lb || ' days')::interval,'YYYY-MM-DD')
@@ -898,7 +903,7 @@ def evaluate_adverse_alerts(db) -> int:
                            COUNT(DISTINCT social_meta->>'author') AS authors,
                            COUNT(*) AS n, MAX(title) AS sample
                     FROM articles
-                    WHERE topic = :t AND {_SOCIAL_SRC_SQL}
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own}
                       AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
                       AND COALESCE(social_meta->>'author','') <> ''
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
