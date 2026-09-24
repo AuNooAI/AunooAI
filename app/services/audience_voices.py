@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import bindparam, text
 
-from app.services.social_eval_service import AUTHOR_ROLES, SOCIAL_SOURCES
+from app.services.social_eval_service import SOCIAL_SOURCES, author_roles
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,14 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "brand":        {"label": "Brand voice",   "plural": "brand accounts", "hint": "The company, its regional and product accounts, affiliates or paid promotion"},
     "retailer":     {"label": "Retailers",     "plural": "retailers",     "hint": "Shops, pharmacies, online sellers and distributors selling the brand's products"},
     "competitor":   {"label": "Competitors",   "plural": "competitors",   "hint": "What rival brands' registered accounts posted in the window, plus any rival posting about this brand. Sentiment is toward the rival's own brand"},
+    # Publisher set (voices_personas.PUBLISHER, VOICES_PERSONAS=publisher).
+    "author":          {"label": "Authors",          "plural": "authors",          "hint": "People sharing their own paper, book or chapter, or their submission experience"},
+    "editor_reviewer": {"label": "Editors & reviewers", "plural": "editors and reviewers", "hint": "Journal editors, editorial boards and peer reviewers speaking in that role"},
+    "journal_society": {"label": "Journals & societies", "plural": "journal and society accounts", "hint": "A journal's, book series' or learned society's own account"},
+    "librarian":       {"label": "Librarians",       "plural": "librarians",       "hint": "Libraries and consortia on subscriptions, access, deals and databases"},
+    "student":         {"label": "Students",         "plural": "students",         "hint": "Students on textbooks, courseware, assignments and exams"},
+    "educator":        {"label": "Educators",        "plural": "educators",        "hint": "Teachers and instructors teaching with the brand's materials"},
+    "reader":          {"label": "Readers",          "plural": "readers",          "hint": "Members of the public reading or buying the brand's books or articles"},
     "unknown":      {"label": "Bystanders",    "plural": "bystanders",    "hint": "Commenting from the sidelines: the post shows no part in the programme, the profession or the company"},
     "unclassified": {"label": "Not yet classified", "plural": "posts not yet classified", "hint": "Scored before roles existed; run the backfill"},
 }
@@ -55,11 +63,15 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
 # the equivalent split for other industries.
 PREFERRED_PAIRS = (("clinician", "patient"), ("dental_professional", "customer"),
                    ("dental_professional", "patient"), ("professional", "customer"),
-                   ("academic", "customer"))
+                   ("academic", "customer"),
+                   # Publisher set: the people who write for the brand against the
+                   # people who read it; then the buyers against the users.
+                   ("author", "academic"), ("librarian", "student"),
+                   ("educator", "student"), ("academic", "reader"))
 
 # Rows that are not an audience with a view of the brand, so the view never
 # opens on them: the company itself, its rivals, look-alikes, and the rest.
-NOT_AUDIENCES = {"brand", "competitor", "unknown", "unclassified"}
+NOT_AUDIENCES = {"brand", "competitor", "journal_society", "unknown", "unclassified"}
 
 _POS = re.compile(r"positiv|optimis", re.I)
 _NEG = re.compile(r"negativ|pessimis|concern|critical|alarm", re.I)
@@ -235,7 +247,7 @@ def account_audiences(conn, pairs, health: Optional[bool] = None) -> Dict[tuple,
             audience = "employee"
         # A profile read with the account's on-brand posts in view names the
         # audience directly; that answers the question and needs no mapping.
-        if audience and audience in AUTHOR_ROLES and audience != "unknown":
+        if audience and audience in author_roles() and audience != "unknown":
             out[(plat, handle)] = {"role": audience, "source": "account_profile",
                                    "market_role": market_role, "org": org, "n": None}
             continue
@@ -914,7 +926,7 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
                  days_back: int = 90, mention_read: bool = False,
                  min_relevance: float = 0.4, max_posts: int = 60) -> Dict[str, Any]:
     """Summarise what one audience says. Cached per post set for six hours."""
-    if role not in AUTHOR_ROLES and role != "unclassified":
+    if role not in author_roles() and role != "unclassified":
         return {"error": f"unknown role {role!r}", "role": role}
     posts = [p for p in _rows(conn, brand_id=brand_id, display_name=display_name,
                               days_back=days_back, mention_read=mention_read,

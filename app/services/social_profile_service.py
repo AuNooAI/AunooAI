@@ -92,6 +92,33 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+_DEFAULT_AUDIENCE_FIELD = (
+    '"audience": "<exactly one of: patient (uses, is prescribed or referred to a '
+    "vendor's health service), caregiver (speaks for a patient), clinician (doctor, "
+    "GP, nurse, dietitian, pharmacist, therapist speaking as such), dental_professional "
+    "(dentist, hygienist, orthodontist, dental clinic or dental student), customer (end "
+    "user or buyer of a non-health product), academic, professional (works in the "
+    "field but not for a vendor: analyst, commissioner, partner organisation), "
+    "employee (of a vendor), journalist, investor, retailer (a shop, pharmacy, online "
+    "seller or distributor selling vendors' products), brand (a vendor's own or affiliate "
+    'account), unknown>"'
+)
+
+
+def _audience_field() -> str:
+    """The "audience" line of the profile prompt, listing this site's roles.
+
+    The standard text names the health and consumer roles; a site with its own
+    persona set (voices_personas, e.g. a publisher) lists that set instead.
+    """
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    if alt is None:
+        return _DEFAULT_AUDIENCE_FIELD
+    roles = ", ".join(f"{k} ({v[0].lower() + v[1:]})" for k, v in alt.reasons.items())
+    return '"audience": "<exactly one of: ' + roles + '>"'
+
 class ProfileLookupUnavailable(RuntimeError):
     """The provider could not serve the lookup right now (quota, rate limit,
     outage). Distinct from "no such account" so callers do not tell the user
@@ -339,15 +366,7 @@ class SocialProfileService:
                 # Which side of the market the account speaks from. "practitioner"
                 # covers both the GP who prescribes and the patient on the
                 # programme; the Voices view needs them apart.
-                '"audience": "<exactly one of: patient (uses, is prescribed or referred to a '
-                "vendor's health service), caregiver (speaks for a patient), clinician (doctor, "
-                "GP, nurse, dietitian, pharmacist, therapist speaking as such), dental_professional "
-                "(dentist, hygienist, orthodontist, dental clinic or dental student), customer (end "
-                "user or buyer of a non-health product), academic, professional (works in the "
-                "field but not for a vendor: analyst, commissioner, partner organisation), "
-                "employee (of a vendor), journalist, investor, retailer (a shop, pharmacy, online "
-                "seller or distributor selling vendors' products), brand (a vendor's own or affiliate "
-                'account), unknown>"')
+                + _audience_field())
         else:
             brand_line = f'The account is being profiled in the context of the brand "{brand}". ' if brand else ""
             relation = "<1-2 sentences on this account's relationship to the brand, or 'No clear connection.' >"
@@ -380,13 +399,14 @@ class SocialProfileService:
                 out["organisation"] = (str(org).strip()[:120]
                                        if org and str(org).strip().lower() not in ("null", "none", "") else None)
                 try:
-                    from app.services.social_eval_service import AUTHOR_ROLES
+                    from app.services.social_eval_service import author_roles
+                    site_roles = author_roles()
                 except ImportError:
-                    AUTHOR_ROLES = ()
+                    site_roles = ()
                 aud = str(obj.get("audience") or "").strip().lower().replace(" ", "_")
                 if out["role"] in ("vendor", "reseller", "promoter_or_bot"):
                     aud = "brand"   # the company's own voice, whatever it posts about
-                out["audience"] = aud if aud in AUTHOR_ROLES else None
+                out["audience"] = aud if aud in site_roles else None
             return out
         except Exception as e:  # noqa: BLE001
             logger.debug("profile summarize failed: %s", e)

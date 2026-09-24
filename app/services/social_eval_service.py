@@ -80,7 +80,7 @@ _ROLE_GUIDE = (
     "text shows who is speaking, answer unknown rather than guessing. "
 )
 
-_SYSTEM = (
+_SYSTEM_HEAD = (
     "You are a precise brand-monitoring classifier. For each social media post you are "
     "given a BRAND/TOPIC and the post text. Decide (1) how relevant the post is to that "
     "brand/topic on a 0.0-1.0 scale and (2) the sentiment toward the brand/topic.\n"
@@ -102,12 +102,46 @@ _SYSTEM = (
     "product name containing the brand, @handle, #hashtag, or stock ticker — relevance must "
     "not exceed 0.3, no matter how close the subject matter is to the brand's industry "
     "(e.g. a complaint about ebooks or textbooks that names a different company or none).\n"
-    "(3) Also name WHO is speaking. Pick author_role from this list only: "
-    + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE +
+    "(3) Also name WHO is speaking. "
+)
+_SYSTEM_TAIL = (
     'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
     '"positive"|"neutral"|"negative", "author_role": <one of the roles>, '
     '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
 )
+
+
+def author_roles() -> tuple:
+    """The roles this site uses: AUTHOR_ROLES, or the set VOICES_PERSONAS names."""
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    return AUTHOR_ROLES if alt is None else alt.roles
+
+
+def _role_prompt() -> str:
+    """The role list and how to pick one, for this site's persona set."""
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    if alt is None:
+        return "Pick author_role from this list only: " + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE
+    return alt.role_prompt()
+
+
+def _author_line(author: str) -> str:
+    """The author's handle, for a site with its own persona set.
+
+    On wileytest a journal's own account (@respcasereports) read as an academic
+    without it: the handle is the evidence. Sites on the standard list keep the
+    exact user message they had, so this is empty for them.
+    """
+    from app.services import voices_personas
+    if voices_personas.active_set() is None or not (author or "").strip():
+        return ""
+    return f"\nAUTHOR: @{author.strip().lstrip('@')}"
+
+
+def _system_prompt() -> str:
+    return _SYSTEM_HEAD + _role_prompt() + _SYSTEM_TAIL
 
 
 _SUPERVISOR_SYSTEM = (
@@ -183,19 +217,19 @@ def _parse_eval(content: str) -> Optional[Dict]:
 def _parse_role(obj: Dict) -> Dict:
     """author_role + reason from a parsed model object; unknown when absent or off-list."""
     role = str(obj.get("author_role") or "").strip().lower().replace(" ", "_")
-    if role not in AUTHOR_ROLES:
+    if role not in author_roles():
         role = "unknown"
     reason = str(obj.get("author_role_reason") or "").strip()[:200]
     return {"author_role": role, "author_role_reason": reason or None}
 
 
-_ROLE_SYSTEM = (
-    "You are a brand-monitoring classifier. You are given a BRAND and a social media post "
-    "about it. Say WHO wrote the post. Pick author_role from this list only: "
-    + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE +
-    'Respond with ONLY a JSON object: {"author_role": <one of the roles>, '
-    '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
-)
+def _role_system_prompt() -> str:
+    return (
+        "You are a brand-monitoring classifier. You are given a BRAND and a social media post "
+        "about it. Say WHO wrote the post. " + _role_prompt() +
+        'Respond with ONLY a JSON object: {"author_role": <one of the roles>, '
+        '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
+    )
 
 
 def _parse_verify(content: str) -> Optional[Dict]:
@@ -247,6 +281,7 @@ class SocialEvalService:
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
         ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
+        ctx += _author_line(author)
         # A watch on a subject is not a watch on a company. The extra guidance
         # rides in the user message rather than the system prompt so the brand
         # path sees byte-identical input to what it saw before.
@@ -260,7 +295,7 @@ class SocialEvalService:
                     "when it names no organisation. Judge the subject, not a company name, and "
                     "score posts in any language on the same scale.")
         messages = [
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}{ctx}\n\nPOST:\n{text}"},
         ]
         try:
@@ -326,14 +361,15 @@ class SocialEvalService:
             return None
 
     async def _role_one(self, brand_topic: str, title: str, body: str,
-                        brand_context: str = "") -> Optional[Dict]:
+                        brand_context: str = "", author: str = "") -> Optional[Dict]:
         model = self._get_model()
         if not model:
             return None
         text = f"{title}\n{body}".strip()[:1500]
         ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
+        ctx += _author_line(author)
         messages = [
-            {"role": "system", "content": _ROLE_SYSTEM},
+            {"role": "system", "content": _role_system_prompt()},
             {"role": "user", "content": f"BRAND: {brand_topic}{ctx}\n\nPOST:\n{text}"},
         ]
         try:
@@ -377,7 +413,8 @@ class SocialEvalService:
             async with sem:
                 r = await self._role_one(brand_topic, p.get("title") or "",
                                          p.get("summary") or p.get("content") or "",
-                                         brand_context=brand_context)
+                                         brand_context=brand_context,
+                                         author=p.get("author") or "")
                 if r:
                     results.append({"uri": p.get("uri") or p.get("url"), **r})
 

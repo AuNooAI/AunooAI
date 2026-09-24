@@ -628,6 +628,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     academic: 'academic', professional: 'professional', employee: 'employee',
     journalist: 'press', investor: 'investor', brand: 'brand voice',
     dental_professional: 'dental professional', retailer: 'retailer', competitor: 'competitor',
+    // Publisher persona set (VOICES_PERSONAS=publisher)
+    author: 'author', editor_reviewer: 'editor / reviewer', journal_society: 'journal / society',
+    librarian: 'librarian', student: 'student', educator: 'educator', reader: 'reader',
   };
   const ROLE_CHIP_CLASS: Record<string, string> = {
     patient: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
@@ -643,6 +646,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     dental_professional: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
     retailer: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300',
     competitor: 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300',
+    author: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300',
+    editor_reviewer: 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300',
+    journal_society: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    librarian: 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300',
+    student: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    educator: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    reader: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
     other: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
   };
   const platColor = (p: string) => PLATFORM_COLORS[p] || PLATFORM_COLORS.social;

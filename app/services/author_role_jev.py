@@ -117,13 +117,18 @@ def read_role(brand: str, context: str, competitors: List[str], post: Dict) -> O
         "post": {"platform": post.get("platform") or "", "author_handle": post.get("author") or "",
                  "title": title, "text": body},
     }
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    criteria = CRITERIA if alt is None else alt.definitions
+    reasons = REASONS if alt is None else alt.reasons
+    person_roles = _PERSON_ROLES if alt is None else alt.person_roles
     questions = {
         "role": {
             "type": "choice",
             "instructions": ("Who is speaking in `post`, relative to `brand`? Judge from what the post says, "
                              "how the author speaks and the author handle. `brand.context` says what the brand "
                              "sells; `brand.competitors` are rival companies."),
-            "criteria": CRITERIA,
+            "criteria": criteria,
         },
         # A handle that resembles the brand's name pulled Jev towards "brand"
         # on its own: @OVIVA_OVIVA, a personal account posting about dentist
@@ -143,16 +148,16 @@ def read_role(brand: str, context: str, competitors: List[str], post: Dict) -> O
     answer = answers.get("role") or {}
     probs = answer.get("probabilities") or {}
     role = max(probs, key=probs.get) if probs else answer.get("answer")
-    if role not in CRITERIA:
+    if role not in criteria:
         return None
     speaks = (answers.get("speaks_for_brand") or {}).get("noul")
     if role == "brand" and speaks is not None and speaks < _SPEAKS_FOR_BRAND_MIN:
         # Not the brand talking: take the next-best reading.
-        rest = {k: v for k, v in probs.items() if k != "brand" and k in CRITERIA}
+        rest = {k: v for k, v in probs.items() if k != "brand" and k in criteria}
         role = max(rest, key=rest.get) if rest else "unknown"
-    reason = REASONS[role]
+    reason = reasons[role]
     marker = paid_promotion_marker(f"{title}\n{body}")
-    if marker and role in _PERSON_ROLES:
+    if marker and role in person_roles:
         role, reason = "brand", f"Paid promotion (marked {marker})"
     return {"author_role": role, "author_role_reason": reason}
 
