@@ -63,6 +63,146 @@ on the vendor list.
 - Rebuilt for market 2, the three remaining independent labels each have an outside source
   that names the vendor.
 
+## 2026-09-24 — A company's own social posts no longer count as opinion about it; the Oviva adverse monitor judges a post as a whole
+
+### Goal
+Alvaro reviewed the Oviva Brand Watcher on a 30-day window and reported two things. Oviva's own
+posts were counted in social sentiment: News left them out ("13 owned excluded"), but social did
+not, and Instagram showed +86. And the Adverse Media Monitor had flagged a Reddit post titled
+"Oviva positive experience so far", although its instruction says to ignore positive coverage.
+Fixing the first on Oviva showed that sunstar and wileytest had the same problem.
+
+### Fix: posts from a company's verified accounts go in the owned lane (`527b848d`)
+**`app/services/entity_ingest.py`** `_channel_for` decided owned versus public from the web
+domain alone. A table already records which social accounts a company runs
+(`bw_entity_social_identities`, relationship `owned_company`), but nothing on the ingest path read
+it: `entity_identity.account_owner` had no callers. On oviva that table was also empty. So
+@oviva_uk and @oviva_de were filed as `public_social`. They were all 7 on-brand Instagram posts in
+30 days (6 positive, 1 neutral), which is exactly +86.
+
+`_channel_for` now returns `owned_social` when the posting account is verified as that brand's
+own. The Social tab's entity read path already drops owned channels, so nothing else had to
+change there. A new `reattribute_owned_account(conn, brand_id, social_account_id)` moves posts
+already ingested from that account into the owned lane. It updates the rows in place and
+recomputes `dedupe_hash`, because deleting a mention cascades into event and narrative evidence.
+**`app/routes/market_entity_routes.py`** calls it whenever an operator adds or verifies an
+account, and reports `mentions_moved_to_owned`.
+
+We did not use `articles.author_role = 'brand'` to find own accounts. The AI analysis step
+applies that label to fans (@weightwatcherswithjo, @steffy1385), a deals account and an NHS
+cancer alliance, and to the unrelated "Oviva Belt" product.
+
+### Feature: the Social tab says how many own posts it left out (`8a47febc`, build `2b669da3`)
+**`app/services/entity_social_read.py`** `social_feed` returns `owned_excluded`, a count of the
+brand's `owned_social` mentions in the same window and filters. The Posts card in
+**`BrandWatcherTab.tsx`** shows "last 30d · N owned excluded", matching the News cards. Oviva
+shows 39: its 32 LinkedIn posts, which the tab already hid, and the 7 Instagram posts.
+
+### Fix: the same rule on the older read path (`935fb75c`, `52b2a677`)
+sunstar, wiley and wileytest do not have `ENTITY_INTELLIGENCE_MENTION_READ` on. Their Social tab
+reads posts straight from `articles` and had no idea of an owned post. In
+**`app/routes/brand_watcher_routes.py`**, `get_social_posts` now checks each post's author against
+the registry for the brand its topic names (`_owned_social_accounts`, `_brand_of_topic`). It drops
+matches unless `include_owned` is set, flags them `is_owned`, and returns `owned_excluded`.
+wiley and wileytest also gained the `include_owned` query parameter.
+
+**`alembic/versions/soa_001_social_owned_accounts.py`** creates only
+`bw_entity_social_identities`, with the same definition as `ei_002`. It does nothing where the
+table already exists. We needed it because the Wiley trees never took the entity migrations.
+
+**`app/services/social_profile_service.py`** `list_profiles` now returns only profiled or
+watch-listed accounts. Registering an account adds a bare `social_accounts` row, and on sunstar and
+wileytest those rows would have shown as empty profiles in the Accounts list. oviva already had 599
+such rows out of 724, because entity ingest records every post author there.
+
+### Incident: wileytest's Social tab returned 500 for about 10 minutes (fixed in `52b2a677`)
+The first version of `935fb75c` read the registry after `apply_account_roles`. On wileytest that
+step fails partway (see the next fix). The error is caught, but it leaves the transaction aborted,
+so the registry read raised `InFailedSqlTransaction` and the whole request returned 500. We found
+it in our own check after the first restart, not from a user. `52b2a677` reads the registry
+straight after the main query and returns no filter if the read itself fails. `journalctl` shows 0
+`brand-watcher/social error` lines on wileytest, wiley or sunstar between the two restarts.
+
+### Fix: the account-role lookup aborted the transaction on wiley and wileytest (`9d7b2445`)
+`audience_voices.account_audiences` has two parts. The majority vote over an account's classified
+posts runs first and has worked all along. The profile part reads `social_accounts.metadata`, a
+column added by `ei_002`, which the Wiley trees never ran. It failed on every Social tab and Voices
+request and left the transaction aborted for any query after it. The Voices digest step runs a
+query after it.
+
+**`alembic/versions/soa_002_social_accounts_metadata.py`** adds the column with the `ei_002`
+definition, idempotently. The profile part still places nobody on Wiley, because the roles it
+reads are written by the Market Monitor, which Wiley does not run.
+
+### Config: accounts registered as company-run
+We picked these by hand. We kept only accounts whose posts market the company's own products. We
+left out an estate agent called Pearsons (82 posts), a pub with the Instagram handle `@sagepub`,
+Sun-Star Stationery (a separate company), Colgate University, and a lighting firm called elmex
+Ilumina.
+
+| Tenant | Brand | Accounts |
+|---|---|---|
+| oviva | Oviva / Noom | @oviva_de, @oviva_uk / @noom (Instagram) |
+| sunstar | Colgate-Palmolive | 37 (regional Colgate and elmex accounts) |
+| sunstar | Haleon | 20 (Sensodyne, parodontax, Polident, Haleon) |
+| sunstar | Sunstar | 14 (GUM and Sunstar accounts) |
+| sunstar | Lion Corporation | 10 (Lion, Systema, NONIO) |
+| sunstar | P&G Oral-B | 5 (Oral-B, Crest) |
+| wileytest | Wiley | 17 (subject Bluesky accounts, Instagram, X) |
+| wileytest | Elsevier | 16 |
+| wileytest | SAGE Publishing | 7 |
+| wileytest | Pearsons Education | 2 (@pearsonofficial, @pearson) |
+
+Kao had no own accounts in its data. wiley.aunoo.ai has no brands, so it has none.
+
+### Config: Adverse Media Monitor instruction (oviva, `signal_instructions.id = 2`)
+The model had read the instruction. Its saved reasoning (alert 31) says it flagged the post
+"despite its 'positive experience' framing" because the post mentions a lost referral and a 3-week
+wait for a dietitian. The observer's own prompt in `vector_routes.py` is neutral and does not push
+toward flagging, so this was a question of the instruction's wording. We appended: "Judge each post
+by its overall message. A post whose author presents their experience as positive or
+mixed-to-positive is not adverse, even if it mentions a delay, a wait or a minor problem along the
+way." This is a database edit only, with no code change.
+
+### Verification
+- `_channel_for` stub test: own account → `owned_social`; another brand's account, an unknown
+  account, a non-social lane and a post with no account all keep their channel.
+- oviva: `reattribute_owned_account` moved 4 (@oviva_de), 3 (@oviva_uk) and 3 (@noom) mentions.
+  `social_feed(brand_ids=[1], days_back=30)` gives `owned_excluded = 39`; Instagram has no on-brand
+  scored posts left; posted vs seen is −28 by posts and −31 by reach, down from −3 and +23.
+- `get_social_posts` called in-process over 90 days, net sentiment with own posts → without:
+  Colgate +43 → +37 (86 excluded), Haleon +47 → +44 (49), Lion +52 → +50 (26), Oral-B +24 → +21
+  (8), Sunstar +68 → +67 (19); Wiley +17 → +14 (92), SAGE +19 → +18 (138), Elsevier −10 → −11
+  (36), Pearson −26 → −26 (17).
+- Account-role lookup on wileytest, 387 recent Wiley posts: before `soa_002`, 16 posts got an
+  account-level role and the next query failed with `InFailedSqlTransaction`; after, the same 16
+  and the next query succeeds.
+- All five tenants answered HTTP 200 on `/login` after each restart.
+- Not verified: the Social tab in a browser, and the monitor's behaviour under the new
+  instruction. It next runs on 25 Sep at 08:00.
+
+### Propagation
+- **bugfixing (canonical):** all six commits; UI rebuilt; `alembic` at `soa_002`; restarted.
+- **oviva:** `entity_ingest.py`, `entity_social_read.py`, `market_entity_routes.py`,
+  `brand_watcher_routes.py` and `social_profile_service.py` copied (all matched canonical before
+  the change); UI bundle rsynced; `soa_001`/`soa_002` applied (no-ops there); accounts registered;
+  instruction edited; restarted.
+- **sunstar, wiley, wileytest:** `brand_watcher_routes.py` and `social_profile_service.py` patched
+  by pattern, because these trees have drifted. `soa_001` and `soa_002` applied; accounts
+  registered on sunstar and wileytest; restarted. We did not rebuild their UI bundles, because
+  canonical's bundle would carry unrelated UI changes. The API already returns `owned_excluded`.
+- The entity-ingest change (`527b848d`) reaches only tenants with entity ingest on. We did not
+  copy it to the Wiley trees, which have no `entity_ingest.py`.
+
+### Lessons
+- A caught SQL error still aborts the Postgres transaction. Any query after a `try/except` that
+  swallowed a DB error fails too. Put new reads before best-effort lookups, or give them their own
+  connection.
+- Do not use `author_role = 'brand'` to identify a company's accounts. It labels fans and resellers
+  as brand. Check each handle and its posts by hand.
+- A handle that contains a brand name is often a different business: Pearsons estate agents, the
+  `@sagepub` pub, Sun-Star Stationery, Colgate University.
+
 ## 2026-09-23 — The market highlight still named no buyer for the Wirespeed acquisition
 
 ### Goal
