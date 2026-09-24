@@ -138,8 +138,17 @@ async def main() -> int:
             batch = [p for p in posts if p["topic"] == topic]
             ctx = _brand_context_for_topic(db, topic)
             brand = topic.replace("Brand Monitoring ", "", 1)
+            rivals = author_role_jev.rival_names(db, brand)
+            # End the read transactions before the model calls. wileytest closes a
+            # connection left idle in a transaction for a minute; classifying a
+            # brand's posts takes longer, so every write after it failed.
+            conn.commit()
+            try:
+                db.facade.connection.commit()
+            except Exception:  # noqa: BLE001 - nothing open on that connection
+                pass
             scored = await svc.classify_roles(batch, brand, brand_context=ctx["description"],
-                                              competitors=author_role_jev.rival_names(db, brand))
+                                              competitors=rivals)
             for s in scored:
                 conn.execute(text(f"""
                     UPDATE articles SET author_role = :role, author_role_reason = :why
