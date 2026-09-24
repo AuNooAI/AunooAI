@@ -1,5 +1,101 @@
 # Changes
 
+## 2026-09-24 — Daily briefings: the reviewer's warnings now get fixed, and incidents stop carrying invented years (`c2f47fd5`, `bb1ed1e8`)
+
+### Goal
+Oliver pasted wileytest's 24 September daily briefing (desk_briefings 165) together with its
+review. The reviewer had found real problems but none of them had been corrected: the briefing
+went out with "political appointee Russel Vought" and "OMB Director Russell Vought" in one
+sentence, which reads as two people, and with an OpenAI agent breaking into a Medicare portal
+"in June 2023". His point: "a judge finds the issues, but we need to correct them."
+
+### Fix: warnings go to the repair step too (`c2f47fd5`)
+**`app/services/daily_report_service.py`** already had a repair loop: the writer rewrites the
+flagged sentences and the reviewer checks again. It ran only while the review had errors
+(`status == "revision_requested"`). Warnings never went back to the writer, so every warning
+shipped as written. Briefing 165 also showed a second limit: its two repair rounds were both
+spent taking errors from 4 to 0, so there was no round left for warnings anyway.
+
+- `_needs_repair` runs repair while there are errors or warnings. Only errors still hold a draft.
+- `max_repair_rounds` goes from 2 to 3.
+- `_review_score` keeps the round with the fewest errors, then the fewest warnings. A round that
+  makes the draft worse is thrown away.
+- `_NO_CHANGE` in `_sanitize_review_findings` drops judge findings that approve the text
+  ("No change needed", "No error found"). Nine of the fourteen findings on briefing 165 were
+  of that kind.
+
+### Fix: incidents no longer carry a year no source states (`bb1ed1e8`)
+The Techmeme headline behind the Medicare incident says "in June", with no year, and the raw page
+contains no "2023" at all. Our own AI summary, written at ingest, said "June 2023". The incident
+detector reads those summaries, so it set `timeline: "2023-06"`, and the briefing reviewer, which
+checks against the incident, had nothing to catch.
+
+**`app/routes/vector_routes.py`** `strip_unstated_incident_years` runs in `analyze_incidents`
+after the timeline is flattened. A year survives only if it appears in a cited article's title,
+its `raw_articles.raw_markdown`, or its publication year. Otherwise the incident loses its event
+date, is dated "reported <published>", and "June 2023" becomes "June" in the description. An
+incident whose articles have no raw text is left alone, because a title alone is too thin to
+judge. About 23% of recent wileytest articles have no raw text (4,757 of 6,172 since 17 Sep have it).
+`db.fetch_all` returns dict rows, so the lookup reads both shapes.
+
+**`data/prompts/content_analysis/current.json`** gains a rule: keep dates exactly as precise as
+the article gives them and never add a year, month or day. This rule is unproven. In four runs
+each with kimi-k2.5, neither the old prompt nor the new one added a year to this headline.
+
+### Data edits on wileytest
+- The stored Medicare incident on desk_briefings 165 was run through the new check; it now reads
+  "in June", dated "reported 2026-09-23". No other incident on the row changed.
+- `articles.summary` for `https://www.techmeme.com/260923/p38#a260923p38`: "in June 2023" → "in June".
+- Briefing 165 was reopened and re-finalized through the API with claude-sonnet-4-5.
+- The regenerated text still merged two sources into "drafting an executive order to give …
+  Vought veto authority". Article 3 reports the veto plan; Article 4 reports an executive order on
+  outside oversight of NIH grants. We split that claim by hand in the summary, one theme, action
+  1's text and action 2's rationale. These edits did not go through the reviewer.
+- Backups: `briefing165_backup.json` (before regeneration), `briefing165_after_regen_backup.json`
+  (before the split) and `techmeme_article_backup.json`, in the session scratchpad.
+
+### Verification
+- Briefing repair, in-process on briefing 165's stored items (gpt-5.4 reviewer): 2 errors / 5
+  warnings → round 1 1/6 → round 2 0/7 → round 3 0/4. Round 3 is the new warnings-only round.
+- Re-finalize through `POST /api/desk-briefings/165/finalize`: 4/4 → 3/2 → 0/5 → 3/3. Round 3
+  was worse, so round 2 was kept and saved as `approved_with_warnings`. The saved text contains
+  no "June 2023" and one spelling of Vought.
+- Incident check, unit cases: the Medicare incident loses 2023; a study "released March 4, 2024"
+  keeps its year when the raw text states it; an incident with no raw text is untouched.
+- Incident check, live `analyze_incidents` on wileytest with the Medicare article under a
+  throwaway topic (cache row deleted afterwards): before `timeline "2023-06"`, after
+  `"reported 2026-09-23"`, description "in June".
+
+### Propagation
+- **Repair on warnings:** bugfixing, wiley, wileytest, sunstar, panaya. abm, oviva and wbm have no
+  briefing reviewer, so there is nothing to change there.
+- **Incident year check and prompt rule:** bugfixing, wiley, wileytest, abm, oviva, panaya,
+  sunstar, wbm. On abm, oviva, sunstar and wbm, whose summary prompt is the older one, the rule is
+  a "Dates:" line after `Type: {summary_type}`.
+- All restarted and answering. bugfixing picked the files up from another session's restart at
+  11:59; oviva and sunstar were restarted after their ingest batches finished.
+- **Not patched:** the stopped tenants (abbott, bwtemplate, community, helpnet, ibaset, interroll,
+  opendemo, pbm, sage, skunkworkx, spiros, testbed, vc) and pearson, whose service is in a failed
+  state. The incident patch does not apply cleanly to spiros.
+- The copies in the prod trees are file edits, not commits; their backups are in the session
+  scratchpad under `tenant_backups/`.
+
+### Incident: a pre-restart check that checked nothing
+Before the first wiley/wileytest restart we listed files changed since the last start with
+`find -newermt "$(systemctl show -p ActiveEnterTimestamp --value …)"`. `find` rejects that date
+format ("Thu 2026-09-24 10:38:00 CEST"), printed its error to a hidden stream, and returned
+nothing, which we reported as "nothing else changed". Re-run correctly, one other file had
+changed: another session's migration `soa_002_social_accounts_metadata.py`. It was already
+applied on both databases and no error was logged after the restart, so no harm came of it.
+
+### Lessons
+- NEVER pass `ActiveEnterTimestamp` straight to `find -newermt`. Convert it first:
+  `date -d "$ts" +%Y-%m-%dT%H:%M:%S`. An empty result from a failed command is not "no changes".
+- A reviewer can only catch errors relative to its sources. When our own AI summary is the
+  source, check dates and years against the raw article, not the summary.
+- A `try/except` that logs and carries on will also hide a bug in the new code. Test the live
+  path, not just the helper: the first live run here skipped the check on a KeyError.
+
 ## 2026-09-24 — aisocnews.com: labels, headlines and counts now match their sources (`0dc21e90`)
 
 ### Goal
