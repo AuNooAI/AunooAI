@@ -84,15 +84,24 @@ parsed Sonnet's reply with a strict `json.loads` and answered 500 on a valid obj
 `claude-haiku-4-5` / `claude-sonnet-4-5`, the same targets on every site.
 
 ### Propagation
-bugfixing: live (restarted 19:04 after Phase 1, 20:14 after the switch; no tracebacks; both tiers
-answer by direct call, `get_ai_model` and the Router). The seven other sites are NOT yet done. A
-dry run shows the three name-branch files (`auspex_service`, `daily_briefing_compose_service`,
-`topic_report_service`) and a few routes carry local changes on every site, so those get the same
-transformations applied to the site's own copy (scratchpad `transform_site.py`, every anchor found
-on all seven), and the rest a base-aware copy or three-way merge (`apply_to_sites.sh`). Also per
-site: the four `.env` names, the agent front-matter lines, the reviewer cap, and the UI bundle for
-wiley and wileytest (the other five run older bundles that still send the aliases, which still
-resolve). bwtemplate's yaml lacks `claude-sonnet-4-5`; add it before that tree is revived.
+bugfixing: live (restarted 19:04 after Phase 1, 20:14 after the switch). The seven other sites got
+the same code on 25 Sep evening, in two moves because their trees have drifted: the files a site had
+not changed were replaced or three-way merged from bugfixing (scratchpad `apply_to_sites.sh`, base
+`d02ea28d`: 22-42 replaced and 3-16 merged per site, backups `*.bak-tiers-<stamp>`), and the files a
+site had changed locally (`auspex_service`, `daily_briefing_compose_service`, `topic_report_service`,
+plus `futures_cone`, `trend_convergence`, `background_tasks` and the emerging-topics modules on
+abm/wbm/wiley/wileytest) had the same transformations applied to the site's own copy (scratchpad
+`transform_site.py`; every anchor found on all seven). Per site also: the four `.env` names to
+`claude-haiku-4-5` / `claude-sonnet-4-5` (same targets on every site, checked; encrypt cycle,
+backups `.env.bak-honestnames-*`), the 40 agent front-matter model lines, the reviewer cap where a
+reviewer file exists (panaya, sunstar, wiley, wileytest), and the UI bundle on wiley and wileytest
+(abm, oviva, panaya, sunstar, wbm keep their older bundles, which still send aliases that still
+resolve). Compile and import of every touched module passed on all seven (wiley's
+`topic_report_pptx` needs `python-pptx`, which wiley has never had). Restarted when quiet, no
+tracebacks: oviva 21:50, panaya 21:52, sunstar 21:53, abm 21:54, wbm 21:55, wiley 21:56; wileytest
+was still waiting for a quiet window when this was written. oviva and panaya verified live: both
+tiers answer by direct call, `get_ai_model` and the Router. bwtemplate's yaml lacks
+`claude-sonnet-4-5`; add it before that tree is revived.
 
 ### Lessons
 - `llm_usage_log.model` already holds the resolved id, so "who still sends an alias" cannot be read
