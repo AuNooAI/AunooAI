@@ -826,6 +826,10 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     roles.sort(key=lambda r: (r["role"] == "competitor", -r["n"], list(ROLE_LABELS).index(r["role"])
                               if r["role"] in ROLE_LABELS else 99))
 
+    from app.services import voices_personas
+    alt_set = voices_personas.active_set()
+    if alt_set is not None and alt_set.hidden:
+        roles = [r for r in roles if r["role"] not in alt_set.hidden]
     not_aud = _not_audiences()
     present = {r["role"] for r in roles if r["role"] not in not_aud}
     focus: List[str] = []

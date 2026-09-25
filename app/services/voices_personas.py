@@ -28,7 +28,8 @@ class PersonaSet:
                  reasons: Dict[str, str], person_roles: Tuple[str, ...],
                  groups: Optional[Dict[str, str]] = None,
                  display: Optional[Dict[str, Dict[str, str]]] = None,
-                 not_audiences: Tuple[str, ...] = ()):
+                 not_audiences: Tuple[str, ...] = (),
+                 hidden: Tuple[str, ...] = ()):
         self.name = name
         self.definitions = definitions
         self.guide = guide
@@ -41,6 +42,8 @@ class PersonaSet:
         self.display = display or {}
         # Groups that are rows, not columns (press, the brand, look-alikes...).
         self.not_audiences = set(not_audiences)
+        # Rows left out of the view altogether; the posts keep their roles.
+        self.hidden = set(hidden)
 
     def group(self, role: str) -> str:
         return self.groups.get(role, role)
@@ -66,7 +69,7 @@ PUBLISHER = PersonaSet(
         "student": "A student speaking as such: textbooks, courseware, assignments, exams, citing a book for coursework",
         "educator": "A teacher or instructor speaking about teaching with the brand's textbooks, courseware or assessments",
         "reader": "A member of the public reading, buying or sharing the brand's books or articles out of personal interest, not as a researcher",
-        "retailer": "Sells the brand's books or products: a bookshop, second-hand or antiquarian book dealer, online store, sales or deal bot ('selling well', 'in stock', price and buy link), or an affiliate or shop link",
+        "retailer": "Sells THE BRAND'S OWN books or products for money: a bookshop, second-hand or antiquarian dealer, online store, or sales or deal bot giving a price, stock or a buy link for the brand's title. NOT a seller: someone sharing a free or open-access paper or ebook (academic or reader), a publicist promoting another publisher's books, or anyone selling a service such as homework or exam help (spam, so unknown)",
         "professional": "Works in publishing, research integrity or scholarly communication but not for the brand (consultant, industry analyst, open-access advocate speaking professionally)",
         "journalist": "A news outlet, reporter, newsletter or watchdog (e.g. Retraction Watch) reporting on the brand",
         "investor": "A shareholder, stock commentator or market analyst",
@@ -123,6 +126,10 @@ PUBLISHER = PersonaSet(
         "brand": {"label": "Brand voice", "plural": "brand accounts", "hint": "The brand's own accounts, staff and paid promotion"},
     },
     not_audiences=("journalist",),
+    # Oliver, 25 Sep: still too many rows. The view shows the six audiences
+    # and Competitors; press, the brand's own posts, journal accounts and
+    # bystanders are left out of it.
+    hidden=("journalist", "brand", "journal_society", "unknown", "unclassified"),
 )
 
 _SETS: Dict[str, PersonaSet] = {"publisher": PUBLISHER}
