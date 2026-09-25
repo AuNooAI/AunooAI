@@ -1,5 +1,134 @@
 # Changes
 
+## 2026-09-24/25 — Brand Watcher Voices: new sites, better roles, Jev, per-site personas with a settings page; alert emails stop leaking model working
+
+### Goal
+Sunstar's Voices tab answered "Failed to fetch voices: 404". Fixing that grew into shipping Voices
+to five more sites, making the author roles fit each market (dentists, sellers, publishers' authors
+and librarians, payers), reading roles with Jev, and letting us define a site's audiences on a page.
+On 25 Sep a wbm alert email to Wiley carried the model's own working instead of a summary; that was
+fixed and the look-alike companies behind it were cleaned out.
+
+### Voices on five more sites (Incident + Feature)
+- **The 404.** Sunstar's UI bundle (built 16 Sep) had the Voices tab; its backend had no Voices
+  route and no `features` switch in `module_routes.py`, so the tab showed and failed. wbm and abm
+  had the same fault. The tab is now hidden on any site whose backend says so (`BW_VOICES_ENABLED`).
+- **Shipped to** sunstar, oviva (refresh), abm, wbm and wileytest: `audience_voices.py`,
+  `social_eval_service.py` role step, `voice_001` (`articles.author_role`), the `/voices` and
+  `/voices/digest` routes, the backfill script. Each tree got its own merge migration where its head
+  differed (`merge_voice_soa_002` sunstar, `merge_voice_ts_006` abm). "Profile posters" was not
+  shipped where Market Monitor is absent. Prod trees are not committed; code is in the commits below.
+- **Voices is on** at bugfixing, sunstar, oviva, abm, wbm and wileytest. wiley still hides it.
+
+### Roles that fit the market (`6c2b5a45`, `69f3a533`, `8820fc7f`)
+- New roles `dental_professional`, `retailer`, `competitor`. A per-brand switch
+  (`bw_brands.config.voices_customers_are_patients`, absent = on) keeps Oviva's rule that customers
+  are patients and turns it off for product brands (all six Sunstar-site brands), where patients
+  show as customers.
+- The role guide was tightened twice. Retailers must sell the brand's products; review, recipe and
+  "X vs Y" accounts are not retailers or competitors; a competitor must be the rival company writing;
+  anyone describing the product in their own routine or purchase is a customer; memes and jokes are
+  bystanders; `#ad`, `#PR`, gifted and affiliate posts are brand. On sunstar, a blind sample of 20
+  posts that left Customers under the stricter wording: 14 were figures of speech or jokes, 3 were
+  real customers missed.
+- `other_business` (same-name look-alike) was added and removed the same day: with a wider brand
+  description it hid real Sunstar posts, and a visible "N posts left out" note was not wanted.
+  Look-alikes are handled by exclude terms and relevance only.
+
+### Brand voice and Competitors from the account registry (`6c2b5a45`)
+Verified accounts in `bw_entity_social_identities` now decide the role: a brand's own accounts are
+Brand voice, another brand's are Competitors. The Competitors row also carries what rivals' registered
+accounts posted, read from their own topics, sorted last and out of the totals. Sunstar: 97 rival posts
+in 90 days, mostly Colgate. Seven Ora² accounts were registered to Sunstar by hand (the entity route is
+off on sunstar; `entity_identity.propose_identity` was called directly).
+
+### Alerts ignore the brand's own registered accounts (`4b241338`)
+`brand_alert_service.not_own_account_sql()` drops posts from the topic's own registered accounts in the
+five social alert rules and in the evidence list. On sunstar it removes 19 Sunstar, 70 Colgate and 12
+Haleon posts. Shipped to sunstar and oviva.
+
+### Jev reads the role where a site switches it on (`345b9329`, `98ece41b`)
+`author_role_jev.py` asks Jev one question per post, with one definition line per role, when
+`VOICES_ROLE_MODEL=jev`. The model call keeps relevance and sentiment. A paid-promotion marker turns a
+person reading into brand; a `speaks_for_brand` check stops a brand-like handle (`@OVIVA_OVIVA`, a
+personal account) being read as the brand. Blind sample of 40 sunstar posts where kimi and Jev disagreed:
+kimi 9 right, Jev 32, the module with the marker rule 35. On oviva the GP accounts read as clinicians
+4 of 4. On for sunstar, oviva, bugfixing, abm. Off on the Wiley sites: no TypeSafe data agreement.
+Live path confirmed on sunstar (61 of 61 posts scored at 23:01 on 24 Sep carry Jev reasons).
+
+### Per-site persona sets and a settings page (`af1a31fe`, `4b884461`, `43b3dae4`, `c33f5811`, `b5642b84`, `ae6c7702`)
+- `voices_personas.py` holds sets other than the standard list; `VOICES_PERSONAS=publisher` gives Wiley's
+  sites authors, researchers, libraries, students & teachers, readers and sellers. Each post keeps its
+  detailed role; the view groups them and hides press, brand, journals and bystanders. Tested with kimi on
+  40 blind-labelled wileytest posts: 36 right in the test script, 33 in the production code.
+- **Settings page** `/voices/personas` (admins only): edit each audience's label, the definition the model
+  picks by, a short reason, and whether it is a column, a button or hidden; presets standard, publisher and
+  health (patients, clinicians, payers & commissioners, carers). Saving writes `voices_persona_sets`
+  (`vp_001`); "Re-read past posts" shows the count and cost first and re-reads roles only.
+- With nothing saved a site's prompts are byte-identical to before (checked on every site against a
+  snapshot taken first, with `.env` loaded).
+- **Oviva** has the health set saved; Jev re-read 214 posts for about a cent. Payers & commissioners is
+  empty: no payer speaks in the social posts we collect; they appear only in news.
+
+### Voices view fixes (`ba3870a3`, `6b2d1082`, `5a851e2a`, `940d9731`)
+- Every audience with at least 3 posts gets a column, not just a pair (Oliver: "we only show two").
+- The tab shows only once the site says Voices is on; before, it flashed up and vanished on sites that hide
+  it. Source fix only; wiley's compiled chunk was patched by hand, other bundles pick it up at the next build.
+- Best-effort lookups run inside a savepoint (`_guard`). On wileytest a missing `bw_market_brands` table
+  aborted the transaction and killed the whole Voices request.
+- The role backfill ends its read transaction before calling the model. wileytest closes a connection idle in
+  a transaction after one minute; the first 5,522-post run wrote nothing and wasted about $2 of kimi calls.
+
+### Re-reads run
+- sunstar: 1,420 posts (kimi, twice, then Jev). oviva: 214 (kimi, then Jev twice). bugfixing: 97 (Jev).
+- wileytest: 5,500 of 5,522 (kimi, publisher set), then 1,485 reader/unknown posts for sellers.
+- wbm: 6,666 (kimi), then 1,508 for sellers. abm: 3,796 (Jev).
+- Sellers: the first pass filed exam-help spam and a JHU Press publicist as sellers; a relevance re-score then
+  dropped real ISBN-bot listings. Their relevance was restored, only spam, jobs and other publishers were
+  zeroed. Now wileytest 116 sellers, wbm 25. Before-states in the session scratchpad.
+
+### Alert emails carried the model's working (Incident, `c6f0ef43`)
+On wbm (24 Sep 17:27) two alert emails to Wiley showed "The user wants me to summarize … I need to: …" as
+"What the posts say". The narrator asked for `gpt-5.4-mini`, which the 8 Sep yaml repoint moved from Haiku to
+kimi-k2.5, a reasoning model that sometimes writes its working into the reply; the narrator took free text.
+2 of 42 narrations since 8 Sep leaked, both in that run. Now the reply must be JSON with a `summary`, text that
+reads like working is dropped, the model is named `bedrock-kimi-k2-5`, and Jev checks each narration (is it a
+summary, is it supported, does it invent a claim) where `TYPESAFE_VALIDATE_NARRATION=1` (bugfixing, sunstar,
+oviva, abm). On abm posts Jev rejected working text, a contradiction and an invented layoff (unsupported-claim
+0.96-0.98 against 0.17-0.26 for real summaries). The Wiley sites keep the JSON guard only.
+
+### Look-alike companies (data, wbm and sunstar)
+- **wbm Springer:** about 450 Axel Springer posts ("Springer Verlag", the Thiel award) sat in the Springer
+  Nature topic and drove the alerts. The description now names the German aliases; 447 social posts re-scored
+  (345 dropped), 5 more removed by hand, 1 news article zeroed.
+- **wbm Elsevier / SAGE / Wiley / Pearson:** descriptions now name EW (Elsevier Weekblad), Sage Group plc,
+  Wiley Rein and Wiley X, Toronto Pearson. 83 posts re-scored: Elsevier 58 dropped and 9 kept (all publisher),
+  SAGE 13 of 13, Wiley 2, Pearson 1; one wrongly dropped RELX post restored.
+- **sunstar:** description counts brake discs, sealants and fasting bars as Sunstar; 30 exclude terms added
+  (stationery, Sunstar Hotels, Sunstar Insurance, pomegranate juice …), 112 posts zeroed.
+- Old descriptions and scores are saved in the session scratchpad.
+
+### Verification
+Every change above was checked on live data as it went: import checks, byte-identical prompt checks on each
+site, blind-labelled samples, API calls with an admin session, and a traceback count after every restart
+(all 0 except the wileytest re-read estimate, fixed in `ae6c7702` and rechecked).
+
+### Propagation
+- Code is committed in bugfixing on `fix/market-monitor-voices-relevance`; the prod trees carry copies.
+- The personas page is live on bugfixing, oviva, wbm, wileytest and sunstar (sunstar: 1,477 posts, re-read by
+  Jev for about 4 cents). On abm it is installed and migrated but waiting for a quiet restart.
+- The UI flash fix is in `ui/src` only; no bundle was rebuilt.
+- wiley has none of the Voices work; it keeps Voices hidden.
+
+### Lessons
+- A yaml alias repoint moves every caller at once. Name the real model in a caller when you touch it, and
+  check free-text callers before pointing an alias at a reasoning model.
+- A relevance re-score in the name of fixing roles changes more than you asked for. Re-read roles with
+  `classify_roles` only.
+- Compare prompts with `.env` loaded on both sides; importing `app.core.routers` loads it and changes the set.
+- Hunt look-alikes by the name local posts actually use: German posts say "Springer Verlag", Dutch posts
+  say "Elsevier", neither says the look-alike's full name.
+
 ## 2026-09-24 — Daily briefings: the reviewer's warnings now get fixed, and incidents stop carrying invented years (`c2f47fd5`, `bb1ed1e8`)
 
 ### Goal
