@@ -60,6 +60,10 @@ class PersonaSet:
     # --- the settings page stores a set as JSON -----------------------------
 
     def to_dict(self) -> Dict[str, Any]:
+        try:
+            from app.services.audience_voices import ROLE_LABELS
+        except ImportError:
+            ROLE_LABELS = {}
         audiences = []
         for key, definition in self.definitions.items():
             shown = self.group(key)
@@ -67,7 +71,9 @@ class PersonaSet:
                     "button" if shown in self.not_audiences or shown in _ALWAYS_BUTTONS else "column")
             audiences.append({
                 "key": key,
-                "label": (self.display.get(key) or {}).get("label") or key.replace("_", " ").title(),
+                "label": ((self.display.get(key) or {}).get("label")
+                          or (ROLE_LABELS.get(key) or {}).get("label")
+                          or key.replace("_", " ").title()),
                 "definition": definition,
                 "reason": self.reasons.get(key, ""),
                 "show": show,
@@ -219,7 +225,11 @@ HEALTH = PersonaSet(
         "payer": {"label": "Payers & commissioners", "plural": "payers and commissioners", "hint": "NHS commissioners, insurers and employers paying for it"},
         "caregiver": {"label": "Carers", "plural": "carers", "hint": "Relatives and carers"},
         "journalist": {"label": "Press & analysts", "plural": "press and analysts", "hint": "Reporters, analysts, investors and researchers"},
+        "academic": {"label": "Researchers", "plural": "researchers", "hint": "Researchers discussing the evidence"},
+        "employee": {"label": "Employees", "plural": "employees", "hint": "Current or former staff"},
         "brand": {"label": "Brand voice", "plural": "brand accounts", "hint": "The brand's own accounts, staff and paid promotion"},
+        "competitor": {"label": "Competitors", "plural": "competitors", "hint": "Rival programmes' and clinics' own accounts"},
+        "unknown": {"label": "Bystanders", "plural": "bystanders", "hint": "Commentary with no sign of a role"},
     },
     not_audiences=("journalist",),
     hidden=("brand", "unknown", "unclassified"),
