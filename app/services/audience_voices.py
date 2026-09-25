@@ -833,7 +833,8 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     not_aud = _not_audiences()
     present = {r["role"] for r in roles if r["role"] not in not_aud}
     focus: List[str] = []
-    for a, b in PREFERRED_PAIRS:
+    pairs = (alt_set.open_pairs if alt_set is not None and alt_set.open_pairs else ()) or PREFERRED_PAIRS
+    for a, b in pairs:
         if a in present and b in present:
             focus = [a, b]
             break
