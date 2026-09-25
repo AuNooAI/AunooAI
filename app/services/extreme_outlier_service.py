@@ -23,6 +23,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, parse_stage_reply
+from app.model_tiers import default_model
 from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.services.tool_loader import get_tool_loader
 
@@ -182,10 +183,10 @@ class EOSConfig:
     time_horizon: str = "mid"  # 'near' (0-2y), 'mid' (2-5y), 'long' (5-10y)
 
     # Model settings
-    weak_signals_model: str = "gpt-5.4"
-    amplification_model: str = "gpt-5.4"
-    scenario_model: str = "gpt-5.4"
-    implications_model: str = "gpt-5.4"
+    weak_signals_model: str = default_model("standard")
+    amplification_model: str = default_model("standard")
+    scenario_model: str = default_model("standard")
+    implications_model: str = default_model("standard")
 
     # Temperature settings (higher for more creative scenarios)
     weak_signals_temp: float = 0.3

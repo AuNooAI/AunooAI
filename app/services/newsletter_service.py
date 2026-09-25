@@ -6,6 +6,7 @@ No hardcoded sections or article limits - sections are determined by actual cont
 """
 
 import asyncio
+from app.model_tiers import default_model
 import json
 import logging
 import re
@@ -107,7 +108,7 @@ class NewsletterConfig:
     days_back: int = 7
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
     max_articles: int = 2000  # High limit - no artificial cap
 
 

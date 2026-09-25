@@ -11,6 +11,7 @@ Gated by ``WILEY_HUMANIZE`` (default on). Lock-aware callers must skip
 locked fields before calling this.
 """
 from __future__ import annotations
+from app.model_tiers import default_model
 
 import logging
 import os
@@ -490,7 +491,7 @@ async def ground_check_entities(text: str, sources: list) -> dict:
 # Above this many detected tells, rewrite. A few tells are normal in any
 # prose; the rewrite is for genuinely slop-heavy passages.
 _THRESHOLD = int(os.getenv("HUMANIZE_TELL_THRESHOLD", "3"))
-_MODEL = os.getenv("HUMANIZE_MODEL", "gpt-5.4")
+_MODEL = os.getenv("HUMANIZE_MODEL", default_model("standard"))
 
 
 def humanize_enabled() -> bool:

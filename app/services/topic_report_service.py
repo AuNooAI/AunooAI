@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.model_tiers import default_model
 from app.ai_models import is_reasoning_model
 from app.services.report_style import CLINICAL_STYLE
 
@@ -399,7 +400,7 @@ def _default_profile_text(db) -> str:
 
 
 async def generate_executive_summary_for_run(
-    run_id: str, topic: str, scenarios: list, model: str = "gpt-5.4",
+    run_id: str, topic: str, scenarios: list, model: str = default_model("standard"),
 ) -> Optional[dict]:
     """Generate the Future Horizons "Executive Summary" cards for a stored
     horizons run and cache them in ``analysis_versions_v2`` under the
@@ -894,7 +895,7 @@ async def generate_topic_report(
 
     # Re-run the upstream Three Horizons analysis per topic if asked.
     if rerun_forecast:
-        model = force_model or "gpt-5.4"
+        model = force_model or default_model("standard")
         span_lo, span_hi = 5, 65   # share the progress budget across topics
         n = max(1, len(topics))
         for i, topic in enumerate(topics, 1):

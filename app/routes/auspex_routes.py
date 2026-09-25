@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 
 from app.services.auspex_service import get_auspex_service
+from app.model_tiers import default_model
 from app.services.deep_research_service import get_deep_research_service, ResearchConfig
 from app.security.session import verify_session
 
@@ -982,12 +983,10 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
             # Get category-specific analysis
             # Each category should get the FULL article limit since they search independently
             # The categories will find different articles within their specific domain
-            is_mega_context = req.model in ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gemini-1.5-pro"]
-            
             # Give each category the full article limit - they search independently
             category_limit = req.articleLimit
-            
-            logger.info(f"Using article limit of {category_limit} for category '{category}' (model: {req.model}, mega_context: {is_mega_context})")
+
+            logger.info(f"Using article limit of {category_limit} for category '{category}' (model: {req.model})")
             logger.info(f"Each category will independently search for up to {category_limit} articles within their domain")
             logger.info(f"Timeframe conversion: {req.timeframe} -> {timeframe_days} days")
             logger.info(f"Expected to find articles similar to database count for '{category}' in '{req.topic}'")
@@ -1563,7 +1562,7 @@ class NewsletterRequest(BaseModel):
     days_back: int = Field(7, description="Number of days to look back for articles")
     start_date: str | None = Field(None, description="Start date (YYYY-MM-DD)")
     end_date: str | None = Field(None, description="End date (YYYY-MM-DD)")
-    model: str = Field("gpt-5.4", description="Model to use for generation")
+    model: str = Field(default_model("standard"), description="Model to use for generation")
     profile_id: int | None = Field(None, description="Optional organizational profile ID")
 
     @field_validator('topic')

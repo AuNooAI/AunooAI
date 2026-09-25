@@ -23,6 +23,7 @@ import urllib.parse
 from datetime import datetime
 
 from app.security.session import verify_session, verify_session_api
+from app.model_tiers import default_model
 from app.database import get_database_instance
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class AutoComposeRequest(BaseModel):
     min_alignment: float = Field(0.4, ge=0.0, le=1.0, description="Article topic_alignment_score floor (inclusive)")
     days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
     run_detection: bool = Field(False, description="Re-run Emerging Topics detection inline (slow; default reads recently-detected topics)")
-    model: str = Field("gpt-5.4", description="Model for detection")
+    model: str = Field(default_model("standard"), description="Model for detection")
     history_days: int = Field(7, ge=0, le=90, description="Skip items already shared in finalized briefings this many days back (0 = no historical dedup)")
 
 
@@ -180,7 +181,7 @@ class AddIncidentRequest(BaseModel):
 
 class FinalizeBriefingRequest(BaseModel):
     """Request model for finalizing a briefing."""
-    model: str = Field("gpt-5.4", description="AI model to use for synthesis")
+    model: str = Field(default_model("standard"), description="AI model to use for synthesis")
     organizational_profile: Optional[str] = Field(None, description="Organizational profile name for context")
     persona: Optional[str] = Field(None, description="Persona/role for tailored recommendations")
     override_review: bool = Field(False, description="Finalize the stored draft that the reviewer blocked, recording who overrode it")
@@ -490,13 +491,15 @@ async def save_compose_config(
     topics = [t for t in request.topics if t]
     conn = db._temp_get_connection()
     try:
+        # Pass the model on first creation: the column's schema default is an
+        # old alias name, and a fresh site would otherwise run detection on it.
         conn.execute(text("""
-            INSERT INTO emerging_topics_settings (id, daily_briefing_topics)
-            VALUES (1, CAST(:topics AS jsonb))
+            INSERT INTO emerging_topics_settings (id, daily_briefing_topics, model)
+            VALUES (1, CAST(:topics AS jsonb), :model)
             ON CONFLICT (id) DO UPDATE
                 SET daily_briefing_topics = CAST(:topics AS jsonb),
                     updated_at = NOW()
-        """), {"topics": json.dumps(topics)})
+        """), {"topics": json.dumps(topics), "model": default_model("fast")})
         conn.commit()
     finally:
         conn.close()

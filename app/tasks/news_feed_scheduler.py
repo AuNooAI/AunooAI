@@ -6,6 +6,7 @@ import json
 import os
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 from app.services.news_feed_service import get_news_feed_service
 from app.schemas.news_feed import NewsFeedRequest
 
@@ -55,7 +56,7 @@ class NewsFeedScheduler:
                     topic=topic,
                     max_articles=50,
                     include_bias_analysis=True,
-                    model="gpt-5.4"
+                    model=default_model("standard")
                 )
                 
                 # Generate feed
@@ -127,7 +128,7 @@ class NewsFeedScheduler:
                 json.dumps(feed_response.six_articles.dict(), default=str),
                 feed_response.generated_at.isoformat(),
                 feed_response.processing_time_seconds,
-                "gpt-5.4"  # Default model used
+                default_model("standard")  # Default model used
             ))
             
             logger.debug(f"Saved generated feed to database: {topic}, {date.date()}")

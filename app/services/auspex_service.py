@@ -13,6 +13,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from app.ai_models import is_reasoning_model
+from app.model_tiers import default_model
+from app.ai_models import model_caps
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -67,16 +69,8 @@ def _exclude_rejected_filter(metadata_filter: Optional[Dict]) -> Dict:
 
 
 def _bedrock_routed(model: str) -> bool:
-    """True when litellm_config.yaml routes this model alias to a Bedrock
-    target. On Bedrock-repointed tenants the gpt-5.x aliases land on Claude
-    models whose real limits (200k window, 64k output) are far below the
-    alias's nominal OpenAI limits — Bedrock hard-rejects requests sized to
-    the nominal numbers."""
-    try:
-        from app.ai_models import resolve_litellm_call_params
-        return str(resolve_litellm_call_params(model).get("model", "")).startswith("bedrock/")
-    except Exception:
-        return False
+    """True when litellm_config.yaml routes this name to a Bedrock target."""
+    return model_caps(model).bedrock
 
 
 def _llm_call_kwargs(model: str, *, output_tokens: int,
@@ -103,13 +97,11 @@ def _llm_call_kwargs(model: str, *, output_tokens: int,
         # reasoning preamble — the original 4096-token default cut the
         # Consensus Analysis JSON at ~17k chars mid-document.
         completion = max(output_tokens * 4, 16000)
-        completion = min(completion, 128000)
+        # Never above what the model that runs accepts: Bedrock hard-rejects
+        # a budget over the model's cap ("maximum tokens you requested
+        # exceeds the model limit of 64000").
+        completion = min(completion, model_caps(model).max_output)
         from app.ai_models import minimal_reasoning_effort
-        # On Bedrock-routed tenants the gpt-5.x alias resolves to a Claude
-        # model whose output cap is 64k — Bedrock hard-rejects anything above
-        # it ("maximum tokens you requested exceeds the model limit of 64000").
-        if _bedrock_routed(model):
-            completion = min(completion, 64000)
         # A caller that already sized output against the remaining context
         # window passes context_budget; the 4x reasoning headroom must not
         # re-inflate past it or Bedrock rejects with "Input is too long"
@@ -4264,7 +4256,7 @@ Article Details (First {detail_limit}):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str = "gpt-5.4",
+        model: str = default_model("standard"),
         temperature: float = 0.7,
         max_tokens: int = 3000
     ) -> str:
@@ -4483,134 +4475,20 @@ Article Details (First {detail_limit}):
             logger.error("Auspex LLM call failed: %s", exc)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="LLM suggestion failed") from exc
 
-    def _get_model_context_limit(self, model: str) -> int:
-        """Get context window size for different models."""
-        model_limits = {
-            "gpt-3.5-turbo": 16385,
-            "gpt-3.5-turbo-16k": 16385,
-            "gpt-4": 8192,
-            "gpt-4-32k": 32768,
-            "gpt-4-turbo": 128000,
-            "gpt-4-turbo-preview": 128000,
-            "gpt-4o": 128000,
-            "gpt-4o-mini": 128000,
-            "gpt-4.1": 1000000,  # 1M context window
-            "gpt-4.1-mini": 1000000,  # 1M context window
-            "gpt-4.1-nano": 1000000,  # 1M context window
-            # GPT-5 family. The "gpt-5.4" base-model key match below covers
-            # gpt-5.4/gpt-5-mini/gpt-5-nano — all share the 400k context.
-            "gpt-5": 400000,
-            "gpt-5-mini": 400000,
-            "gpt-5-nano": 400000,
-            "gpt-5.5": 1000000,
-            "gpt-5.4": 400000,
-            "gpt-5.4-mini": 400000,
-            "gpt-5.4-nano": 400000,
-            "claude-3-opus": 200000,
-            "claude-3-sonnet": 200000,
-            "claude-3-haiku": 200000,
-            "claude-3.5-sonnet": 200000,
-            "claude-4": 200000,
-            "claude-4-opus": 200000,
-            "claude-4-sonnet": 200000,
-            "claude-4-haiku": 200000,
-            # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
-            # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
-            "claude-sonnet-5": 200000,
-            "claude-opus-5": 200000,
-            "claude-sonnet-4-5": 200000,
-            "claude-haiku-4-5": 200000,
-            "bedrock-claude-sonnet": 200000,
-            "bedrock-claude-haiku": 200000,
-            "nova-pro": 300000,
-            "nova-lite": 300000,
-            "bedrock-kimi-k2-5": 256000,
-            "gemini-pro": 32768,
-            "gemini-1.5-pro": 2097152,
-            "llama-2-70b": 4096,
-            "llama-3-70b": 8192,
-            "mixtral-8x7b": 32768
-        }
-        
-        # Handle versioned model names
-        base_model = model.split("-")[0:2]  # Get first two parts
-        base_model_key = "-".join(base_model)
+    # How much of a model's window Auspex will use. The context manager's
+    # allocations were tuned on a 200k window (Claude on Bedrock); Kimi has
+    # 256k and Nova 300k, and using them is a cost decision still to take.
+    CONTEXT_CEILING = 200_000
 
-        # Try exact match first, then base model, then default
-        limit = model_limits.get(model, model_limits.get(base_model_key, 16385))
-        # Bedrock Claude targets have a 200k window regardless of the
-        # alias's nominal (OpenAI) window — sizing input to 400k gets the
-        # request rejected with "Input is too long".
-        if _bedrock_routed(model):
-            limit = min(limit, 200000)
-        return limit
-    
+    def _get_model_context_limit(self, model: str) -> int:
+        """Input window Auspex sizes prompts to: the model's real window
+        (ai_models.model_caps), capped at CONTEXT_CEILING."""
+        return min(model_caps(model).context, self.CONTEXT_CEILING)
+
     def _get_model_output_limit(self, model: str) -> int:
-        """Get maximum output token limit for different models."""
-        # Model-specific output token limits (different from context window)
-        model_output_limits = {
-            "gpt-4": 16384,      # GPT-4 max output tokens
-            "gpt-4-32k": 16384,  # GPT-4-32k max output tokens
-            "gpt-4-turbo": 16384,
-            "gpt-4-turbo-preview": 16384,
-            "gpt-4o": 16384,
-            "gpt-4o-mini": 16384,
-            "gpt-4.1": 32768,    # GPT-4.1 max output tokens
-            "gpt-4.1-mini": 32768,
-            "gpt-4.1-nano": 32768,
-            # GPT-5 reasoning models. The output budget is shared with
-            # the (hidden) reasoning step, so we need plenty of room or
-            # JSON outputs get truncated mid-document (saw the consensus
-            # analysis cut at char ~17k with the old 4096 default).
-            "gpt-5": 128000,
-            "gpt-5-mini": 128000,
-            "gpt-5-nano": 128000,
-            "gpt-5.5": 128000,
-            "gpt-5.4": 128000,
-            "gpt-5.4-mini": 128000,
-            "gpt-5.4-nano": 128000,
-            "gpt-3.5-turbo": 4096,  # GPT-3.5 max output tokens
-            "gpt-3.5-turbo-16k": 4096,
-            # For other models, use reasonable defaults based on their context size
-            "claude-3-opus": 8192,
-            "claude-3-sonnet": 8192,
-            "claude-3-haiku": 8192,
-            "claude-3.5-sonnet": 8192,
-            "claude-4": 8192,
-            "claude-4-opus": 8192,
-            "claude-4-sonnet": 8192,
-            "claude-4-haiku": 8192,
-            # Bedrock aliases (2026-08-31). Sonnet 4.5 / Sonnet 5 / Opus 5 / Haiku 4.5 allow
-            # 64k output on Bedrock (capped below); Nova stops at ~5k; Kimi K2.5 at 16k. Without
-            # these the 4096 default cut a 13-category consensus off after two categories.
-            "claude-sonnet-5": 64000,
-            "claude-opus-5": 64000,
-            "claude-sonnet-4-5": 64000,
-            "claude-haiku-4-5": 64000,
-            "bedrock-claude-sonnet": 64000,
-            "bedrock-claude-haiku": 64000,
-            "nova-pro": 5000,
-            "nova-lite": 5000,
-            "bedrock-kimi-k2-5": 64000,  # measured 25 Sep: Bedrock accepts 128k
-            "gemini-pro": 8192,
-            "gemini-1.5-pro": 8192,
-            "llama-2-70b": 2048,
-            "llama-3-70b": 2048,
-            "mixtral-8x7b": 8192
-        }
-        
-        # Handle versioned model names
-        base_model = model.split("-")[0:2]  # Get first two parts
-        base_model_key = "-".join(base_model)
-        
-        # Try exact match first, then base model, then reasonable default
-        limit = model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
-        # Bedrock Claude targets cap output at 64k regardless of the alias's
-        # nominal (OpenAI) output limit.
-        if _bedrock_routed(model):
-            limit = min(limit, 64000)
-        return limit
-    
+        """Largest output budget the model this name runs on accepts."""
+        return model_caps(model).max_output
+
     def _update_context_manager_for_model(self, model: str):
         """Update context manager with correct model limits."""
         limit = self._get_model_context_limit(model)

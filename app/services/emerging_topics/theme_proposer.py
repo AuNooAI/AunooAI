@@ -18,6 +18,7 @@ from sqlalchemy import text
 import numpy as np
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 from .date_utils import publication_ts_sql, utcnow
 from .run_lock import normalize_topic_filter
 
@@ -113,7 +114,7 @@ class ThemeProposer:
         self,
         ai_model_getter: Optional[Callable] = None,
         embedding_model_getter: Optional[Callable] = None,
-        default_model: str = "gpt-5.4"
+        default_model: str = default_model("standard")
     ):
         self.ai_model_getter = ai_model_getter
         self.embedding_model_getter = embedding_model_getter

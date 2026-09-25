@@ -40,6 +40,7 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
 from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+from app.model_tiers import default_model
 
 from app.services.forecast_pptx_export import (
     _add_methodology_appendix_slide,
@@ -1549,7 +1550,7 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
     # uses. Best-effort — may drift if the article corpus has changed.
     try:
         from app.routes.trend_convergence_routes import calculate_optimal_sample_size
-        sample_size = calculate_optimal_sample_size("gpt-5.4", sample_size_mode="auto")
+        sample_size = calculate_optimal_sample_size(default_model("standard"), sample_size_mode="auto")
         from sqlalchemy import text as sa_text
         sql = sa_text(f"""
             SELECT uri, title, news_source, publication_date, summary,

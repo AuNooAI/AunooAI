@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy import text
 
 from app.services.social_sources import is_social_source, social_src_sql
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ MIN_ALIGNMENT = 0.4
 MAX_NEW_PROFILE_BUILDS = 3     # each build costs xpoz + LLM calls
 MAX_KEYWORDS = 10
 WINDOW_PAD_DAYS = 7            # window = created_at - pad .. (resolved_at or now)
-BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", "gpt-5.4")
+BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", default_model("standard"))
 BRIEF_INPUT_CAP = 32000   # room for full evidence text — see _write_brief
 MAX_SIGNAL_SCREENS = int(os.getenv("BW_ENRICH_MAX_SIGNAL_SCREENS", "5"))
 

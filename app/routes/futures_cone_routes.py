@@ -10,50 +10,8 @@ from collections import Counter
 
 from app.database import Database, get_database_instance
 from app.ai_models import get_ai_model
+from app.ai_models import model_caps
 
-# Context limits for different AI models (copied from consensus analysis)
-CONTEXT_LIMITS = {
-    'gpt-5.5': 1000000,
-    'gpt-5.4': 400000,
-    'gpt-5.4-mini': 400000,
-    'gpt-5.4-nano': 400000,
-    'gpt-3.5-turbo': 16385,
-    'gpt-3.5-turbo-16k': 16385,
-    'gpt-4': 8192,
-    'gpt-4-32k': 32768,
-    'gpt-4-turbo': 128000,
-    'gpt-4-turbo-preview': 128000,
-    'gpt-4o': 128000,
-    'gpt-4o-mini': 128000,
-    'gpt-4.1': 1000000,
-    'gpt-4.1-mini': 1000000,
-    'gpt-4.1-nano': 1000000,
-    'claude-3-opus': 200000,
-    'claude-3-sonnet': 200000,
-    'claude-3-haiku': 200000,
-    'claude-3.5-sonnet': 200000,
-    'claude-4': 200000,
-    'claude-4-opus': 200000,
-    'claude-4-sonnet': 200000,
-    'claude-4-haiku': 200000,
-    # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
-    # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
-    'claude-sonnet-5': 200000,
-    'claude-opus-5': 200000,
-    'claude-sonnet-4-5': 200000,
-    'claude-haiku-4-5': 200000,
-    'bedrock-claude-sonnet': 200000,
-    'bedrock-claude-haiku': 200000,
-    'nova-pro': 300000,
-    'nova-lite': 300000,
-    'bedrock-kimi-k2-5': 256000,
-    'gemini-pro': 32768,
-    'gemini-1.5-pro': 2097152,
-    'llama-2-70b': 4096,
-    'llama-3-70b': 8192,
-    'mixtral-8x7b': 32768,
-    'default': 16385
-}
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -165,7 +123,7 @@ def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', cu
         return custom_limit
 
     # Calculate based on mode and model capabilities
-    context_limit = CONTEXT_LIMITS.get(model, CONTEXT_LIMITS['default'])
+    context_limit = model_caps(model).context
     is_mega_context = context_limit >= 1000000
 
     if sample_size_mode == 'focused':

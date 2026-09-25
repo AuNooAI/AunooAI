@@ -8,6 +8,7 @@ from datetime import datetime
 from litellm import Router
 import logging
 from app.env_loader import ensure_model_env_vars
+from app.model_tiers import default_model
 from typing import Optional, Dict, Any
 from litellm import completion
 import litellm
@@ -27,6 +28,8 @@ from litellm import (
 from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+from dataclasses import dataclass
+# Re-exported: callers pick a model by tier from here, not by a literal., check_tiers_resolve, TIERS  # noqa: F401
 
 
 def minimal_reasoning_effort(model_name: str) -> str:
@@ -47,20 +50,82 @@ def minimal_reasoning_effort(model_name: str) -> str:
     return "minimal"
 
 
+@dataclass(frozen=True)
+class ModelCaps:
+    """What the model behind a name can do. Read from the model that runs
+    (the yaml target), never from the name asked for, so an alias and its
+    real name always agree."""
+    name: str
+    target: str            # litellm provider path, e.g. bedrock/us.anthropic.claude-sonnet-4-5-...
+    family: str            # claude-sonnet-4-5 | claude-haiku-4-5 | claude-5 | kimi | nova | gpt-5 | gpt-4 | other
+    context: int           # input window, tokens
+    max_output: int        # largest max_tokens the provider accepts
+    reasoning: bool        # thinks before answering: needs the big output budget, no temperature
+    supports_temperature: bool
+    bedrock: bool
+
+
+# Facts about the models the yaml can route to, keyed by a substring of the
+# provider path. Numbers: Bedrock Claude 200k window / 64k output; Nova 300k /
+# 5k (litellm says 10k; keep the value the foresight tables ran on); Kimi
+# K2.5 256k window, 64k output kept (the endpoint accepted 128k on 25 Sep).
+# Claude 5 on Bedrock is unmapped in litellm; 200k / 64k until measured.
+# The last row is the floor for anything unknown, such as the ollama models
+# in litellm_config.yaml.local.
+_CAPS_TABLE = (
+    ("claude-sonnet-4-5", "claude-sonnet-4-5", 200_000, 64_000, False),
+    ("claude-haiku-4-5",  "claude-haiku-4-5",  200_000, 64_000, False),
+    ("claude-sonnet-5",   "claude-5",          200_000, 64_000, False),
+    ("claude-opus-5",     "claude-5",          200_000, 64_000, False),
+    ("claude-3-5-haiku",  "claude-3-5-haiku",  200_000, 8_192,  False),
+    ("kimi-k2",           "kimi",              256_000, 64_000, True),
+    ("nova-lite",         "nova",              300_000, 5_000,  False),
+    ("nova-pro",          "nova",              300_000, 5_000,  False),
+    ("gpt-5",             "gpt-5",             400_000, 128_000, True),
+    ("gpt-4",             "gpt-4",             128_000, 16_384, False),
+)
+_CAPS_DEFAULT = ("other", 32_768, 4_096, False)
+
+
+def model_caps(model_name: str) -> ModelCaps:
+    """Capabilities of the model a name routes to. Never raises: a name the
+    yaml does not know gets the conservative floor."""
+    name = str(model_name or "")
+    try:
+        cfg = load_model_config().get(name) or {}
+    except Exception:  # noqa: BLE001 - a broken yaml is reported elsewhere
+        cfg = {}
+    target = str(cfg.get("model") or name)
+    key = target.split("/")[-1].lower()
+    family, context, max_output, reasoning = _CAPS_DEFAULT
+    for needle, fam, ctx, out, reason in _CAPS_TABLE:
+        if needle in key:
+            family, context, max_output, reasoning = fam, ctx, out, reason
+            break
+    bedrock = target.startswith("bedrock/")
+    # An OpenAI gpt-5 name that the yaml sends to Bedrock is not a reasoning
+    # call: the yaml also drops reasoning_effort for that target.
+    if family == "gpt-5" and bedrock:
+        reasoning = False
+    dropped = cfg.get("additional_drop_params") or ()
+    return ModelCaps(
+        name=name, target=target, family=family, context=context,
+        max_output=max_output, reasoning=reasoning,
+        supports_temperature="temperature" not in dropped, bedrock=bedrock,
+    )
+
+
 def is_reasoning_model(model_name: str) -> bool:
-    """True when the model thinks before it answers and so needs the large
-    output budget: the gpt-5 family, and any name the litellm yaml sends to
-    Kimi K2.5. The gpt-5.4-mini alias has pointed at Kimi since 8 Sep, and
-    callers now name Kimi directly, so a check on the "gpt-5" prefix alone
-    would give Kimi a small max_tokens and cut its JSON short."""
+    """True when the call needs the reasoning shape: a large output budget
+    and no temperature. That is what the model behind the name says
+    (model_caps), plus, for now, any name starting with "gpt-5". The gpt-5.4
+    alias runs on Claude Sonnet, and the report pipelines have always sent it
+    the reasoning shape; dropping that clause changes their temperature and
+    budget, so it goes with the gated switch of the standard tier."""
     name = str(model_name or "")
     if name.split("/")[-1].startswith("gpt-5"):
         return True
-    try:
-        target = str(resolve_litellm_call_params(name).get("model", ""))
-    except Exception:  # noqa: BLE001 - unknown names are plain models
-        target = name
-    return "kimi" in target.lower() or "kimi" in name.lower()
+    return model_caps(name).reasoning
 
 
 def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
@@ -587,6 +652,8 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
                     # Store the raw litellm params so callers can access them
                     # when needed (e.g., api_key extraction).
                     **litellm_params,
+                    # legacy_alias and any other tags on the entry.
+                    "model_info": model_entry.get("model_info") or {},
                 }
 
         if _stamp is not None:
@@ -1440,20 +1507,21 @@ class AIModelFactory:
     Provides compatibility layer for services expecting AIModelFactory.get_model().
     """
 
-    _default_model = "bedrock-kimi-k2-5"
+    _default_model: Optional[str] = None  # None = the fast tier
 
     @classmethod
     def get_model(cls, model_name: str = None) -> LiteLLMModel:
         """Get a LiteLLM model instance.
 
         Args:
-            model_name: Optional model name. Defaults to bedrock-kimi-k2-5.
+            model_name: Optional model name. Defaults to the fast tier
+                (app.model_tiers.default_model).
 
         Returns:
             LiteLLMModel instance for the specified model.
         """
         if model_name is None:
-            model_name = cls._default_model
+            model_name = cls._default_model or default_model("fast")
         return LiteLLMModel.get_instance(model_name)
 
     @classmethod

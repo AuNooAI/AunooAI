@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException,
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
+from app.model_tiers import default_model
 from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -1860,7 +1861,7 @@ async def bulk_research_endpoint(
             "urls": ["https://example.com/article1", "https://example.com/article2"],
             "topic": "AI and Machine Learning",
             "summary_type": "curious_ai",
-            "model_name": "gpt-5.4",
+            "model_name": default_model("standard"),
             "summary_length": "medium",
             "summary_voice": "neutral"
         }]
@@ -1871,7 +1872,7 @@ async def bulk_research_endpoint(
         results = await bulk_research.analyze_bulk_urls(
             urls=data.get("urls", []),
             summary_type=data.get("summary_type", "curious_ai"),
-            model_name=data.get("model_name", "gpt-5.4"),
+            model_name=data.get("model_name", default_model("standard")),
             summary_length=data.get("summary_length", "medium"),
             summary_voice=data.get("summary_voice", "neutral"),
             topic=data.get("topic")

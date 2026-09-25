@@ -3,6 +3,7 @@ Analysis queue service for non-blocking bulk article processing.
 Uses asyncio queues to prevent UI blocking during large operations.
 """
 import asyncio
+from app.model_tiers import default_model
 import logging
 from typing import List, Dict, Callable, Optional
 from dataclasses import dataclass
@@ -110,7 +111,7 @@ class AnalysisQueue:
                             urls=[task.url],
                             topic=task.topic,
                             summary_type='curious_ai',
-                            model_name='gpt-5.4',
+                            model_name=default_model("standard"),
                             summary_length=50,
                             summary_voice='neutral'
                         )

@@ -6,6 +6,7 @@ Uses LLM to verify article-theme alignment after semantic search assignment.
 """
 
 import json
+from app.model_tiers import default_model
 import logging
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Callable
@@ -52,7 +53,7 @@ class ArticleValidator:
     def __init__(
         self,
         ai_model_getter: Callable,
-        model_name: str = "gpt-5.4"
+        model_name: str = default_model("standard")
     ):
         """
         Initialize the article validator.

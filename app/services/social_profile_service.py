@@ -330,7 +330,7 @@ class SocialProfileService:
                          market_posts: Optional[List[str]] = None) -> Dict:
         try:
             from app.ai_models import LiteLLMModel
-            model = LiteLLMModel.get_instance(os.getenv("SOCIAL_EVAL_MODEL", "bedrock-claude-haiku"))
+            model = LiteLLMModel.get_instance(os.getenv("SOCIAL_EVAL_MODEL", "claude-haiku-4-5"))
         except Exception:
             model = None
         if not model:

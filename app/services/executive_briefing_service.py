@@ -22,6 +22,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.report_style import CLINICAL_STYLE
 from app.services.tool_loader import get_tool_loader
@@ -213,10 +214,10 @@ class EBConfig:
     podcast_duration: str = "short"  # short, medium, long
 
     # Model settings
-    selection_model: str = "gpt-5.4"
-    analysis_model: str = "gpt-5.4"
-    synthesis_model: str = "gpt-5.4"
-    podcast_model: str = "gpt-5.4"
+    selection_model: str = default_model("standard")
+    analysis_model: str = default_model("standard")
+    synthesis_model: str = default_model("standard")
+    podcast_model: str = default_model("standard")
 
     # Temperature settings
     selection_temp: float = 0.3

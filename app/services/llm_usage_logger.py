@@ -79,6 +79,7 @@ _PRICE_PER_M: dict[str, tuple[float, float]] = {
     "nova-pro": (0.80, 3.20),
     "nova-lite": (0.06, 0.24),
     "nova-micro": (0.035, 0.14),
+    "kimi-k2": (0.60, 3.03),
     "mistral-large": (0.80, 4.00),
     "llama3-3-70b": (0.06, 0.24),
     "gpt-5.4-mini": (0.15, 0.60),

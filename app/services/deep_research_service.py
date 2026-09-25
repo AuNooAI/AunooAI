@@ -29,6 +29,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
@@ -154,9 +155,9 @@ class ResearchConfig:
     # Model settings
     planning_model: str = "bedrock-kimi-k2-5"
     planning_temperature: float = 0.3
-    synthesis_model: str = "gpt-5.4"
+    synthesis_model: str = default_model("standard")
     synthesis_temperature: float = 0.4
-    writing_model: str = "gpt-5.4"
+    writing_model: str = default_model("standard")
     writing_temperature: float = 0.5
 
     # Timeouts (seconds)

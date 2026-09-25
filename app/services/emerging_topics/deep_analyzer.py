@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Any, Callable
 from sqlalchemy import text
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ class DeepAnalyzer:
     def __init__(
         self,
         ai_model_getter: Optional[Callable] = None,
-        default_model: str = "gpt-5.4"
+        default_model: str = default_model("standard")
     ):
         self.ai_model_getter = ai_model_getter
         self.default_model = default_model

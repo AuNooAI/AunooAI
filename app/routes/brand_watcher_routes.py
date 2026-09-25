@@ -20,6 +20,7 @@ from functools import lru_cache
 import os
 
 from app.security.session import verify_session
+from app.model_tiers import default_model
 from app.services.social_sources import (
     earned_news_sql, social_src_sql, owned_src_sql, is_owned_source, collapse_reposts,
 )
@@ -532,7 +533,7 @@ class NarrativeRequest(BaseModel):
     days_back: int = 365
     # Standard tier, not mini: this is the most executive-facing text in Brand
     # Watcher, and it gets a same-tier reviewer pass on top (see generate_narrative).
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
 
 
 class NarrativeResponse(BaseModel):

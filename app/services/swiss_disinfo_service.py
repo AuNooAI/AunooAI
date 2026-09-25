@@ -21,13 +21,14 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOPIC = "Swiss Federal Elections 2027 Disinfo Monitoring"
 EUROPE_TOPIC = "European Election Interference"
 DEFAULT_MODEL = "bedrock-kimi-k2-5"
-BRIEF_MODEL = "gpt-5.4"
+BRIEF_MODEL = default_model("standard")
 NARRATIVE_MATCH_THRESHOLD = 0.90  # shortlist floor only; the model decides
 
 STANCES = ("promotes", "reports", "debunks")
@@ -1282,7 +1283,7 @@ class SwissDisinfoService:
         models = [
             _m("Relevance gate", os.getenv("RELEVANCE_MODEL", "bedrock-kimi-k2-5"),
                "scores every article against this watch's description"),
-            _m("Social relevance", os.getenv("SOCIAL_EVAL_MODEL", "").strip('"') or "bedrock-claude-haiku",
+            _m("Social relevance", os.getenv("SOCIAL_EVAL_MODEL", "").strip('"') or "claude-haiku-4-5",
                "scores Bluesky and Telegram posts, which never reach the news gate"),
             _m("Article analysis", (tenant[2] if tenant else "") or DEFAULT_MODEL,
                "category, sentiment and tags, shared with the rest of the platform"),

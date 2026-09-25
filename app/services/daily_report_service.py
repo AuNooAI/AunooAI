@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, AsyncGenerator, Any
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response, is_reasoning_model
+from app.model_tiers import default_model
 from app.services.tool_loader import get_tool_loader
 from app.services.report_style import CLINICAL_STYLE
 
@@ -55,8 +56,8 @@ def _llm_token_kwargs(model: str, *, output_tokens: int) -> dict:
 class DRConfig:
     """Configuration for Desk Briefing synthesis."""
     # Model settings
-    analysis_model: str = "gpt-5.4"
-    synthesis_model: str = "gpt-5.4"
+    analysis_model: str = default_model("standard")
+    synthesis_model: str = default_model("standard")
 
     # Temperature settings
     analysis_temp: float = 0.4
@@ -702,7 +703,7 @@ class DailyReportService:
         briefing_name: str,
         articles: List[Dict],
         incidents: List[Dict],
-        model: str = "gpt-5.4",
+        model: str = default_model("standard"),
         organizational_profile: str = None,
         persona: str = None,
         timeline_context: str = None,

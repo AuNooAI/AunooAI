@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from app.model_tiers import default_model
 from typing import Optional, List, Dict
 from re import U
 import sqlite3
@@ -3650,7 +3651,7 @@ class DatabaseQueryFacade:
                 min_relevance_threshold=0.7,
                 quality_control_enabled=True,
                 auto_save_approved_only=False,
-                default_llm_model="gpt-5.4",
+                default_llm_model=default_model("standard"),
                 llm_temperature=0.7,
                 llm_max_tokens=2000
             )

@@ -23,6 +23,7 @@ Reuses existing primitives:
 - ``wiley_overlay_generator.generate_overlay_proposal``
 """
 from __future__ import annotations
+from app.model_tiers import default_model
 
 import asyncio
 import json
@@ -687,7 +688,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
     from app.routes.trend_convergence_routes import generate_future_horizons_prompt
     formatted_prompt = generate_future_horizons_prompt(topic, article_rows, "", None)
 
-    ai_model = get_ai_model("gpt-5.4")
+    ai_model = get_ai_model(default_model("standard"))
     if not ai_model:
         raise RuntimeError("gpt-5.4 model not available for Three Horizons run.")
 
@@ -748,7 +749,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
             "topic_label": topic,
             "topic_description": candidate.get("proposed_description"),
             "articles_analyzed": len(article_rows),
-            "model_used": "gpt-5.4",
+            "model_used": default_model("standard"),
             "generated_at": _dt.utcnow().isoformat(),
             "analysis_type": "candidate_promotion",
             "source_candidate_id": candidate.get("id"),
@@ -758,7 +759,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
         analysis_id=run_id,
         user_id=None,
         topic=topic,
-        model_used="gpt-5.4",
+        model_used=default_model("standard"),
         raw_output=raw_output,
         total_articles_analyzed=len(article_rows),
         analysis_duration_seconds=_time.time() - started,

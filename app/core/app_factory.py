@@ -24,6 +24,16 @@ async def lifespan(app: FastAPI):
     """Application lifespan management."""
     # Startup logic
     try:
+        # Every model tier must be a name this site's litellm yaml can route.
+        # A bare name would otherwise reach litellm with no provider and no
+        # key, and fail on the first call instead of here.
+        from app.model_tiers import check_tiers_resolve, tier_models
+        _missing = check_tiers_resolve()
+        if _missing:
+            raise RuntimeError(
+                f"model tiers {tier_models()} name models missing from "
+                f"app/config/litellm_config.yaml: {_missing}")
+
         # Use the new centralized application initialization
         from app.startup import initialize_application
 

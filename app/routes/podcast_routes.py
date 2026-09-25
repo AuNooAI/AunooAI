@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, staticfiles, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from app.security.session import verify_session
+from app.model_tiers import default_model
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from datetime import datetime
@@ -242,7 +243,7 @@ class TTSPodcastRequest(BaseModel):
     article_uris: Optional[List[str]] = None
 
     # Prompt / LLM configuration
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
     duration: str = "medium"  # short | medium | long
     length_per_article: int = 90  # Target seconds per article (45-150)
     article_count: Optional[int] = None  # Number of articles
@@ -1550,7 +1551,7 @@ class DiaPodcastRequest(BaseModel):
     output_format: str = "mp3"
 
     # Script generation fallback extras
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
     duration: str = "medium"
     host_name: Optional[str] = "Aunoo"
     guest_name: Optional[str] = "Auspex"

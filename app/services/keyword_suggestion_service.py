@@ -284,8 +284,12 @@ class KeywordSuggestionService:
                 {"role": "user", "content": prompt}
             ]
 
+            # A direct litellm call bypasses the Router: resolve the yaml name
+            # to its provider path and credentials or a Bedrock name cannot
+            # route at all.
+            from app.ai_models import resolve_litellm_call_params
             response = completion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.3

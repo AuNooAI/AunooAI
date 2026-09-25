@@ -184,8 +184,11 @@ class SummarizationService:
             if len(content) > max_content:
                 content = content[:max_content] + "..."
 
+            # Direct litellm call: resolve the yaml name to its provider path
+            # and credentials, or a Bedrock name has no route.
+            from app.ai_models import resolve_litellm_call_params
             response = completion(
-                model=configured_model,
+                **resolve_litellm_call_params(configured_model),
                 messages=[
                     {"role": "user", "content": f"Summarize the following article in 2-3 concise sentences.\n\nTitle: {title}\n\nContent:\n{content}\n\nSummary:"}
                 ],
