@@ -1,5 +1,110 @@
 # Changes
 
+## 2026-09-25 — Model names: the code decides by the model that runs, not the alias (`f399f8ba`, `b7d0b3ae`, `a05b5cf3`, `85aa32e5`, `b104102e`, `39c0138c`)
+
+### Goal
+The name a feature asked for was almost never the model that ran. `litellm_config.yaml` sent
+`gpt-5.4` to Claude Sonnet 4.5 and `gpt-5.4-mini` / `gpt-4o-mini` to Kimi K2.5, and the code
+carried those names as literals, chose call settings by the name's prefix and looked limits up by
+name. Earlier today the `gpt-5.4-mini`, `gpt-4o-mini` and `gpt-5.4-nano` literals were renamed to
+`bedrock-kimi-k2-5` (`a3ccb5b5`, `803ddda1`, `2f29fbf5`, `d02ea28d`). Oliver then asked how to fix
+it properly. The plan (`docs/ISSUE_MODEL_ALIAS_CLEANUP.md`, 6 Sep, plus the 25 Sep plan file) came
+down to: capabilities from what runs, one default per tier, aliases kept but out of the code, and a
+measured gate before the one change that alters output.
+
+### One default per tier (`app/model_tiers.py`, new)
+`TIERS` = fast `bedrock-kimi-k2-5`, standard and premium `claude-sonnet-4-5`. `default_model(tier)`
+reads `MODEL_TIER_FAST|STANDARD|PREMIUM` from `.env` first (empty counts as unset). 77 `gpt-5.4`
+literals in 39 files under `app/` now read `default_model("standard")`; `AIModelFactory` defaults to
+the fast tier. `check_tiers_resolve()` runs in the lifespan and the app refuses to start if a tier
+names a model the site's yaml cannot route (a bare name would otherwise reach litellm with no
+provider and fail on the first call). Tier names are code defaults, not yaml entries: settings rows
+and provenance keep real model names, which the EU AI Act disclosure needs.
+
+### Capabilities from the model that runs (`ai_models.model_caps`)
+`model_caps(name)` resolves the yaml target and returns window, output cap, whether the model
+reasons, whether it takes a temperature (from the entry's `additional_drop_params`) and whether it
+is on Bedrock, from one table keyed by target. It replaced the name-keyed limit tables in
+`auspex_service` (`_bedrock_routed`, `_get_model_context_limit`, `_get_model_output_limit`),
+`futures_cone_routes`, `trend_convergence_routes` and `executive_summary_routes`, so an alias and
+its real name size prompts the same way. `gpt-5.5` no longer counts as a 1M-window model on a 200k
+Sonnet (sample sizes 150/195/180 -> 75/97/90). Auspex keeps `CONTEXT_CEILING = 200_000`, so Kimi
+and Nova stay where they were; lifting it is a cost decision. `/api/trend-convergence/models`
+carries `max_output` and `reasoning` per model. `load_model_config()` keeps `model_info`.
+`is_reasoning_model` now means `model_caps(name).reasoning`: Kimi, or a gpt-5 that runs on OpenAI.
+`minimal_reasoning_effort` reads the version off the target, so wileytest's `openai-gpt-5.5` no
+longer gets `minimal` (a 400).
+
+Checked before the restart: for every name in the yaml, `is_reasoning_model`, both Auspex limits,
+the three sample-size functions and the Auspex call kwargs were compared against HEAD. Every name
+in live use was unchanged; only aliases nobody sends any more (which used to fall to a 16k default)
+and the `gpt-5.5` fix moved.
+
+### The standard-tier switch, gated (`85aa32e5`)
+`gpt-5.4` and `claude-sonnet-4-5` reach the same Bedrock Sonnet. Under the alias the four report
+pipelines sent the reasoning shape: a 4x output budget and no temperature, so Sonnet wrote at 1.0.
+`scripts/gate_model_shape.py` ran daily report, briefing compose, topic report and Auspex twice
+per arm on bugfixing, recording what each call sent and got back, writing nothing customer-visible
+(saves captured or deleted, Jev shadows off). Every call finished with `stop`; the largest
+completion was 2,775 tokens against the smallest new budget of 1,000 for that call type. Topic
+report: 14 scenarios and 6 executive cards in all four runs. Auspex: valid JSON, 6 themes, both
+arms. Compose: identical. Daily report: same result (4 themes, 5 actions, 0 reviewer errors) via
+one to three more repair rounds, 22-26 calls and 14.0-14.6k output tokens against 19 calls and
+7.8-10.5k, about 9 cents and 90 seconds more per briefing at Sonnet's output price. Auspex chat
+answers came out about a quarter shorter (4.9-5.3k chars vs 6.3-7.0k). Oliver chose the switch on
+bugfixing. The daily-report reviewer agent (`dr_reviewer_agent.md`) names the same model and got an
+8,000-token cap (`39c0138c`): its two reviews under the new name used 3,863 and 3,427 of 4,000.
+
+### Aliases stay resolvable, and out of the code
+The yaml entries stay tagged `legacy_alias`. `tests/test_model_tiers_and_caps.py` fails on any
+quoted legacy name in `app/`, `ui/src` or `data/auspex/agents` outside a short allowlist (the price
+table, disclosure labels, schema history, the UI's saved-choice migration sets). The same file tests
+the tiers, the caps table, the yaml invariants (every Bedrock Claude entry drops `reasoning_effort`,
+every alias has a fallback, listers hide tagged names) and the exact kwargs the four pipelines
+send. `tests/test_ai_models_error_handling.py` patched a symbol `ai_models` never had and could not
+run; it runs again (17 pass) with a stubbed Router and its stale expectations corrected.
+
+### UI and agent files (`a05b5cf3`, `b104102e`)
+Fifteen UI files defaulted to `'gpt-5.4'` or `'gpt-4o'`; they send `claude-sonnet-4-5`. The
+fallback model lists named the hidden aliases `bedrock-claude-*`; they offer the five real names.
+The Auspex context sizing prefers the `context_limit` the server reports. Forty agent front-matter
+files named `gpt-4.1*` / `gpt-4o*`; they name `bedrock-kimi-k2-5` or `claude-sonnet-4-5`, the same
+targets, and agents run through the Router with their own temperature, so nothing changed on the
+wire. UI build included in `b104102e`.
+
+### Fixed on the way
+`keyword_suggestion_service.py` and `summarization_service.py` called litellm with a bare yaml name
+and no routing lookup, so a Bedrock name could not route there. `threat_intelligence_monitor.py`
+read a schedule's model and then hardcoded another. `daily_reports_routes.py` created the
+emerging-topics settings row without a model, leaving a fresh site on the schema default
+(`gpt-4o-mini`). Two social defaults named `bedrock-claude-haiku`. Auspex's structured analysis
+parsed Sonnet's reply with a strict `json.loads` and answered 500 on a valid object in a code fence
+(`b7d0b3ae`). bugfixing's `.env` named `bedrock-claude-haiku` / `bedrock-claude-sonnet` for
+`RELEVANCE_MODEL`, `RELEVANCE_FALLBACK_MODEL`, `HUMANIZE_MODEL`, `SOCIAL_EVAL_MODEL`; they name
+`claude-haiku-4-5` / `claude-sonnet-4-5`, the same targets on every site.
+
+### Propagation
+bugfixing: live (restarted 19:04 after Phase 1, 20:14 after the switch; no tracebacks; both tiers
+answer by direct call, `get_ai_model` and the Router). The seven other sites are NOT yet done. A
+dry run shows the three name-branch files (`auspex_service`, `daily_briefing_compose_service`,
+`topic_report_service`) and a few routes carry local changes on every site, so those get the same
+transformations applied to the site's own copy (scratchpad `transform_site.py`, every anchor found
+on all seven), and the rest a base-aware copy or three-way merge (`apply_to_sites.sh`). Also per
+site: the four `.env` names, the agent front-matter lines, the reviewer cap, and the UI bundle for
+wiley and wileytest (the other five run older bundles that still send the aliases, which still
+resolve). bwtemplate's yaml lacks `claude-sonnet-4-5`; add it before that tree is revived.
+
+### Lessons
+- `llm_usage_log.model` already holds the resolved id, so "who still sends an alias" cannot be read
+  from the ledger. Log the requested name before relying on that query.
+- `bedrock-claude-sonnet` and `bedrock-claude-haiku` are themselves legacy-tagged and hidden from
+  pickers. The honest names are `claude-sonnet-4-5` and `claude-haiku-4-5`.
+- A test that writes through a Jev shadow (`test_daily_briefing_compose.py`) puts rows in the live
+  `briefing_candidate_shadow` table; stub `briefing_candidate_shadow.schedule` first. This session
+  deleted the 157 rows it wrote under briefing 4242; 10 from a 22 Sep run remain.
+- Inserting an import after a regex match on `^from app\.\w+ import` lands inside a parenthesised
+  import or below a late one. Pick the first single-line `from app.` import.
+
 ## 2026-09-24/25 — Brand Watcher Voices: new sites, better roles, Jev, per-site personas with a settings page; alert emails stop leaking model working
 
 ### Goal
