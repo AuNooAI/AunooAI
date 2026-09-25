@@ -605,7 +605,7 @@ def _merge_findings(preflight: List[Dict], judge: List[Dict]) -> List[Dict]:
     return out
 
 
-_NO_CHANGE = re.compile(r"\bno (change|fix|correction|action)s? (is )?(needed|required|necessary)\b"
+_NO_CHANGE = re.compile(r"\b(no|none)( change| fix| correction| action)?s? (is )?(needed|required|necessary)\b|\bno issue\b"
                         r"|\bno error found\b|\bis correctly attributed\b|\bthe inference is supported\b", re.I)
 # The suggested_fix is where the judge admits the sentence is fine while still
 # listing it (wileytest 25 Sep 2026: "The current wording is acceptable as it

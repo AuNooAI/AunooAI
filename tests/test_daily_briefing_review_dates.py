@@ -220,3 +220,14 @@ def test_confirmation_with_no_verdicts_changes_nothing():
     f = _finding("Sentence A.", check="actor", severity="error")
     out, summary = svc._apply_confirmation([f], [])
     assert out == [f] and summary == {"confirmed": 0, "withdrawn": 0}
+
+
+def test_none_needed_and_no_issue_are_not_findings():
+    raw = [{"target": "summary", "severity": "info", "check": "date", "claim_text": "x",
+            "finding": "The theme uses 'on or before September 24' which correctly hedges the date. No issue.",
+            "suggested_fix": "None needed."},
+           {"target": "summary", "severity": "warning", "check": "date", "claim_text": "y",
+            "finding": "Real problem.", "suggested_fix": "No changes needed."},
+           {"target": "summary", "severity": "warning", "check": "date", "claim_text": "z",
+            "finding": "Real problem.", "suggested_fix": "Write 'reported on'."}]
+    assert [f["claim_text"] for f in svc._sanitize_review_findings(raw)] == ["z"]
