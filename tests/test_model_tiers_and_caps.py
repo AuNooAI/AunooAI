@@ -90,9 +90,8 @@ def test_caps_special_cases(fake_yaml):
 
 
 def test_is_reasoning_model_truth_table(fake_yaml):
-    # gpt-5* names keep the reasoning shape until the standard tier switches
-    # to Sonnet's own name (see model_tiers.TIERS).
-    assert is_reasoning_model("gpt-5.4") is True
+    # A gpt-5 name that runs on Bedrock Sonnet is a plain model.
+    assert is_reasoning_model("gpt-5.4") is False
     assert is_reasoning_model("gpt-5.4-mini") is True
     assert is_reasoning_model("bedrock-kimi-k2-5") is True
     assert is_reasoning_model("openai-gpt-5.5") is True
@@ -143,12 +142,12 @@ def test_load_model_config_keeps_model_info():
 def test_daily_report_and_auspex_call_shapes(fake_yaml):
     from app.services.daily_report_service import _llm_token_kwargs
     from app.services.auspex_service import _llm_call_kwargs
-    assert _llm_token_kwargs("gpt-5.4", output_tokens=1000) == {"reasoning_effort": "none", "max_completion_tokens": 4000}
+    assert _llm_token_kwargs("gpt-5.4", output_tokens=1000) == {"max_tokens": 1000}
     assert _llm_token_kwargs("bedrock-kimi-k2-5", output_tokens=1000) == {"reasoning_effort": "minimal", "max_completion_tokens": 4000}
     assert _llm_token_kwargs("claude-sonnet-4-5", output_tokens=1000) == {"max_tokens": 1000}
     assert _llm_token_kwargs("nova-lite", output_tokens=1000) == {"max_tokens": 1000}
-    assert _llm_call_kwargs("gpt-5.4", output_tokens=4000) == {"reasoning_effort": "none", "max_completion_tokens": 16000}
-    assert _llm_call_kwargs("gpt-5.4", output_tokens=40000) == {"reasoning_effort": "none", "max_completion_tokens": 64000}
+    assert _llm_call_kwargs("gpt-5.4", output_tokens=4000) == {"max_tokens": 4000, "temperature": 0.7}
+    assert _llm_call_kwargs("openai-gpt-5.5", output_tokens=40000) == {"reasoning_effort": "none", "max_completion_tokens": 128000}
     assert _llm_call_kwargs("bedrock-kimi-k2-5", output_tokens=40000)["max_completion_tokens"] == 64000
     assert _llm_call_kwargs("claude-sonnet-4-5", output_tokens=4000) == {"max_tokens": 4000, "temperature": 0.7}
 

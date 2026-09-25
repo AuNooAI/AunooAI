@@ -41,8 +41,10 @@ def minimal_reasoning_effort(model_name: str) -> str:
     cost-saving "lowest effort" default keeps working across the family instead
     of breaking the call.
     """
-    name = str(model_name or "").split("/")[-1]  # tolerate a 'provider/' prefix
-    m = re.match(r"gpt-(\d+)(?:\.(\d+))?", name)
+    # Read the version off the model that runs, not the name asked for:
+    # wileytest's "openai-gpt-5.5" is gpt-5.5 and rejects 'minimal'.
+    name = model_caps(model_name).target.split("/")[-1]
+    m = re.search(r"gpt-(\d+)(?:\.(\d+))?", name)
     if m:
         major, minor = int(m.group(1)), int(m.group(2) or 0)
         if major > 5 or (major == 5 and minor >= 4):
@@ -117,15 +119,10 @@ def model_caps(model_name: str) -> ModelCaps:
 
 def is_reasoning_model(model_name: str) -> bool:
     """True when the call needs the reasoning shape: a large output budget
-    and no temperature. That is what the model behind the name says
-    (model_caps), plus, for now, any name starting with "gpt-5". The gpt-5.4
-    alias runs on Claude Sonnet, and the report pipelines have always sent it
-    the reasoning shape; dropping that clause changes their temperature and
-    budget, so it goes with the gated switch of the standard tier."""
-    name = str(model_name or "")
-    if name.split("/")[-1].startswith("gpt-5"):
-        return True
-    return model_caps(name).reasoning
+    and no temperature. Decided by the model behind the name (model_caps):
+    Kimi, or a gpt-5 that really runs on OpenAI. A gpt-5 name the yaml sends
+    to Bedrock Claude is a plain model and gets the plain shape."""
+    return model_caps(str(model_name or "")).reasoning
 
 
 def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
@@ -1052,9 +1049,12 @@ class LiteLLMModel(AIModel):
             # default the gpt-5 family to 'minimal'; callers that genuinely need
             # deeper reasoning already pass reasoning_effort explicitly and are
             # left untouched.
+            # Only for a gpt-5 that really runs on OpenAI; the yaml drops the
+            # parameter for the Bedrock targets the gpt-5 aliases point at.
+            _caps = model_caps(self.model_name)
             if (
                 "reasoning_effort" not in call_kwargs
-                and str(self.model_name).startswith("gpt-5")
+                and _caps.reasoning and _caps.family == "gpt-5"
             ):
                 call_kwargs["reasoning_effort"] = minimal_reasoning_effort(self.model_name)
 

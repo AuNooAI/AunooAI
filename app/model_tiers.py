@@ -25,14 +25,14 @@ from typing import Dict, List
 # standard: writing that a customer reads (reports, briefings, Auspex).
 # premium: the same as standard until a larger model is chosen.
 #
-# standard is still the gpt-5.4 alias on purpose: it resolves to Claude
-# Sonnet 4.5 through the yaml, and switching the name changes the call
-# settings on four report pipelines. That switch has its own before/after
-# gate (see docs/changes.md, 25 Sep) and happens in one place, here.
+# standard was the gpt-5.4 alias until 25 Sep 2026. It always ran on Claude
+# Sonnet 4.5, but under that name the report pipelines sent it the reasoning
+# shape (a 4x budget and no temperature). The switch to Sonnet's own name
+# went through a before/after on the four pipelines (docs/changes.md).
 TIERS: Dict[str, str] = {
     "fast": "bedrock-kimi-k2-5",
-    "standard": "gpt-5.4",
-    "premium": "gpt-5.4",
+    "standard": "claude-sonnet-4-5",
+    "premium": "claude-sonnet-4-5",
 }
 
 

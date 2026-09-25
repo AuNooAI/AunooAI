@@ -5,7 +5,7 @@ description: LLM-as-judge reviewer for the Briefing Desk daily briefing. Reads t
 type: agent
 version: 1.0.0
 model_config:
-  model: gpt-5.4
+  model: claude-sonnet-4-5
   temperature: 0.1
   max_tokens: 4000
 output_schema:
