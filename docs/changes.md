@@ -98,10 +98,13 @@ reviewer file exists (panaya, sunstar, wiley, wileytest), and the UI bundle on w
 (abm, oviva, panaya, sunstar, wbm keep their older bundles, which still send aliases that still
 resolve). Compile and import of every touched module passed on all seven (wiley's
 `topic_report_pptx` needs `python-pptx`, which wiley has never had). Restarted when quiet, no
-tracebacks: oviva 21:50, panaya 21:52, sunstar 21:53, abm 21:54, wbm 21:55, wiley 21:56; wileytest
-was still waiting for a quiet window when this was written. oviva and panaya verified live: both
-tiers answer by direct call, `get_ai_model` and the Router. bwtemplate's yaml lacks
-`claude-sonnet-4-5`; add it before that tree is revived.
+tracebacks: oviva 21:50, panaya 21:52, sunstar 21:53, abm 21:54, wbm 21:55, wiley 21:56, wileytest
+22:06 (restarted by hand: the quiet-window script took the ingest pipeline's per-article
+`app.research` and `Starting response generation` log lines for a live chat and would have waited an
+hour; the ledger showed only relevance scoring and article analysis, no web requests, no jobs).
+All seven verified live afterwards: page up, no tracebacks since start, and both tiers answer by
+direct call, `get_ai_model` and the Router; wiley and wileytest serve the new UI bundle. bwtemplate's
+yaml lacks `claude-sonnet-4-5`; add it before that tree is revived.
 
 ### Lessons
 - `llm_usage_log.model` already holds the resolved id, so "who still sends an alias" cannot be read
