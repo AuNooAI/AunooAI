@@ -401,7 +401,9 @@ def test_nothing_characterises_the_market_when_only_vendors_were_read():
     no other answer is reachable. Neither finding may run on that corpus, and
     nor may the observed-mix finding that would otherwise stand in.
     """
-    devs = _mixed(0, 6) + [_dev("customer", "V1")]
+    named = {**_dev("customer", "V1"),
+             "attributes": {"customer": {"named": True, "name": "Acme Bank"}}}
+    devs = _mixed(0, 6) + [named]
     out = ma.candidate_findings(_inputs(devs, post_share=0.9))
     ids = {f["id"] for f in out}
     assert "product_vs_customer" not in ids
@@ -913,3 +915,147 @@ def test_a_funding_total_is_not_the_round():
            "headline": "StrikeReady is excited to share our new investment round.",
            "summary": "This brings our total funding raised to $29M with Hitachi."}
     assert ma.why_it_matters(dev) == "$29M raised in total, the vendor says."
+
+
+# ---------------------------------------------------------------------------
+# Round two of the aisocnews.com data-quality fixes (25 Sep 2026)
+# ---------------------------------------------------------------------------
+
+def _dedupe(*cands):
+    return ma.dedupe([dict(c) for c in cands])
+
+
+def test_two_vendor_launches_a_week_apart_need_the_same_product_to_merge():
+    """Mars Security's detection engine and its Playbooks merged on "Real"."""
+    engine = _post("A new Mars invasion: automatic, intel-based, Real-Time "
+                   "detection engineering.",
+                   "Mars turns CTI into Real-Time detections for every SIEM.",
+                   vendor="Mars Security", brand_id=159, date="2026-09-08")
+    playbooks = _post("PRODUCT UPDATE: Introducing MARS Playbooks",
+                      "Five Real playbooks that turn CTI into detections.",
+                      vendor="Mars Security", brand_id=159, date="2026-09-16")
+    assert len(_dedupe(engine, playbooks)) == 2
+
+
+def test_a_follow_up_post_two_days_later_is_the_same_launch():
+    """Huntbase opened its Hub on 22 Sep and posted about it again on the
+    24th, sharing twelve subject words but few names."""
+    body = ("threat research hunts built from current public research, each "
+            "reviewed by a person, runnable against your environment, "
+            "queries covering techniques across windows linux macos cloud")
+    first = _post("Today we opened the Huntbase Hub: 149 hunts built from "
+                  "current public research", body,
+                  vendor="Huntbase", brand_id=301, date="2026-09-22")
+    second = _post("Until this week, running a Huntbase hunt meant asking us "
+                   "for access.", "Two days later there are 162. " + body,
+                   vendor="Huntbase", brand_id=301, date="2026-09-24")
+    assert len(_dedupe(first, second)) == 1
+
+
+def test_partnerships_with_different_partners_stay_apart():
+    """AquilaI's Virus Rescuers and Ampcus Cyber partnerships, one event."""
+    one = _candidate("partnership", "At Aquila I, we are thrilled to kick off "
+                     "a strategic partnership with Virus Rescuers at GISEC",
+                     summary="Aquila I and Virus Rescuers will serve the "
+                     "Middle East.", date="2026-09-24",
+                     vendors=[_vendor("AquilaI", 40)], voice="owned")
+    two = _candidate("partnership", "At GISEC GLOBAL 2026, Aquila I and "
+                     "Ampcus Cyber announced a strategic MSSP partnership",
+                     summary="Aquila I and Ampcus Cyber at GISEC.",
+                     date="2026-09-22", vendors=[_vendor("AquilaI", 40)],
+                     voice="owned")
+    assert len(_dedupe(one, two)) == 2
+
+
+def test_a_wire_release_is_the_vendors_own_voice():
+    row = {"uri": "https://www.prnewswire.com/news-releases/x.html",
+           "title": "BlueVoyant launches agentic SOC", "article_class": "news",
+           "news_source": "PR Newswire", "vendors": [_vendor("BlueVoyant", 3)]}
+    ev = ma._evidence_from_record(row)
+    assert ev["voice"] == "owned" and ev["key"] == "owned:wire:prnewswire.com"
+    assert ma.provenance_of([ev]) == "vendor_source_only"
+    menafn = ma._evidence_from_record({**row, "uri": "https://menafn.com/1"})
+    assert menafn["voice"] == "owned"
+
+
+def test_an_event_day_is_the_utc_day():
+    """Wirespeed posted at 22:02 UTC on 17 Sep; Berlin time made it the 18th."""
+    from datetime import date as _date
+    berlin = timezone(timedelta(hours=2))
+    stamp = datetime(2026, 9, 18, 0, 2, tzinfo=berlin)
+    assert ma._parse_day(stamp) == _date(2026, 9, 17)
+    assert ma._parse_day("2026-09-18 00:02:00+02:00") == _date(2026, 9, 17)
+    assert ma._parse_day("2026-09-17") == _date(2026, 9, 17)
+
+
+def test_platform_headlines_reach_the_wider_market():
+    for title, company in (
+            ("Splunk is expanding its Agentic SOC Workforce with a set of new "
+             "purpose-built skills", "Splunk"),
+            ("🔐 Cisco &amp; NVIDIA bring Splunk AI to on-premises "
+             "environments — launching Cisco AI POD for Splunk", "Cisco"),
+            ("Cisco expanded Splunk AI with on-premises NVIDIA hardware "
+             "support", "Cisco"),
+            ("Exciting news: Cisco announces intent to acquire WideField "
+             "Security Inc", "Cisco")):
+        row = {"uri": f"https://x.test/{abs(hash(title))}", "title": title,
+               "summary": "", "published": "2026-09-17T10:00:00Z"}
+        cand = ma._wider_candidate(row, {"uri": row["uri"]})
+        assert cand and cand["vendors"][0]["vendor"] == company, title
+
+
+def test_a_customer_that_avoided_an_attack_is_not_a_customer_win():
+    assert ma._NOT_EVENT.search(
+        "Wirespeed ⚡️: We helped another Coalition policyholder avoid a "
+        "cyber attack!")
+
+
+def test_a_download_count_is_not_a_launch():
+    assert ma._NOT_EVENT.search("Imperum: Virtus passes 6K+ downloads")
+
+
+def test_chip_soc_posts_are_noise():
+    assert ma.is_noise("$MASK - 3 E Network: Hardware Emulation for Custom "
+                       "Edge AI SoC")
+
+
+def test_partner_in_a_sentence_is_not_a_senior_title():
+    assert not ma._SENIOR.search(
+        "Paige Roderick joins as Lead, Field Marketing, focused on customer "
+        "and partner experiences")
+    assert ma._SENIOR.search("joins as Managing Partner")
+
+
+def test_a_hook_headline_falls_back_to_the_review_reading():
+    assert ma.announcing_headline(
+        "Someone relaxes a WAF rule during an incident.",
+        "Someone relaxes a WAF rule during an incident. Nobody reverts it.",
+        "product_launch", [_vendor("Tuskira", 9)],
+        reason="Vector autonomous red team agent shipped",
+    ) == "Vector autonomous red team agent shipped"
+
+
+def test_a_vendor_blog_about_another_companys_deal_is_not_the_vendors():
+    d3 = {"vendors": [_vendor("D3 Security", 11)]}
+    assert not ma.speaks_for_vendor(
+        "Cribl Just Acquired Radiant Security’s AI SOC Technology. Here’s What "
+        "It Means", d3)
+    assert ma.speaks_for_vendor("We've been acquired by Coalition",
+                                {"vendors": [_vendor("Wirespeed", 12)]})
+
+
+def test_an_unnamed_customer_count_is_not_listed_as_a_customer():
+    dev = {"event_type": "customer", "vendors": [_vendor("Spectrum Security", 8)],
+           "headline": "SEP2 runs 24/7 MDR across 70+ customers",
+           "summary": "SEP2 runs 24/7 MDR across 70+ customers.",
+           "attributes": {}}
+    assert not ma._customer_listable(dev)
+
+
+def test_a_longer_company_page_name_is_stripped_but_a_sentence_is_not():
+    crogl = {"title": "Crogl, Inc.: Your SOC depends on a system no security "
+             "vendor supports.", "vendors": [_vendor("Crogl", 21)]}
+    assert ma.headline_of(crogl).startswith("Your SOC depends")
+    mate = {"title": "Mate Announce Gamebooks: the Control Flow for Agentic "
+            "Investigations.", "vendors": [_vendor("Mate Security", 22)]}
+    assert ma.headline_of(mate).startswith("Mate Announce Gamebooks")

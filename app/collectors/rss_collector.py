@@ -279,6 +279,13 @@ class RSSCollector(ArticleCollector):
             feed = feedparser.parse(content)
 
             if feed.bozo and feed.bozo_exception:
+                # A malformed feed with entries still yields them; one with
+                # none is broken, and must say so in rss_feeds.last_error.
+                # Logged as a warning only, socjedi.ai/rss.xml (an empty XML
+                # document) failed 72 times in 3 days with last_error NULL.
+                if not feed.entries:
+                    raise ValueError(
+                        f"Feed could not be parsed: {feed.bozo_exception}")
                 logger.warning(f"Feed parsing warning for {feed_url}: {feed.bozo_exception}")
 
             articles = []

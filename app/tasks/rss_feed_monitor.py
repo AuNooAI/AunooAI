@@ -278,15 +278,27 @@ class RSSFeedMonitor:
             article_exists = self.db.facade.article_exists((url,))
 
             if not article_exists:
+                # English at insert, as every facade-based collector does. A
+                # vendor's Turkish or German blog otherwise reaches the report
+                # as written. Off the event loop: it can call a model.
+                record = {'title': (article.get('title', '') or '')[:500],
+                          'summary': (article.get('summary', '') or '')[:2000]}
+                try:
+                    from app.utils.title_translation import english_fields
+                    await asyncio.to_thread(english_fields, record)
+                except Exception as e:                            # noqa: BLE001
+                    logger.warning(f"Translation failed for {url}: {e}")
                 # Store article directly
                 conn = self.db._temp_get_connection()
                 country, method = self._country_for(url, article, countries)
                 conn.execute(sql_insert(t_articles).values(
                     uri=url,
-                    title=(article.get('title', '') or '')[:500],
+                    title=(record['title'] or '')[:500],
+                    original_title=record.get('original_title'),
                     news_source=(article.get('source', 'RSS') or 'RSS')[:200],
                     publication_date=article.get('published_date'),
-                    summary=(article.get('summary', '') or '')[:2000],
+                    summary=(record['summary'] or '')[:2000],
+                    original_summary=record.get('original_summary'),
                     topic=topic,
                     source_country=country,
                     source_country_method=method,

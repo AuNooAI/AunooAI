@@ -87,6 +87,22 @@ def test_a_press_release_wire_is_not_a_newsroom():
     assert not coverage._is_wire('hackernoon.com', None)
 
 
+def test_a_wire_is_keyed_as_the_companys_voice():
+    """menafn.com syndicates paid releases under a news masthead."""
+    assert entity_events.independence_key_for_article(
+        None, 'https://www.prnewswire.co.uk/x') == 'owned:wire:prnewswire.co.uk'
+    assert entity_events.independence_key_for_article(
+        'MENAFN', None).startswith('owned:wire:')
+    assert entity_events.independence_key_for_article(
+        None, 'https://securitybrief.in/a') == 'domain:securitybrief.in'
+
+
+def test_a_report_two_weeks_before_the_event_is_not_coverage_of_it():
+    """securitybrief.in's 19 Aug piece was attached to Intezer's 2 Sep launch."""
+    assert coverage.MATCH_DAYS_BEFORE < coverage.MATCH_DAYS
+    assert coverage.MATCH_DAYS_BEFORE <= 2
+
+
 def test_one_publisher_spelled_two_ways_is_one_voice():
     """Earned rows here arrive with an empty url, so the key comes off
     ``news_source``, and the corpus holds more than one spelling."""

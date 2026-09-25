@@ -250,12 +250,62 @@ def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
            "ns": news_source, "pub": published_at or now_iso, "sub": submission_stamp(now_iso),
            "topic": topic, "cat": category, "bsrc": bias_source,
            "meta": payload}).fetchone()
+    if row:
+        _translate_landed(conn, uri, title, summary)
     if not row and payload:
         conn.execute(text("""
             UPDATE articles SET social_meta = CAST(:meta AS JSONB)
             WHERE uri = :uri
         """), {"uri": uri, "meta": payload})
     return bool(row)
+
+
+def _translate_landed(conn, uri: str, title: str, summary: str) -> None:
+    """Put a newly landed non-English post into English, keeping the original.
+
+    Every other collector translates at insert through the facade
+    (``database_query_facade.create_article``); this path inserts directly and
+    skipped it, so SOCNova's Turkish posts reached the report untranslated.
+    Only a new row is translated, and ``english_fields`` calls the model only
+    for text that does not already read as English, so a re-read of the same
+    post costs nothing.
+    """
+    import re
+
+    from app.utils.title_translation import english_fields, looks_english_text
+
+    title = (title or "")[:500]
+    body = summary or ""
+    # A vendor post's title is "Vendor: first line of the post". The body
+    # decides the language, and the "Vendor: " part is kept out of the model
+    # call, which otherwise drops it ("Torq: #FalCon2026, done." came back as
+    # "#FalCon2026, done.").
+    prefix, head = "", title
+    m = re.match(r"^([^:\n]{1,80}:\s+)(.*)$", title, flags=re.S)
+    if m and body.startswith(m.group(2).rstrip(" ….")[:40]):
+        prefix, head = m.group(1), m.group(2)
+    if looks_english_text(body or head):
+        return
+    record = {"title": head, "summary": body}
+    try:
+        if not english_fields(record):
+            return
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning("translation failed for %s: %s", uri, exc)
+        return
+    record["title"] = prefix + (record["title"] or "")
+    if record.get("original_title"):
+        record["original_title"] = title
+    conn.execute(text("""
+        UPDATE articles
+           SET title = :title, summary = :summary,
+               original_title = COALESCE(:otitle, original_title),
+               original_summary = COALESCE(:osummary, original_summary)
+         WHERE uri = :uri
+    """), {"uri": uri, "title": (record["title"] or "")[:500],
+           "summary": record["summary"],
+           "otitle": record.get("original_title"),
+           "osummary": record.get("original_summary")})
 
 
 def attribute(conn, *, brand_id: int, uri: str, title: str, summary: str,
@@ -916,6 +966,43 @@ def existing_collection_group(conn, market_id: int) -> Optional[Dict[str, Any]]:
         "SELECT id, name, topic FROM keyword_groups WHERE id = :g"),
         {"g": gid}).mappings().fetchone()
     return dict(row) if row else None
+
+
+def stored_collection_settings(conn, market_id: int) -> Dict[str, str]:
+    """The qualifier and vendor-name mode the market was last set up with.
+
+    A re-run that falls back to the defaults instead quietly narrows the
+    search: market 2 was set up as "funded", every vendor added after 26 Aug
+    was never re-synced, and 52 of 97 vendors went unsearched by name.
+    """
+    cfg = conn.execute(text(
+        "SELECT config->'collection' FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    mode = cfg.get("vendor_names")
+    return {
+        "qualifier": cfg.get("qualifier") or DEFAULT_QUALIFIER,
+        "vendor_names": mode if mode in VENDOR_NAME_MODES
+        else DEFAULT_VENDOR_NAME_MODE,
+    }
+
+
+def resync_market_keywords(conn, db, market_id: int, market_name: str
+                           ) -> Optional[Dict[str, Any]]:
+    """Re-sync an already set-up market's keyword group with its registry.
+
+    Called after a vendor is added, so a new vendor is searched for by name
+    from the next cycle. A market that was never set up is left alone: setting
+    collection up is a choice that spends quota, and adding a vendor is not
+    that choice.
+    """
+    if not existing_collection_group(conn, market_id):
+        return None
+    settings = stored_collection_settings(conn, market_id)
+    return setup_market_collection(conn, db, market_id, market_name,
+                                   qualifier=settings["qualifier"],
+                                   vendor_names=settings["vendor_names"],
+                                   dry_run=False)
 
 
 def setup_market_collection(conn, db, market_id: int, market_name: str, *,

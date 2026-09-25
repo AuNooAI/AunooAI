@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 #: token test is what decides — it only admits more chances to be wrong.
 MATCH_DAYS = int(os.getenv("MARKET_COVERAGE_MATCH_DAYS", "14") or 14)
 
+#: How far a report may sit *before* the event it corroborates. Not symmetric
+#: after all: a report two weeks ahead of an announcement is almost always
+#: about something else. securitybrief.in's 19 Aug piece on Intezer's response
+#: workflows was attached to Intezer's 2 Sep Amplify Hub launch, exactly 14
+#: days later, and made that launch read as independently reported. A couple
+#: of days covers an embargo lifting early or a time-zone gap.
+MATCH_DAYS_BEFORE = int(os.getenv("MARKET_COVERAGE_MATCH_DAYS_BEFORE", "2") or 2)
+
 #: Words that appear in every other security headline and distinguish nothing.
 #: A shared "security" is not evidence that two texts describe one event.
 _COMMON = frozenset("""
@@ -175,8 +183,10 @@ def _candidate_events(conn, brand_id: int, event_type: str,
     if published is not None:
         window = ("AND (e.occurred_at IS NULL"
                   "     OR e.occurred_at BETWEEN :lo AND :hi)")
+        # The report is published at most MATCH_DAYS after the event and at
+        # most MATCH_DAYS_BEFORE ahead of it.
         params["lo"] = published - timedelta(days=MATCH_DAYS)
-        params["hi"] = published + timedelta(days=MATCH_DAYS)
+        params["hi"] = published + timedelta(days=MATCH_DAYS_BEFORE)
 
     rows = conn.execute(text(f"""
         SELECT e.id, e.title, e.description, e.occurred_at, e.corroboration

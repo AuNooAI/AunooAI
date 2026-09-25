@@ -8,8 +8,10 @@ about, an LLM summary) through ``social_profile_service``. This runs that same
 build for a market's voices, so the two features share one ``social_accounts``
 row per handle.
 
-Profiles are built on request, never on a schedule: each one is two xpoz
-calls and one short model call. ``profile_many`` runs as a background task
+Each profile is two xpoz calls and one short model call. They are built on
+request, and since 25 Sep 2026 also by the market scheduler, which profiles a
+capped number of the busiest unprofiled voices each day
+(``market_monitor._profile_voices``). ``start_many`` runs as a background task
 because fifty accounts take several minutes, and reports progress through
 ``status``.
 """

@@ -17,6 +17,7 @@ import asyncio
 import concurrent.futures
 import logging
 import threading
+import time
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -146,17 +147,39 @@ def _safe_close(client) -> None:
         pass
 
 
-def _platform_timeout() -> float:
+def _platform_timeout(platform: Optional[str] = None) -> float:
     """Per-platform xpoz call cap in seconds (env XPOZ_PLATFORM_TIMEOUT, default 25).
 
     With 4 platforms the worst case (4 * 25 = 100s) stays under the keyword_monitor
     120s SEARCH_TIMEOUT_SECONDS, so a single hung platform no longer causes the whole
     keyword's results to be discarded.
+
+    ``XPOZ_<PLATFORM>_TIMEOUT`` overrides it for one platform. Reddit is the
+    slow one: 8 of its searches on market 2 ran past 25s between 22 and 25 Sep
+    2026, while Twitter's never did.
     """
-    try:
-        return max(1.0, float(os.getenv("XPOZ_PLATFORM_TIMEOUT", "25")))
-    except ValueError:
-        return 25.0
+    names = ["XPOZ_PLATFORM_TIMEOUT"]
+    if platform:
+        names.insert(0, f"XPOZ_{platform.upper()}_TIMEOUT")
+    for name in names:
+        raw = os.getenv(name)
+        if raw:
+            try:
+                return max(1.0, float(raw))
+            except ValueError:
+                continue
+    return 25.0
+
+
+#: One more try after this many seconds when xpoz refuses to start a search.
+#: "Failed to start operation" comes back at once and the next attempt
+#: usually starts: 8 Reddit searches on market 2 failed this way in 4 days.
+_START_RETRY_WAIT = 3.0
+
+
+def _is_start_failure(exc: BaseException) -> bool:
+    return (type(exc).__name__ == "OperationFailedError"
+            and "failed to start" in str(exc).lower())
 
 
 def _term_match_mode() -> str:
@@ -291,24 +314,37 @@ class XpozCollector(ArticleCollector):
         # burn the caller's 120s budget and discard every platform's results.
         # Sequential (max_workers=1 per submit) — no extra concurrency on the
         # shared xpoz key; worst case len(platforms) * XPOZ_PLATFORM_TIMEOUT.
-        plat_timeout = _platform_timeout()
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(self.platforms) or 1)
         try:
             for plat in self.platforms:
+                plat_timeout = _platform_timeout(plat)
                 try:
                     ns = getattr(client, plat, None)
                     if ns is None:
                         continue
-                    fut = pool.submit(
-                        ns.search_posts,
-                        term,
-                        fields=_FIELDS.get(plat),
-                        start_date=start_date,
-                        end_date=end_date,
-                        limit=per_platform,
-                    )
+
+                    def _submit():
+                        return pool.submit(
+                            ns.search_posts,
+                            term,
+                            fields=_FIELDS.get(plat),
+                            start_date=start_date,
+                            end_date=end_date,
+                            limit=per_platform,
+                        )
+
+                    fut = _submit()
                     try:
-                        result = fut.result(timeout=plat_timeout)
+                        try:
+                            result = fut.result(timeout=plat_timeout)
+                        except Exception as e:  # noqa: BLE001
+                            if not _is_start_failure(e):
+                                raise
+                            logger.info("Xpoz %s could not start '%s'; retrying once",
+                                        plat, term[:60])
+                            time.sleep(_START_RETRY_WAIT)
+                            fut = _submit()
+                            result = fut.result(timeout=plat_timeout)
                     except concurrent.futures.TimeoutError:
                         fut.cancel()
                         logger.warning(

@@ -32,6 +32,7 @@ Query it exactly like saas:
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import logging
 import os
@@ -44,6 +45,24 @@ logger = logging.getLogger(__name__)
 
 #: Key under which the calling site is tucked into litellm ``metadata``.
 _USE_CASE_KEY = "aunoo_use_case"
+
+#: The app-owned caller, recorded by an async wrapper before it hands the call
+#: to a worker thread. The worker's own stack holds only ai_models.py and
+#: litellm, so the stack walk found nothing: $30 a week of Sonnet 4.5 from the
+#: emerging-topics deep analyzer was logged as "unknown" (Sep 2026).
+#: ``asyncio.to_thread`` copies context variables into the thread.
+_CALLER: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "aunoo_llm_caller", default=None)
+
+
+def remember_caller() -> None:
+    """Record the calling site for a model call about to leave this thread."""
+    try:
+        found = _guess_use_case(use_remembered=False)
+        if found != "unknown":
+            _CALLER.set(found)
+    except Exception:  # noqa: BLE001 — never break an LLM call over logging
+        pass
 
 _QUEUE: "queue.Queue[tuple]" = queue.Queue(maxsize=10_000)
 _DROPPED = 0
@@ -72,8 +91,9 @@ _SKIP_FRAME_TOKENS = (
 )
 
 
-def _guess_use_case() -> str:
-    """First app-owned frame below us on the stack, as ``module:function``."""
+def _guess_use_case(use_remembered: bool = True) -> str:
+    """First app-owned frame below us on the stack, as ``module:function``,
+    or the caller an async wrapper remembered before switching threads."""
     try:
         for frame in reversed(traceback.extract_stack(limit=40)):
             fn = frame.filename or ""
@@ -85,6 +105,10 @@ def _guess_use_case() -> str:
             return f"{mod}:{frame.name}"[:200]
     except Exception:
         pass
+    if use_remembered:
+        remembered = _CALLER.get()
+        if remembered:
+            return remembered
     return "unknown"
 
 

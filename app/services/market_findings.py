@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 
 from app.services import market_metrics as mmet
+from app.services.report_corpus import is_wire_host
 
 logger = logging.getLogger(__name__)
 
@@ -510,7 +511,11 @@ def _dedupe_supporting(rows) -> List[Dict[str, Any]]:
         key = row.get("key") or row.get("uri") or ""
         if key in seen:
             continue
-        owned = str(key).startswith("owned:")
+        # Evidence stored before wires were keyed as the company's own voice
+        # still carries "domain:<wire>".
+        owned = str(key).startswith("owned:") or (
+            str(key).startswith(("domain:", "source:"))
+            and is_wire_host(str(key).split(":", 1)[1]))
         primary = str(key).startswith(("official:", "filing:", "sec:"))
         seen[key] = {
             "uri": row.get("uri"),

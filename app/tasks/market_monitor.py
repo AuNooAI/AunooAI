@@ -79,6 +79,9 @@ SOURCE_POST_REVIEW = "post_review"
 SOURCE_EVENTS = "entity_events"
 # Writes the previous month's briefing, once that month is over.
 SOURCE_BRIEFING = "monthly_briefing"
+# Profiles the most active voices that have no profile yet, a few a day.
+# Each one is two xpoz calls and one short model call.
+SOURCE_VOICE_PROFILES = "voice_profiles"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -194,6 +197,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
         SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
+        SOURCE_VOICE_PROFILES: slow,  # daily, capped by MARKET_PROFILE_DAILY
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -552,6 +556,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _extract_events(conn, market, now)
     runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
+    runs += await _profile_voices(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -885,6 +890,55 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s post review failed: %s", market_id, exc)
+    return 1
+
+
+def _profiles_per_day() -> int:
+    """How many unprofiled voices to profile per market per day; 0 turns it off."""
+    try:
+        return max(0, int(os.getenv("MARKET_PROFILE_DAILY", "") or 25))
+    except ValueError:
+        return 25
+
+
+async def _profile_voices(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Profile the busiest voices that have none, a few each day.
+
+    Until 25 Sep 2026 profiles were built only from the page's button. The
+    last run was on 8 Sep, and 24 of the market's top 30 voices showed no
+    role, so a promoter and an analyst looked the same in the Social panel.
+    The daily cap keeps the xpoz key, which other sites share, and the model
+    spend small; the job runs in the background like the button's.
+    """
+    market_id = market["id"]
+    per_day = _profiles_per_day()
+    if not per_day or _is_due(conn, market_id, SOURCE_VOICE_PROFILES, now) is None:
+        return 0
+
+    from app.services import market_analysis as man
+    from app.services import market_voice_profiles as mvp
+
+    if mvp.running(market_id):
+        return 0
+    run_id = mc.open_run(conn, market_id=market_id,
+                         source=SOURCE_VOICE_PROFILES, provider="xpoz")
+    conn.commit()
+    try:
+        voices = (man.top_voices(conn, market_id, days=30, limit=200)
+                  .get("voices") or [])
+        todo = [v for v in voices
+                if (v.get("platform") or "").lower() in mvp.PROFILABLE
+                and not (v.get("account") or {}).get("profiled")][:per_day]
+        job = mvp.start_many(get_database_instance(), market_id,
+                             market["name"], todo)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=len(voices), new=job.get("total", 0))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s voice profiling failed: %s", market_id, exc)
     return 1
 
 

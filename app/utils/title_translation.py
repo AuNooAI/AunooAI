@@ -96,7 +96,13 @@ def _non_latin_share(text: str) -> float:
     A share, not a single-character test, so an English abstract with a Greek
     letter or a "≥" is not sent for translation, while a Japanese post with a
     brand name and a URL in it still is.
+
+    Normalised first: LinkedIn posts dress English up in styled letters
+    ("𝐁𝐅𝐒𝐈"), whose Unicode names start "MATHEMATICAL", not "LATIN". Counted
+    raw, they sent 257 English vendor posts to the model, which returned
+    them with the vendor's name cut off the headline.
     """
+    text = unicodedata.normalize("NFKC", text)
     latin = other = 0
     for ch in text:
         if not ch.isalpha():

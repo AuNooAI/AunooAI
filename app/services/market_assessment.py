@@ -31,6 +31,7 @@ report renders quickly and the same data always gives the same page.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -158,7 +159,7 @@ _PATTERNS: Sequence[Tuple[str, "re.Pattern[str]"]] = (
         r"\blaunch(es|ed|ing)?\b|\bunveils?\b|\bdebuts?\b|\bintroduc(es|ed|ing)\b"
         r"|\bgenerally\s+available\b|\bnow\s+available\b|\breleases?\b"
         r"|\bnew\s+(feature|capability|module|workflow|integration)s?\b"
-        r"|\bnow\s+supports?\b|\badds?\b|\bexpands?\b|\bextends?\b"
+        r"|\bnow\s+supports?\b|\badds?\b|\bexpand(s|ed|ing)?\b|\bextends?\b"
         r"|\brolls?\s+out\b|\bships?\b|\bupgrades?\b",
         re.I)),
     ("executive_appointment", re.compile(
@@ -173,7 +174,7 @@ _PATTERNS: Sequence[Tuple[str, "re.Pattern[str]"]] = (
 #: between two kinds of product news, nothing more.
 _EXPANSION = re.compile(
     r"\bnow\s+supports?\b|\badds?\b|\badded\b|\bnew\s+(feature|capability|"
-    r"module|workflows?|integrations?)\b|\bexpands?\b|\bextends?\b|\brolls?\s+"
+    r"module|workflows?|integrations?)\b|\bexpand(s|ed|ing)?\b|\bextends?\b|\brolls?\s+"
     r"out\b|\bsupport\s+for\b|\bintroduc(es|ed|ing)\s+\S+\s+(workflows?|"
     r"response|automation|agents?|integration)\b", re.I)
 
@@ -187,7 +188,10 @@ _RESPONSE = re.compile(
 #: fact about the company, not a material development.
 _SENIOR = re.compile(
     r"\b(chief\s+\w+\s+officer|c[etfrmis]o|ciso|cpo|vp\b|vice\s+president|"
-    r"head\s+of|director|president|general\s+manager|founder|partner\b)",
+    r"head\s+of|director|president|general\s+manager|founder|"
+    # "Partner" as a title, not the word: "customer and partner experiences"
+    # made a field-marketing hire an executive appointment.
+    r"(managing|general|founding|operating)\s+partner\b)",
     re.I)
 
 #: Records that never become a development, whatever they match. Each line is
@@ -243,8 +247,8 @@ _NOISE = re.compile(
     # subject on 23 September 2026.
     r"|\bpre-?market\s+news\b|\$[a-z]{2,5}\s*<\s*\$\d"
     r"|\bsoc\b.{0,40}\b(pre-?silicon|silicon|chipsets?|semiconductors?|"
-    r"tape-?out|npu)\b|\b(pre-?silicon|silicon|chipsets?|semiconductors?|"
-    r"tape-?out|npu)\b.{0,40}\bsoc\b"
+    r"tape-?out|npu|emulation|fpgas?|rtl)\b|\b(pre-?silicon|silicon|chipsets?|"
+    r"semiconductors?|tape-?out|npu|emulation|fpgas?|rtl|chips?)\b.{0,40}\bsoc\b"
     # A paid listing release: "SOC Automation Tool List 2026 includes …".
     r"|\b(tool|vendor|company|companies|solution)s?\s+list\s+20\d\d\s+includes\b"
     # A junior hire announced by an employer, and a learner's lab write-up.
@@ -259,8 +263,13 @@ _NOISE = re.compile(
 _NOT_EVENT = re.compile(
     r"\b(top|best)\s+\d+\b|\b\d+\s+best\b|\balternatives\s+(to\b|in\s+20\d\d)"
     r"|\b(shut\s+down|blocked|stopped|contained|neutrali[sz]ed)\s+(\w+\s+){0,3}"
-    r"(malicious|attacks?|executions?|intrusions?|ransomware)\b"
+    r"(malicious|attacks?|executions?|intrusions?|ransomware|hackers?)\b"
+    # "We helped another Coalition policyholder avoid a cyber attack!"
+    r"|\bhelp(ed|s|ing)?\s+(\S+\s+){0,4}(avoid|prevent|stop|block|survive|thwart)\b"
     r"|\bleaderboard\b"
+    # A download or follower count is a milestone, not a launch: "Virtus
+    # passes 6K+ downloads" was filed as Imperum's product launch.
+    r"|\b\d[\d,.]*\s?[km]?\+?\s+(downloads|stars|installs|followers|views)\b"
     r"|\bcertifi(ed|cation)\s+(\S+\s+){0,5}(program|programme|course)\b",
     re.I)
 
@@ -341,6 +350,12 @@ ATTACH_LEAD_DAYS = 2
 #: and the share of both records' words they must make up.
 MIN_SHARED_WORDS = 3
 MIN_SHARED_RATIO = 0.25
+#: A vendor's follow-up post about one release, within this many days, merges
+#: on this many shared subject words whatever their share. Huntbase opened its
+#: Hub on 22 Sep 2026 and posted "Two days later there are 162" on the 24th:
+#: twelve words in common, but long posts, so under the ratio.
+FOLLOW_UP_DAYS = 3
+FOLLOW_UP_SHARED_WORDS = 10
 #: A record with fewer subject words than this is "short" — a tweet, a
 #: headline-only post — and merges on one shared name.
 SHORT_RECORD_WORDS = 8
@@ -446,6 +461,13 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
     return classify_text(text_value, title=record.get("title") or "")
 
 
+#: What may follow a vendor's name in its page's name: "Crogl, Inc.".
+_COMPANY_SUFFIXES = frozenset({
+    "inc", "ltd", "llc", "corp", "co", "gmbh", "plc", "ag", "sa", "bv",
+    "ai", "security", "labs", "technologies", "technology", "cyber", "io",
+    "hq", "official"})
+
+
 def headline_of(record: Dict[str, Any]) -> str:
     """A headline a reader can use, from a record whose title may not be one.
 
@@ -466,6 +488,22 @@ def headline_of(record: Dict[str, Any]) -> str:
         if headline.lower().startswith(f"{alias}:"):
             headline = headline[len(alias) + 1:].strip() or headline
             break
+    # The company page's own name, which can run longer than the name we
+    # track it under: "Crogl, Inc.: Your SOC depends on…" for Crogl. The
+    # prefix is the page's name when it starts with the vendor's name and
+    # ends at the first colon.
+    page = re.match(r"^([^:\n]{1,40}):\s+", headline)
+    if page:
+        label = page.group(1).lower()
+        for alias in _vendor_aliases(record):
+            if not label.startswith(alias):
+                continue
+            # Only a company suffix or decoration may follow the name, or
+            # "Mate Announce Gamebooks: the Control Flow…" loses its subject.
+            rest = re.findall(r"[a-z]+", label[len(alias):])
+            if all(w in _COMPANY_SUFFIXES for w in rest):
+                headline = headline[page.end():].strip() or headline
+                break
     for v in record.get("vendors") or []:
         name = (v.get("vendor") or "").strip()
         if not name:
@@ -632,14 +670,34 @@ def _full_text(record: Dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 def _parse_day(value: Any) -> Optional[date]:
+    """The UTC day of a timestamp.
+
+    The database session runs in Europe/Berlin, so a stored event time comes
+    back as local time, and ``.date()`` on it moved every post made after
+    22:00 UTC to the next day: Wirespeed's acquisition post of 17 Sep 22:02
+    UTC showed as 18 Sep. The source's own date is UTC, and so is this.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
         return value.date()
     if isinstance(value, date):
         return value
+    raw = str(value).strip()
+    # A text timestamp with an offset ("2026-09-19 00:02:00+02:00") also has
+    # to be read as an instant, not by its first ten characters.
+    if len(raw) > 10:
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc)
+            return parsed.date()
+        except ValueError:
+            pass
     try:
-        return date.fromisoformat(str(value)[:10])
+        return date.fromisoformat(raw[:10])
     except ValueError:
         return None
 
@@ -689,6 +747,24 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         return False
     if _different_products(a, b):
         return False
+    if _different_partners(a, b):
+        return False
+    shared_words = a["words"] & b["words"]
+    if va & vb and b.get("seed") \
+            and _within(a.get("day"), b.get("day"), FOLLOW_UP_DAYS) \
+            and len(shared_words) >= FOLLOW_UP_SHARED_WORDS:
+        return True
+    # A vendor's own post and a launch days away are one event only when both headlines
+    # name the same product. Shared words and names from the bodies are not
+    # enough: a vendor describes every release in the same vocabulary. Mars
+    # Security's Playbooks post (16 Sep 2026) joined its detection engine
+    # launch (8 Sep) on "Real" from "Real-Time", and Intezer's revenue post
+    # joined its Amplify Hub launch two weeks earlier.
+    if (_FAMILY.get(a["event_type"]) == "product" and va & vb
+            and (_vendor_only(a) or _vendor_only(b))
+            and not _within(a.get("day"), b.get("day"), 1)
+            and not _product_in_both_titles(a, b)):
+        return False
     # One vendor's blog and LinkedIn post about one release, a day apart,
     # share the release's name in both headlines even when that name is an
     # acronym ("MCP support") that never counts as a subject elsewhere.
@@ -715,7 +791,6 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     # "adds automated response workflows".
     shared_names = ((a["names"] & b["names"]) | (a["names"] & b["words"])
                     | (b["names"] & a["words"]))
-    shared_words = a["words"] & b["words"]
     union = len(a["words"] | b["words"]) or 1
     short = min(len(a["words"]), len(b["words"])) < SHORT_RECORD_WORDS
     if va and vb and shared_names:
@@ -773,6 +848,32 @@ def _different_products(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return bool(pairs) and all(na and nb and na != nb for _, na, nb in pairs)
 
 
+def _vendor_only(record: Dict[str, Any]) -> bool:
+    """Whether every source under the record is the vendor's own channel."""
+    evidence = record.get("evidence") or []
+    return bool(evidence) and all(e.get("voice") == "owned" for e in evidence)
+
+
+def _headline_names(record: Dict[str, Any]) -> Set[str]:
+    return record["names"] & {t.lower() for t in _tokens(_title_of(record))}
+
+
+def _different_partners(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """Whether two partnership records name different partners.
+
+    Each headline names someone the other record never mentions, in its names
+    or its words. AquilaI announced partnerships with Virus Rescuers and with
+    Ampcus Cyber at one event two days apart; sharing "Aquila" and "GISEC"
+    merged them into one item with one partner's headline and the other's
+    date.
+    """
+    if a["event_type"] != "partnership" or b["event_type"] != "partnership":
+        return False
+    only_a = _headline_names(a) - b["names"] - b["words"]
+    only_b = _headline_names(b) - a["names"] - a["words"]
+    return bool(only_a) and bool(only_b)
+
+
 def _product_in_both_titles(a: Dict[str, Any], b: Dict[str, Any],
                             strict: bool = False) -> bool:
     """Whether both headlines carry the same name, followed by the same
@@ -783,6 +884,20 @@ def _product_in_both_titles(a: Dict[str, Any], b: Dict[str, Any],
 
 #: Events whose report may name only the counterparty: the buyer, the investor.
 _DEAL_TYPES = frozenset({"acquisition", "market_exit", "funding"})
+
+#: Kinds of news a vendor's own channel also writes about when it happens to
+#: somebody else.
+THIRD_PARTY_KINDS = frozenset({"acquisition", "market_exit", "funding",
+                               "partnership", "customer"})
+
+_FIRST_PERSON = re.compile(r"\b(we|we're|we’re|we've|we’ve|our|us)\b", re.I)
+
+
+def speaks_for_vendor(title: str, record: Dict[str, Any]) -> bool:
+    """Whether a vendor's own headline is about the vendor: it names the
+    vendor, or it speaks as the company ("we", "our")."""
+    return bool(_FIRST_PERSON.search(title or "")) or _names_vendor_of(
+        {"title": title or ""}, record)
 
 #: How much of an attached record's body may name the vendor: the opening,
 #: where a report says who it is about.
@@ -1183,6 +1298,17 @@ def _customer_named(dev: Dict[str, Any]) -> bool:
     return bool(reading.get("named"))
 
 
+def _customer_listable(dev: Dict[str, Any]) -> bool:
+    """Whether a customer item can be named in a highlight: the customer is
+    named, or the vendor published a case study about it. "SEP2 runs 24/7 MDR
+    across 70+ customers" is neither, and read as a customer announcement in
+    the highlight's list."""
+    if _customer_named(dev):
+        return True
+    reading = (dev.get("attributes") or {}).get("customer") or customer_reading(dev)
+    return reading.get("stage") == _STAGE_TEXT["case_study"]
+
+
 # The stage strings above are stored on reviewed posts, so they stay as they
 # are; these are the same stages as clauses of a sentence about the customer.
 _NAMED_STAGE = {
@@ -1477,7 +1603,8 @@ def _is_hook(headline: str, aliases: Set[str]) -> bool:
 
 
 def announcing_headline(headline: str, summary: str, event_type: str,
-                        vendors: Sequence[Dict[str, Any]] = ()) -> str:
+                        vendors: Sequence[Dict[str, Any]] = (),
+                        reason: Optional[str] = None) -> str:
     """The sentence that states the news, when the headline is the post's
     hook. "A coverage map tells you a rule exists." and "Most security
     platforms add a tab." were launch headlines; the product was named two
@@ -1505,7 +1632,23 @@ def announcing_headline(headline: str, summary: str, event_type: str,
             usable.append(sent)
     best = next((x for x in usable if any(m in x.lower() for m in markers)),
                 usable[0] if usable else "")
-    return _clip(best, 160) if best else headline
+    if best:
+        return _clip(best, 160)
+    # No sentence names the vendor or a product. The review pass's one-line
+    # reading says what the post announced, in our words, and is a better
+    # headline than a hook: "Vector autonomous red team agent shipped", not
+    # "Someone relaxes a WAF rule during an incident."
+    # Only for a launch whose headline names nothing. One that names a
+    # product ("Announcing Nightwatch for detections.ai Enterprise.") says
+    # more than the reading does, and for a customer story or a research post
+    # the reading is a label ("Named customer with results"), not a headline.
+    nameless = (event_type in PRODUCT_TYPES
+                and not _names_any(headline or "", aliases)
+                and not _mixed_case_names(headline or ""))
+    reason = (reason or "").strip().rstrip(".")
+    if nameless and reason and len(reason) >= 15:
+        return reason[:1].upper() + reason[1:]
+    return headline
 
 
 def plain_letters(value: str) -> str:
@@ -1631,10 +1774,19 @@ def _evidence_from_record(row: Dict[str, Any]) -> Dict[str, Any]:
                 "source": source, "published": row.get("published"),
                 "voice": "independent", "social": False,
                 "source_type": "research", "key": f"research:{_host(row['uri'])}"}
+    host = _host(row["uri"]) or source.lower()
+    from app.services.report_corpus import is_wire_host
+
+    if is_wire_host(host) or is_wire_host(source):
+        # A release on a wire is the company's own announcement.
+        return {"uri": row["uri"], "title": row.get("title"),
+                "source": host, "published": row.get("published"),
+                "voice": "owned", "social": False, "source_type": "vendor",
+                "key": f"owned:wire:{host}"}
     return {"uri": row["uri"], "title": row.get("title"),
             "source": _host(row["uri"]) or source, "published": row.get("published"),
             "voice": "independent", "social": False, "source_type": "news",
-            "key": f"domain:{_host(row['uri']) or source.lower()}"}
+            "key": f"domain:{host}"}
 
 
 def _stored_candidates(conn, market_id: int, days: int
@@ -1666,6 +1818,12 @@ def _stored_candidates(conn, market_id: int, days: int
           FROM bw_market_articles ma
           LEFT JOIN articles a ON a.uri = ma.article_uri
          WHERE ma.market_id = :m AND ma.review_customer IS NOT NULL
+    """), {"m": market_id}).fetchall()}
+    # And its one-line reading of each post, the headline of last resort.
+    reasons = {r[0]: r[1] for r in conn.execute(text("""
+        SELECT article_uri, review_reason FROM bw_market_articles
+         WHERE market_id = :m AND review_verdict = 'signal'
+           AND review_reason IS NOT NULL
     """), {"m": market_id}).fetchall()}
 
     out: List[Dict[str, Any]] = []
@@ -1716,6 +1874,17 @@ def _stored_candidates(conn, market_id: int, days: int
             if combined:
                 attrs = {**attrs, "customer": combined}
         stamp = f.get("occurred_at") or f.get("first_observed_at")
+        headline = announcing_headline(
+            headline_of({"title": f.get("headline"),
+                         "summary": f.get("summary"),
+                         "vendors": f.get("vendors")}),
+            f.get("summary") or "", kind, f.get("vendors") or [],
+            reason=next((reasons[e["uri"]] for e in evidence
+                         if e.get("uri") in reasons), None))
+        # The shown headline can be a sentence the stored title was not:
+        # "…has passed 6K+ downloads" came from Imperum's post body.
+        if _NOT_EVENT.search(headline):
+            continue
         out.append({
             "key": f"event:{f['finding_id']}",
             "stored_event_id": f["finding_id"],
@@ -1724,11 +1893,7 @@ def _stored_candidates(conn, market_id: int, days: int
             "date_established": f.get("occurred_at") is not None,
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
-            "headline": announcing_headline(
-                headline_of({"title": f.get("headline"),
-                             "summary": f.get("summary"),
-                             "vendors": f.get("vendors")}),
-                f.get("summary") or "", kind, f.get("vendors") or []),
+            "headline": headline,
             "summary": f.get("summary") or "",
             "evidence": evidence,
             "evidence_count": f.get("evidence_count"),
@@ -1791,6 +1956,22 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
         if kind and klass == "news" and row.get("vendors") and not _names_vendor_of(
                 {"title": row.get("title") or ""}, row):
             kind = None
+        # A vendor's blog writes about other companies' deals too: D3's post
+        # "Cribl Just Acquired Radiant Security's AI SOC Technology" is D3's
+        # commentary, not D3's acquisition.
+        if kind in THIRD_PARTY_KINDS and klass == "vendor" \
+                and not speaks_for_vendor(row.get("title") or "", row):
+            kind = None
+        headline = None
+        if kind:
+            headline = (headline_of(row) if klass == "news" else
+                        announcing_headline(headline_of(row),
+                                            row.get("summary") or "", kind,
+                                            row.get("vendors") or [],
+                                            reason=row.get("review_reason")))
+            # The shown headline can be a body sentence the title was not.
+            if _NOT_EVENT.search(headline):
+                kind = None
         if kind:
             attrs: Dict[str, Any] = {}
             if kind == "customer" and isinstance(row.get("review_customer"), dict):
@@ -1801,10 +1982,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "event_type": kind,
                 "date": (row.get("published") or "")[:10] or None,
                 "vendors": list(row.get("vendors") or []),
-                "headline": (headline_of(row) if klass == "news" else
-                             announcing_headline(headline_of(row),
-                                                 row.get("summary") or "", kind,
-                                                 row.get("vendors") or [])),
+                "headline": headline,
                 "summary": row.get("summary") or "",
                 "evidence": [evidence],
                 "attributes": attrs,
@@ -1839,11 +2017,35 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
 WIDER_TYPES = frozenset({"acquisition", "market_exit", "funding",
                          "product_launch", "product_expansion", "partnership"})
 #: The company a news headline leads with, before the verb saying what it did.
+#: Names joined by "and" or "&" are allowed ("Cisco & NVIDIA bring…"); the
+#: first one is the company the item is filed under.
 _LEAD_COMPANY = re.compile(
-    r"^([A-Z][\w&.'’-]*(?:\s+(?:[A-Z][\w&.'’-]*|AI|&)){0,3}?)\s+(?i:launches|"
-    r"announces|unveils|introduces|debuts|releases|adds|expands|acquires|to\s+"
-    r"acquire|buys|has\s+acquired|completes|raises|secures|partners|teams\s+up|"
-    r"rolls\s+out|brings|taps|bets|has\s+launched|launched)\b")
+    r"^([A-Z][\w.'’-]*(?:\s+(?:[A-Z][\w.'’-]*|AI|&|and)){0,3}?)\s+(?i:launches|"
+    r"announces|unveils|introduces|debuts|releases|adds|added|expands|expanded|"
+    r"is\s+expanding|acquires|to\s+acquire|buys|has\s+acquired|completes|raises|"
+    r"secures|partners|teams\s+up|rolls\s+out|brings|bring|taps|bets|"
+    r"has\s+launched|launched)\b")
+
+#: What a shared headline carries before the company: a poster's handle, an
+#: emoji, "Exciting news:".
+_LEAD_IN = re.compile(
+    r"^(?:@[\w.-]+:\s*)?[^\w(]*(?:(?:exciting|big|breaking|great|huge)\s+news|"
+    r"icymi|breaking|news|update|announcement|just\s+announced)\s*[:!\-–—]\s*",
+    re.I)
+
+
+def _lead_title(title: str) -> str:
+    """The headline as the lead-company match should read it.
+
+    "🔐 Cisco &amp; NVIDIA bring Splunk AI…" failed on the emoji and the
+    escaped ampersand, and "Exciting news: Cisco announces intent to acquire
+    WideField Security" on its lead-in, so Splunk's week at .conf reached the
+    page only as a subject under "Being discussed".
+    """
+    value = html.unescape(title or "").strip()
+    value = re.sub(r"^@[\w.-]+:\s*", "", value)
+    value = _LEAD_IN.sub("", value)
+    return re.sub(r"^[^\w(]+", "", value).strip()
 
 
 def _merge_by_company(devs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1875,11 +2077,13 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
     title = row.get("title") or ""
     if _NOT_EVENT.search(title):
         return None
-    kind = classify_text(_full_text(row), title=title)
-    lead = _LEAD_COMPANY.match(title.strip())
+    lead_title = _lead_title(title)
+    kind = classify_text(_full_text(row), title=lead_title)
+    lead = _LEAD_COMPANY.match(lead_title)
     if kind not in WIDER_TYPES or not lead:
         return None
-    company = re.sub(r"['’]s$", "", lead.group(1).strip())
+    company = re.split(r"\s+(?:and|&)\s+", lead.group(1).strip())[0]
+    company = re.sub(r"['’]s$", "", company)
     return {
         "key": f"wider:{row['uri']}",
         "event_type": kind,
@@ -2622,6 +2826,8 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     # exceeds it.
     product = _devs_of(devs, *PRODUCT_TYPES)
     customers = _devs_of(devs, "customer")
+    # Counted in full, but only a named customer or a case study is listed.
+    listed_customers = [d for d in customers if _customer_listable(d)]
     product_all = _devs_of(counted, *PRODUCT_TYPES)
     customers_all = _devs_of(counted, "customer")
     post_share = _coverage_share(post_cov)
@@ -2653,7 +2859,8 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                 ", none of which names the customer.") if customers_all else ".")
             + " These count announcements, not sales.",
             evidence=[f"Product: {_name_list(product, 5)}"]
-            + ([f"Customers: {_name_list(customers, 5)}"] if customers else []),
+            + ([f"Customers: {_name_list(listed_customers, 5)}"]
+               if listed_customers else []),
             coverage=_partial_posts_note(inputs),
             developments=product + customers))
     elif len(devs) >= MIN_DEVELOPMENTS_FOR_MIX and dist.get("by_type"):
@@ -2677,18 +2884,18 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                 developments=devs))
 
     # 4. Customer adoption on its own, when the comparison above was not made.
-    if customers and not any(f["id"] == "product_vs_customer" for f in out):
+    if listed_customers and not any(f["id"] == "product_vs_customer" for f in out):
         named = [d for d in customers if _customer_named(d)]
         out.append(_finding(
             "adoption",
-            f"Customer announcements from {_name_list(customers)}.",
+            f"Customer announcements from {_name_list(listed_customers)}.",
             f"{len(customers)} customer or deployment announcement"
             f"{'s' if len(customers) != 1 else ''}, "
             f"{len(named)} of them naming the customer.",
             evidence=[f'{d["headline"]} ({d["provenance_label"].lower()})'
-                      for d in customers[:5]],
+                      for d in listed_customers[:5]],
             coverage=_partial_posts_note(inputs),
-            developments=customers))
+            developments=listed_customers))
 
     # 5. Hiring concentration. Job data exists for few vendors, so this is
     # an observed signal and says so; it is not a market-wide ranking.

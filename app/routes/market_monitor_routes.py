@@ -651,8 +651,25 @@ async def add_vendor(market_id: int, payload: AddVendor,
                            "p": json.dumps({"source": "manual"})})
 
             conn.commit()
+
+            # Search for the new vendor by name from the next cycle. A failure
+            # here must not undo the vendor, which is already committed.
+            keywords_added: List[str] = []
+            try:
+                from app.services.market_collect import resync_market_keywords
+                market_name = _load_market(conn, market_id)["name"]
+                synced = resync_market_keywords(
+                    conn, get_database_instance(), market_id, market_name)
+                if synced:
+                    conn.commit()
+                    keywords_added = synced.get("keywords_added") or []
+            except Exception as exc:
+                conn.rollback()
+                logger.warning("market %s: keyword re-sync after adding %s "
+                               "failed: %s", market_id, name, exc)
             return {"brand_id": brand_id, "display_name": name,
-                    "created_brand": created_brand}
+                    "created_brand": created_brand,
+                    "keywords_added": keywords_added}
         except HTTPException:
             conn.rollback()
             raise
@@ -955,10 +972,11 @@ class CollectionSetup(BaseModel):
     # Appended to vendor names too short or too ordinary to search alone. The
     # firehose collector reads a two-word keyword as AND-of-words.
     qualifier: str = Field("security", min_length=2, max_length=40)
-    # none | funded | all. Funded by default: a disclosed raise is the best
-    # available proxy for a vendor active enough to generate coverage, and
-    # searching all 82 spends quota on companies nobody writes about.
-    vendor_names: str = Field("funded", pattern="^(none|funded|all)$")
+    # none | funded | all. Left out, a re-run keeps the mode the market was
+    # last set up with; a first setup defaults to funded, because a disclosed
+    # raise is the best available proxy for a vendor active enough to generate
+    # coverage.
+    vendor_names: Optional[str] = Field(None, pattern="^(none|funded|all)$")
     # Preview by default. Creating the group starts spending provider quota on
     # the next collection cycle.
     dry_run: bool = True
@@ -1013,7 +1031,7 @@ async def set_collection_terms(market_id: int, payload: CollectionTerms,
 
 @router.get("/markets/{market_id}/collection-plan")
 async def collection_plan(market_id: int, qualifier: str = Query("security"),
-                          vendor_names: str = Query("funded"),
+                          vendor_names: Optional[str] = Query(None),
                           zero_match: bool = Query(False),
                           session=Depends(verify_session_api)):
     """What the market's collection group would search for. Reads only.
@@ -1026,8 +1044,10 @@ async def collection_plan(market_id: int, qualifier: str = Query("security"),
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            plan = mc.plan_market_keywords(conn, market_id, qualifier,
-                                           vendor_names,
+            plan = mc.plan_market_keywords(
+                conn, market_id, qualifier,
+                vendor_names or mc.stored_collection_settings(
+                    conn, market_id)["vendor_names"],
                                            check_zero_match=zero_match)
             plan["group_name"] = f"{market['name']} - Market Watch"
             plan["topic_name"] = f"Market Monitoring {market['name']}"
@@ -1056,7 +1076,8 @@ async def collection_setup(market_id: int, payload: CollectionSetup,
             result = mc.setup_market_collection(
                 conn, get_database_instance(), market_id, market["name"],
                 qualifier=payload.qualifier,
-                vendor_names=payload.vendor_names,
+                vendor_names=payload.vendor_names or mc.stored_collection_settings(
+                    conn, market_id)["vendor_names"],
                 dry_run=payload.dry_run,
             )
             if not payload.dry_run:

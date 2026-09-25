@@ -103,6 +103,9 @@ _DEFAULT_WIRE_SOURCES = (
     "newsdirect.com",
     "abnewswire.com",
     "marketersmedia.com",
+    # Syndicates paid releases under a news masthead: Exotech's release was
+    # counted as independent coverage on aisocnews.com (25 Sep 2026).
+    "menafn.com",
 )
 
 
@@ -125,6 +128,27 @@ def wire_sources() -> set:
     if raw is None:
         return set(_DEFAULT_WIRE_SOURCES)
     return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def is_wire_host(host: str) -> bool:
+    """True when ``host`` (or a publisher name) is a paid release channel.
+
+    A release on a wire is the company's own words, however the page looks.
+    Counted as a publisher, it made a single press release read "Also
+    reported independently" for BlueVoyant, Exotech, Hexnode and Globalgig.
+    """
+    h = (host or "").strip().lower()
+    if h.startswith("www."):
+        h = h[4:]
+    if not h:
+        return False
+    for wire in wire_sources():
+        if h == wire or h.endswith("." + wire):
+            return True
+        # A bare publisher name, as news_source often is: "PR Newswire".
+        if "." not in h and h.replace(" ", "") == wire.split(".")[0]:
+            return True
+    return False
 
 
 def _host(value: str) -> str:

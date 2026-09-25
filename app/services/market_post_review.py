@@ -26,6 +26,7 @@ Three verdicts:
 """
 
 import json
+import html
 import logging
 import os
 from datetime import datetime, timezone
@@ -78,8 +79,11 @@ DEFAULT_BATCH = 20
 # Body text sent per post. A LinkedIn post's point is in its first lines; the
 # rest is hashtags.
 SUMMARY_CHARS = 600
+# A blog article states its news further down, after an opening paragraph
+# that sets the scene.
+BLOG_SUMMARY_CHARS = 1500
 
-PROMPT = """You are screening posts published by vendors in the {market} market.
+PROMPT = """You are screening posts and blog articles published by vendors in the {market} market.
 
 For each post decide what it is:
 
@@ -251,7 +255,11 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     # one.
     from app.services.market_corpus import own_voice_sql
 
-    where = ["a.bias_source = 'vendor:linkedin'", own_voice_sql("a")]
+    # The vendor's LinkedIn posts and its own website's articles. Until 25 Sep
+    # 2026 only the first: 3 of about 330 blog posts had ever been read, so an
+    # announcement made on a vendor's blog never became a development.
+    where = ["(a.bias_source = 'vendor:linkedin' OR a.bias_source LIKE 'owned:%')",
+             own_voice_sql("a")]
     params: Dict[str, Any] = {"m": market_id, "lim": int(limit)}
     if not redo:
         where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL)")
@@ -268,6 +276,7 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     rows = conn.execute(text(f"""
         SELECT DISTINCT ON (a.uri)
                a.uri, a.title, a.summary, b.display_name AS vendor,
+               a.bias_source,
                COALESCE(a.publication_date, a.submission_date) AS published
         FROM articles a
         JOIN bw_article_categories bac ON bac.article_uri = a.uri
@@ -325,9 +334,12 @@ def followed_candidates(conn, market_id: int, *, limit: int = 200,
 def _render(posts: List[Dict[str, Any]]) -> str:
     lines = []
     for i, post in enumerate(posts, 1):
-        body = (post.get("summary") or "").strip().replace("\n", " ")
-        lines.append(f"{i}. [{post.get('vendor')}] {post.get('title') or ''}\n"
-                     f"   {body[:SUMMARY_CHARS]}")
+        # Feed summaries arrive HTML-escaped ("&#8211;").
+        body = html.unescape(post.get("summary") or "").strip().replace("\n", " ")
+        blog = (post.get("bias_source") or "").startswith("owned:")
+        source = f"{post.get('vendor')}, blog" if blog else post.get("vendor")
+        lines.append(f"{i}. [{source}] {post.get('title') or ''}\n"
+                     f"   {body[:BLOG_SUMMARY_CHARS if blog else SUMMARY_CHARS]}")
     return "\n".join(lines)
 
 

@@ -11,7 +11,7 @@ import asyncio
 import inspect
 import json
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
 import uuid
@@ -781,12 +781,19 @@ class KeywordMonitor:
                                 try:
                                     from app.services.data_quality_service import DataQualityService
                                     dqs = DataQualityService()
-                                    approved_sample = [
-                                        a for a in articles[:saved_count]
-                                        if a.get("title")
-                                    ]
+                                    # The articles the pipeline kept, read
+                                    # back from the database. The first N of
+                                    # the batch were audited before, kept or
+                                    # not, so rejected articles drove "pass
+                                    # rate 0%" alerts about articles that
+                                    # were never shown to anyone.
+                                    approved_sample = await loop.run_in_executor(
+                                        None, self._kept_articles, articles)
                                     if approved_sample:
-                                        quality_report = dqs.audit_batch(topic, approved_sample)
+                                        # Off the event loop: it calls a model
+                                        # per sampled article.
+                                        quality_report = await loop.run_in_executor(
+                                            None, dqs.audit_batch, topic, approved_sample)
                                         logger.info(f"Quality audit for '{topic}': {quality_report['pass_rate']:.0%} pass rate ({quality_report['passed']}/{quality_report['sampled']})")
                                 except Exception as qe:
                                     logger.debug(f"Quality audit skipped: {qe}")
@@ -1114,6 +1121,34 @@ class KeywordMonitor:
         """Check if auto-ingest is enabled"""
         settings = self.get_auto_ingest_settings()
         return settings.get("auto_ingest_enabled", False)
+
+    def _kept_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """The batch's articles that were saved and are readable, as stored."""
+        from sqlalchemy import text
+
+        from app.services.article_visibility import readable_sql
+
+        uris = [u for u in ((a.get("url") or a.get("uri") or "").strip()
+                            for a in articles) if u]
+        if not uris:
+            return []
+        conn = self.db._temp_get_connection()
+        try:
+            rows = conn.execute(text(f"""
+                SELECT a.uri, a.title, a.summary FROM articles a
+                 WHERE a.uri = ANY(:uris) AND {readable_sql('a')}
+            """), {"uris": uris}).mappings().all()
+        finally:
+            conn.close()
+        # Each keyword runs the pipeline over an overlapping batch, so one
+        # article (Comp AI, three batches in three minutes) was audited again
+        # and again. Once each is enough; the set is bounded, not per run.
+        seen = self.__dict__.setdefault("_dq_audited", set())
+        if len(seen) > 5000:
+            seen.clear()
+        kept = [dict(r) for r in rows if r["title"] and r["uri"] not in seen]
+        seen.update(r["uri"] for r in kept)
+        return kept
 
     async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False) -> Dict[str, any]:
         """

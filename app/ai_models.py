@@ -191,6 +191,16 @@ def parse_stage_reply(response, key: str, *, stage: str, errors: Optional[list] 
     raise StageReplyError(msg)
 
 
+def _remember_llm_caller() -> None:
+    """Record who is calling before the call moves to a worker thread, so the
+    usage ledger can name it (see llm_usage_logger.remember_caller)."""
+    try:
+        from app.services.llm_usage_logger import remember_caller
+        remember_caller()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ── Global LLM concurrency gate ───────────────────────────────────────────
 # Every LLM call here ultimately runs ``litellm.completion`` (sync), which
 # async paths dispatch via ``asyncio.to_thread``. Without a cap, multiple
@@ -406,6 +416,7 @@ class AIModel:
     async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Async wrapper - runs sync LLM call in thread pool to avoid blocking
         the event loop, bounded by the global LLM concurrency semaphore."""
+        _remember_llm_caller()
         async with _get_llm_semaphore():
             return await asyncio.to_thread(
                 self.generate_sync, prompt,
@@ -471,6 +482,7 @@ class AIModel:
         blocking the event loop, bounded by the global LLM concurrency
         semaphore so cumulative background-service load can't saturate the
         executor."""
+        _remember_llm_caller()
         async with _get_llm_semaphore():
             return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 

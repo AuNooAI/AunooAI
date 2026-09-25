@@ -170,6 +170,9 @@ KIND_TO_EVENT = {
 
 NOT_EVENTS = {'award', 'other', 'event', 'opinion'}
 
+# Reviewer kinds a vendor's blog also uses for other companies' news.
+_THIRD_PARTY_KINDS = {'acquisition', 'funding', 'partnership', 'customer'}
+
 
 def _parsed(value: Optional[str]) -> Optional[datetime]:
     """Article dates are TEXT in this schema, and not always parseable."""
@@ -239,6 +242,19 @@ def run(conn, *, brand_id: Optional[int] = None,
             if kind not in NOT_EVENTS:
                 unmapped[kind] = unmapped.get(kind, 0) + 1
             continue
+
+        # A blog post about another company's deal is the vendor's commentary.
+        # D3's "Cribl Just Acquired Radiant Security's AI SOC Technology" was
+        # reviewed as an acquisition, and would have become D3's.
+        if ((row['bias_source'] or '').startswith('owned:')
+                and kind in _THIRD_PARTY_KINDS):
+            from app.services.market_assessment import speaks_for_vendor
+            if not speaks_for_vendor(
+                    row['title'] or '',
+                    {'vendors': [{'vendor': row['display_name'],
+                                  'brand_id': row['brand_id']}]}):
+                skipped += 1
+                continue
 
         published = _parsed(row['publication_date'])
         outcome = entity_events.record(
