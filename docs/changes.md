@@ -12,6 +12,29 @@ it properly. The plan (`docs/ISSUE_MODEL_ALIAS_CLEANUP.md`, 6 Sep, plus the 25 S
 down to: capabilities from what runs, one default per tier, aliases kept but out of the code, and a
 measured gate before the one change that alters output.
 
+### Before the tiers: the three Kimi aliases (`a3ccb5b5`, `803ddda1`, `2f29fbf5`, `d02ea28d`)
+Oliver asked for the alias callers to be fixed one name at a time, and each turned out to be a
+different shape of problem.
+- **`gpt-5.4-nano`** had one caller left on any site, wiley's `SOCIAL_EVAL_MODEL` (see the Voices
+  entry), plus an item in the UI's fallback model list (`2f29fbf5`). The name stays in the yaml and
+  the context tables.
+- **`gpt-5.4-mini`** was ~130 literals in 56 files. A plain rename would have changed behaviour: four
+  files chose a reasoning model's token budget by `startswith("gpt-5")`, so a caller renamed to Kimi
+  would have got a small `max_tokens` and truncated JSON. `ai_models.is_reasoning_model()` (true for
+  the gpt-5 family or any name the yaml sends to Kimi) replaced those eleven checks; Kimi's rows in
+  the Auspex output table (16k -> 64k; the endpoint accepted 128k when probed) and the executive-summary
+  context table (256k) were added; abm, oviva and sunstar had no yaml fallback for `bedrock-kimi-k2-5`
+  and got `nova-lite`; bugfixing's two `sd_schedules` rows were updated. Every yaml name was checked
+  old-versus-new for the reasoning flag, both Auspex limits, the three sample-size functions and the
+  Auspex call kwargs: identical for every name in live use.
+- **`gpt-4o-mini`** had no callers in `app/`; four UI API defaults, `process_threat_articles.py`,
+  abm's `keyword_monitor_settings` and the four Brand Watch groups on wbm and wileytest (their
+  social-eval model) named it. The benchmark scripts keep it: they call litellm with the bare name and
+  really reach OpenAI's gpt-4o-mini.
+- Applied to the seven sites by a per-tree script (`mini_rename.py`, backups `*.bak-minialias`), all
+  restarted when quiet between 14:47 and 14:58; 21 live Kimi calls by the three call routes answered
+  correctly on the seven sites.
+
 ### One default per tier (`app/model_tiers.py`, new)
 `TIERS` = fast `bedrock-kimi-k2-5`, standard and premium `claude-sonnet-4-5`. `default_model(tier)`
 reads `MODEL_TIER_FAST|STANDARD|PREMIUM` from `.env` first (empty counts as unset). 77 `gpt-5.4`
@@ -72,6 +95,19 @@ files named `gpt-4.1*` / `gpt-4o*`; they name `bedrock-kimi-k2-5` or `claude-son
 targets, and agents run through the Router with their own temperature, so nothing changed on the
 wire. UI build included in `b104102e`.
 
+### Restart script reads real signals (`13b78e5a`, `84416657`)
+`scripts/restart_when_quiet.sh` (new in the repo; copies on the seven sites) restarts a site only when
+nobody is using it. It used to count `Starting response generation` and `app.research` log lines as a
+live chat; the ingest pipeline emits both per article, so a busy ingest looked like a person and would
+have held wileytest's restart for an hour on 25 Sep. It now reads: successful `/api/` requests from
+clients other than 127.0.0.1 (the journal carries uvicorn's access log with the real address; the
+public market-monitor report, feeds, inquiry and subscribe forms and webhooks, the notification poll,
+health probes and MCP are excluded, because machines make those), Auspex messages in the last 5 min,
+running detection runs and background tasks, desk briefings touched in the last 10 min, overdue
+observer agents and queries over 20 s. Ingest activity alone is waited out for 45 min. `--check
+site...` prints the six numbers; on wileytest mid-ingest it showed `users=0 ... ingest=414`, the case
+that used to read as a chat.
+
 ### Fixed on the way
 `keyword_suggestion_service.py` and `summarization_service.py` called litellm with a bare yaml name
 and no routing lookup, so a Bedrock name could not route there. `threat_intelligence_monitor.py`
@@ -118,6 +154,9 @@ code is still the pre-tier tree and gets caught up when it is next revived.
   deleted the 157 rows it wrote under briefing 4242; 10 from a 22 Sep run remain.
 - Inserting an import after a regex match on `^from app\.\w+ import` lands inside a parenthesised
   import or below a late one. Pick the first single-line `from app.` import.
+- A scripted edit that opens its output for writing before computing the content truncates the file
+  when the computation fails; the shell then staged an empty `changes.md` (`4093020f`, restored in
+  `a7037737`). Compute first, write last, and run such shells with `set -e`.
 
 ## 2026-09-24/25 — Brand Watcher Voices: new sites, better roles, Jev, per-site personas with a settings page; alert emails stop leaking model working
 
@@ -197,6 +236,19 @@ Live path confirmed on sunstar (61 of 61 posts scored at 23:01 on 24 Sep carry J
   aborted the transaction and killed the whole Voices request.
 - The role backfill ends its read transaction before calling the model. wileytest closes a connection idle in
   a transaction after one minute; the first 5,522-post run wrote nothing and wasted about $2 of kimi calls.
+
+### Personas page on wiley (`01854847`)
+- Ported the same way as the other sites (persona-aware `social_eval_service` from wileytest, the rest
+  from bugfixing, `vp_001` on `soa_002`, backups `*.bak-personaspage-*`, restarted 14:10 when quiet).
+  The page loaded but `/api/voices/personas` answered 500: with no saved set and no `VOICES_PERSONAS`,
+  `standard_dict()` imported `author_role_jev`, which wiley does not have because its data must not go
+  to TypeSafe. The standard set now uses each role's hint as its definition and empty reasons where
+  the Jev module is missing. Page, current set, publisher preset and re-read estimate all 200 after.
+- The publisher set is saved as wiley's set #1 (16 roles: six columns, Competitors as a button, the
+  rest hidden). The Voices tab stays hidden on wiley (`bw_voices` false), and wiley has no social posts
+  in its Brand Monitoring topics, so the re-read had nothing to do.
+- wiley's `SOCIAL_EVAL_MODEL` was `gpt-5.4-nano`, an alias for Kimi K2.5; it names `bedrock-kimi-k2-5`
+  (same model; one live role read came back `student` for a textbook post).
 
 ### Re-reads run
 - sunstar: 1,420 posts (kimi, twice, then Jev). oviva: 214 (kimi, then Jev twice). bugfixing: 97 (Jev).
