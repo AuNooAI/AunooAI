@@ -165,7 +165,6 @@ export function LLMConfigModal({
                   <>
                     <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>
                     <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
-                    <SelectItem value="gpt-5.4-nano">GPT-5.4 Nano</SelectItem>
                     <SelectItem value="gpt-5.5">GPT-5.5 (flagship)</SelectItem>
                   </>
                 )}
