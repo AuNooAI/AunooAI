@@ -191,3 +191,32 @@ def test_cited_refs_with_titles_resolve_and_generic_brand_words_are_not_variants
     draft["themes"][0]["supporting_items"] = ["Article 2"]
     findings = svc._preflight_findings(draft, articles, [], ["Pearsons Education"])
     assert [f["check"] for f in findings if f["check"] == "name"] == ["name"]
+
+
+# --- A judge error holds the draft only when it stands on a second read -------
+
+def test_withdrawn_judge_errors_become_info_and_the_rest_are_untouched():
+    judge_err = _finding("Sentence A.", check="actor", severity="error", text="A names the wrong company.")
+    judge_err2 = _finding("Sentence B.", check="sourcing", severity="error", text="B says multiple sources.")
+    judge_err3 = _finding("Sentence C.", check="contradiction", severity="error", text="C contradicts.")
+    judge_warn = _finding("Sentence D.", check="inference", severity="warning")
+    preflight = {**_finding("Sentence E.", check="figure", severity="error", text="E has a figure no source has."), "source": "preflight"}
+    verdicts = [
+        {"claim_text": "Sentence A.", "stands": False, "reason": "The source names that company."},
+        {"claim_text": "sentence  b.", "stands": True, "reason": "It does say multiple sources."},   # quote drift tolerated
+        {"claim_text": "Sentence E.", "stands": False},                                              # preflight: ignored
+        # no verdict for C: keeps its severity
+    ]
+    out, summary = svc._apply_confirmation([judge_err, judge_err2, judge_err3, judge_warn, preflight], verdicts)
+    assert summary == {"confirmed": 1, "withdrawn": 1}
+    sev = {f["claim_text"]: f["severity"] for f in out}
+    assert sev == {"Sentence A.": "info", "Sentence B.": "error", "Sentence C.": "error",
+                   "Sentence D.": "warning", "Sentence E.": "error"}
+    a = next(f for f in out if f["claim_text"] == "Sentence A.")
+    assert a["finding"].endswith("[withdrawn on second review: The source names that company.; not blocking]")
+
+
+def test_confirmation_with_no_verdicts_changes_nothing():
+    f = _finding("Sentence A.", check="actor", severity="error")
+    out, summary = svc._apply_confirmation([f], [])
+    assert out == [f] and summary == {"confirmed": 0, "withdrawn": 0}
