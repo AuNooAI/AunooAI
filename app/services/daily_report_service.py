@@ -11,6 +11,7 @@ articles/incidents are manually curated by the user.
 """
 
 import asyncio
+import copy
 import json
 import re
 import logging
@@ -374,6 +375,119 @@ def _apply_severity_policy(judge: List[Dict]) -> List[Dict]:
     return out
 
 
+# Deterministic handling of the judge's "date" findings. Almost all of them
+# say the same thing: a sentence dates an event by the day it was reported.
+# The writer was asked to fix these for three rounds and never converged
+# (wileytest 25 Sep 2026: 14 warnings, then 7, 3, 16; the round with 7 shipped).
+# Two rules replace that:
+#   * a date finding on a sentence that already frames its date as a reporting
+#     date, or that states no date at all, is the judge contradicting the text
+#     and is dropped;
+#   * a date finding on a sentence with a bare "on <date>" gets "as reported on"
+#     spliced into that sentence, nothing else changes, and the reviewer runs
+#     again. That sentence then falls under the first rule, so the class
+#     converges in one pass.
+_ATTRIBUTED = re.compile(r"\b(reported|reports|reporting|report|published|posted|coverage|covered|dated|as of)\b", re.I)
+_ANY_DATE = "(" + _DATE_WORDS.pattern + "|" + _DATE_ISO.pattern + ")"
+_ON_DATE = re.compile(r"(?<=\S)\s+on\s+" + _ANY_DATE, re.I)
+_LEADING_ON_DATE = re.compile(r"^On\s+" + _ANY_DATE)
+
+
+def _date_fix_sentence(sentence: str) -> str:
+    """'announced on 24 September a deal' -> 'announced, as reported on 24 September, a deal'.
+    Leaves a sentence alone when it already says who reported what and when."""
+    if not sentence or _ATTRIBUTED.search(sentence):
+        return sentence
+
+    def _sub(m):
+        rest = sentence[m.end():]
+        closing = "," if re.match(r"\s+[a-z(]", rest) else ""
+        return f", as reported on {m.group(1)}{closing}"
+
+    out = _ON_DATE.sub(_sub, sentence)
+    out = _LEADING_ON_DATE.sub(lambda m: f"As reported on {m.group(1)}", out)
+    return re.sub(r",\s*,", ",", out)
+
+
+def _find_quote(text: str, claim: str):
+    """Span of the judge's verbatim quote inside one draft field, tolerant of
+    whitespace, quote marks and dashes. None when it is not there."""
+    if not text or not claim:
+        return None
+    i = text.find(claim)
+    if i >= 0:
+        return (i, i + len(claim))
+    tokens = [re.escape(t) for t in claim.split()]
+    if not tokens:
+        return None
+    pat = r"\s+".join(tokens).replace("'", "['\u2019\u2018]").replace('"', '["\u201c\u201d]').replace(r"\-", "[-\u2014\u2013]")
+    try:
+        m = re.search(pat, text, re.I)
+    except re.error:
+        return None
+    return m.span() if m else None
+
+
+def _draft_fields(synthesis_result: Dict):
+    """(container, key) for every prose field, so a sentence can be edited in place."""
+    out = [(synthesis_result, "briefing_summary")]
+    for t in synthesis_result.get("themes") or []:
+        if isinstance(t, dict):
+            out += [(t, "description"), (t, "strategic_implication")]
+    for a in synthesis_result.get("priority_actions") or []:
+        if isinstance(a, dict):
+            out += [(a, "action"), (a, "rationale")]
+    return out
+
+
+def _apply_date_fixes(synthesis_result: Dict, findings: List[Dict]):
+    """Splice 'as reported on' into every sentence a date finding quotes.
+    Returns (new synthesis, number of sentences changed); the input is not
+    modified. A date that no source states at all is left to the writer."""
+    result = copy.deepcopy(synthesis_result)
+    fields = _draft_fields(result)
+    changed = 0
+    for f in findings:
+        if (f.get("check") or "") != "date" or not f.get("claim_text"):
+            continue
+        if str(f.get("evidence") or "").strip().lower() == "no source":
+            continue
+        claim = str(f["claim_text"])
+        for obj, key in fields:
+            text = str(obj.get(key) or "")
+            span = _find_quote(text, claim)
+            if not span:
+                continue
+            s, e = span
+            fixed = _date_fix_sentence(text[s:e])
+            if fixed != text[s:e]:
+                obj[key] = text[:s] + fixed + text[e:]
+                changed += 1
+            break
+    return result, changed
+
+
+def _drop_attributed_date_findings(judge: List[Dict]) -> List[Dict]:
+    """A judge date finding on a sentence that already gives its date as a
+    reporting date, or that states no date, is dropped: there is no date claim
+    left to correct (wileytest 25 Sep 2026: six of seven warnings were on
+    sentences that already said 'reported on')."""
+    out = []
+    for f in judge:
+        if (f.get("check") or "") == "date":
+            claim = str(f.get("claim_text") or "")
+            if claim and (_ATTRIBUTED.search(claim) or not _dates_in(claim)):
+                logger.info("Briefing review: dropped judge date finding on a sentence that already attributes its date: %.120s",
+                            f.get("finding"))
+                continue
+        out.append(f)
+    return out
+
+
+def _writer_rounds(repair_rounds: List[Dict]) -> int:
+    return sum(1 for r in repair_rounds if r.get("kind") != "date_fix")
+
+
 def _merge_findings(preflight: List[Dict], judge: List[Dict]) -> List[Dict]:
     """Preflight first; a judge finding on the same sentence is redundant."""
     out = list(preflight)
@@ -388,6 +502,16 @@ def _merge_findings(preflight: List[Dict], judge: List[Dict]) -> List[Dict]:
 
 _NO_CHANGE = re.compile(r"\bno (change|fix|correction|action)s? (is )?(needed|required|necessary)\b"
                         r"|\bno error found\b|\bis correctly attributed\b|\bthe inference is supported\b", re.I)
+# The suggested_fix is where the judge admits the sentence is fine while still
+# listing it (wileytest 25 Sep 2026: "The current wording is acceptable as it
+# says 'reports on September 24 stated'"). Matched on the fix only: a finding
+# can call one clause correct and still ask for a change to another.
+_FIX_SAYS_FINE = re.compile(
+    r"\b(wording|phrasing|text|sentence|claim|statement|attribution|date)\b[^.]{0,40}?"
+    r"\b(is|are|remains?)\s+(already\s+)?(acceptable|accurate|correct|fine|appropriate|adequate|sufficient)\b"
+    r"|\balready\s+(says|states|clarifies|identifies|specifies|correctly|accurately)\b"
+    r"|\bno (change|fix|correction|action|revision|edit)s?\s+(is\s+|are\s+)?(needed|required|necessary|warranted)\b",
+    re.I)
 
 
 def _needs_repair(review: Dict) -> bool:
@@ -419,7 +543,7 @@ def _sanitize_review_findings(findings) -> List[Dict]:
         if sev not in ("info", "warning", "error"):
             sev = "warning"
         fix = str(raw.get("suggested_fix") or "").strip()
-        if _NO_CHANGE.search(fix) or _NO_CHANGE.search(text):
+        if _NO_CHANGE.search(fix) or _NO_CHANGE.search(text) or _FIX_SAYS_FINE.search(fix):
             # The judge sometimes lists correct claims despite the rubric
             # (wileytest 24 Sep 2026: 9 of 14 findings said "No change needed").
             continue
@@ -628,10 +752,57 @@ class DailyReportService:
             best_synthesis, best_review = synthesis_result, review
             best_score = _review_score(review)
             best_round = 0
-            while _needs_repair(review) and len(repair_rounds) < config.max_repair_rounds:
+            async def _rereview() -> Dict:
+                try:
+                    return await asyncio.wait_for(
+                        self._run_review(
+                            briefing_name=briefing_name,
+                            synthesis_result=synthesis_result,
+                            articles=analyzed_articles,
+                            incidents=analyzed_incidents,
+                            config=config,
+                            monitored_names=monitored,
+                        ),
+                        timeout=config.review_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    return {"status": "review_failed", "findings": [],
+                            "summary": {"errors": 0, "warnings": 0, "info": 0, "total": 0},
+                            "model": model, "reviewed_at": datetime.now().isoformat(),
+                            "error": "Review timed out"}
+
+            date_fix_rounds = 0
+            while _needs_repair(review) and _writer_rounds(repair_rounds) < config.max_repair_rounds:
                 round_no = len(repair_rounds) + 1
                 errors_before = review.get("summary", {}).get("errors", 0)
                 warnings_before = review.get("summary", {}).get("warnings", 0)
+                # Deterministic pass first: every flagged sentence that dates an
+                # event by its publication date gets "as reported on" spliced in
+                # and nothing else changes. The writer only sees what this
+                # cannot fix. Bounded, and idempotent anyway: a fixed sentence
+                # is attributed, so it is never flagged for the same thing twice.
+                if date_fix_rounds < config.max_repair_rounds:
+                    fixed, n_fixed = _apply_date_fixes(synthesis_result, review.get("findings", []))
+                    if n_fixed:
+                        date_fix_rounds += 1
+                        synthesis_result = fixed
+                        review = await _rereview()
+                        errors_after = review.get("summary", {}).get("errors", 0)
+                        warnings_after = review.get("summary", {}).get("warnings", 0)
+                        repair_rounds.append({"round": round_no, "kind": "date_fix", "fixed": n_fixed,
+                                              "errors_before": errors_before, "errors_after": errors_after,
+                                              "warnings_before": warnings_before, "warnings_after": warnings_after,
+                                              "status": review.get("status")})
+                        if review.get("status") != "review_failed" and _review_score(review) < best_score:
+                            best_synthesis, best_review, best_score, best_round = synthesis_result, review, _review_score(review), round_no
+                        logger.info("Briefing repair: date fix rewrote %d sentence(s) for '%s' (%d/%d -> %d/%d errors/warnings)",
+                                    n_fixed, briefing_name, errors_before, warnings_before, errors_after, warnings_after)
+                        yield {"stage": "repair", "status": "completed", "progress": 1.0, "kind": "date_fix",
+                               "round": round_no, "fixed": n_fixed,
+                               "errors_before": errors_before, "errors_after": errors_after,
+                               "warnings_before": warnings_before, "warnings_after": warnings_after,
+                               "review_status": review.get("status")}
+                        continue
                 yield {"stage": "repair", "status": "started", "progress": 0.0,
                        "round": round_no, "errors": errors_before, "warnings": warnings_before}
                 try:
@@ -655,23 +826,7 @@ class DailyReportService:
                                           "warnings_after": warnings_before, "status": "repair_failed"})
                     break
                 synthesis_result = repaired
-                try:
-                    review = await asyncio.wait_for(
-                        self._run_review(
-                            briefing_name=briefing_name,
-                            synthesis_result=synthesis_result,
-                            articles=analyzed_articles,
-                            incidents=analyzed_incidents,
-                            config=config,
-                            monitored_names=monitored,
-                        ),
-                        timeout=config.review_timeout,
-                    )
-                except asyncio.TimeoutError:
-                    review = {"status": "review_failed", "findings": [],
-                              "summary": {"errors": 0, "warnings": 0, "info": 0, "total": 0},
-                              "model": model, "reviewed_at": datetime.now().isoformat(),
-                              "error": "Review timed out"}
+                review = await _rereview()
                 errors_after = review.get("summary", {}).get("errors", 0)
                 warnings_after = review.get("summary", {}).get("warnings", 0)
                 repair_rounds.append({"round": round_no, "errors_before": errors_before,
@@ -941,7 +1096,7 @@ Return JSON:
             }
 
         judge = _sanitize_review_findings(parsed.get("findings") if isinstance(parsed, dict) else None)
-        judge = _apply_severity_policy(_verify_claim_quotes(judge, synthesis_result))
+        judge = _apply_severity_policy(_drop_attributed_date_findings(_verify_claim_quotes(judge, synthesis_result)))
         findings = _merge_findings(preflight, judge)
         errors = sum(1 for f in findings if f["severity"] == "error")
         warnings = sum(1 for f in findings if f["severity"] == "warning")
