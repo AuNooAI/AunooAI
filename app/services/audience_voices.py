@@ -70,6 +70,9 @@ PREFERRED_PAIRS = (("clinician", "patient"), ("dental_professional", "customer")
                    ("author", "academic"), ("librarian", "student"),
                    ("educator", "student"), ("academic", "reader"))
 
+# An audience needs this many posts in the window to get its own column.
+FOCUS_MIN_POSTS = 3
+
 # Rows that are not an audience with a view of the brand, so the view never
 # opens on them: the company itself, its rivals, look-alikes, and the rest.
 NOT_AUDIENCES = {"brand", "competitor", "journal_society", "unknown", "unclassified"}
@@ -807,6 +810,13 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
             break
     if not focus:
         focus = [r["role"] for r in roles if r["role"] not in NOT_AUDIENCES][:2]
+    # Every audience with enough posts to say something gets a column, not
+    # just the pair: on wbm the view showed Authors and Academics and left
+    # Librarians, Students, Readers and Press as buttons nobody clicked.
+    # The pair still leads; the rest follow by size (roles is sorted by n).
+    focus += [r["role"] for r in roles
+              if r["role"] not in NOT_AUDIENCES and r["role"] not in focus
+              and r["n"] >= FOCUS_MIN_POSTS]
 
     unclassified = len(by_role.get("unclassified", []))
     notes: List[str] = []
