@@ -103,3 +103,45 @@ def test_fix_that_says_wording_is_acceptable_is_not_a_finding():
 def test_writer_rounds_ignore_date_fix_rounds():
     rounds = [{"round": 1, "kind": "date_fix"}, {"round": 2}, {"round": 3, "kind": "date_fix"}]
     assert svc._writer_rounds(rounds) == 1
+
+
+# --- The writer splices, it does not rewrite ---------------------------------
+
+DRAFT = {
+    "briefing_summary": "Opener stays. The Register reported that an academic publisher was compromised by LAPSUS$. Closer stays.",
+    "themes": [{"theme_name": "T", "description": "Enveda raised $311 million. Untouched second sentence.", "strategic_implication": "So what."}],
+    "priority_actions": [{"action": "Do X.", "rationale": "Because."}],
+}
+
+
+def test_replacement_changes_only_the_quoted_sentence():
+    reps = [{"claim_text": "The Register reported that an academic publisher was compromised by LAPSUS$.",
+             "replacement": "The Register reported that Elsevier was compromised by LAPSUS$."}]
+    out, n = svc._apply_replacements(DRAFT, reps)
+    assert n == 1
+    assert out["briefing_summary"] == "Opener stays. The Register reported that Elsevier was compromised by LAPSUS$. Closer stays."
+    assert out["themes"] == DRAFT["themes"] and out["priority_actions"] == DRAFT["priority_actions"]
+    assert "academic publisher" in DRAFT["briefing_summary"], "input must not be mutated"
+
+
+def test_empty_replacement_deletes_the_sentence():
+    out, n = svc._apply_replacements(DRAFT, [{"claim_text": "Enveda raised $311 million.", "replacement": ""}])
+    assert n == 1
+    assert out["themes"][0]["description"] == "Untouched second sentence."
+
+
+def test_replacements_skip_no_ops_unmatched_and_oversized():
+    reps = [
+        {"claim_text": "Enveda raised $311 million.", "replacement": "Enveda raised $311 million."},   # no-op
+        {"claim_text": "This sentence is not in the draft.", "replacement": "Whatever."},               # unmatched
+        {"claim_text": "Do X.", "replacement": "Do X. " + "And a whole new field of prose. " * 20},     # oversized
+        "not a dict",
+    ]
+    out, n = svc._apply_replacements(DRAFT, reps)
+    assert n == 0 and out == DRAFT
+
+
+def test_repair_prompt_asks_for_replacements_not_a_rewrite():
+    assert '"replacements"' in svc.REPAIR_PROMPT
+    assert "briefing_summary" not in svc.REPAIR_PROMPT
+    assert "never flag it for its date" in svc.DEFAULT_REVIEWER_PROMPT

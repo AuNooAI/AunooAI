@@ -53,6 +53,13 @@ items counts as evidence, including your own knowledge of the world.
    says it came out earlier, or gives no date, the draft may only say "reported
    on <published date>". An event the source itself dates is fine.
 
+   A sentence that already frames its date as the reporting date is correctly
+   dated: "reported on <date>", "as reported on <date>", "<outlet> reported on
+   <date> that ...", "reports on <date> stated ...". Never flag such a sentence
+   for its date, and never flag a sentence for not stating a date. The
+   pipeline discards a `date` finding that asks for "reported on" wording the
+   sentence already has, so raising one only wastes the review.
+
 3. **Names of institutions and people.** A wrong institution (the draft says
    one university, the source names another), a wrong title, or a wrong
    company for a product is an `error`. So is a study, figure or announcement
