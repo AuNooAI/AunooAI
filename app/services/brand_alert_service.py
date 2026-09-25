@@ -10,6 +10,7 @@ Config lives in bw_alert_config (rules/thresholds are consumed by the evaluator 
 app/tasks/brand_watcher_monitor.py; this module only handles delivery).
 """
 import json
+import re
 import logging
 import os
 import urllib.request
@@ -101,6 +102,111 @@ def _platform_label(source: str) -> str:
             "youtube": "YouTube", "reddit.com": "Reddit"}.get(s, source or "")
 
 
+# A reasoning model (gpt-5.4-mini is kimi-k2.5 on the monolith since 8 Sep)
+# sometimes writes its working into the reply: "The user wants me to
+# summarize ... I need to: ... Key elements: ...". On wbm (24 Sep) two alert
+# emails to Wiley carried that text as "What the posts say". The reply is now
+# a JSON object, only its "summary" is used, and a summary that still reads
+# like working is dropped; the alert then ships with the post list alone.
+_WORKING_TEXT = re.compile(
+    r"^\s*(the user|i need to|i'll|i will|let me|okay|ok,|alright|first,|so,|we need to|the task)"
+    r"|key elements|from the post:|\bi need to\b|\bthe user wants\b",
+    re.IGNORECASE)
+
+
+def _narration_summary(raw: str) -> Optional[str]:
+    """The "summary" of the first JSON object in a model reply, or None."""
+    decoder = json.JSONDecoder()
+    text_ = raw or ""
+    for i, ch in enumerate(text_):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text_[i:])
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("summary"), str):
+            out = " ".join(obj["summary"].split())
+            if out and not _WORKING_TEXT.search(out) and not out.startswith(("-", "*", "#", "⚠")):
+                return out[:700]
+            return None
+    return None
+
+
+# The model the narrator runs on, named for what it is. It used to ask for
+# "gpt-5.4-mini", an alias that the 8 Sep yaml repoint silently moved from
+# Haiku to kimi (a reasoning model); nobody checked this free-text,
+# customer-facing caller could take that.
+NARRATION_MODEL = "bedrock-kimi-k2-5"
+NARRATION_CHECK_USE_CASE = "services.brand_alert_service:narration_check"
+
+
+def _jev_check_narration(summary: str, posts: List[Dict[str, Any]]) -> Optional[bool]:
+    """Jev's verdict on a narration before it ships, or None when Jev is not used.
+
+    Three questions in one call: is the text a summary written for a reader
+    (not notes on how to write one, instructions or the writer's working),
+    do the posts support what it says, and does it state anything no post
+    states. Any failure drops the narration; the alert ships with the posts. On for a site with
+    TYPESAFE_VALIDATE_NARRATION=1 and a TypeSafe key; sites whose data may not
+    go to TypeSafe (the Wiley sites, no DPA) leave it off and rely on the
+    JSON-and-filter guard alone.
+    """
+    if (os.getenv("TYPESAFE_VALIDATE_NARRATION") or "").strip().lower() not in ("1", "true", "on", "yes"):
+        return None
+    try:
+        from app.services import typesafe_client
+    except ImportError:
+        return None
+    if not typesafe_client.is_configured():
+        return None
+    state = {
+        "posts": [{"author": p.get("author") or "", "text": (p.get("text") or p.get("title") or "")[:350]}
+                  for p in posts[:8]],
+        "summary": summary,
+    }
+    questions = {
+        "is_summary": {
+            "type": "noul",
+            "instructions": ("Is `summary` a finished summary of `posts` written for a reader, rather than "
+                             "notes about how to write one, a restatement of instructions, or the writer's "
+                             "own reasoning?"),
+            "criteria": {"true": "A finished summary a reader could be sent",
+                         "false": "Working notes, instructions, reasoning, or not a summary of these posts"},
+        },
+        "support": {
+            "type": "choice",
+            "instructions": "Do `posts` support what `summary` says?",
+            "criteria": {"supported": "Everything the summary says is stated in the posts",
+                         "partly": "Some of what the summary says is not in the posts",
+                         "contradicts": "The summary says something the posts contradict"},
+        },
+        # Tested on abm posts (25 Sep): real summaries 0.17-0.26, summaries with
+        # an invented layoff, contract loss or ban 0.96-0.98.
+        "unsupported_claim": {
+            "type": "noul",
+            "instructions": "Does `summary` state any fact, number, event or claim that none of `posts` states?",
+            "criteria": {"true": "At least one claim in the summary is not in any post",
+                         "false": "Every claim in the summary comes from the posts"},
+        },
+    }
+    out = typesafe_client.system_one(state, questions, use_case=NARRATION_CHECK_USE_CASE)
+    if not out:
+        return None  # Jev down or refused: the regex guard has already run
+    answers = out.get("answers") or {}
+    is_summary = (answers.get("is_summary") or {}).get("noul")
+    probs = (answers.get("support") or {}).get("probabilities") or {}
+    support = max(probs, key=probs.get) if probs else None
+    invented = (answers.get("unsupported_claim") or {}).get("noul")
+    ok = ((is_summary is None or is_summary >= 0.5)
+          and support in (None, "supported")
+          and (invented is None or invented < 0.5))
+    if not ok:
+        logger.warning("bw narration rejected by Jev: is_summary=%s support=%s unsupported_claim=%s: %r",
+                       is_summary, support, invented, summary[:160])
+    return ok
+
+
 def narrate_social_posts(brand: str, posts: List[Dict[str, Any]]) -> Optional[str]:
     """2-3 plain sentences on what the posts actually say. Best-effort: None on failure,
     and the alert ships with the linked post list only."""
@@ -108,7 +214,7 @@ def narrate_social_posts(brand: str, posts: List[Dict[str, Any]]) -> Optional[st
         return None
     try:
         from app.ai_models import LiteLLMModel
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance(NARRATION_MODEL)
         block = "\n".join(
             f"- {_platform_label(p['source'])} · @{p['author'] or 'unknown'}: {(p['text'] or p['title'])[:350]}"
             for p in posts[:8]
@@ -119,17 +225,20 @@ def narrate_social_posts(brand: str, posts: List[Dict[str, Any]]) -> Optional[st
             + "\n\nIn 2-3 plain sentences, say what these posts are actually saying — the "
             "concrete complaints, claims or stories, named specifically, and who is saying "
             "them when it matters (one loud account, a single community, many unrelated "
-            "users). Observations only, nothing not present in the posts. No preamble, "
-            "no bullets — just the sentence(s)."
+            "users). Observations only, nothing not present in the posts. "
+            'Respond with ONLY a JSON object: {"summary": "<the 2-3 sentences>"}. '
+            "No other text."
         )
-        out = (model.generate_response(
-            [{"role": "user", "content": prompt}], temperature=0.2) or "").strip()
         # LiteLLMModel signals failure by RETURNING error prose ("⚠️ <model> is
-        # currently unavailable...") instead of raising — treat it as a miss or
-        # it ends up verbatim in customer-facing digests and alert emails.
-        if not out or out.startswith(("-", "*", "#", "⚠")):
-            return None
-        return out[:700]
+        # currently unavailable...") instead of raising; that has no JSON, so
+        # it is dropped here rather than landing in a digest or alert email.
+        for _attempt in range(2):
+            out = _narration_summary(model.generate_response(
+                [{"role": "user", "content": prompt}], temperature=0.2) or "")
+            if out and _jev_check_narration(out, posts) is not False:
+                return out
+        logger.info("bw social-post narration for %s: no clean summary; sending posts only", brand)
+        return None
     except Exception as e:  # noqa: BLE001
         logger.warning(f"bw social-post narration failed for {brand}: {e}")
         return None
