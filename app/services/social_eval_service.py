@@ -185,9 +185,57 @@ def _brand_anchor_tokens(brand_topic: str) -> List[str]:
     return toks[:1]
 
 
-def _mentions_brand(text_lower: str, anchors: List[str]) -> bool:
-    """Word-start match so '#Wiley' / '@wileyglobal' / '$WLYY-adjacent' handles count."""
-    return any(re.search(r"(?<![a-z0-9])" + re.escape(a), text_lower) for a in anchors)
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+_JA_COMPANY_SUFFIX = re.compile(r"(株式会社|ホールディングス)$")
+
+
+def _brand_anchors(display_name: str, keywords: List[str]) -> List[str]:
+    """Every name that counts as the post mentioning the brand.
+
+    The cap used only the first word of the brand's title, so a post about
+    Ora² or GUM never "mentioned" Sunstar and a Sensodyne post never mentioned
+    Haleon: real posts were held at 0.3. Now the brand's keywords and product
+    names count too, whole, and a Japanese company name counts without its
+    株式会社 suffix (ライオン株式会社 -> ライオン).
+
+    The first word of a keyword counts on its own only when it is written in
+    capitals ("GUM toothbrush" -> GUM, matched in capitals only, so "gum
+    disease" stays capped). Lower-case first words do not: "Science journals"
+    would make every post about science count as naming Elsevier. A
+    case-sensitive anchor carries a leading "=".
+    """
+    out: List[str] = list(_brand_anchor_tokens(display_name))
+    for raw in keywords or []:
+        raw = str(raw or "").strip().translate(_SUPERSCRIPT_DIGITS)
+        kw = raw.lower()
+        if not kw:
+            continue
+        out.append(kw)
+        short = _JA_COMPANY_SUFFIX.sub("", kw)
+        if short and short != kw:
+            out.append(short)
+        words = re.findall(r"[A-Za-z0-9']+", raw)
+        if len(words) > 1 and words[0].lower() not in _ANCHOR_STOP:
+            first = words[0]
+            if len(first) >= 3 and first.isupper():
+                out.append("=" + first)
+    return list(dict.fromkeys(a for a in out if a))
+
+
+def _mentions_brand(text_lower: str, anchors: List[str], text_raw: str = "") -> bool:
+    """Word-start match so '#Wiley' / '@wileyglobal' / '$WLYY-adjacent' handles count.
+
+    An anchor starting with "=" is matched case-sensitively, as a whole word,
+    against ``text_raw`` (see ``_brand_anchors``).
+    """
+    for a in anchors:
+        if a.startswith("="):
+            if text_raw and re.search(r"(?<![A-Za-z0-9])" + re.escape(a[1:]) + r"(?![A-Za-z])",
+                                      text_raw):
+                return True
+        elif re.search(r"(?<![a-z0-9])" + re.escape(a), text_lower):
+            return True
+    return False
 
 
 def _parse_eval(content: str) -> Optional[Dict]:
@@ -322,8 +370,8 @@ class SocialEvalService:
             # Brands keep the single title-derived anchor; a topic passes its own
             # keyword terms, which carry the language variants.
             anchors = anchors if anchors is not None else _brand_anchor_tokens(brand_topic)
-            hay = f"{text}\n{author or ''}".lower()
-            if anchors and not _mentions_brand(hay, anchors):
+            raw = f"{text}\n{author or ''}".translate(_SUPERSCRIPT_DIGITS)
+            if anchors and not _mentions_brand(raw.lower(), anchors, raw):
                 r["relevance"] = 0.3
         # Supervisor pass: negative on-brand verdicts drive the spike alerts and
         # adverse panels, so they get a second, stricter look before they count.
@@ -516,7 +564,7 @@ class SocialEvalService:
         scored = await self.evaluate_posts(
             posts, brand_topic,
             brand_context=ctx["description"] or profile["description"],
-            anchors=(profile["anchors"] or None) if topic_mode else None,
+            anchors=(profile["anchors"] or None) if topic_mode else (ctx.get("anchors") or None),
             tiers=profile["tiers"] or None,
             topic_mode=topic_mode and bool(profile["description"] or profile["anchors"]))
         # The model call keeps relevance and sentiment; on a site that has
@@ -606,6 +654,7 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
     evaluated = 0
     excluded = 0
     excludes_by_brand: Dict[int, List[str]] = {}
+    anchors_by_brand: Dict[int, Optional[List[str]]] = {}
     from app.services import author_role_jev
     rivals_by_brand: Dict[str, List[str]] = {}
     for (mention_id, mention_brand, uri, display_name, title, summary,
@@ -615,8 +664,9 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         # settled before any model call, the same way evaluate_and_store does
         # on the topic path. This path skipped it, so a look-alike scored 0.9.
         if mention_brand not in excludes_by_brand:
-            excludes_by_brand[mention_brand] = _brand_context_for_topic(
-                db, f"Brand Monitoring {display_name}")["excludes"]
+            _ctx = _brand_context_for_topic(db, f"Brand Monitoring {display_name}")
+            excludes_by_brand[mention_brand] = _ctx["excludes"]
+            anchors_by_brand[mention_brand] = _ctx.get("anchors") or None
         blob = f"{title or ''} {summary or ''}".lower()
         author = db.facade._execute_with_rollback(text(
             "SELECT COALESCE(social_meta->>'author', '') FROM articles WHERE uri = :u"),
@@ -634,7 +684,8 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         # from a customer and a look-alike company from the real one.
         scored = await service.evaluate_posts(
             [{"uri": uri, "title": title, "summary": summary, "author": ""}],
-            display_name, brand_context=brand_context)
+            display_name, brand_context=brand_context,
+            anchors=anchors_by_brand.get(mention_brand))
         if not scored:
             continue
         verdict = scored[0]
@@ -779,14 +830,20 @@ def _brand_context_for_topic(db, brand_topic: str) -> Dict:
         return {"description": "", "excludes": []}
     try:
         row = db.facade._fetchone_with_rollback(text(
-            "SELECT description, config FROM bw_brands WHERE LOWER(display_name) = LOWER(:n)"),
+            "SELECT description, config, brand_keywords, product_keywords "
+            "FROM bw_brands WHERE LOWER(display_name) = LOWER(:n)"),
             {"n": name}, operation_name="social eval brand context")
         if not row:
             return {"description": "", "excludes": []}
         cfg = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
         excludes = [str(x).strip().lower() for x in (cfg.get("news_keyword_excludes") or [])
                     if str(x).strip()]
-        return {"description": (row[0] or "").strip(), "excludes": excludes}
+        kws: List[str] = []
+        for col in (row[2], row[3]):
+            vals = col if isinstance(col, list) else (json.loads(col) if col else [])
+            kws.extend(str(v) for v in vals or [])
+        return {"description": (row[0] or "").strip(), "excludes": excludes,
+                "anchors": _brand_anchors(name, kws)}
     except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
         logger.debug(f"SocialEval brand-context lookup failed for {brand_topic!r}: {e}")
         return {"description": "", "excludes": []}
