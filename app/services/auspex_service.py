@@ -14,7 +14,7 @@ from mcp.client.stdio import stdio_client
 
 from app.ai_models import is_reasoning_model
 from app.model_tiers import default_model
-from app.ai_models import model_caps
+from app.ai_models import model_caps, extract_json_response
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -4314,11 +4314,14 @@ Article Details (First {detail_limit}):
             if hasattr(response, 'choices') and len(response.choices) > 0:
                 content = response.choices[0].message.content
 
-                # Validate it's actually JSON
+                # Validate it's actually JSON. Bedrock targets drop JSON mode,
+                # and Claude then often wraps the object in a code fence or a
+                # line of preamble; extract_json_response tolerates both and
+                # the caller gets the bare object.
                 try:
-                    json.loads(content)  # Test parse
+                    parsed = extract_json_response(content)
                     logger.info("Successfully generated and validated structured JSON response")
-                    return content
+                    return json.dumps(parsed)
                 except json.JSONDecodeError as je:
                     logger.error(f"Response is not valid JSON: {je}")
                     logger.error(f"Response content: {content[:500]}...")
