@@ -34,7 +34,7 @@ export function useModules() {
   const [modules, setModules] = useState<ModuleInfo[] | null>(null);
   const [dedicatedMode, setDedicatedMode] = useState<boolean | null>(getCachedDedicatedMode);
   // Per-site switches for views inside a module (e.g. bw_voices). null = not
-  // known yet; a view stays visible until the backend says otherwise.
+  // known yet; a view stays hidden until the backend says it is on.
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
 
   const applyDedicated = (dm: boolean) => {

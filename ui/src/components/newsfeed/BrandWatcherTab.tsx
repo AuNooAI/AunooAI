@@ -227,8 +227,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // Per-site switch for the Voices sub-tab (BW_VOICES_ENABLED). Hidden on sites
   // whose audience list does not fit yet; a remembered 'voices' tab snaps back.
   const { features: siteFeatures } = useModules();
-  const voicesEnabled = siteFeatures?.bw_voices !== false;
-  useEffect(() => { if (!voicesEnabled && activeTab === 'voices') setActiveTab('dashboard'); }, [voicesEnabled, activeTab]);
+  // Shown only once the site says Voices is on. Treating "not known yet" as
+  // on made the tab flash up and vanish on sites that hide it, and showed a
+  // tab that 404'd on sites whose backend has no Voices at all.
+  const voicesEnabled = siteFeatures?.bw_voices === true;
+  // Snap back only once the site has answered; before that a remembered
+  // Voices tab would be thrown away on every load of a site that has it on.
+  useEffect(() => { if (siteFeatures && !voicesEnabled && activeTab === 'voices') setActiveTab('dashboard'); }, [siteFeatures, voicesEnabled, activeTab]);
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
   // Each social lane picks its own network + is filtered/sorted independently (lane A / lane B).
