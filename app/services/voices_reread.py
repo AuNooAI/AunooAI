@@ -10,6 +10,7 @@ commit as they go, so a site that closes connections idle in a transaction
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Any, Dict, List
@@ -24,6 +25,15 @@ BATCH = 150
 USD_PER_POST = {"jev": 0.00003, "model": 0.001}
 
 _job: Dict[str, Any] = {"state": "idle"}
+
+
+def _jev():
+    """The Jev role module, or None on a site that does not have it (wileytest)."""
+    try:
+        from app.services import author_role_jev
+        return author_role_jev
+    except ImportError:
+        return None
 
 
 def candidates(conn, days: int = DAYS) -> List[Dict[str, Any]]:
@@ -60,14 +70,14 @@ def candidates(conn, days: int = DAYS) -> List[Dict[str, Any]]:
 
 def estimate() -> Dict[str, Any]:
     from app.database import get_database_instance
-    from app.services import author_role_jev
     from app.services.social_eval_service import SocialEvalService
     conn = get_database_instance()._temp_get_connection()
     try:
         n = len(candidates(conn))
     finally:
         conn.close()
-    reader = "jev" if author_role_jev.enabled() else "model"
+    jev = _jev()
+    reader = "jev" if jev is not None and jev.enabled() else "model"
     return {"posts": n, "days": DAYS,
             "reader": "Jev" if reader == "jev" else SocialEvalService().model_name,
             "usd": round(n * USD_PER_POST[reader], 2)}
@@ -80,8 +90,8 @@ def status() -> Dict[str, Any]:
 async def run(started_by: str) -> None:
     """Re-read every candidate's role. One run at a time per process."""
     from app.database import get_database_instance
-    from app.services import author_role_jev
     from app.services.social_eval_service import SocialEvalService, _brand_context_for_topic
+    jev = _jev()
     db = get_database_instance()
     conn = db._temp_get_connection()
     _job.update(state="running", started_by=started_by, started_at=time.time(),
@@ -91,11 +101,13 @@ async def run(started_by: str) -> None:
         conn.commit()
         _job["total"] = len(posts)
         svc = SocialEvalService()
+        # Older trees' classify_roles takes no competitors argument.
+        takes_rivals = "competitors" in inspect.signature(svc.classify_roles).parameters
         for topic in sorted({p["topic"] for p in posts}):
             batch = [p for p in posts if p["topic"] == topic]
             brand = topic.replace("Brand Monitoring ", "", 1)
             ctx = _brand_context_for_topic(db, topic)
-            rivals = author_role_jev.rival_names(db, brand)
+            rivals = jev.rival_names(db, brand) if jev is not None else []
             conn.commit()
             try:
                 db.facade.connection.commit()
@@ -103,8 +115,10 @@ async def run(started_by: str) -> None:
                 pass
             for i in range(0, len(batch), BATCH):
                 part = batch[i:i + BATCH]
-                got = await svc.classify_roles(part, brand, brand_context=ctx["description"],
-                                               competitors=rivals)
+                kwargs = {"brand_context": ctx["description"]}
+                if takes_rivals:
+                    kwargs["competitors"] = rivals
+                got = await svc.classify_roles(part, brand, **kwargs)
                 for g in got:
                     conn.execute(text("UPDATE articles SET author_role = :r, author_role_reason = :w WHERE uri = :u"),
                                  {"r": g["author_role"], "w": g.get("author_role_reason"), "u": g["uri"]})
