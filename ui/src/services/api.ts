@@ -585,8 +585,8 @@ export async function getAvailableModels(): Promise<AIModel[]> {
     console.error('Error fetching models:', error);
     // Same list the endpoint serves, so a failed fetch does not resurrect aliases.
     return [
-      { id: 'bedrock-claude-sonnet', name: 'Claude Sonnet 4.5', context_limit: 200000 },
-      { id: 'bedrock-claude-haiku', name: 'Claude Haiku 4.5', context_limit: 200000 },
+      { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', context_limit: 200000 },
+      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', context_limit: 200000 },
       { id: 'nova-pro', name: 'Nova Pro', context_limit: 300000 },
       { id: 'nova-lite', name: 'Nova Lite', context_limit: 300000 },
       { id: 'bedrock-kimi-k2-5', name: 'Kimi K2.5', context_limit: 256000 },

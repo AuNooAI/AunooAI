@@ -43,6 +43,13 @@ export interface PluginTool {
 
 // Model context limits (in tokens) - Source: https://github.com/taylorwilsdon/llm-context-limits
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // The names this site's yaml runs (see ai_models.model_caps on the server).
+  'claude-sonnet-4-5': 200000,
+  'claude-haiku-4-5': 200000,
+  'claude-sonnet-5': 200000,
+  'claude-opus-5': 200000,
+  'nova-pro': 300000,
+  'nova-lite': 300000,
   // OpenAI GPT-4.1 series (1M+ context)
   'gpt-4.1': 1048000,
   'gpt-4.1-mini': 1048000,
@@ -88,8 +95,13 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'default': 128000
 };
 
+// Limits the server reported for the models it lists (context_limit per id),
+// filled by getModels(). Preferred over the table below, which is a fallback.
+const SERVER_CONTEXT_LIMITS: Record<string, number> = {};
+
 export function getModelContextLimit(modelId: string): number {
   if (!modelId) return MODEL_CONTEXT_LIMITS.default;
+  if (SERVER_CONTEXT_LIMITS[modelId]) return SERVER_CONTEXT_LIMITS[modelId];
 
   // Check for exact match first
   if (MODEL_CONTEXT_LIMITS[modelId]) {
@@ -131,11 +143,11 @@ export async function getModels(): Promise<Model[]> {
   const response = await fetch('/api/trend-convergence/models');
   if (!response.ok) throw new Error('Failed to fetch models');
   const data = await response.json();
-  return (Array.isArray(data) ? data : []).map((m: any) => ({
-    id: m.id || m.name,
-    name: m.name,
-    provider: m.provider
-  }));
+  return (Array.isArray(data) ? data : []).map((m: any) => {
+    const id = m.id || m.name;
+    if (id && typeof m.context_limit === 'number') SERVER_CONTEXT_LIMITS[id] = m.context_limit;
+    return { id, name: m.name, provider: m.provider };
+  });
 }
 
 export async function createChatSession(topic: string, model: string): Promise<ChatSession> {

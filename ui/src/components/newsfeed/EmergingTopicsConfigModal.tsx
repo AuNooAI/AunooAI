@@ -190,8 +190,8 @@ export function EmergingTopicsConfigModal({
   const modelOptions = availableModels.length > 0
     ? availableModels
     : [
-        { id: 'bedrock-claude-sonnet', name: 'Claude Sonnet 4.5', provider: 'bedrock' },
-        { id: 'bedrock-claude-haiku', name: 'Claude Haiku 4.5', provider: 'bedrock' },
+        { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'bedrock' },
+        { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'bedrock' },
         { id: 'nova-pro', name: 'Nova Pro', provider: 'bedrock' },
         { id: 'nova-lite', name: 'Nova Lite', provider: 'bedrock' },
         { id: 'bedrock-kimi-k2-5', name: 'Kimi K2.5', provider: 'bedrock' },
@@ -199,7 +199,7 @@ export function EmergingTopicsConfigModal({
 
   // Keep an already-saved model selected even when it is no longer offered,
   // rather than silently showing (and then saving) the first option instead.
-  const selectedModel = config.model || modelOptions[0]?.id || 'bedrock-claude-sonnet';
+  const selectedModel = config.model || modelOptions[0]?.id || 'claude-sonnet-4-5';
 
   const handleSave = async () => {
     setLoading(true);

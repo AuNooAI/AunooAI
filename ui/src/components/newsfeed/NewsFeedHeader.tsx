@@ -261,8 +261,8 @@ export function NewsFeedHeader({
                 </>
               ) : (
                 <>
-                  <SelectItem value="bedrock-claude-sonnet">Claude Sonnet 4.5</SelectItem>
-                  <SelectItem value="bedrock-claude-haiku">Claude Haiku 4.5</SelectItem>
+                  <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
+                  <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
                   <SelectItem value="nova-pro">Nova Pro</SelectItem>
                   <SelectItem value="nova-lite">Nova Lite</SelectItem>
                   <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>
