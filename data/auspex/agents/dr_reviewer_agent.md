@@ -7,7 +7,7 @@ version: 1.0.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.1
-  max_tokens: 4000
+  max_tokens: 8000
 output_schema:
   type: object
   required: [findings]
