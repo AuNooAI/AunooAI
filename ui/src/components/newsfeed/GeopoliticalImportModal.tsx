@@ -53,7 +53,7 @@ export function GeopoliticalImportModal({
   isOpen,
   onClose,
   onImportComplete,
-  model = 'gpt-5.4-mini',
+  model = 'bedrock-kimi-k2-5',
 }: GeopoliticalImportModalProps) {
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);

@@ -69,11 +69,11 @@ export function NewsFeedHeader({
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
   // Use local state for model to match working pattern from LLMConfigModal
-  const [localModel, setLocalModel] = useState(config.model || 'gpt-5.4-mini');
+  const [localModel, setLocalModel] = useState(config.model || 'bedrock-kimi-k2-5');
 
   // Sync local model with config when it changes externally
   useEffect(() => {
-    setLocalModel(config.model || 'gpt-5.4-mini');
+    setLocalModel(config.model || 'bedrock-kimi-k2-5');
   }, [config.model]);
 
   const selectedTopics = narrativeConfig.selectedTopics || [];

@@ -336,7 +336,7 @@ export function GeopoliticalInsightsTab({
   stats,
   hotspots,
   loading,
-  model = 'gpt-5.4-mini',
+  model = 'bedrock-kimi-k2-5',
 }: GeopoliticalInsightsTabProps) {
   const [generating, setGenerating] = useState(false);
   const [narrative, setNarrative] = useState<Narrative | null>(null);

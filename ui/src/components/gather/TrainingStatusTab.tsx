@@ -821,7 +821,7 @@ export function TrainingStatusTab() {
               )}
               {bootstrappingTopics.length > 0 && (
                 <span className="px-2.5 py-1.5 rounded-md text-xs font-semibold bg-pink-50 text-pink-700" title={inferenceMode === 'local' ? 'Using Qwen for untrained topics' : 'Using GPT for untrained topics'}>
-                  {bootstrappingTopics.length} on {inferenceMode === 'local' ? 'Qwen' : 'gpt-5.4-mini'}
+                  {bootstrappingTopics.length} on {inferenceMode === 'local' ? 'Qwen' : 'Kimi K2.5'}
                 </span>
               )}
             </div>
@@ -1015,7 +1015,7 @@ export function TrainingStatusTab() {
               </div>
               <div className="space-y-2">
                 {(modelConfig?.external_models ?? [
-                  { name: 'gpt-5.4-mini', status: 'available', latency: '~2-5s', description: 'Fallback when local unavailable', tooltip: '', usage: null, cost: '~$0.001/article', type: 'external', port: null },
+                  { name: 'bedrock-kimi-k2-5', status: 'available', latency: '~2-5s', description: 'Fallback when local unavailable', tooltip: '', usage: null, cost: '~$0.001/article', type: 'external', port: null },
                 ]).map((model) => (
                   <div
                     key={model.name}

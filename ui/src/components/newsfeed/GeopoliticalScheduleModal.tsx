@@ -46,7 +46,7 @@ export function GeopoliticalScheduleModal({
   isOpen,
   onClose,
   onScheduleRun,
-  model = 'gpt-5.4-mini',
+  model = 'bedrock-kimi-k2-5',
 }: GeopoliticalScheduleModalProps) {
   const [schedules, setSchedules] = useState<GeopoliticalSchedule[]>([]);
   const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);

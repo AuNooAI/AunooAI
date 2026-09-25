@@ -48,13 +48,13 @@ export function LLMConfigModal({
   onConfigChange,
   onNarrativeConfigChange,
 }: LLMConfigModalProps) {
-  const [localModel, setLocalModel] = useState(config.model || 'gpt-5.4-mini');
+  const [localModel, setLocalModel] = useState(config.model || 'bedrock-kimi-k2-5');
   const [localProfileId, setLocalProfileId] = useState<number | undefined>(config.profileId);
   const [localSelectedTopics, setLocalSelectedTopics] = useState<string[]>(narrativeConfig.selectedTopics || []);
 
   // Sync local state when config changes
   useEffect(() => {
-    setLocalModel(config.model || 'gpt-5.4-mini');
+    setLocalModel(config.model || 'bedrock-kimi-k2-5');
     setLocalProfileId(config.profileId);
     setLocalSelectedTopics(narrativeConfig.selectedTopics || []);
   }, [config.model, config.profileId, narrativeConfig.selectedTopics, open]);
@@ -73,7 +73,7 @@ export function LLMConfigModal({
   };
 
   const handleReset = () => {
-    setLocalModel('gpt-5.4-mini');
+    setLocalModel('bedrock-kimi-k2-5');
     setLocalProfileId(undefined);
     setLocalSelectedTopics(topics.length > 0 ? [topics[0].name] : []);
   };
@@ -163,7 +163,7 @@ export function LLMConfigModal({
                   ))
                 ) : (
                   <>
-                    <SelectItem value="gpt-5.4-mini">GPT-5.4 Mini</SelectItem>
+                    <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>
                     <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
                     <SelectItem value="gpt-5.4-nano">GPT-5.4 Nano</SelectItem>
                     <SelectItem value="gpt-5.5">GPT-5.5 (flagship)</SelectItem>

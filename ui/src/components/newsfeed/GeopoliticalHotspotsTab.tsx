@@ -24,7 +24,7 @@ interface GeopoliticalHotspotsTabProps {
   model?: string;
 }
 
-export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-5.4-mini' }: GeopoliticalHotspotsTabProps) {
+export function GeopoliticalHotspotsTab({ onArticleClick, model = 'bedrock-kimi-k2-5' }: GeopoliticalHotspotsTabProps) {
   const [showImportModal, setShowImportModal] = useState(false);
 
   const {

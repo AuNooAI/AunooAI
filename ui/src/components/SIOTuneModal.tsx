@@ -92,8 +92,8 @@ const CREATIVITY_PRESETS = [
 
 // Default models for each agent type
 const DEFAULT_MODELS: Record<string, string> = {
-  sio_discovery_agent: 'gpt-5.4-mini',
-  sio_triage_agent: 'gpt-5.4-mini',
+  sio_discovery_agent: 'bedrock-kimi-k2-5',
+  sio_triage_agent: 'bedrock-kimi-k2-5',
   sio_deep_analysis_agent: 'gpt-5.4',
   sio_synthesis_agent: 'gpt-5.4'
 };

@@ -21,7 +21,7 @@ interface ThreatInsightsTabProps {
   model?: string;
 }
 
-export function ThreatInsightsTab({ loading: parentLoading, model = 'gpt-5.4-mini' }: ThreatInsightsTabProps) {
+export function ThreatInsightsTab({ loading: parentLoading, model = 'bedrock-kimi-k2-5' }: ThreatInsightsTabProps) {
   const [narratives, setNarratives] = useState<ThreatNarrative[]>([]);
   const [selectedNarrative, setSelectedNarrative] = useState<ThreatNarrative | null>(null);
   const [loading, setLoading] = useState(true);
