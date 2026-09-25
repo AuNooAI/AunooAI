@@ -145,3 +145,49 @@ def test_repair_prompt_asks_for_replacements_not_a_rewrite():
     assert '"replacements"' in svc.REPAIR_PROMPT
     assert "briefing_summary" not in svc.REPAIR_PROMPT
     assert "never flag it for its date" in svc.DEFAULT_REVIEWER_PROMPT
+
+
+# --- A cut-off quote still replaces the whole sentence -------------------------
+
+def test_truncated_quote_replaces_to_the_sentence_end():
+    sentence = ("Assess whether to accelerate investments given the seven-year commitment: waiting allows observation of "
+                "whether the diversification signals a broader market shift or represents company-specific strategy.")
+    draft = {"briefing_summary": "Before. " + sentence + " After.", "themes": [], "priority_actions": []}
+    cut = sentence[:120]  # the sanitiser's old cap, mid-word
+    out, n = svc._apply_replacements(draft, [{"claim_text": cut, "replacement": "Assess the commitment."}])
+    assert n == 1
+    assert out["briefing_summary"] == "Before. Assess the commitment. After."
+
+
+def test_quote_span_respects_a_complete_quote():
+    text = "First sentence. Second sentence. Third."
+    assert svc._quote_span(text, "Second sentence.") == (16, 32)
+    assert svc._quote_span(text, "Second sen") == (16, 32)
+    assert svc._quote_span(text, "Missing.") is None
+
+
+def test_sanitiser_keeps_long_quotes():
+    long_claim = "x" * 900 + "."
+    kept = svc._sanitize_review_findings([{"target": "summary", "severity": "warning", "finding": "f", "claim_text": long_claim}])
+    assert kept[0]["claim_text"] == long_claim
+
+
+# --- Preflight: cited refs with titles, and generic brand words -----------------
+
+def test_cited_refs_with_titles_resolve_and_generic_brand_words_are_not_variants():
+    assert svc._name_variants("Pearsons Education") == ["Pearsons Education", "Pearsons"]
+    assert "Wiley" in svc._name_variants("John Wiley")
+    articles = [{"title": "Pearsons research warns of a triple capability gap as AI adoption outpaces education and training",
+                 "summary": "Pearsons said so.", "publication_date": "2026-09-24"},
+                {"title": "Unrelated", "summary": "Nothing here.", "publication_date": "2026-09-24"}]
+    draft = {"briefing_summary": "Fine.",
+             "themes": [{"theme_name": "Gaps", "description": "Pearsons research warned that AI is outpacing education and training.",
+                         "strategic_implication": "x",
+                         "supporting_items": ["Article 1: Pearson research warns of a triple capability gap"]}],
+             "priority_actions": []}
+    findings = svc._preflight_findings(draft, articles, [], ["Pearsons Education"])
+    assert [f for f in findings if f["check"] == "name"] == []
+    # The same theme citing only the unrelated item is still held.
+    draft["themes"][0]["supporting_items"] = ["Article 2"]
+    findings = svc._preflight_findings(draft, articles, [], ["Pearsons Education"])
+    assert [f["check"] for f in findings if f["check"] == "name"] == ["name"]

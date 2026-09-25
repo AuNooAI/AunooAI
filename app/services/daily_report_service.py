@@ -240,12 +240,22 @@ def _monitored_names(articles: List[Dict], incidents: List[Dict]) -> List[str]:
     return sorted(names)
 
 
+# Last words of brand names that are ordinary words on their own. "Pearsons
+# Education" must not make every "education" in a draft a brand mention.
+_GENERIC_NAME_WORDS = {
+    "corporation", "company", "group", "inc", "ltd", "limited", "holdings", "international", "global",
+    "education", "publishing", "publishers", "media", "research", "sciences", "science", "health",
+    "healthcare", "solutions", "services", "systems", "technologies", "technology", "digital", "learning",
+    "analytics", "partners", "labs", "network", "networks", "institute", "foundation", "university", "press",
+}
+
+
 def _name_variants(name: str) -> List[str]:
     parts = name.split()
     out = [name]
     if len(parts) > 1 and len(parts[0]) >= 4 and parts[0].lower() not in ("brand", "the"):
         out.append(parts[0])
-    if len(parts) > 1 and len(parts[-1]) >= 4 and parts[-1].lower() not in ("corporation", "company", "group", "inc", "ltd"):
+    if len(parts) > 1 and len(parts[-1]) >= 4 and parts[-1].lower() not in _GENERIC_NAME_WORDS:
         out.append(parts[-1])
     return out
 
@@ -269,7 +279,15 @@ def _preflight_findings(synthesis_result: Dict, articles: List[Dict], incidents:
     theme_items = {}
     for t in synthesis_result.get("themes") or []:
         if isinstance(t, dict):
-            refs = [str(r).strip() for r in (t.get("supporting_items") or [])]
+            # The writer cites "Article 3" or "Article 3: <title>"; only the
+            # ref resolves, so the title is dropped (wileytest 25 Sep 2026:
+            # every cited item came back empty and the theme was held for
+            # naming a brand its own sources named).
+            refs = []
+            for r in (t.get("supporting_items") or []):
+                m = re.match(r"\s*(Article|Incident)\s+(\d+)", str(r), re.I)
+                if m:
+                    refs.append(f"{m.group(1).title()} {m.group(2)}")
             theme_items[f"theme:{t.get('theme_name') or ''}"] = refs
 
     def _add(target, finding, evidence, fix, claim, check):
@@ -428,6 +446,21 @@ def _find_quote(text: str, claim: str):
     return m.span() if m else None
 
 
+def _quote_span(text: str, claim: str):
+    """Span of the quoted sentence, run out to the end of that sentence when the
+    quote stops short of it. The sanitiser used to cap quotes at 400 characters,
+    and splicing over a cut-off quote left the tail of the old sentence behind
+    (wileytest 25 Sep 2026: "...strategy.t shift or represents company-specific strategy.")."""
+    span = _find_quote(text, claim)
+    if not span:
+        return None
+    s, e = span
+    if re.search(r"[.!?]['\")\]]*$", text[s:e]):
+        return s, e
+    m = re.compile(r"[^.!?]*[.!?]+['\")\]]*(?=\s|$)").match(text, e)
+    return (s, m.end()) if m else (s, len(text))
+
+
 def _draft_fields(synthesis_result: Dict):
     """(container, key) for every prose field, so a sentence can be edited in place."""
     out = [(synthesis_result, "briefing_summary")]
@@ -455,7 +488,7 @@ def _apply_date_fixes(synthesis_result: Dict, findings: List[Dict]):
         claim = str(f["claim_text"])
         for obj, key in fields:
             text = str(obj.get(key) or "")
-            span = _find_quote(text, claim)
+            span = _quote_span(text, claim)
             if not span:
                 continue
             s, e = span
@@ -505,7 +538,7 @@ def _apply_replacements(synthesis_result: Dict, replacements) -> "tuple[Dict, in
             continue
         for obj, key in fields:
             text = str(obj.get(key) or "")
-            span = _find_quote(text, claim)
+            span = _quote_span(text, claim)
             if not span:
                 continue
             s, e = span
@@ -594,7 +627,7 @@ def _sanitize_review_findings(findings) -> List[Dict]:
             "finding": text[:600],
             "evidence": str(raw.get("evidence") or "").strip()[:300] or None,
             "suggested_fix": str(raw.get("suggested_fix") or "").strip()[:400] or None,
-            "claim_text": str(raw.get("claim_text") or "").strip()[:400] or None,
+            "claim_text": str(raw.get("claim_text") or "").strip()[:1500] or None,
             "check": (str(raw.get("check") or "other").strip().lower() or "other"),
             "source": "judge",
         })
