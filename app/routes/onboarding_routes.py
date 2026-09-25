@@ -857,7 +857,7 @@ Format your response EXACTLY as follows:
             # (Bedrock/OpenAI/etc.). Default to a Claude alias — Nova emits
             # unreliable JSON for structured output.
             from app.ai_models import resolve_litellm_call_params
-            selected_model = os.getenv("ONBOARDING_SUGGEST_MODEL", "gpt-5.4-mini")
+            selected_model = os.getenv("ONBOARDING_SUGGEST_MODEL", "bedrock-kimi-k2-5")
             call_params = resolve_litellm_call_params(selected_model)
 
             messages = [

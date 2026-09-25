@@ -119,7 +119,7 @@ class PAMEventExtractionService:
     """Service for extracting structured events from articles."""
 
     # Default model for extraction
-    DEFAULT_MODEL = "gpt-5.4-mini"
+    DEFAULT_MODEL = "bedrock-kimi-k2-5"
 
     def __init__(self, model: Optional[str] = None, keyword_preset: Optional[str] = None):
         self.db = get_database_instance()

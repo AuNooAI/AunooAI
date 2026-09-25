@@ -66,7 +66,7 @@ class EmergingTopicsMonitor:
                 self.min_articles = row['min_articles']
                 self.sample_size = row['sample_size'] or 200
                 self.days_back = row['days_back'] or 7
-                self.model = row['model'] or 'gpt-5.4-mini'
+                self.model = row['model'] or 'bedrock-kimi-k2-5'
                 self.topic_filter = row['topic_filter']
                 self.notifications_enabled = row['notifications_enabled']
                 self.notification_channels = row['notification_channels'] or {}
@@ -100,7 +100,7 @@ class EmergingTopicsMonitor:
         self.min_articles = 50
         self.sample_size = 200
         self.days_back = 7
-        self.model = 'gpt-5.4-mini'
+        self.model = 'bedrock-kimi-k2-5'
         self.topic_filter = None
         self.notifications_enabled = False
         self.notification_channels = {}

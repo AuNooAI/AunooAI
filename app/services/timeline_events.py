@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DAILY_EVENTS_PER_SCOPE = 12
 LLM_MAX_ARTICLES = 12
-LLM_MODEL = "gpt-5.4-mini"
+LLM_MODEL = "bedrock-kimi-k2-5"
 KNOWN_TITLE_LOOKBACK_DAYS = 14
 
 _NEG_SQL = ("(a.sentiment ILIKE '%negativ%' OR a.sentiment ILIKE '%concern%' OR a.sentiment ILIKE '%pessimis%'"

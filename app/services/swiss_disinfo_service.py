@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOPIC = "Swiss Federal Elections 2027 Disinfo Monitoring"
 EUROPE_TOPIC = "European Election Interference"
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "bedrock-kimi-k2-5"
 BRIEF_MODEL = "gpt-5.4"
 NARRATIVE_MATCH_THRESHOLD = 0.90  # shortlist floor only; the model decides
 
@@ -1280,7 +1280,7 @@ class SwissDisinfoService:
             return {"stage": stage, "alias": alias,
                     "runs": resolve_model_identity(alias) or alias, "note": note}
         models = [
-            _m("Relevance gate", os.getenv("RELEVANCE_MODEL", "gpt-5.4-mini"),
+            _m("Relevance gate", os.getenv("RELEVANCE_MODEL", "bedrock-kimi-k2-5"),
                "scores every article against this watch's description"),
             _m("Social relevance", os.getenv("SOCIAL_EVAL_MODEL", "").strip('"') or "bedrock-claude-haiku",
                "scores Bluesky and Telegram posts, which never reach the news gate"),

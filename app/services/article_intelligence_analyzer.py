@@ -122,7 +122,7 @@ class AnalyzerConfig:
     # Model settings
     analysis_model: str = "gpt-5.4"
     analysis_temperature: float = 0.3
-    extraction_model: str = "gpt-5.4-mini"
+    extraction_model: str = "bedrock-kimi-k2-5"
     extraction_temperature: float = 0.2
 
     # Timeouts

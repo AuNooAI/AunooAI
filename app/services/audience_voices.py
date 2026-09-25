@@ -990,7 +990,7 @@ def _digest_model_name(conn) -> str:
                 return str(row[0])
     except Exception as e:  # noqa: BLE001 - settings table may not exist on old tenants
         logger.debug("voices digest: default model lookup failed: %s", e)
-    return "gpt-5.4-mini"
+    return "bedrock-kimi-k2-5"
 
 
 async def digest(conn, *, brand_id: int, display_name: str, role: str,

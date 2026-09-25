@@ -13,7 +13,7 @@ from app.security.session import verify_session
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auspex", tags=["Auspex"])
 
-async def identify_themes_from_articles(topic: str, timeframe_days: int, model: str = "gpt-5.4-mini", limit: int = 50) -> List[str]:
+async def identify_themes_from_articles(topic: str, timeframe_days: int, model: str = "bedrock-kimi-k2-5", limit: int = 50) -> List[str]:
     """Use AI to identify themes from actual article content through semantic analysis."""
     try:
         auspex = get_auspex_service()
@@ -156,7 +156,7 @@ class ConsensusAnalysisRequest(BaseModel):
     timeframe: str = Field("365d", description="Analysis timeframe")
     categories: List[str] | None = Field(None, description="Optional category filter")
     categoryMode: str = Field("existing", description="Category mode: 'existing', 'thematic', or 'custom'")
-    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
+    model: str = Field("bedrock-kimi-k2-5", description="AI model to use for analysis")
     articleLimit: int = Field(100, description="Number of articles to analyze")
 
     @field_validator('topic')
@@ -501,7 +501,7 @@ CONVERSATION:
 
     try:
         from app.ai_models import get_ai_model
-        model = get_ai_model("gpt-5.4-mini")
+        model = get_ai_model("bedrock-kimi-k2-5")
 
         response = await model.agenerate_response([
             {"role": "system", "content": "You summarize conversations by extracting the most INTERESTING and SPECIFIC datapoints. Find surprising numbers, notable quotes, and key facts. NEVER use generic phrases like 'analysis was conducted'. DO NOT add recommendations. Just summarize what was discussed. Respond only with valid JSON."},

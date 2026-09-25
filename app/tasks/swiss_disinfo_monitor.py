@@ -85,7 +85,7 @@ class SwissDisinfoMonitor:
             svc = get_swiss_disinfo_service(schedule.get("topic") or DEFAULT_TOPIC)
             await asyncio.to_thread(svc.ensure_calendar)
             stats = await svc.process_batch(limit=int(schedule.get("batch_size") or 50),
-                                            model_name=schedule.get("model") or "gpt-5.4-mini",
+                                            model_name=schedule.get("model") or "bedrock-kimi-k2-5",
                                             process_all=bool(schedule.get("process_all")))
             alerts = await asyncio.to_thread(svc.evaluate_alerts)
             result.update({"success": True, "articles_processed": stats["processed"],

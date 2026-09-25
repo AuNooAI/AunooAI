@@ -1150,7 +1150,7 @@ FULL ARTICLE CONTENT:
 Extract detailed strategic intelligence from this article."""
 
             response = await litellm.acompletion(
-                **resolve_litellm_call_params("gpt-5.4-mini"),  # Use faster model for per-article analysis
+                **resolve_litellm_call_params("bedrock-kimi-k2-5"),  # Use faster model for per-article analysis
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

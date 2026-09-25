@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, AsyncGenerator, Any
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, extract_json_response, is_reasoning_model
 from app.services.tool_loader import get_tool_loader
 from app.services.report_style import CLINICAL_STYLE
 
@@ -42,7 +42,7 @@ def _llm_token_kwargs(model: str, *, output_tokens: int) -> dict:
     Non-reasoning models (gpt-5.4*, claude, etc.) keep the standard
     ``max_tokens`` shape; ``temperature`` continues to apply.
     """
-    if (model or "").startswith("gpt-5"):
+    if is_reasoning_model(model):
         from app.ai_models import minimal_reasoning_effort
         return {
             "reasoning_effort": minimal_reasoning_effort(model),
@@ -1042,7 +1042,7 @@ Return JSON:
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=1000),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 
@@ -1113,7 +1113,7 @@ Return JSON:
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=1000),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 
@@ -1188,7 +1188,7 @@ Return JSON:
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=int(agent_config.get('max_tokens', 4000))),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
             raw = response.choices[0].message.content or ""
@@ -1263,7 +1263,7 @@ Return JSON:
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=1500),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = agent_config.get('temperature', 0.1)
             response = await litellm.acompletion(**call_kwargs)
             parsed = extract_json_response(response.choices[0].message.content or "") or {}
@@ -1319,7 +1319,7 @@ Return JSON:
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=3000),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = 0.2
             response = await litellm.acompletion(**call_kwargs)
             raw = response.choices[0].message.content or ""
@@ -1511,7 +1511,7 @@ Present strategic considerations that inform executive judgment, not replace it.
                 "response_format": {"type": "json_object"},
                 **_llm_token_kwargs(model, output_tokens=3000),
             }
-            if not model.startswith("gpt-5"):
+            if not is_reasoning_model(model):
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 

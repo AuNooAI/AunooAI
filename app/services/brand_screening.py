@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Bump on any change to RISK_TYPES, the screening prompt, or the fallback rules —
 # stored on every verdict so historical evaluations can name their screener.
 PROMPT_VERSION = "v2.0"
-SCREENING_MODEL = "gpt-5.4-mini"
+SCREENING_MODEL = "bedrock-kimi-k2-5"
 
 RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
               "esg", "executive_misconduct", "data_breach", "workforce_labor",

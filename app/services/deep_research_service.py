@@ -152,7 +152,7 @@ class ResearchConfig:
     temporal_distribution_older: float = 0.3  # 30% older context
 
     # Model settings
-    planning_model: str = "gpt-5.4-mini"
+    planning_model: str = "bedrock-kimi-k2-5"
     planning_temperature: float = 0.3
     synthesis_model: str = "gpt-5.4"
     synthesis_temperature: float = 0.4
@@ -632,7 +632,7 @@ The more specific your question, the better insights I can provide!"""
             content = "\n".join(content_items)
 
             response = await litellm.acompletion(
-                **resolve_litellm_call_params("gpt-5.4-mini"),
+                **resolve_litellm_call_params("bedrock-kimi-k2-5"),
                 messages=[
                     {
                         "role": "system",

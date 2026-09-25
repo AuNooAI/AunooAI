@@ -155,7 +155,7 @@ class AutomatedIngestService:
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
 
-        return "gpt-5.4-mini"  # Ultimate fallback
+        return "bedrock-kimi-k2-5"  # Ultimate fallback
     
     def get_llm_parameters(self) -> Dict[str, Any]:
         """

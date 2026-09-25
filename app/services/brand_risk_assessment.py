@@ -41,7 +41,7 @@ SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2}
 AUTO_MERGE_SIM = 0.99      # cosine similarity: attach without asking (near-dupes only)
 CONFIRM_SIM = 0.85         # 0.85-0.99: ask the cheap LLM; below: new issue
 CANDIDATE_WINDOW_DAYS = 45  # only issues with coverage this recent are merge candidates
-CONFIRM_MODEL = "gpt-5.4-mini"
+CONFIRM_MODEL = "bedrock-kimi-k2-5"
 
 # Recurring same-source signal streams (not discrete events): all of a brand's
 # risk-flagged articles from such a source form ONE continuing issue,

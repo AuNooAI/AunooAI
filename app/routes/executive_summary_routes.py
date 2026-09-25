@@ -744,6 +744,7 @@ def _calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', c
     context_limits = {
         'gpt-5.5': 1000000,
         'gpt-5.4': 400000,
+        'bedrock-kimi-k2-5': 256000,
         'gpt-5.4-mini': 400000,
         'gpt-5.4-nano': 400000,
         'gpt-3.5-turbo': 16385,

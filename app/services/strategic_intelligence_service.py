@@ -162,8 +162,8 @@ class SIOConfig:
     max_clusters: int = 50
 
     # Model settings
-    discovery_model: str = "gpt-5.4-mini"
-    triage_model: str = "gpt-5.4-mini"
+    discovery_model: str = "bedrock-kimi-k2-5"
+    triage_model: str = "bedrock-kimi-k2-5"
     analysis_model: str = "gpt-5.4"
     synthesis_model: str = "gpt-5.4"
 

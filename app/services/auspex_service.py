@@ -12,6 +12,7 @@ import litellm
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from app.ai_models import is_reasoning_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -95,7 +96,7 @@ def _llm_call_kwargs(model: str, *, output_tokens: int,
     reasoning step, and drop the ``temperature`` kwarg (gpt-5.4 doesn't
     accept it). All other models keep the existing semantics.
     """
-    if (model or "").startswith("gpt-5"):
+    if is_reasoning_model(model):
         # Reasoning + JSON share the same output budget. Give the model
         # plenty of room (≥4× the caller's hint, clamped to gpt-5.4's real
         # 128k cap) so the JSON tail doesn't get truncated by the
@@ -179,7 +180,7 @@ def classify_query_depth(query: str) -> str:
 
     return 'standard'
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "bedrock-kimi-k2-5"
 
 # Citation depth configuration
 DEFAULT_CITATION_LIMIT = 25      # Default number of articles to include in detailed context
@@ -1650,7 +1651,7 @@ Example: ["AI healthcare diagnosis", "machine learning medical imaging", "AI dru
 
 Search queries:"""
 
-            ai_model = get_ai_model('gpt-5.4-mini')
+            ai_model = get_ai_model('bedrock-kimi-k2-5')
             response = ai_model.generate_response([
                 {"role": "system", "content": "You are a search query optimizer. Return only valid JSON arrays."},
                 {"role": "user", "content": prompt}
@@ -3021,7 +3022,7 @@ Rules:
 - Reply with the query only, no quotes, no explanation."""
 
         try:
-            ai_model = get_ai_model('gpt-5.4-mini')
+            ai_model = get_ai_model('bedrock-kimi-k2-5')
             raw = await asyncio.to_thread(ai_model.generate_response, [
                 {"role": "system", "content": "You rewrite follow-up messages into standalone search queries. Reply with the query only."},
                 {"role": "user", "content": prompt},
@@ -3078,7 +3079,7 @@ User message:
 Extracted search query (respond with ONLY the query, no explanation):"""
 
             response = litellm.completion(
-                **resolve_litellm_call_params("gpt-5.4-mini"),  # Fast and cheap model for extraction
+                **resolve_litellm_call_params("bedrock-kimi-k2-5"),  # Fast and cheap model for extraction
                 messages=[
                     {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
                 ],
@@ -4590,7 +4591,7 @@ Article Details (First {detail_limit}):
             "bedrock-claude-haiku": 64000,
             "nova-pro": 5000,
             "nova-lite": 5000,
-            "bedrock-kimi-k2-5": 16000,
+            "bedrock-kimi-k2-5": 64000,  # measured 25 Sep: Bedrock accepts 128k
             "gemini-pro": 8192,
             "gemini-1.5-pro": 8192,
             "llama-2-70b": 2048,

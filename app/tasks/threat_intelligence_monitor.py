@@ -255,7 +255,7 @@ class ThreatIntelligenceMonitor:
                         article['title'] or "",
                         article['summary'] or "",
                         article['content'] or "",
-                        model='gpt-5.4-mini'
+                        model='bedrock-kimi-k2-5'
                     )
 
                     if extraction_result.get('no_threat'):

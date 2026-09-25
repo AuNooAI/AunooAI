@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.ai_models import is_reasoning_model
 from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
@@ -458,7 +459,7 @@ async def generate_executive_summary_for_run(
         "messages": [{"role": "user", "content": full_prompt}],
         "caching": False,
     }
-    if model.startswith("gpt-5"):
+    if is_reasoning_model(model):
         from app.ai_models import minimal_reasoning_effort
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
@@ -700,7 +701,7 @@ async def _rerun_future_horizons_for_topic(
         "messages": [{"role": "user", "content": formatted_prompt}],
         "caching": False,
     }
-    if model.startswith("gpt-5"):
+    if is_reasoning_model(model):
         from app.ai_models import minimal_reasoning_effort
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000

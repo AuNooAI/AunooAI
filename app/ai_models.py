@@ -47,6 +47,22 @@ def minimal_reasoning_effort(model_name: str) -> str:
     return "minimal"
 
 
+def is_reasoning_model(model_name: str) -> bool:
+    """True when the model thinks before it answers and so needs the large
+    output budget: the gpt-5 family, and any name the litellm yaml sends to
+    Kimi K2.5. The gpt-5.4-mini alias has pointed at Kimi since 8 Sep, and
+    callers now name Kimi directly, so a check on the "gpt-5" prefix alone
+    would give Kimi a small max_tokens and cut its JSON short."""
+    name = str(model_name or "")
+    if name.split("/")[-1].startswith("gpt-5"):
+        return True
+    try:
+        target = str(resolve_litellm_call_params(name).get("model", ""))
+    except Exception:  # noqa: BLE001 - unknown names are plain models
+        target = name
+    return "kimi" in target.lower() or "kimi" in name.lower()
+
+
 def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
     """Resolve a litellm_config.yaml alias into kwargs for a DIRECT
     ``litellm.completion()`` / ``litellm.acompletion()`` call.
@@ -1424,7 +1440,7 @@ class AIModelFactory:
     Provides compatibility layer for services expecting AIModelFactory.get_model().
     """
 
-    _default_model = "gpt-5.4-mini"
+    _default_model = "bedrock-kimi-k2-5"
 
     @classmethod
     def get_model(cls, model_name: str = None) -> LiteLLMModel:

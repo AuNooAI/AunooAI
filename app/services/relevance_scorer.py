@@ -40,7 +40,7 @@ class RelevanceScoringConfig:
     # Model settings
     # Env-configurable so ops can route this high-volume path to Bedrock (AWS
     # credits) without a code change, e.g. RELEVANCE_MODEL=bedrock-claude-haiku.
-    model: str = field(default_factory=lambda: os.getenv("RELEVANCE_MODEL", "gpt-5.4-mini"))
+    model: str = field(default_factory=lambda: os.getenv("RELEVANCE_MODEL", "bedrock-kimi-k2-5"))
     # Optional cross-provider fallback used when the primary model errors/times
     # out (e.g. RELEVANCE_FALLBACK_MODEL=bedrock-claude-haiku for OpenAI outages).
     fallback_model: Optional[str] = field(default_factory=lambda: os.getenv("RELEVANCE_FALLBACK_MODEL") or None)

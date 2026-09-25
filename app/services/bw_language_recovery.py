@@ -52,7 +52,7 @@ How relevant is this article to the monitoring topic? If the topic names a compa
 
 Respond with ONLY a number between 0.0 and 1.0."""
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response(
             [{"role": "user", "content": prompt}], max_tokens=10, temperature=0.0)
         raw = extract_content(response).strip()

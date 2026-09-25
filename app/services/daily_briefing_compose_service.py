@@ -36,6 +36,7 @@ from datetime import datetime, date, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.ai_models import is_reasoning_model
 from app.services.daily_briefing_ranking import (
     TITLE_SIMILARITY_THRESHOLD,
     annotate_candidates,
@@ -71,7 +72,7 @@ DEFAULT_DAYS_BACK = 7
 DEFAULT_MIN_ALIGNMENT = 0.4      # see the request model for why it is not 0.7
 DEFAULT_MIN_CONFIDENCE = 0.6
 DEFAULT_MODEL = "gpt-5.4"
-DEFAULT_DETECT_MODEL = "gpt-5.4-mini"
+DEFAULT_DETECT_MODEL = "bedrock-kimi-k2-5"
 
 
 def _evt(stage: str, status: str, message: str, **extra) -> Dict[str, Any]:
@@ -778,7 +779,7 @@ Select up to {TARGET_ARTICLES} articles, {TARGET_INCIDENTS} incidents, and
         # the run to the deterministic path for no reason.
         "max_tokens": 4000,
     }
-    if not str(model).startswith("gpt-5"):
+    if not is_reasoning_model(model):
         call_kwargs["temperature"] = 0.2
 
     try:

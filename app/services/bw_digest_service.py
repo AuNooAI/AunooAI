@@ -45,7 +45,7 @@ def _brand_narration(brand: str, alert_titles: list, articles: list) -> Optional
         return None
     try:
         from app.ai_models import LiteLLMModel
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         art_block = "\n".join(
             f"- {t}: {sm}" if sm else f"- {t}" for t, sm in articles[:6]
         )
@@ -79,7 +79,7 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
     """
     try:
         from app.ai_models import LiteLLMModel
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         prompt = (
             "You are writing the one-paragraph lead for an adverse-media digest "
             f"email covering the {period_label}. Below are ALL the facts, as "

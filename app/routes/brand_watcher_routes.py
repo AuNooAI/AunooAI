@@ -557,7 +557,7 @@ class CategoryInsightRequest(BaseModel):
     brand_id: int
     category: str
     days_back: int = 365
-    model: str = "gpt-5.4-mini"
+    model: str = "bedrock-kimi-k2-5"
 
 
 class CategoryInsightResponse(BaseModel):
@@ -2236,7 +2236,7 @@ Write each keyword as plain text with no quotation marks — they are added afte
 Respond ONLY with valid JSON, no markdown formatting."""
 
     async def _llm_suggest() -> dict:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
@@ -2859,7 +2859,7 @@ async def _llm_categorize_article(title: str, summary: str, brand: dict) -> Dict
             summary=summary or "No summary available"
         )
 
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
@@ -5550,7 +5550,7 @@ async def translate_for_report(req: ReportTranslateRequest, session=Depends(veri
         f"{numbered}"
     )
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a professional translator. Respond only with valid JSON."},
             {"role": "user", "content": prompt},
@@ -5720,7 +5720,7 @@ async def incident_report_summary(incident_id: int, session=Depends(verify_sessi
         + (f"\n\nLatest agent brief:\n{brief[0][:3000]}" if brief and brief[0] else "")
     )
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         summary = (await model.agenerate_response([
             {"role": "system", "content": "You are a senior brand-protection analyst. Respond with the paragraph only."},
             {"role": "user", "content": prompt},

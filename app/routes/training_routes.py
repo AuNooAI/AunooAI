@@ -1874,10 +1874,10 @@ async def get_model_config():
     # External models (LLM fallbacks)
     external_models = [
         ModelInfo(
-            name="gpt-5.4-mini",
+            name="bedrock-kimi-k2-5",
             type="external",
             status="available",
-            latency=format_latency('gpt-5.4-mini', '~2-5s'),
+            latency=format_latency('bedrock-kimi-k2-5', '~2-5s'),
             description="Fallback for all stages",
             tooltip="OpenAI gpt-5.4-mini used as fallback when: (1) Local models unavailable, (2) DeBERTa confidence < 0.6, (3) Topics with < 500 training samples, (4) Relevance score in uncertain range (0.3-0.7). Cost is per-article average.",
             usage="Fallback: Summary, Category, Enrichment, Explanations, Tags",
