@@ -98,10 +98,10 @@ const CREATIVITY_PRESETS = [
 
 // Default models for each agent type
 const DEFAULT_MODELS: Record<string, string> = {
-  eos_weak_signals_agent: 'gpt-5.4',
-  eos_amplification_agent: 'gpt-5.4',
-  eos_scenario_building_agent: 'gpt-5.4',
-  eos_implications_agent: 'gpt-5.4'
+  eos_weak_signals_agent: 'claude-sonnet-4-5',
+  eos_amplification_agent: 'claude-sonnet-4-5',
+  eos_scenario_building_agent: 'claude-sonnet-4-5',
+  eos_implications_agent: 'claude-sonnet-4-5'
 };
 
 // Default temperatures for each agent type
@@ -181,7 +181,7 @@ export function EOSTuneModal({
 
         for (const agent of promptsData.prompts || []) {
           initialContent[agent.id] = agent.content;
-          initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
+          initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'claude-sonnet-4-5';
           const temp = agent.metadata?.model_config?.temperature;
           initialTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.5');
         }
@@ -341,7 +341,7 @@ export function EOSTuneModal({
 
     for (const agent of agents) {
       resetContent[agent.id] = agent.content;
-      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
+      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'claude-sonnet-4-5';
       const temp = agent.metadata?.model_config?.temperature;
       resetTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.5');
     }

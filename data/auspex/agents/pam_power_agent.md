@@ -5,7 +5,7 @@ type: agent
 version: 1.1.0
 description: "Analyzes POWER dimension: infrastructure control, regulatory influence, network centrality, IP positioning"
 model_config:
-  model: "gpt-4.1-mini"
+  model: bedrock-kimi-k2-5
   temperature: 0.3
   max_tokens: 4000
 output_schema:

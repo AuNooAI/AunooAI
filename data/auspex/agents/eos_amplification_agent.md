@@ -4,7 +4,7 @@ description: Models how weak signals could cascade into major disruptions throug
   feedback loops and systemic vulnerabilities
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.5
 name: eos_amplification_agent
 output_schema:

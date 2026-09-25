@@ -797,7 +797,7 @@ export async function generateHorizonsExecutiveSummary(
   analysisId: string,
   scenarios: any[],
   topic: string,
-  model: string = 'gpt-4o',
+  model: string = 'claude-sonnet-4-5',
   profileId?: number
 ): Promise<any> {
   const url = `${API_BASE_URL}/api/trend-convergence/horizons/${analysisId}/executive-summary`;

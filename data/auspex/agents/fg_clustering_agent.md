@@ -4,7 +4,7 @@ description: Groups stakeholder mentions into distinct persona archetypes based 
   evidence
 model_config:
   max_tokens: 3000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.4
 name: fg_clustering_agent
 output_schema:

@@ -3,7 +3,7 @@ category: focus_group
 description: Builds rich psychographic profiles for discovered persona archetypes
 model_config:
   max_tokens: 6000
-  model: gpt-4o
+  model: claude-sonnet-4-5
   temperature: 0.5
 name: fg_profiling_agent
 output_schema:

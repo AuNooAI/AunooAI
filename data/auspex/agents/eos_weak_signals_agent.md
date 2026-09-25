@@ -4,7 +4,7 @@ description: Detects faint patterns and overlooked signals in trend data that ma
   analysis might miss
 model_config:
   max_tokens: 3000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.3
 name: eos_weak_signals_agent
 output_schema:

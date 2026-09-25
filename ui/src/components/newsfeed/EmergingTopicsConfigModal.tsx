@@ -77,7 +77,7 @@ const DEFAULT_CONFIG: EmergingTopicsConfig = {
   distanceThreshold: 0.85,
   minArticlesPerTheme: 3,
   maxArticlesPerTheme: 30,
-  model: 'gpt-5.4',
+  model: 'claude-sonnet-4-5',
 };
 
 const STORAGE_KEY = 'emergingTopicsConfig';

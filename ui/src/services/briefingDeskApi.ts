@@ -586,7 +586,7 @@ export async function removeIncidentFromBriefing(
  */
 export async function finalizeBriefing(
   briefingId: number,
-  model: string = 'gpt-4o',
+  model: string = 'claude-sonnet-4-5',
   onProgress: (event: FinalizeProgressEvent) => void,
   options?: {
     organizational_profile?: string;

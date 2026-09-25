@@ -1187,7 +1187,7 @@ function App() {
                       <label className="text-sm font-semibold mb-2 block">AI Model</label>
                       <Select value={config.model} onValueChange={(value) => updateConfig({ model: value })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="gpt-5.4" />
+                          <SelectValue placeholder="claude-sonnet-4-5" />
                         </SelectTrigger>
                         <SelectContent>
                           {models.map((model) => (

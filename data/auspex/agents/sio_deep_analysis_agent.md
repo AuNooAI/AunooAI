@@ -3,7 +3,7 @@ category: strategic_intelligence
 description: Performs deep analysis on individual events with cross-verification
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.3
 name: sio_deep_analysis_agent
 output_schema:

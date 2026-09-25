@@ -6,7 +6,7 @@ category: "research"
 description: "Plans research strategy by analyzing queries and creating structured objectives"
 
 model_config:
-  model: "gpt-4.1-mini"
+  model: bedrock-kimi-k2-5
   temperature: 0.3
   max_tokens: 2000
 

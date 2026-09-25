@@ -5,7 +5,7 @@ type: agent
 version: 1.0.0
 description: "Synthesizes PAM analysis into executive summary and strategic recommendations"
 model_config:
-  model: "gpt-4.1"
+  model: claude-sonnet-4-5
   temperature: 0.4
   max_tokens: 5000
 output_schema:

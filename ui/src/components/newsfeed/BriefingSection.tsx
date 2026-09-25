@@ -495,7 +495,7 @@ export function BriefingSection({
       body: JSON.stringify({
         podcast_name: 'Your Briefing',
         episode_title: `Executive Briefing - ${persona}`,
-        model: model || 'gpt-5.4',
+        model: model || 'claude-sonnet-4-5',
         mode: 'bulletin',
         duration: 'medium',
         articles: articlesData,

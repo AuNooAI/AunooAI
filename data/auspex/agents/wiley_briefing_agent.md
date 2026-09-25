@@ -5,7 +5,7 @@ description: Produces the per-topic Briefing Synthesis page (headline + lede + 3
 type: agent
 version: 1.1.0
 model_config:
-  model: gpt-4.1
+  model: claude-sonnet-4-5
   temperature: 1.0
   max_tokens: 6000
 output_schema:

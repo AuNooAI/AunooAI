@@ -5,7 +5,7 @@ description: Extracts structured real-world EVENTS (actor + action + subject + m
 type: agent
 version: 2.0.0
 model_config:
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.1
   max_tokens: 4000
 output_schema:

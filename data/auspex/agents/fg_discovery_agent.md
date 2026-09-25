@@ -4,7 +4,7 @@ description: Extracts stakeholder mentions from articles using enrichment data t
   discover personas from content
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-nano
+  model: bedrock-kimi-k2-5
   temperature: 0.3
 name: fg_discovery_agent
 output_schema:

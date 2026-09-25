@@ -4,7 +4,7 @@ description: Generates the full newsletter with The News, Deep Dive, Weird Sh*t,
   Reads, Metatrends, and Market Updates
 model_config:
   max_tokens: 8000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.5
 name: newsletter_main_agent
 type: agent

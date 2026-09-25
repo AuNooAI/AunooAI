@@ -207,3 +207,31 @@ def test_no_legacy_alias_literal_in_app():
             continue
         bad += [f"{rel}:{ln} {val}" for ln, val in hits if (rel, val) not in GUARD_ALLOW_LINES]
     assert not bad, "legacy model names used as literals (name the model that runs, or a tier):\n" + "\n".join(bad)
+
+
+# UI source and agent front-matter: no Python tokenizer, so a whole-string
+# regex. Lines that migrate an old saved choice (LEGACY_AUTO_PICK_MODELS) and
+# dict keys in the context tables may name an alias.
+def test_no_legacy_alias_literal_in_ui_or_agents():
+    import re
+    legacy = {e["model_name"] for e in _entries()["model_list"] if (e.get("model_info") or {}).get("legacy_alias")}
+    pat = re.compile(r"""(['"])(""" + "|".join(re.escape(n) for n in sorted(legacy, key=len, reverse=True)) + r""")\1(?!\s*:)""")
+    bad = []
+    for p in list((ROOT / "ui" / "src").rglob("*.ts")) + list((ROOT / "ui" / "src").rglob("*.tsx")):
+        in_legacy_set = False
+        for ln, line in enumerate(p.read_text().splitlines(), 1):
+            st = line.strip()
+            if "LEGACY_AUTO_PICK_MODELS" in line:
+                in_legacy_set = True
+            if in_legacy_set and st.startswith("]"):
+                in_legacy_set = False
+            if in_legacy_set or st.startswith(("//", "*", "/*")):
+                continue
+            for m in pat.finditer(line):
+                bad.append(f"{p.relative_to(ROOT)}:{ln} {m.group(2)}")
+    for p in (ROOT / "data" / "auspex" / "agents").glob("*.md"):
+        for ln, line in enumerate(p.read_text().splitlines(), 1):
+            m = re.match(r"^\s*model:\s*['\"]?([\w.:/-]+)['\"]?\s*$", line)
+            if m and m.group(1) in legacy:
+                bad.append(f"{p.relative_to(ROOT)}:{ln} {m.group(1)}")
+    assert not bad, "legacy model names in the UI or agent files:\n" + "\n".join(bad)

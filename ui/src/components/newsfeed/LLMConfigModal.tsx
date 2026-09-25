@@ -164,8 +164,10 @@ export function LLMConfigModal({
                 ) : (
                   <>
                     <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>
-                    <SelectItem value="gpt-5.4">GPT-5.4</SelectItem>
-                    <SelectItem value="gpt-5.5">GPT-5.5 (flagship)</SelectItem>
+                    <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
+                    <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
+                    <SelectItem value="nova-pro">Nova Pro</SelectItem>
+                    <SelectItem value="nova-lite">Nova Lite</SelectItem>
                   </>
                 )}
               </SelectContent>
