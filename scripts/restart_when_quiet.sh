@@ -6,8 +6,8 @@
 # Signals, read every 30 s from the journal and the site's database:
 #   hard (must all be zero before a restart):
 #     users     successful /api/ requests in the last 3 min from any client but
-#               127.0.0.1, excluding the public market-monitor report, feeds and
-#               webhooks, the notification poll, health probes and the MCP
+#               127.0.0.1, excluding the public market-monitor report, feeds,
+#               inquiry and subscribe forms and webhooks, the notification poll, health probes and the MCP
 #               endpoint (the journal carries uvicorn's access log; nginx
 #               passes the real client address)
 #     chat      Auspex messages written in the last 5 min (covers MCP chats,
@@ -49,7 +49,7 @@ signals() {  # $1 site -> prints "users chat jobs due long ingest"
   # calls a webhook, monitors probe / and /login (307), scanners get 404s, and
   # 127.0.0.1 is our own checks. An idle browser tab polls /api/notifications
   # every minute, so that path does not count as activity either.
-  local users; users=$(echo "$log" | grep -E 'INFO: +[0-9.]+:[0-9]+ - "(GET|POST|PUT|PATCH|DELETE) /api/[^ ]* HTTP/1.1" 200' | grep -vE 'INFO: +127\.0\.0\.1:' | grep -vE '/api/(market-monitor/(markets/[0-9]+/(report\.html|feed\.(json|xml))|webhooks/)|notifications|modules|health|mcp)' | wc -l)
+  local users; users=$(echo "$log" | grep -E 'INFO: +[0-9.]+:[0-9]+ - "(GET|POST|PUT|PATCH|DELETE) /api/[^ ]* HTTP/1.1" 200' | grep -vE 'INFO: +127\.0\.0\.1:' | grep -vE '/api/(market-monitor/(markets/[0-9]+/(report\.html|feed\.(json|xml)|inquiry|subscribe)|webhooks/)|notifications|modules|health|mcp)' | wc -l)
   local chat; chat=$(q "SELECT count(*) FROM auspex_messages WHERE timestamp > now() - interval '5 min'")
   local jobs; jobs=$(q "SELECT (SELECT count(*) FROM detection_runs WHERE status='running' AND created_at > now() - interval '6 hours')
                        + (SELECT count(*) FROM background_tasks WHERE status IN ('running','pending') AND COALESCE(started_at, created_at) > now() - interval '6 hours')
