@@ -464,7 +464,31 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
         fold_customers_into_patients(out)
     else:
         fold_patients_into_customers(out)
+    # A site's persona set may show fewer groups than it stores roles
+    # (publisher: editors with authors, teachers with students, investors
+    # and analysts with press). The detailed role stays on the post.
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    if alt is not None and alt.groups:
+        for p in out:
+            p["author_role_detail"] = p["author_role"]
+            p["author_role"] = alt.group(p["author_role"])
     return out
+
+
+def _role_meta(role: str) -> Dict[str, str]:
+    """Label, plural and hint for a role or group, the site's persona set first."""
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    if alt is not None and role in alt.display:
+        return alt.display[role]
+    return ROLE_LABELS.get(role, {"label": role.title(), "plural": role, "hint": ""})
+
+
+def _not_audiences() -> set:
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    return NOT_AUDIENCES | (alt.not_audiences if alt is not None else set())
 
 
 def fold_patients_into_customers(posts: List[Dict[str, Any]]) -> int:
@@ -786,7 +810,7 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
         platforms: Dict[str, int] = defaultdict(int)
         for p in items:
             platforms[p["platform"]] += 1
-        meta = ROLE_LABELS.get(role, {"label": role.title(), "plural": role, "hint": ""})
+        meta = _role_meta(role)
         roles.append({
             "role": role,
             "label": meta["label"],
@@ -802,20 +826,21 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     roles.sort(key=lambda r: (r["role"] == "competitor", -r["n"], list(ROLE_LABELS).index(r["role"])
                               if r["role"] in ROLE_LABELS else 99))
 
-    present = {r["role"] for r in roles if r["role"] not in NOT_AUDIENCES}
+    not_aud = _not_audiences()
+    present = {r["role"] for r in roles if r["role"] not in not_aud}
     focus: List[str] = []
     for a, b in PREFERRED_PAIRS:
         if a in present and b in present:
             focus = [a, b]
             break
     if not focus:
-        focus = [r["role"] for r in roles if r["role"] not in NOT_AUDIENCES][:2]
+        focus = [r["role"] for r in roles if r["role"] not in not_aud][:2]
     # Every audience with enough posts to say something gets a column, not
     # just the pair: on wbm the view showed Authors and Academics and left
     # Librarians, Students, Readers and Press as buttons nobody clicked.
     # The pair still leads; the rest follow by size (roles is sorted by n).
     focus += [r["role"] for r in roles
-              if r["role"] not in NOT_AUDIENCES and r["role"] not in focus
+              if r["role"] not in not_aud and r["role"] not in focus
               and r["n"] >= FOCUS_MIN_POSTS]
 
     unclassified = len(by_role.get("unclassified", []))
@@ -980,7 +1005,7 @@ async def digest(conn, *, brand_id: int, display_name: str, role: str,
                   if p["uri"] not in seen]
     posts.sort(key=lambda p: (-(p["engagement"] or 0), p["publication_date"] or ""))
     posts = posts[:max_posts]
-    meta = ROLE_LABELS.get(role, {"label": role, "plural": role})
+    meta = _role_meta(role)
     base = {"brand_id": brand_id, "brand": display_name, "role": role,
             "label": meta["label"], "days_back": days_back, "post_count": len(posts)}
     if len(posts) < 2:
