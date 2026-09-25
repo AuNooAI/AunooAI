@@ -103,8 +103,10 @@ tracebacks: oviva 21:50, panaya 21:52, sunstar 21:53, abm 21:54, wbm 21:55, wile
 `app.research` and `Starting response generation` log lines for a live chat and would have waited an
 hour; the ledger showed only relevance scoring and article analysis, no web requests, no jobs).
 All seven verified live afterwards: page up, no tracebacks since start, and both tiers answer by
-direct call, `get_ai_model` and the Router; wiley and wileytest serve the new UI bundle. bwtemplate's
-yaml lacks `claude-sonnet-4-5`; add it before that tree is revived.
+direct call, `get_ai_model` and the Router; wiley and wileytest serve the new UI bundle. bwtemplate
+(stopped) got `claude-sonnet-4-5` and `claude-haiku-4-5` entries in its yaml, a fallback for Kimi and
+the `reasoning_effort` drop on its Haiku 3.5 alias (backup `litellm_config.yaml.bak-claude45-*`); its
+code is still the pre-tier tree and gets caught up when it is next revived.
 
 ### Lessons
 - `llm_usage_log.model` already holds the resolved id, so "who still sends an alias" cannot be read
