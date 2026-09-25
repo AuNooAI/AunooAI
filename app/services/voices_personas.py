@@ -293,14 +293,19 @@ def active_set() -> Optional[PersonaSet]:
 
 def standard_dict() -> Dict[str, Any]:
     """The standard list (social_eval_service.AUTHOR_ROLES) as an editable set."""
-    from app.services import audience_voices, author_role_jev, social_eval_service
+    from app.services import audience_voices, social_eval_service
+    try:
+        from app.services import author_role_jev
+        criteria, reasons = author_role_jev.CRITERIA, author_role_jev.REASONS
+    except ImportError:  # a site without the Jev module (wiley)
+        criteria, reasons = {}, {}
     audiences = []
     for key in social_eval_service.AUTHOR_ROLES:
         meta = audience_voices.ROLE_LABELS.get(key, {})
         audiences.append({
             "key": key, "label": meta.get("label") or key.title(),
-            "definition": author_role_jev.CRITERIA.get(key, meta.get("hint", "")),
-            "reason": author_role_jev.REASONS.get(key, ""),
+            "definition": criteria.get(key, meta.get("hint", "")),
+            "reason": reasons.get(key, ""),
             "show": "button" if key in _ALWAYS_BUTTONS else "column",
             "group": "",
         })
