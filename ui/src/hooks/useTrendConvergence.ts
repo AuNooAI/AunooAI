@@ -319,7 +319,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       if (errorMessage.includes('API quota exceeded') || errorMessage.includes('exceeded your current quota')) {
         import('../utils/toast').then(({ showError }) => {
           showError(
-            `API quota exceeded for ${config.model}. Please switch to a different model (e.g., claude-3.5-sonnet or gpt-4o-mini).`,
+            `API quota exceeded for ${config.model}. Please switch to a different model (e.g., Kimi K2.5 or Claude Sonnet).`,
             10000
           );
         });

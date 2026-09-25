@@ -50,6 +50,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // OpenAI GPT-4o series
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
+  'bedrock-kimi-k2-5': 256000,
   // OpenAI GPT-4
   'gpt-4-turbo': 128000,
   'gpt-4': 128000,

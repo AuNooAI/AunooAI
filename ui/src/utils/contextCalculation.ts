@@ -11,6 +11,7 @@ export const CONTEXT_LIMITS: Record<string, number> = {
   'gpt-4-turbo-preview': 128000,
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
+  'bedrock-kimi-k2-5': 256000,
   'gpt-4.1': 1000000,
   'gpt-4.1-mini': 1000000,
   'gpt-4.1-nano': 1000000,

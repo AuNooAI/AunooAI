@@ -6,7 +6,7 @@ Runs as a subprocess launched by the threat intelligence routes.
 Writes progress to /tmp/threat_processing_status.json for polling.
 
 Usage:
-    python scripts/process_threat_articles.py --batch-size 100 --model gpt-4o-mini
+    python scripts/process_threat_articles.py --batch-size 100 --model bedrock-kimi-k2-5
     python scripts/process_threat_articles.py --topic "Threat Intelligence" --process-all
 """
 
@@ -231,7 +231,7 @@ async def process_articles(batch_size: int, model: str, topic: str | None, proce
 def main():
     parser = argparse.ArgumentParser(description="Process articles for threat intelligence")
     parser.add_argument("--batch-size", type=int, default=100)
-    parser.add_argument("--model", type=str, default="gpt-4o-mini")
+    parser.add_argument("--model", type=str, default="bedrock-kimi-k2-5")
     parser.add_argument("--topic", type=str, default=None)
     parser.add_argument("--process-all", action="store_true")
     args = parser.parse_args()

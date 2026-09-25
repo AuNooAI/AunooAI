@@ -1447,7 +1447,7 @@ class AIModelFactory:
         """Get a LiteLLM model instance.
 
         Args:
-            model_name: Optional model name. Defaults to gpt-4o-mini.
+            model_name: Optional model name. Defaults to bedrock-kimi-k2-5.
 
         Returns:
             LiteLLMModel instance for the specified model.
