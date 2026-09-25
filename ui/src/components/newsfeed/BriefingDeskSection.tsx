@@ -2013,6 +2013,72 @@ function ReviewNote({ review }: { review: BriefingReview }) {
         {label}{review.findings.length ? (open ? ' (hide)' : ' (show)') : ''}
       </button>
       {open && <div className="mt-2"><ReviewFindingsList findings={review.findings} /></div>}
+      <RepairHistory review={review} />
+    </div>
+  );
+}
+
+const REVIEW_RESULT: Record<string, string> = {
+  approved: 'clean',
+  approved_with_warnings: 'warnings only',
+  revision_requested: 'held',
+  review_failed: 'review failed',
+};
+
+function RepairHistory({ review }: { review: BriefingReview }) {
+  const [open, setOpen] = useState(false);
+  const rounds = review.repair_rounds || [];
+  if (!rounds.length) return null;
+  const dateFixes = rounds.filter(r => r.kind === 'date_fix').length;
+  const writerPasses = rounds.length - dateFixes;
+  const kept = review.repair_kept_round ?? 0;
+  const parts = [`${rounds.length} repair pass${rounds.length === 1 ? '' : 'es'}`];
+  const kinds: string[] = [];
+  if (dateFixes) kinds.push(`${dateFixes} date fix${dateFixes === 1 ? '' : 'es'}`);
+  if (writerPasses) kinds.push(`${writerPasses} writer`);
+  if (kinds.length) parts[0] += ` (${kinds.join(', ')})`;
+  parts.push(kept ? `kept pass ${kept}` : 'kept the first draft');
+  if (review.confirmation && (review.confirmation.confirmed || review.confirmation.withdrawn)) {
+    parts.push(`judge errors: ${review.confirmation.confirmed} confirmed, ${review.confirmation.withdrawn} withdrawn`);
+  }
+  const first = rounds[0];
+  const rows = [
+    { label: 'First draft', errors: first.errors_before, warnings: first.warnings_before, result: '', round: 0, stopped: '' },
+    ...rounds.map(r => ({
+      label: r.kind === 'date_fix' ? `${r.round} · date fix${r.fixed ? ` (${r.fixed} sentence${r.fixed === 1 ? '' : 's'})` : ''}` : `${r.round} · writer`,
+      errors: r.errors_after, warnings: r.warnings_after,
+      result: REVIEW_RESULT[r.status || ''] || r.status || '',
+      round: r.round,
+      stopped: r.stopped === 'regression' ? 'stopped: this pass added errors' : r.status === 'repair_failed' ? 'writer returned nothing usable' : '',
+    })),
+  ];
+  return (
+    <div className="mt-1">
+      <button onClick={() => setOpen(v => !v)} className="text-xs text-gray-500 dark:text-gray-400 underline">
+        {parts.join(' · ')}{open ? ' (hide)' : ' (show)'}
+      </button>
+      {open && (
+        <table className="mt-2 text-xs text-gray-700 dark:text-gray-300 border-collapse">
+          <thead>
+            <tr className="text-left text-gray-500 dark:text-gray-400">
+              <th className="pr-4 font-medium">Pass</th>
+              <th className="pr-4 font-medium text-right">Errors</th>
+              <th className="pr-4 font-medium text-right">Warnings</th>
+              <th className="pr-4 font-medium">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.round} className={row.round === kept ? 'font-semibold' : ''}>
+                <td className="pr-4 py-0.5 whitespace-nowrap">{row.label}{row.round === kept ? ' · kept' : ''}</td>
+                <td className="pr-4 py-0.5 text-right">{row.errors}</td>
+                <td className="pr-4 py-0.5 text-right">{row.warnings}</td>
+                <td className="pr-4 py-0.5">{row.result}{row.stopped ? ` · ${row.stopped}` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

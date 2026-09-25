@@ -141,6 +141,23 @@ export interface BriefingReview {
   reviewed_at?: string;
   error?: string;
   override?: { by: string; at: string; note?: string | null };
+  // Repair history: one row per pass. kind is 'date_fix' for the deterministic
+  // pass, absent for a writer pass. stopped is set on the pass that ended the loop.
+  repair_rounds?: BriefingRepairRound[];
+  repair_kept_round?: number | null;   // 0 = the first draft shipped
+  confirmation?: { confirmed: number; withdrawn: number } | null;
+}
+
+export interface BriefingRepairRound {
+  round: number;
+  kind?: 'date_fix';
+  fixed?: number;
+  errors_before: number;
+  errors_after: number;
+  warnings_before: number;
+  warnings_after: number;
+  status?: string;
+  stopped?: string;
 }
 
 export interface FinalizeProgressEvent {
