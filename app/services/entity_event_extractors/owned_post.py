@@ -221,6 +221,7 @@ def run(conn, *, brand_id: Optional[int] = None,
 
     rows = conn.execute(text(f"""
         SELECT ma.article_uri, ma.review_kind, ma.review_reason,
+               ma.review_customer,
                l.brand_id, a.title, a.summary, a.publication_date,
                a.news_source, a.url, a.bias_source, b.display_name
           FROM bw_market_articles ma
@@ -253,6 +254,11 @@ def run(conn, *, brand_id: Optional[int] = None,
                     row['title'] or '',
                     {'vendors': [{'vendor': row['display_name'],
                                   'brand_id': row['brand_id']}]}):
+                skipped += 1
+                continue
+            # A blog story about a customer it does not name is not news
+            # (Nebulock, "When Your Insider Risk Program Is Put to the Test").
+            if kind == 'customer' and not (row['review_customer'] or {}).get('name'):
                 skipped += 1
                 continue
 

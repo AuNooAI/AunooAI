@@ -893,6 +893,24 @@ THIRD_PARTY_KINDS = frozenset({"acquisition", "market_exit", "funding",
 _FIRST_PERSON = re.compile(r"\b(we|we're|we’re|we've|we’ve|our|us)\b", re.I)
 
 
+def checked_writing(record: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """The review's own headline and one-line summary for a post, each only
+    when Jev found the post supports it (``market_post_review.passes``).
+
+    The rules below this pick a sentence out of the vendor's own post, and a
+    vendor's post is written to hook, not to report: "When Your Insider Risk
+    Program Is Put to the Test". The review writes the item in our words and a
+    second model checks it against the post.
+    """
+    from app.services.market_post_review import passes
+
+    check = record.get("review_check")
+    headline = record.get("review_headline")
+    summary = record.get("review_summary")
+    return (headline if headline and passes(check, "headline") else None,
+            summary if summary and passes(check, "summary") else None)
+
+
 def speaks_for_vendor(title: str, record: Dict[str, Any]) -> bool:
     """Whether a vendor's own headline is about the vendor: it names the
     vendor, or it speaks as the company ("we", "our")."""
@@ -976,6 +994,9 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
     if cand.get("seed") and better:
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
+        dev["dek"] = cand.get("dek") or dev.get("dek")
+    elif not dev.get("dek") and cand.get("dek"):
+        dev["dek"] = cand["dek"]
     # A reading the review pass made carries to the development it joins;
     # two readings combine (latest stage, named if any, quoted if any).
     cand_customer = (cand.get("attributes") or {}).get("customer")
@@ -1696,6 +1717,8 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "headline": _named_headline(plain_letters(dev.get("headline") or "Untitled"),
                                     dev.get("vendors") or []),
         "summary": plain_summary(plain_letters((dev.get("summary") or "").strip())),
+        # One checked sentence in our words, when the review wrote one.
+        "dek": dev.get("dek"),
         "evidence": [{k: e.get(k) for k in
                       ("uri", "title", "source", "published", "voice",
                        "social", "source_type", "key", "author")}
@@ -1819,12 +1842,29 @@ def _stored_candidates(conn, market_id: int, days: int
           LEFT JOIN articles a ON a.uri = ma.article_uri
          WHERE ma.market_id = :m AND ma.review_customer IS NOT NULL
     """), {"m": market_id}).fetchall()}
-    # And its one-line reading of each post, the headline of last resort.
-    reasons = {r[0]: r[1] for r in conn.execute(text("""
-        SELECT article_uri, review_reason FROM bw_market_articles
-         WHERE market_id = :m AND review_verdict = 'signal'
-           AND review_reason IS NOT NULL
-    """), {"m": market_id}).fetchall()}
+    # And its one-line reading of each post, the headline of last resort,
+    # with the checked headline and summary it wrote.
+    reasons: Dict[str, str] = {}
+    writing: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+    # The current reading of every reviewed post. A stored event keeps the
+    # type its post was given when it was made; when a later review reads the
+    # post differently, the event follows the post.
+    readings_now: Dict[str, Tuple[str, str]] = {}
+    for r in conn.execute(text("""
+        SELECT article_uri, review_verdict, review_kind, review_reason,
+               review_headline, review_summary, review_check
+          FROM bw_market_articles
+         WHERE market_id = :m AND review_verdict IS NOT NULL
+    """), {"m": market_id}).mappings():
+        readings_now[r["article_uri"]] = (r["review_verdict"],
+                                          (r["review_kind"] or "").lower())
+        if r["review_verdict"] != "signal":
+            continue
+        if r["review_reason"]:
+            reasons[r["article_uri"]] = r["review_reason"]
+        checked = checked_writing(dict(r))
+        if checked[0]:
+            writing[r["article_uri"]] = checked
 
     out: List[Dict[str, Any]] = []
     held: Set[str] = set()
@@ -1874,13 +1914,32 @@ def _stored_candidates(conn, market_id: int, days: int
             if combined:
                 attrs = {**attrs, "customer": combined}
         stamp = f.get("occurred_at") or f.get("first_observed_at")
-        headline = announcing_headline(
+        # A vendor's own announcement, read again: Legion's acceptance into
+        # an OpenAI programme was stored as a partnership, and on a second
+        # reading is an award, which is not a development at all.
+        if attrs.get("announced_by") == "vendor":
+            current = [readings_now[e["uri"]] for e in evidence
+                       if e.get("voice") == "owned" and e.get("uri") in readings_now]
+            if current:
+                signals = [k for v, k in current if v == "signal"]
+                if not signals:
+                    continue
+                reread = _REVIEW_KIND_MAP.get(signals[0])
+                if reread is None or (reread == "executive_appointment"
+                                      and not _SENIOR.search(text_value)):
+                    continue
+                if _FAMILY.get(reread) != _FAMILY.get(kind):
+                    kind = _refine_product(reread, text_value)
+        written, dek = next((writing[e["uri"]] for e in evidence
+                             if e.get("uri") in writing), (None, None))
+        original = announcing_headline(
             headline_of({"title": f.get("headline"),
                          "summary": f.get("summary"),
                          "vendors": f.get("vendors")}),
             f.get("summary") or "", kind, f.get("vendors") or [],
             reason=next((reasons[e["uri"]] for e in evidence
                          if e.get("uri") in reasons), None))
+        headline = written or original
         # The shown headline can be a sentence the stored title was not:
         # "…has passed 6K+ downloads" came from Imperum's post body.
         if _NOT_EVENT.search(headline):
@@ -1894,6 +1953,11 @@ def _stored_candidates(conn, market_id: int, days: int
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
             "headline": headline,
+            # Deduplication reads the post's own title, not the rewrite: two
+            # headlines written for one listing need not share the words
+            # that match them.
+            "title": original,
+            "dek": dek,
             "summary": f.get("summary") or "",
             "evidence": evidence,
             "evidence_count": f.get("evidence_count"),
@@ -1963,12 +2027,20 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 and not speaks_for_vendor(row.get("title") or "", row):
             kind = None
         headline = None
+        written, dek = (None, None) if klass == "news" else checked_writing(row)
+        # A vendor blog post about a customer it does not name is a story, not
+        # news: Nebulock's "When Your Insider Risk Program Is Put to the Test".
+        if kind == "customer" and klass == "vendor" \
+                and not (row.get("review_customer") or {}).get("name"):
+            kind = None
+        ruled = None
         if kind:
-            headline = (headline_of(row) if klass == "news" else
-                        announcing_headline(headline_of(row),
-                                            row.get("summary") or "", kind,
-                                            row.get("vendors") or [],
-                                            reason=row.get("review_reason")))
+            ruled = (headline_of(row) if klass == "news" else
+                     announcing_headline(headline_of(row),
+                                         row.get("summary") or "", kind,
+                                         row.get("vendors") or [],
+                                         reason=row.get("review_reason")))
+            headline = written or ruled
             # The shown headline can be a body sentence the title was not.
             if _NOT_EVENT.search(headline):
                 kind = None
@@ -1983,12 +2055,16 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "date": (row.get("published") or "")[:10] or None,
                 "vendors": list(row.get("vendors") or []),
                 "headline": headline,
+                "title": ruled,
+                "dek": dek,
                 "summary": row.get("summary") or "",
                 "evidence": [evidence],
                 "attributes": attrs,
                 "seed": True,
                 "seed_rank": 1 if klass == "news" else 3 if klass == "vendor" else 2,
-                "headline_rank": 0 if klass == "news" else 3,
+                # A checked headline in our words beats the vendor's own
+                # sentence, and an outside publisher's headline beats both.
+                "headline_rank": 0 if klass == "news" else 2 if written else 3,
             })
             continue
         if klass in ("discussion", "research", "news", "vendor") and not noisy:

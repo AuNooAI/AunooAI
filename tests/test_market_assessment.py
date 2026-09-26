@@ -1059,3 +1059,47 @@ def test_a_longer_company_page_name_is_stripped_but_a_sentence_is_not():
     mate = {"title": "Mate Announce Gamebooks: the Control Flow for Agentic "
             "Investigations.", "vendors": [_vendor("Mate Security", 22)]}
     assert ma.headline_of(mate).startswith("Mate Announce Gamebooks")
+
+
+# ---------------------------------------------------------------------------
+# The review writes the headline; Jev checks it (26 Sep 2026)
+# ---------------------------------------------------------------------------
+
+def _check(headline="supports", summary="supports", p=0.95):
+    return {"headline": {"verdict": headline, "p_supports": p},
+            "summary": {"verdict": summary, "p_supports": p}}
+
+
+def test_a_checked_headline_is_used_and_an_unsupported_one_is_not():
+    row = {"review_headline": "Legion Security joins OpenAI's Daybreak Blue programme",
+           "review_summary": "It gains early access to Astra.",
+           "review_check": _check()}
+    assert ma.checked_writing(row) == (row["review_headline"], row["review_summary"])
+    # Conifers: "finds 47% of detections need attention", which the post does
+    # not say.
+    assert ma.checked_writing({**row, "review_check": _check(
+        headline="says_nothing", p=0.11)})[0] is None
+    # No check at all is not a pass.
+    assert ma.checked_writing({**row, "review_check": None}) == (None, None)
+    # A low probability of support is not a pass even when it is the choice.
+    assert ma.checked_writing({**row, "review_check": _check(p=0.4)})[0] is None
+
+
+def test_the_review_headline_leads_a_vendor_post():
+    row = {"uri": "https://www.linkedin.com/posts/legion_1", "title":
+           "Legion Security: We're proud to share that we have been accepted "
+           "into OpenAI Daybreak Blue", "summary": "We're proud to share…",
+           "article_class": "social", "review_verdict": "signal",
+           "review_kind": "partnership", "vendors": [_vendor("Legion Security", 30)],
+           "published": "2026-09-25T09:00:00Z",
+           "review_headline": "Legion Security joins OpenAI's Daybreak Blue programme",
+           "review_summary": "It gains early access to Astra.",
+           "review_check": _check(), "social_meta": {}}
+    dev = ma.finish(ma.dedupe([{
+        "key": "corpus:x", "event_type": "partnership", "date": "2026-09-25",
+        "vendors": row["vendors"], "headline": ma.checked_writing(row)[0],
+        "dek": ma.checked_writing(row)[1], "summary": row["summary"],
+        "evidence": [ma._evidence_from_record(row)], "seed": True,
+        "headline_rank": 2}])[0])
+    assert dev["headline"].startswith("Legion Security joins")
+    assert dev["dek"] == "It gains early access to Astra."

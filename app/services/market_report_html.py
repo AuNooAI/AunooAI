@@ -2708,7 +2708,8 @@ def _summary_unless_duplicate(dev: Dict[str, Any]) -> str:
     A summary that repeats the headline is not a summary. The title is
     often the post's own first line, so compare inside, not at the start.
     """
-    summary = (dev.get("summary") or "").strip()
+    # The review's checked sentence, in our words, before the post's own text.
+    summary = (dev.get("dek") or dev.get("summary") or "").strip()
     head_key = _norm_words(dev.get("headline") or "")
     sum_key = _norm_words(summary)
     duplicate = bool(head_key) and (head_key[:60] in sum_key

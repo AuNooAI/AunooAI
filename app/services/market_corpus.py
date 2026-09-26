@@ -1377,7 +1377,8 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                a.social_meta,
                ma.score, ma.matched_terms, ma.origin, ma.title_terms,
                ma.review_verdict, ma.review_kind, ma.review_reason,
-               ma.review_customer
+               ma.review_customer, ma.review_headline, ma.review_summary,
+               ma.review_check
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE {' AND '.join(where)}

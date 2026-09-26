@@ -25,10 +25,12 @@ Three verdicts:
     noise      — conference presence, generic recruiting, content-free hype.
 """
 
-import json
+import asyncio
 import html
+import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -114,6 +116,11 @@ These are noise, not signal, however senior the people in them:
 
 If you give kind "event" or "opinion", the verdict cannot be "signal".
 
+Being accepted into another company's programme (a partner programme, an
+accelerator, a verification or early-access scheme, a marketplace listing) is
+kind "award", not "partnership". A partnership is two named companies agreeing
+to work together.
+
 A hire is signal only when the post says someone has joined or been appointed.
 A customer is signal only when the customer is named or the deal is described.
 A launch is signal only when the post announces that a specific, named product
@@ -131,14 +138,18 @@ For kind "customer" only, also give a "customer" object (the kind stays
 - "name": the organisation named as the customer, exactly as written, or null
   when no organisation is named. A description is not a name: "a Fortune 500
   retailer", "one of our customers", "three banks" and "multiple federal
-  agencies" are all null. A person's name is not an organisation. The vendor
-  itself, and a partner or reseller delivering the deal, are not the customer.
+  agencies" are all null. A pronoun is not a name: "they", "the team", "this
+  company" are null. A person's name is not an organisation. The vendor itself,
+  its own products and platforms, and a partner or reseller delivering the
+  deal, are not the customer.
 - "speaker": "customer" when a named person from the customer is quoted or
   presented speaking about it; otherwise "vendor".
 - "stage": "in_use" when the customer is running it; "evaluation" when they are
-  evaluating, piloting or trialling it; "case_study" when the post presents a
-  published case study or customer story; "existing" when it is a business
-  review or visit with a customer already using it; otherwise "unclear".
+  evaluating, piloting or trialling it; "case_study" only when the post says a
+  case study or customer story has been published (it names or links to it); a
+  story told in the post itself is not a published case study; "existing" when
+  it is a business review or visit with a customer already using it; otherwise
+  "unclear".
 
 Judge only what the text actually says. A post that gestures at a big claim
 without stating anything specific is noise, however important it sounds. Being
@@ -146,10 +157,29 @@ written by a vendor does not by itself make a post noise, and a post being
 enthusiastic does not make it signal. When a post is on the line between
 signal and commentary or between commentary and noise, choose the lower one.
 
+For every "signal", also write the item as a reader of a market news page
+should see it. Use only what the post states. Write in the third person, in
+our words, not the vendor's: no "we", "our", "us", "excited", "proud",
+"thrilled", no hashtags, no emoji, no claim the post does not make.
+- "headline": one line of at most 14 words, "<Company> <did what> <with whom or
+  what>", naming the product, customer, partner, investor or amount the post
+  names. "Legion Security joins OpenAI's Daybreak Blue programme for approved
+  defenders", not "We're proud to share that we have been accepted".
+- "summary": one sentence of at most 30 words adding what the headline leaves
+  out and the post states: a figure, a date, who is involved, what it does.
+  null when the post says nothing beyond the headline.
+For "commentary" and "noise", headline and summary are null.
+
 Reply with a JSON array, one object per post, in the same order, no prose:
-[{{"n": 1, "verdict": "signal", "kind": "launch", "reason": "<12 words or fewer>"}},
+[{{"n": 1, "verdict": "signal", "kind": "launch", "reason": "<12 words or fewer>",
+   "headline": "Torq launches Auto Triage, which keeps context across alerts",
+   "summary": "The agent carries what it learned from earlier alerts into new investigations."}},
  {{"n": 2, "verdict": "signal", "kind": "customer", "reason": "<12 words or fewer>",
-   "customer": {{"name": "Virgin Money", "speaker": "customer", "stage": "in_use"}}}}]
+   "headline": "Virgin Money runs Legion Security in its SOC",
+   "summary": null,
+   "customer": {{"name": "Virgin Money", "speaker": "customer", "stage": "in_use"}}}},
+ {{"n": 3, "verdict": "noise", "kind": "event", "reason": "<12 words or fewer>",
+   "headline": null, "summary": null}}]
 
 Posts:
 {posts}"""
@@ -354,7 +384,7 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
     response = await litellm.acompletion(
         **resolve_litellm_call_params(model),
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=min(4096, 220 * len(posts) + 400),
+        max_tokens=min(8192, 320 * len(posts) + 400),
     )
     raw = (response.choices[0].message.content or "").strip()
     parsed = extract_json_response(raw)
@@ -398,9 +428,115 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
             "kind": kind,
             "reason": (str(item.get("reason") or "").strip())[:400],
             "customer": _customer_of({**item, "kind": kind}),
+            "headline": _written(item.get("headline"), 200) if verdict == "signal" else None,
+            "summary": _written(item.get("summary"), 400) if verdict == "signal" else None,
             "followed": bool(post.get("followed")),
+            "source_text": f"{post.get('title') or ''}\n{post.get('summary') or ''}",
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# Does what the review wrote say what the post says?
+# ---------------------------------------------------------------------------
+#
+# The headline and summary are the one place the review writes rather than
+# classifies, so they get a second reader. Jev (TypeSafe's decision model) is
+# asked, for each, whether the post supports it, contradicts it or says
+# nothing about it. It is a different model from the writer, it cannot
+# generate, and it costs about $0.04 per million input tokens. The report uses
+# a headline only when the check says "supports".
+
+#: Characters of the post shown to the checker.
+CHECK_SOURCE_CHARS = 4000
+#: Least probability of "supports" for a headline or summary to be used.
+CHECK_MIN_SUPPORT = 0.5
+_CHECK_CONCURRENCY = 4
+
+_CHECK_CRITERIA = {
+    "supports": "The post states it or directly implies it, including every "
+                "name, figure, date and outcome it gives",
+    "contradicts": "The post states something different: another company, "
+                   "product, figure, date or outcome",
+    "says_nothing": "The post does not state it, or it adds a name, figure, "
+                    "claim or outcome the post does not contain",
+}
+
+
+def _check_questions(fields: List[str]) -> Dict[str, Dict[str, Any]]:
+    return {f: {"type": "choice",
+                "instructions": (f"How does `post` relate to `{f}`? Judge only "
+                                 f"what the post states. A `{f}` that names the "
+                                 "wrong company as the actor, turns an "
+                                 "unnamed customer into a named one, or adds "
+                                 "a detail the post lacks is not supported."),
+                "criteria": _CHECK_CRITERIA}
+            for f in fields}
+
+
+def check_one(source_text: str, headline: Optional[str],
+              summary: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Jev's reading of one headline and summary against their post, or None
+    when Jev is not configured or did not answer."""
+    from app.services import typesafe_client
+
+    fields = [f for f, v in (("headline", headline), ("summary", summary)) if v]
+    if not fields or not typesafe_client.is_configured():
+        return None
+    state = {"post": (source_text or "")[:CHECK_SOURCE_CHARS]}
+    if headline:
+        state["headline"] = headline
+    if summary:
+        state["summary"] = summary
+    out = typesafe_client.system_one(
+        state, _check_questions(fields),
+        use_case="services.market_post_review:check_writing")
+    if not out:
+        return None
+    check: Dict[str, Any] = {"model": out.get("model")}
+    for f in fields:
+        answer = (out.get("answers") or {}).get(f) or {}
+        probs = answer.get("probabilities") or {}
+        check[f] = {"verdict": answer.get("choice"),
+                    "p_supports": round(float(probs.get("supports", 0.0)), 3),
+                    "confidence": round(float(answer.get("confidence") or 0.0), 3)}
+    return check
+
+
+def passes(check: Optional[Dict[str, Any]], field: str) -> bool:
+    """Whether the stored check lets ``field`` be shown. No check, no text:
+    an unchecked headline is exactly what this exists to stop."""
+    reading = (check or {}).get(field) or {}
+    return (reading.get("verdict") == "supports"
+            and float(reading.get("p_supports") or 0.0) >= CHECK_MIN_SUPPORT)
+
+
+async def check_writing(verdicts: List[Dict[str, Any]]) -> None:
+    """Attach Jev's check to every verdict that carries writing. In place;
+    a failed check leaves ``check`` unset, which the report reads as unusable."""
+    todo = [v for v in verdicts if v.get("headline") or v.get("summary")]
+    if not todo:
+        return
+    gate = asyncio.Semaphore(_CHECK_CONCURRENCY)
+
+    async def one(v: Dict[str, Any]) -> None:
+        async with gate:
+            try:
+                v["check"] = await asyncio.to_thread(
+                    check_one, v.get("source_text") or "",
+                    v.get("headline"), v.get("summary"))
+            except Exception as exc:  # noqa: BLE001 — never fail the review over the check
+                logger.warning("writing check failed for %s: %s", v.get("uri"), exc)
+
+    await asyncio.gather(*(one(v) for v in todo))
+
+
+def _written(value: Any, limit: int) -> Optional[str]:
+    """A headline or summary the model wrote, or None for anything empty."""
+    text_value = re.sub(r"\s+", " ", str(value or "")).strip().strip('"')
+    if not text_value or text_value.lower() in ("null", "none", "n/a"):
+        return None
+    return text_value[:limit]
 
 
 def store(conn, market_id: int, verdicts: List[Dict[str, Any]],
@@ -434,21 +570,28 @@ def store(conn, market_id: int, verdicts: List[Dict[str, Any]],
             INSERT INTO bw_market_articles
                 (market_id, article_uri, method, origin,
                  review_verdict, review_kind, review_reason, review_customer,
+                 review_headline, review_summary, review_check,
                  review_model, reviewed_at)
             VALUES (:m, :uri, :method, :origin,
                     :verdict, :kind, :reason, CAST(:customer AS JSONB),
+                    :headline, :summary, CAST(:check AS JSONB),
                     :model, NOW())
             ON CONFLICT (market_id, article_uri) DO UPDATE SET
                 review_verdict  = EXCLUDED.review_verdict,
                 review_kind     = EXCLUDED.review_kind,
                 review_reason   = EXCLUDED.review_reason,
                 review_customer = EXCLUDED.review_customer,
+                review_headline = EXCLUDED.review_headline,
+                review_summary  = EXCLUDED.review_summary,
+                review_check    = EXCLUDED.review_check,
                 review_model    = EXCLUDED.review_model,
                 reviewed_at     = NOW()
         """), {"m": market_id, "uri": v["uri"], "verdict": v["verdict"],
                "kind": v["kind"], "reason": v["reason"], "model": model,
                "method": method, "origin": origin,
-               "customer": json.dumps(customer) if customer else None})
+               "customer": json.dumps(customer) if customer else None,
+               "headline": v.get("headline"), "summary": v.get("summary"),
+               "check": json.dumps(v["check"]) if v.get("check") else None})
         written += 1
     return written
 
@@ -460,14 +603,18 @@ customer.
 - "name": the organisation named as the customer, exactly as written, or null
   when no organisation is named. A description is not a name: "a Fortune 500
   retailer", "one of our customers", "three banks" and "multiple federal
-  agencies" are all null. A person's name is not an organisation. The vendor
-  itself, and a partner or reseller delivering the deal, are not the customer.
+  agencies" are all null. A pronoun is not a name: "they", "the team", "this
+  company" are null. A person's name is not an organisation. The vendor itself,
+  its own products and platforms, and a partner or reseller delivering the
+  deal, are not the customer.
 - "speaker": "customer" when a named person from the customer is quoted or
   presented speaking about it; otherwise "vendor".
 - "stage": "in_use" when the customer is running it; "evaluation" when they are
-  evaluating, piloting or trialling it; "case_study" when the post presents a
-  published case study or customer story; "existing" when it is a business
-  review or visit with a customer already using it; otherwise "unclear".
+  evaluating, piloting or trialling it; "case_study" only when the post says a
+  case study or customer story has been published (it names or links to it); a
+  story told in the post itself is not a published case study; "existing" when
+  it is a business review or visit with a customer already using it; otherwise
+  "unclear".
 
 Judge only what the text actually says. Reply with a JSON array, one object per
 post, in the same order, no prose:
@@ -599,6 +746,7 @@ async def review(conn, market_id: int, market_name: str, *,
             logger.warning("post review batch failed (%d posts): %s",
                            len(chunk), exc)
             continue
+        await check_writing(verdicts)
         by_uri = {p["uri"]: p for p in chunk}
         for v in verdicts:
             result["counts"][v["verdict"]] += 1
