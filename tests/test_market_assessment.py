@@ -1302,3 +1302,9 @@ def test_the_customer_line_only_adds_what_the_headline_does_not_say():
                                      "voice": "in the vendor's words",
                                      "stage": "described as a customer"})) \
         == "The vendor does not name the customer."
+
+
+def test_a_highlight_source_line_reads_like_the_rest_of_the_page():
+    dev = {"headline": "Coalition acquires Wirespeed", "date": "2026-09-17",
+           "provenance_label": "Vendor sources only"}
+    assert ma._evidence_line(dev) == "Coalition acquires Wirespeed (Vendor sources only, 17 Sep 2026)"

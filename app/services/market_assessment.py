@@ -2944,6 +2944,16 @@ def _finding(ident: str, headline: str, body: str, *, evidence: List[str],
 _LED_BY = re.compile(r"\bled by ([^.;\n]{3,90})", re.I)
 
 
+def _evidence_line(dev: Dict[str, Any]) -> str:
+    """One source line under a highlight: the headline, whose word it rests
+    on, and the day, the way the rest of the page writes them. It read
+    "(acquisition, 2026-09-17, vendor sources only)", repeating the kind the
+    highlight had just named."""
+    day = _parse_day(dev.get("date"))
+    when = f"{day.day} {day.strftime('%b %Y')}" if day else "date unknown"
+    return f'{dev["headline"]} ({dev["provenance_label"]}, {when})'
+
+
 def _day_month(iso: Optional[str]) -> str:
     day = _parse_day(iso)
     return f"{day.day} {day.strftime('%B')}" if day else ""
@@ -2974,7 +2984,8 @@ def _deal_sentence(dev: Dict[str, Any]) -> str:
         else:
             said = f"{vendor} raised a new round"
             if "in total" in wim:
-                total = f" It has raised {wim.split(' raised in total')[0]} in total, it says."
+                total = (f" {vendor} says it has raised "
+                         f"{wim.split(' raised in total')[0]} in total.")
         # The headline first, on its own: joined to the post, a headline with
         # no full stop ran the match on into the vendor's text ("led by Wa'ed
         # Ventures StrikeReady is excited to share our new investment round
@@ -3014,9 +3025,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     ownership = _devs_of(devs, "acquisition", "market_exit", "market_entry")
     if ownership:
         acq = _devs_of(ownership, "acquisition")
-        lines = [f'{d["headline"]} ({d["event_type_label"].lower()}, '
-                 f'{d["date"] or "date unknown"}, '
-                 f'{d["provenance_label"].lower()})' for d in ownership]
+        lines = [_evidence_line(d) for d in ownership]
         if acq:
             head = (f"{len(acq)} acquisition"
                     f"{'s' if len(acq) != 1 else ''} among the vendors we track.")
@@ -3037,8 +3046,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             "capital",
             f"New funding for {_name_list(funding)}.",
             " ".join(_deal_sentence(d) for d in funding[:3]),
-            evidence=[f'{d["headline"]} ({d["date"] or "date unknown"}, '
-                      f'{d["provenance_label"].lower()})' for d in funding],
+            evidence=[_evidence_line(d) for d in funding],
             coverage=_partial_posts_note(inputs),
             developments=funding))
 
@@ -3118,7 +3126,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             f"{len(customers)} customer or deployment announcement"
             f"{'s' if len(customers) != 1 else ''}, "
             f"{len(named)} of them naming the customer.",
-            evidence=[f'{d["headline"]} ({d["provenance_label"].lower()})'
+            evidence=[_evidence_line(d)
                       for d in listed_customers[:5]],
             coverage=_partial_posts_note(inputs),
             developments=listed_customers))
@@ -3168,7 +3176,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             + (f". The {len(top3)} most active vendors account for "
                if len(top3) <= 5 else
                f". The {len(top3)} vendors with {top3[-1]['n']} or more "
-               "developments each account for ")
+               "developments account for ")
             + f"{_pct(dist['top3_share'])} of them ({top3_txt})."
             + (f" {quiet} vendors were watched and had none." if quiet else "")
             + (f" {unread} are not fully collected yet." if unread else ""),

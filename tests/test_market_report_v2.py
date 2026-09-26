@@ -499,3 +499,20 @@ def test_the_vendors_own_text_is_never_the_summary():
     news = _dev(8, "launch", summary="The publisher's own summary of the launch.",
                 evidence=[{"uri": "https://x/8", "voice": "independent", "social": False}])
     assert html._summary_unless_duplicate(news)
+
+
+def test_a_headcount_reading_is_measured_on_a_day():
+    dev = _dev(9, "headcount_change", date="2026-09-23", date_established=False)
+    assert html._dev_date(dev) == "measured 23 Sep 2026"
+
+
+def test_a_vendor_post_row_drops_the_page_name_the_byline_already_gives():
+    row = {"uri": "https://www.linkedin.com/posts/x", "article_class": "social",
+           "title": "detections.ai: Threat actor delivery picked up the pace this week.",
+           "summary": "", "published": "2026-09-25T10:00:00Z",
+           "vendors": [{"brand_id": 1, "vendor": "System Two Security"}]}
+    out = html._v2_voice_row(row)
+    assert "System Two Security on LinkedIn" in out
+    assert "detections.ai:" not in out and "Threat actor delivery" in out
+    assert "(A Devo company)" not in html._river_source(
+        {**row, "vendors": [{"vendor": "Strike48 (A Devo company)"}]})

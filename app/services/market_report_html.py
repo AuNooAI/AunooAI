@@ -2488,6 +2488,9 @@ def _dev_anchor(dev: Dict[str, Any]) -> str:
 
 def _dev_date(dev: Dict[str, Any]) -> str:
     """The event's date as a reader writes it, or an honest absence."""
+    if dev.get("date") and dev.get("event_type") == "headcount_change":
+        # A headcount is read on a day; "date unknown" beside it was wrong.
+        return f'measured {_day(dev["date"])}'
     if dev.get("date"):
         return _day(dev["date"]) if dev.get("date_established", True) \
             else f'seen {_day(dev["date"])}, date unknown'
@@ -2817,7 +2820,9 @@ def _river_source(row: Dict[str, Any]) -> str:
     source = (row.get("news_source") or "").strip()
     platform = _PLATFORM_NAMES.get(
         (meta.get("platform") or source.split(":")[-1] or "").lower(), "")
-    vendors = [v.get("vendor") for v in (row.get("vendors") or []) if v.get("vendor")]
+    # "Strike48 (A Devo company)": the bracket is a note to the operator.
+    vendors = [re.sub(r"\s*\([^)]*\)\s*$", "", v.get("vendor"))
+               for v in (row.get("vendors") or []) if v.get("vendor")]
     if kind == "social":
         return f"{vendors[0]} on LinkedIn" if vendors else "LinkedIn"
     if kind == "discussion":
@@ -4244,6 +4249,11 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
 def _v2_voice_row(row: Dict[str, Any]) -> str:
     from app.services import market_assessment as massess
     headline = massess.headline_of(row) if row.get("title") else row["uri"]
+    # A vendor's LinkedIn post is titled "<page name>: <first line>", and the
+    # byline already names the vendor: "System Two Security on LinkedIn"
+    # over "detections.ai: Threat actor delivery…".
+    if row.get("article_class") == "social":
+        headline = re.sub(r"^[^:\n]{1,60}:\s+", "", headline, count=1) or headline
     author = (row.get("social_meta") or {}).get("author")
     if author and headline.lower().startswith(f"@{author}:".lower()):
         headline = headline[len(author) + 2:].strip() or headline
