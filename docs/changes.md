@@ -1,5 +1,169 @@
 # Changes
 
+## 2026-09-24/26 — Social relevance: kimi on Sunstar with cheap checks in front of it, Sunstar's motorbike look-alikes, and the market page's 14-second load (`31a90054`, `f7d4db53`, `a1e8d6c2`, `f1e20618`, `68784588`)
+
+### Goal
+Oliver saw "No collection configured" on the aisocnews market page, then motorbike posts in
+Sunstar's social view. Fixing the second led to rescoring all six Sunstar brands, finding that
+nova-lite was too unreliable, moving Sunstar to kimi, and then cutting kimi's cost with checks
+that settle most posts before the model is called.
+
+### Fix · The market page said "No collection configured" for 14 seconds (`31a90054`, 24 Sep)
+The market page loads the collection plan on every visit, and the page shows the banner until the
+plan arrives. `plan_market_keywords` had started (5867ef48, 23 Sep) running `zero_match_keywords`,
+one full regex scan of `articles` per search term with no local match. On bugfixing that is 15
+terms over 233,236 articles, 13.9 s measured. Nothing on the page shows the result.
+**`app/services/market_collect.py`** gains `check_zero_match` (default True) and
+**`app/routes/market_monitor_routes.py`** passes it from a new `?zero_match=` query parameter,
+default false. Market setup (`setup_market_collection`) still runs the check. The plan now builds
+in 0.0 s on bugfixing (markets 2 and 1312), oviva and sunstar. Oviva and sunstar were patched by
+anchor (backups `*.bak-zeromatch-20260924`).
+
+### Incident · A `git stash pop` put an old stash into bugfixing's live tree (24 Sep)
+To compare tests before and after, I ran `git stash push` on the two fix files. Another session had
+just committed them (with `git add -u`), so there was nothing to stash, and the `git stash pop`
+that followed applied an unrelated old stash from `emergencybugfix/firecrawlbillingissue`. That
+left conflict markers in 12 live templates, old code in `database_query_facade.py` and
+`executive_briefing_service.py`, and 27 conflicted static assets. The service was not restarted
+while the tree was in that state. Oliver ran the checkout that restored the files, and it also
+reverted 7 of the other session's uncommitted files. Those came back from commit 766f665f with
+`~/restore_766f665f.sh`, and the tree matched 766f665f before the restart.
+
+### Feature · Profile posters on wileytest (25 Sep, prod tree, not committed)
+A wileytest UI deploy (15:31) shipped the Profile posters button without its backend, so every
+click returned 404. At Oliver's request the backend was ported from oviva:
+`market_voice_profiles.py` (new; the brand path uses only `start_handles` and `status`),
+`social_profile_service.py` (oviva's copy, a strict superset of wileytest's), and 81 lines in
+`brand_watcher_routes.py` (`VoicesProfileRequest`, `_voices_uncache`, both profile-posters routes).
+Backups `*.bak-profileposters-20260925`. After the restart the route answers 307 (login) instead of
+404, and a dry check found 80 Wiley posters to profile. No run was started.
+
+### Fix · Sunstar's motorbike posts (25 Sep, data only)
+Sunstar Engineering makes motorcycle brake discs and sprockets, and its posts scored as Sunstar at
+up to 1.0. The model was following the brand description, which listed "Sunstar Engineering:
+motorcycle and bicycle brake discs, sprockets" as Sunstar (a mid-September ruling). Oliver reversed
+it for motorbike parts and kept the sealants.
+- `bw_brands` id 1 `news_keyword_excludes`: 48 → 73 terms (brake disc, disc rotor, sprocket,
+  motorcycle, webike, sunstar engineering, …), set through `PUT /brands/1/config` so the
+  retroactive pass ran (51 stored posts zeroed). Left out because they are substrings of common
+  words: epta (acceptable), ducati (education), racing (embracing), rotor, kawasaki, yamaha.
+- The description now reads "IS Sunstar: … industrial sealants and adhesives from Sunstar
+  Engineering (SR Seal, Penguin Seal) … NOT Sunstar: motorcycle and bicycle parts …" (563 chars;
+  the prompt keeps 600). The first wording mentioned sealants only in passing, and nova-lite then
+  scored the SR Seal post 0.0; naming them fixed it.
+- `サンスター` was added to Sunstar's `brand_keywords`, as Lion and Kao already carry theirs.
+
+### Fix · The brand-mention cap only knew the first word of the brand (`f7d4db53`, 25 Sep)
+The scorer caps a post at 0.3 unless it names the brand, and it checked only the first word of the
+brand title. An Ora² or GUM post never named Sunstar, and a Sensodyne post never named Haleon, so
+real posts sat under the 0.4 floor. **`app/services/social_eval_service.py`** `_brand_anchors`
+now builds the list from `brand_keywords` and `product_keywords`, whole. A Japanese name counts
+without 株式会社, and superscript digits count as plain ones. A first word counts alone only when
+written in capitals, and then only in capitals, so GUM counts and "gum disease" stays capped. A
+six-letter rule for lower-case first words was tried and dropped the same day: it gave Elsevier
+"science" and "health", and Panaya's rivals "business" and "process". Both scoring paths (per topic
+and per brand mention) pass the anchors. Oviva, wiley and wileytest had an older layout with no
+`anchors` argument, and the six oldest copies had no brand lookup at all, so they got one. Backups
+`*.bak-anchors-20260925`.
+
+### Ops · Sunstar's social scoring moves from nova-lite to kimi (26 Sep)
+The first rescore of all six Sunstar brands used nova-lite. On nine test posts nova-lite got four
+right and kimi (`bedrock-kimi-k2-5`) nine. nova-lite ignored the deals rule, read an elmex post as
+"no context", and scored the same SR Seal post 1.0, 0.9 and later 0.0. Sunstar's
+`SOCIAL_EVAL_MODEL` is now `bedrock-kimi-k2-5` (backup `.env.bak-kimi-socialeval-*`). The prompt
+on sunstar also now counts a deal, discount, retail listing, free sample or giveaway of the brand's
+own products as relevant (0.6–0.9); that line is sunstar only. All six brands were rescored with
+kimi, and 29 posts failed and kept their earlier score. On social posts only, on-brand posts went
+from 1,497 (25 Sep) to 2,795 (nova-lite) to 4,200 (kimi). Kao has no social posts; its 269 rows are
+news. kimi costs about $0.002 a post against $0.0001 for nova-lite (oviva's `llm_usage_log`), so
+kimi on every post would be about $31 a month at Sunstar's 513 social posts a day.
+
+### Feature · Check the brand mention before calling the model (`a1e8d6c2`, 26 Sep)
+A post that never names its brand was scored by the model and then capped at 0.3, below every
+on-brand floor, so the call bought nothing. `_eval_one` now checks the mention first and returns
+relevance 0.0, neutral, no role, flagged `no_brand_mention`, with no model call. The Jev role
+reader skips those posts. On Sunstar's 14,722 social posts, 7,078 (48%) never name their brand,
+and none of those was on-brand. Backups `*.bak-mentionfirst-20260926`.
+
+### Feature · Jev in front of kimi (`f1e20618`, `68784588`, 26 Sep)
+After the mention check, where a site sets `SOCIAL_JEV_PREFILTER_MIN`, Jev (TypeSafe, about
+$0.00006 a post) reads whether the post is about the brand; under the minimum the post is settled
+without the model (`jev_prefilter`). Where the site also sets `SOCIAL_JEV_ACCEPT_MIN`, a post Jev
+scores above it and does not read as negative is settled as on-brand with Jev's sentiment
+(`jev_accept`); the role still comes from the Jev role reader. A post Jev reads as negative (its
+choice, or p ≥ 0.3) still goes to kimi, because negatives drive the alerts and get the model's
+second look. On the 1,029 posts in the accept range, Jev read all 115 of kimi's negatives as
+negative. Unset means off, and any Jev failure falls through to the model.
+
+On Sunstar's social posts, with reject under 0.1 and accept over 0.91: 1,816 rejected (5 kimi had
+called on-brand), 894 accepted (7 kimi had called off-brand, about four of them kimi's errors, such
+as a NONIO review and a Colgate mouthwash post). All gates together send 4,709 of 14,722 posts
+(32%) to kimi, about $10 a month plus $0.50 of Jev. The 68784588 commit message says 21 of 23
+accept disagreements were company news kimi missed. That claim is wrong: those rows were news
+articles (see the incident below).
+
+### Experiment · A local classifier trained on kimi's labels, rejected (26 Sep)
+Posts that pass the mention check, labelled by kimi, 5-fold cross-validation grouped by text.
+Share of posts each option could settle while disagreeing with kimi on at most 1%:
+
+| Option | Settled |
+|---|---|
+| Jev, both directions (social posts only) | 44% |
+| bge-m3 embeddings + logistic regression | 26% |
+| Fine-tuned twitter-xlm-roberta-base (fold 1 only; 54 min a fold on CPU, stopped) | 24% |
+| MiniLM embeddings + logistic regression | 21% |
+
+Every option topped out near 87% agreement with kimi, so kimi's own errors set the ceiling. The
+classifier runs used data that still held 401 news rows. Scripts are in the session scratchpad
+only; nothing was deployed.
+
+### Incident · The rescores overwrote 1,215 Sunstar news articles (25–26 Sep)
+News articles in Brand Monitoring topics store `social_meta` as JSON `null`, not SQL NULL, so
+`WHERE social_meta IS NOT NULL` also selects them. My rescore scripts, the Jev test and the
+classifier data used that filter. The rescores gave 1,215 news articles social scores, sentiment,
+author roles and `ingest_status = 'social_evaluated'`; 1,116 of them had been `filtered_relevance`
+and 94 `approved`. Live scoring was never affected, because `evaluate_and_store` selects by
+`news_source`. It also produced a false finding: the "kimi scores company news 0.0" rows (Colgate's
+dividend on businesswire.com, Reuters on its divestment) held the news pipeline's scores. Asked
+directly, kimi scores them 1.0. I restored 1,895 news rows to their 25 Sep snapshot (scores,
+sentiment, status, roles). The pre-restore state is in
+`~/sunstar_news_rows_before_restore_20260926.csv`. Two news rows that arrived after the snapshot
+still show `social_evaluated`. The 31 "false positives" I zeroed earlier were news rows, and the
+restore returned them to their news-pipeline scores.
+
+### Verification
+- Market plan: 13.9 s → 0.0 s in-process on bugfixing, oviva and sunstar; bugfixing's
+  `test_market_collection.py` has the same 5 failures before and after.
+- Anchor, mention and Jev gates: each patched copy compiled, and each patch was applied only where
+  its dry run matched. A stand-in model that counts its calls showed no call for a post that never
+  names the brand, and a call for Ora², GUM and サンスター posts. With both Jev settings on,
+  Colgate's dividend post was accepted (0.93, neutral) with no model call, and a complaint went to
+  the model. With the settings unset, the same posts behaved as before.
+- Every restart: login 200 and no traceback in the first 90 s, after checking for running jobs.
+- Not yet seen in live traffic: Sunstar had collected no new social posts since the 13:31 restart
+  when this was written.
+
+### Propagation
+- Market plan fix: bugfixing (committed), oviva and sunstar (prod trees, by anchor), all
+  restarted. No other site runs Market Monitor.
+- Anchor fix and mention check: all 15 trees that have `social_eval_service.py`. The eight running
+  sites (abm, bugfixing, oviva, panaya, sunstar, wbm, wiley, wileytest) were restarted. The seven
+  stopped ones (abbott, bwtemplate, ibaset, interroll, pbm, pearson, sage) are patched on disk and
+  pick it up at their next start.
+- Jev gates: code on sunstar, oviva, bugfixing and abm, and switched on there at 0.1 and 0.91.
+  Off everywhere else. The Wiley sites have no TypeSafe agreement; panaya has a key but no Jev use.
+- Prod trees are not committed. The committed code is in bugfixing.
+
+### Lessons
+- NEVER select social posts with `social_meta IS NOT NULL`. Use `social_meta <> 'null'::jsonb` or
+  filter by `news_source`, and check a sample row's source before trusting a "social" count.
+- NEVER use `git stash` in a shared tenant tree. Another session can commit your edits first, and
+  `stash pop` then applies whatever stash is on top. Compare against `git show HEAD:<file>` in a
+  scratch directory instead.
+- A score the scorer caps after the model call is a wasted call. Put the cheapest gate first.
+- A tenant `.env` edit on a running site survives a restart: `ExecStopPost` encrypts `.env` and
+  `ExecStartPre` decrypts it.
+
 ## 2026-09-25 — Model names: the code decides by the model that runs, not the alias (`f399f8ba`, `b7d0b3ae`, `a05b5cf3`, `85aa32e5`, `b104102e`, `39c0138c`)
 
 ### Goal
