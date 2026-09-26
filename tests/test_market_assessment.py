@@ -539,7 +539,7 @@ def test_the_renderer_renders_structured_developments_as_given():
     table = _render_moved_table([dev])
     assert "Crogl" in table and "Customer evidence" in table
     assert "Vendor sources only" in table
-    assert "The customer is not named" in table
+    assert "The vendor does not name the customer" in table
     listing = _render_developments([dev])
     assert "Vendor sources only" in listing
     assert "1 source" in listing
@@ -1284,3 +1284,21 @@ def test_awardable_on_a_marketplace_is_a_listing_not_a_contract():
     h = "BlueDome by AiStrike becomes Awardable on Tradewinds Solutions Marketplace"
     assert ma._NOT_EVENT.search(h)
     assert not ma._CONTRACT.search(h)
+
+
+def test_the_customer_line_only_adds_what_the_headline_does_not_say():
+    def dev(reading):
+        return {"event_type": "customer", "vendors": [_vendor("Opnova", 64)],
+                "headline": "Live Oak Bank uses Opnova for identity governance",
+                "summary": "", "attributes": {"customer": {**reading, "source": "review"}}}
+    in_use = {"named": True, "name": "Live Oak Bank", "voice": "in the vendor's words",
+              "stage": "described in use"}
+    assert ma.customer_sentence(dev(in_use)) == ""
+    assert ma.customer_sentence(dev({**in_use, "stage": "evaluating it rather than running it"})) \
+        == "Live Oak Bank is evaluating the product, not yet running it."
+    assert ma.customer_sentence(dev({**in_use, "voice": "in the customer's own words"})) \
+        == "Someone from Live Oak Bank is quoted in the post."
+    assert ma.customer_sentence(dev({"named": False, "name": None,
+                                     "voice": "in the vendor's words",
+                                     "stage": "described as a customer"})) \
+        == "The vendor does not name the customer."

@@ -1445,39 +1445,28 @@ def _customer_listable(dev: Dict[str, Any]) -> bool:
     return reading.get("stage") == _STAGE_TEXT["case_study"]
 
 
-# The stage strings above are stored on reviewed posts, so they stay as they
-# are; these are the same stages as clauses of a sentence about the customer.
-_NAMED_STAGE = {
-    "described in use": "it describes the product in use",
-    "evaluating it rather than running it": "it is evaluating the product, not yet running it",
-    "a published case study": "it is the subject of a published case study",
-    "an existing customer": "it is described as an existing customer",
-    "described as a customer": "it is described as a customer",
-}
-_UNNAMED_STAGE = {
-    "described in use": "the vendor describes the product in use there",
-    "evaluating it rather than running it": "the vendor says it is being evaluated, not yet run",
-    "a published case study": "the vendor has published a case study",
-    "an existing customer": "the vendor describes an existing customer",
-    "described as a customer": "the vendor describes a customer",
-}
-
-
 def customer_sentence(dev: Dict[str, Any]) -> str:
-    """One plain sentence: who the customer is, what stage, and whose words."""
+    """One plain sentence about the customer, only when it adds to the
+    headline. The old template joined three fragments into "Live Oak Bank is
+    named as a customer; it describes the product in use, in the vendor's
+    words", which read as if the bank described the product, under a headline
+    that already said the bank uses it."""
     r = customer_reading(dev)
-    own_words = r.get("voice") == "in the customer's own words"
-    vendor_only = dev.get("provenance") == "vendor_source_only"
+    stage = r.get("stage")
     if r["named"]:
-        stage = _NAMED_STAGE.get(r["stage"], _NAMED_STAGE["described as a customer"])
-        if own_words:
-            voice = ("in its own words, quoted in the vendor's post" if vendor_only
-                     else "in its own words")
-        else:
-            voice = "in the vendor's words"
-        return f"{r['name']} is named as a customer; {stage}, {voice}."
-    stage = _UNNAMED_STAGE.get(r["stage"], _UNNAMED_STAGE["described as a customer"])
-    return f"The customer is not named; {stage}."
+        name = r["name"]
+        if r.get("voice") == "in the customer's own words":
+            return f"Someone from {name} is quoted in the post."
+        if stage == _STAGE_TEXT["evaluation"]:
+            return f"{name} is evaluating the product, not yet running it."
+        if stage == _STAGE_TEXT["case_study"]:
+            return f"The vendor has published a case study about {name}."
+        return ""
+    if stage == _STAGE_TEXT["evaluation"]:
+        return "The vendor does not name the customer, which is still evaluating the product."
+    if stage == _STAGE_TEXT["case_study"]:
+        return "The vendor has published a case study but does not name the customer."
+    return "The vendor does not name the customer."
 
 
 def _dev_vendor_name(dev: Dict[str, Any]) -> str:
