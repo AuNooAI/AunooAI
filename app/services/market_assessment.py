@@ -270,7 +270,12 @@ _NOT_EVENT = re.compile(
     # A download or follower count is a milestone, not a launch: "Virtus
     # passes 6K+ downloads" was filed as Imperum's product launch.
     r"|\b\d[\d,.]*\s?[km]?\+?\s+(downloads|stars|installs|followers|views)\b"
-    r"|\bcertifi(ed|cation)\s+(\S+\s+){0,5}(program|programme|course)\b",
+    r"|\bcertifi(ed|cation)\s+(\S+\s+){0,5}(program|programme|course)\b"
+    # A credential and an open-letter signature are not events. The review
+    # prompt says so, and still read UiPath's "Professional Certification"
+    # as a launch and Cotool's signature on OpenAI's letter as a partnership.
+    r"|\bcertification\b|\bcredential\b|\bopen\s+letter\b"
+    r"|\bcall\s+(for|to)\s+collective\s+action\b",
     re.I)
 
 #: Subreddits that are about getting a job rather than doing one. A post in

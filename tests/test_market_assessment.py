@@ -1103,3 +1103,13 @@ def test_the_review_headline_leads_a_vendor_post():
         "headline_rank": 2}])[0])
     assert dev["headline"].startswith("Legion Security joins")
     assert dev["dek"] == "It gains early access to Astra."
+
+
+def test_a_credential_or_an_open_letter_is_not_an_event():
+    for headline in ("UiPath launches Agentic Automation Builder Professional "
+                     "Certification",
+                     "Cotool signs OpenAI open letter on cyber defense collective action",
+                     "Mate Security named early supporter of OpenAI's Call for "
+                     "Collective Action on Cyber Defense"):
+        assert ma._NOT_EVENT.search(headline), headline
+    assert not ma._NOT_EVENT.search("UiPath launches Delegate, an enterprise productivity agent")
