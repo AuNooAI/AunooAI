@@ -334,6 +334,19 @@ class SocialEvalService:
         if gate_anchors and not _mentions_brand(gate_raw.lower(), gate_anchors, gate_raw):
             return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
                     "author_role_reason": None, "no_brand_mention": True}
+        # Second cheap gate (AI_DESIGN_PATTERNS 2.1), where the site sets
+        # SOCIAL_JEV_PREFILTER_MIN. Jev (TypeSafe, ~$0.00006 a post) reads whether
+        # the post is about the brand; under the minimum it is settled without
+        # the model. On Sunstar's 16,172 posts at 0.1 it skipped half the model
+        # calls and lost 6 of 4,406 on-brand posts, all six the model's own
+        # errors ("Colgate is an Ivy League school").
+        jev_min = _jev_prefilter_min()
+        if jev_min and brand_context and not topic_mode:
+            jev = await asyncio.to_thread(_jev_about_brand, brand_topic, brand_context,
+                                          title, body, author)
+            if jev is not None and jev < jev_min:
+                return {"relevance": round(jev, 3), "sentiment": "neutral", "author_role": None,
+                        "author_role_reason": None, "jev_prefilter": True}
         # brand_context = the bw_brands description. Without it the model cannot
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
@@ -586,7 +599,8 @@ class SocialEvalService:
                 author_role_jev.read_roles, brand, ctx["description"],
                 author_role_jev.rival_names(db, brand),
                 [by_uri[s["uri"]] for s in scored
-                 if s["uri"] in by_uri and not s.get("no_brand_mention")])
+                 if s["uri"] in by_uri
+                 and not (s.get("no_brand_mention") or s.get("jev_prefilter"))])
             for s in scored:
                 s.update(jev.get(s["uri"]) or {})
         for s in scored:
@@ -699,7 +713,8 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         if not scored:
             continue
         verdict = scored[0]
-        if author_role_jev.enabled() and not verdict.get("no_brand_mention"):
+        if author_role_jev.enabled() and not (verdict.get("no_brand_mention")
+                                             or verdict.get("jev_prefilter")):
             if display_name not in rivals_by_brand:
                 rivals_by_brand[display_name] = author_role_jev.rival_names(db, display_name)
             jev = await asyncio.to_thread(
@@ -970,3 +985,38 @@ async def sweep_unevaluated_social(db, limit_per_topic: int = 200,
     if total["swept"]:
         logger.info(f"SocialEval sweep: re-scored {total['swept']} posts across {total['topics']} topic(s)")
     return total
+
+
+def _jev_prefilter_min() -> float:
+    """SOCIAL_JEV_PREFILTER_MIN from the site's .env; 0 (off) when unset."""
+    try:
+        return max(0.0, float(os.getenv("SOCIAL_JEV_PREFILTER_MIN", "") or 0))
+    except ValueError:
+        return 0.0
+
+
+_JEV_ABOUT_BRAND = {"relevance": {
+    "type": "noul",
+    "instructions": "Is `post` substantively about `brand` (its business, products, people, actions, or someone's genuine experience or opinion of it), as `brand.context` describes the brand?",
+    "criteria": {"true": "The post is about this brand or someone's experience with it",
+                 "false": "A coincidental name match, a different business or person with the same name, an advert or solicitation that merely lists the brand, or a post that never mentions the brand"}}}
+
+
+def _jev_about_brand(brand_topic: str, brand_context: str, title: str, body: str,
+                     author: str) -> Optional[float]:
+    """Jev's probability that the post is about the brand; None on any failure,
+    so the post falls through to the model as before."""
+    try:
+        from app.services import typesafe_client
+        if not typesafe_client.is_configured():
+            return None
+        name = re.sub(r"^brand monitoring\s+", "", (brand_topic or "").strip(), flags=re.I)
+        state = {"brand": {"name": name, "context": (brand_context or "")[:600]},
+                 "post": {"author": (author or "")[:120], "title": (title or "")[:300],
+                          "text": (body or "")[:1500]}}
+        out = typesafe_client.system_one(state, _JEV_ABOUT_BRAND,
+                                         use_case="services.social_eval_service:jev_prefilter")
+        return float(out["answers"]["relevance"]["noul"]) if out else None
+    except Exception as e:  # noqa: BLE001 - the gate is an optimisation, never a blocker
+        logger.debug(f"SocialEval Jev prefilter failed: {e}")
+        return None
