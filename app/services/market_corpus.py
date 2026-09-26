@@ -960,8 +960,12 @@ def attribute_owned_pages(conn, market_id: int, *,
     # vendor's own web content. Anything short of that is picked up again.
     from app.services import entity_flags
 
+    # Tagged as the company's own publishing too: a page linked to its
+    # vendor by name, and never tagged, was skipped for good on a site with
+    # the entity layer off (SmartBear's blog on panaya).
     done = ["EXISTS (SELECT 1 FROM bw_article_categories x"
-            " WHERE x.article_uri = a.uri)"]
+            " WHERE x.article_uri = a.uri)",
+            "COALESCE(a.bias_source, '') LIKE 'owned:%'"]
     if entity_flags.enabled():
         done.append("EXISTS (SELECT 1 FROM bw_entity_content_links l"
                     " WHERE l.article_uri = a.uri AND l.channel = 'owned_web')")

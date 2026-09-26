@@ -97,6 +97,13 @@ def test_a_wire_is_keyed_as_the_companys_voice():
         None, 'https://securitybrief.in/a') == 'domain:securitybrief.in'
 
 
+def test_a_page_already_marked_as_the_companys_own_is_its_own_voice():
+    """Prophet's own blog post was keyed as an independent publisher."""
+    assert entity_events.independence_key_for_article(
+        'Prophet Security Blogs', 'https://www.prophetsecurity.ai/blog/x',
+        'owned:prophetsecurity.ai') == 'owned:prophetsecurity.ai'
+
+
 def test_a_report_two_weeks_before_the_event_is_not_coverage_of_it():
     """securitybrief.in's 19 Aug piece was attached to Intezer's 2 Sep launch."""
     assert coverage.MATCH_DAYS_BEFORE < coverage.MATCH_DAYS

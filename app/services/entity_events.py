@@ -149,6 +149,11 @@ def independence_key_for_article(news_source: Optional[str],
     """
     if (bias_source or '').startswith('vendor:'):
         return f"owned:{bias_source}"
+    # A page already marked as the company's own publishing. Keyed by host it
+    # read as an independent publisher: Prophet's own blog post was the
+    # "independent" source behind a Prophet launch (Sep 2026).
+    if (bias_source or '').startswith('owned:'):
+        return bias_source
     if url:
         host = (urlsplit(url).netloc or '').lower()
         if host.startswith('www.'):

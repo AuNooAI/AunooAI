@@ -448,6 +448,12 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
         return None
     kind = record.get("article_class")
     if kind == "social":
+        # A post by a company that is no longer one of this market's vendors
+        # (panaya dropped its peer tier on 22 Sep 2026) still carries a
+        # review, and was still filed: Avo Automation's posts stayed on a
+        # six-vendor page.
+        if not record.get("vendors"):
+            return None
         if record.get("review_verdict") != "signal":
             return None
         mapped = _REVIEW_KIND_MAP.get((record.get("review_kind") or "").lower())

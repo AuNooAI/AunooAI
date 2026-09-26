@@ -1113,3 +1113,11 @@ def test_a_credential_or_an_open_letter_is_not_an_event():
                      "Collective Action on Cyber Defense"):
         assert ma._NOT_EVENT.search(headline), headline
     assert not ma._NOT_EVENT.search("UiPath launches Delegate, an enterprise productivity agent")
+
+
+def test_a_vendor_post_with_no_tracked_vendor_is_not_a_development():
+    """Avo Automation left panaya's market on 22 Sep; its posts kept a review."""
+    post = _record("Avo Automation: Church & Dwight reduced regression testing effort",
+                   article_class="social", vendors=[], review_verdict="signal",
+                   review_kind="customer")
+    assert ma.classify_record(post) is None
