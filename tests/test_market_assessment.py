@@ -1200,3 +1200,87 @@ def test_a_case_studys_co_author_is_not_the_customer():
     assert reading["named"] is False
     assert ma.reading_from_review({"name": "Virgin Money", "stage": "in_use"},
                                   text_value="Virgin Money runs Legion.")["named"]
+
+
+# ---------------------------------------------------------------------------
+# Round four: generate, validate, correct (26 Sep 2026)
+# ---------------------------------------------------------------------------
+
+def test_a_newsletter_is_not_an_event_whatever_the_review_says():
+    post = {**_record("Tuskira: Tuskira Threat Brief: Week of September 21, 2026",
+                      article_class="social", vendors=[_vendor("Tuskira", 60)],
+                      review_verdict="signal", review_kind="launch"),
+            "review_headline": "Tuskira launches autonomous red teaming",
+            "review_check": _check()}
+    assert ma.classify_record(post) is None
+
+
+def test_a_preview_or_an_advisor_is_not_an_event():
+    assert ma._NOT_EVENT.search("D3 Security to unveil Morpheus 2 on September 16")
+    assert ma._NOT_EVENT.search("Sevii appoints Tammi Hayes as advisor")
+    assert not ma._NOT_EVENT.search("D3 Security launches Morpheus 2")
+
+
+def test_founding_leaders_and_team_leads_are_senior():
+    assert ma._SENIOR.search("Mate Security hires Kirra Rice as Founding Channel Leader")
+    assert ma._SENIOR.search("AiStrike hires Bhuvanesh Prabhakaran to lead SOC team")
+    assert not ma._SENIOR.search("Legion Security hires Paige Roderick as Lead, Field Marketing")
+
+
+def test_a_short_vendor_name_at_the_start_is_not_doubled():
+    assert ma._named_headline("Kai hires Thomas N. as VP of Product Marketing",
+                              [_vendor("Kai Security", 61)]).startswith("Kai hires")
+
+
+def test_many_tied_vendors_are_described_by_their_threshold():
+    rows = [{"vendor": f"V{i}", "n": 2} for i in range(9)]
+    top = ma.top_vendors(rows)
+    assert len(top) == 9
+
+
+def test_the_vendor_note_in_brackets_is_not_shown():
+    dev = ma.finish(ma.prepare_candidate(
+        _post("Strike48 launches on-prem appliance", vendor="Strike48 (A Devo company)",
+              brand_id=62), set()))
+    assert dev["vendors"][0]["vendor"] == "Strike48"
+
+
+def test_objections_cover_kind_news_customer_and_text():
+    from app.services import market_post_review as mpr
+
+    item = {"verdict": "signal", "kind": "customer", "headline": "H", "summary": None,
+            "customer": {"name": "Help Net Security"}}
+    check = {"kind": {"choice": "other", "p_drafted": 0.05},
+             "is_news": 0.2, "customer": 0.1,
+             "headline": {"verdict": "supports", "p_supports": 0.64}}
+    found = " ".join(mpr.objections(item, check))
+    assert "kind" in found and "new development" in found
+    assert "Help Net Security" in found and "headline" in found
+    # Two kinds that never reach the page are not worth a correction.
+    assert not mpr.objections({"verdict": "signal", "kind": "award"},
+                              {"kind": {"choice": "other", "p_drafted": 0.1}})
+
+
+def test_what_the_checker_still_disputes_is_held_back():
+    from app.services import market_post_review as mpr
+
+    v = {"verdict": "signal", "kind": "customer", "headline": "H", "summary": "S",
+         "customer": {"name": "Help Net Security"},
+         "check": {"kind": {"choice": "other", "p_drafted": 0.05}, "is_news": 0.2}}
+    mpr._hold_what_is_unconfirmed(v)
+    assert v["verdict"] == "commentary" and v["check"]["held"]
+
+
+def test_a_contract_read_as_an_award_is_still_a_customer():
+    post = {**_record("Method Security: Bringing cyber resilience to Space.",
+                      article_class="social", vendors=[_vendor("Method Security", 63)],
+                      review_verdict="signal", review_kind="award"),
+            "review_headline": "Method Security wins $30M STRATFI award from U.S. Space Force",
+            "review_check": _check()}
+    assert ma.classify_record(post) == "customer"
+
+
+def test_awardable_on_a_marketplace_is_a_listing_not_a_contract():
+    h = "BlueDome by AiStrike becomes Awardable on Tradewinds Solutions Marketplace"
+    assert ma._NOT_EVENT.search(h)
+    assert not ma._CONTRACT.search(h)

@@ -447,21 +447,37 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
 
 
 # ---------------------------------------------------------------------------
-# Does what the review wrote say what the post says?
+# Generate, validate, correct
 # ---------------------------------------------------------------------------
 #
-# The headline and summary are the one place the review writes rather than
-# classifies, so they get a second reader. Jev (TypeSafe's decision model) is
-# asked, for each, whether the post supports it, contradicts it or says
-# nothing about it. It is a different model from the writer, it cannot
-# generate, and it costs about $0.04 per million input tokens. The report uses
-# a headline only when the check says "supports".
+# The review makes five judgements per post: whether it is news, what kind,
+# who the customer is, and a headline and summary. Until 26 Sep 2026 only the
+# last two were checked, so a wrong kind or a wrong customer went straight to
+# the page ("Help Net Security is named as a customer" of Tuskira, for a
+# threat newsletter). Now all five are checked by Jev (TypeSafe's decision
+# model: a different model, it cannot generate, about $0.04 per million
+# input tokens). A post Jev disagrees with goes to a second, stronger model
+# with the post, the draft and each objection. Jev checks the correction. What
+# is still unconfirmed is held back: an unconfirmed kind is not published, an
+# unconfirmed customer name is dropped, an unconfirmed headline or summary is
+# not shown.
 
 #: Characters of the post shown to the checker.
 CHECK_SOURCE_CHARS = 4000
 #: Least probability of "supports" for a headline or summary to be used.
-CHECK_MIN_SUPPORT = 0.5
+#: 0.5 let a half-supported headline lead the page (0.64, Help Net Security).
+CHECK_MIN_SUPPORT = 0.7
+#: A kind the drafter chose, that Jev gives less than this, is an objection.
+KIND_MIN_SUPPORT = 0.25
+#: Below this, Jev does not read the post as news, or the name as a customer.
+NEWS_MIN = 0.4
+CUSTOMER_MIN = 0.5
 _CHECK_CONCURRENCY = 4
+
+#: Kinds that become a development on the page. A wrong one of these is what
+#: matters; confusing two kinds that are never shown is harmless.
+EVENT_KINDS = ("launch", "funding", "customer", "partnership", "acquisition",
+               "hiring")
 
 _CHECK_CRITERIA = {
     "supports": "The post states it or directly implies it, including every "
@@ -472,44 +488,116 @@ _CHECK_CRITERIA = {
                     "claim or outcome the post does not contain",
 }
 
+#: What each kind is, written for a reader that takes definitions literally.
+KIND_CRITERIA = {
+    "launch": "A specific named product, feature or capability of the company "
+              "is now available, shipped or released. Not a preview of something "
+              "coming, not a look back, not a listing on a marketplace.",
+    "funding": "The company raised investment: a round, led by or from investors.",
+    "customer": "A named organisation buys, deploys or uses the company's "
+                "product, awards it a contract (a government contract or "
+                "award is a customer), or the post presents a case study about "
+                "a customer. "
+                "A publication or newsletter writing about the company, a "
+                "partner, a co-author and an investor are not customers.",
+    "partnership": "Two named companies agree to work together, integrate or "
+                   "resell. Joining a programme, ecosystem, protocol, coalition "
+                   "or marketplace alongside many others is not a partnership.",
+    "acquisition": "The company buys another company or is bought.",
+    "award": "Recognition: an award, ranking, analyst mention, certification, "
+             "programme or ecosystem membership, or marketplace listing. Not "
+             "a contract or funded award from a government or customer.",
+    "hiring": "A named person has joined the company or been appointed to a role.",
+    "research": "The company publishes a study, survey, benchmark or threat research.",
+    "other": "Anything else: a newsletter, event, webinar, opinion, recap, "
+             "financial results, promotion, or plans for the future.",
+}
 
-def _check_questions(fields: List[str]) -> Dict[str, Dict[str, Any]]:
-    return {f: {"type": "choice",
-                "instructions": (f"How does `post` relate to `{f}`? Judge only "
-                                 f"what the post states. A `{f}` that names the "
-                                 "wrong company as the actor, turns an "
-                                 "unnamed customer into a named one, or adds "
-                                 "a detail the post lacks is not supported."),
+
+def _check_questions(item: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    q: Dict[str, Dict[str, Any]] = {
+        "is_news": {
+            "type": "noul",
+            "instructions": ("Does `post` announce a specific new development at "
+                             "the company that has happened: a launch, a deal, a "
+                             "customer, a hire, a funding round, published research?"),
+            "criteria": {
+                "true": "It announces something specific the company has done or "
+                        "that has happened to it",
+                "false": "It is commentary, a newsletter, event or webinar "
+                         "promotion, a preview of something coming, a recap, or "
+                         "coverage of another company"},
+        },
+        "kind": {
+            "type": "choice",
+            "instructions": "Which kind of development does `post` announce?",
+            "criteria": KIND_CRITERIA,
+        },
+    }
+    for field in ("headline", "summary"):
+        if item.get(field):
+            q[field] = {
+                "type": "choice",
+                "instructions": (f"How does `post` relate to `{field}`? Judge only "
+                                 f"what the post states. A `{field}` that names the "
+                                 "wrong company as the actor, turns an unnamed "
+                                 "customer into a named one, or adds a detail the "
+                                 "post lacks is not supported."),
                 "criteria": _CHECK_CRITERIA}
-            for f in fields}
+    if (item.get("customer") or {}).get("name"):
+        q["customer"] = {
+            "type": "noul",
+            "instructions": ("According to `post`, is `customer_name` an "
+                             "organisation that buys, deploys or uses the "
+                             "company's product?"),
+            "criteria": {
+                "true": "The post says it buys, runs, deploys, uses or is "
+                        "evaluating the product, or is the subject of its "
+                        "customer case study",
+                "false": "It is a publisher, press outlet, partner, co-author, "
+                         "investor, the company itself or its own product, or "
+                         "the post does not say it uses the product"},
+        }
+    return q
 
 
-def check_one(source_text: str, headline: Optional[str],
-              summary: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Jev's reading of one headline and summary against their post, or None
-    when Jev is not configured or did not answer."""
+def check_one(source_text: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Jev's reading of one reviewed post's five judgements, or None when Jev
+    is not configured or did not answer."""
     from app.services import typesafe_client
 
-    fields = [f for f, v in (("headline", headline), ("summary", summary)) if v]
-    if not fields or not typesafe_client.is_configured():
+    if not typesafe_client.is_configured():
         return None
-    state = {"post": (source_text or "")[:CHECK_SOURCE_CHARS]}
-    if headline:
-        state["headline"] = headline
-    if summary:
-        state["summary"] = summary
+    state: Dict[str, Any] = {"post": (source_text or "")[:CHECK_SOURCE_CHARS]}
+    for field in ("headline", "summary"):
+        if item.get(field):
+            state[field] = item[field]
+    name = (item.get("customer") or {}).get("name")
+    if name:
+        state["customer_name"] = name
     out = typesafe_client.system_one(
-        state, _check_questions(fields),
-        use_case="services.market_post_review:check_writing")
+        state, _check_questions(item),
+        use_case="services.market_post_review:validate")
     if not out:
         return None
+    answers = out.get("answers") or {}
     check: Dict[str, Any] = {"model": out.get("model")}
-    for f in fields:
-        answer = (out.get("answers") or {}).get(f) or {}
-        probs = answer.get("probabilities") or {}
-        check[f] = {"verdict": answer.get("choice"),
-                    "p_supports": round(float(probs.get("supports", 0.0)), 3),
-                    "confidence": round(float(answer.get("confidence") or 0.0), 3)}
+    for field in ("headline", "summary"):
+        if field in answers:
+            a = answers[field] or {}
+            probs = a.get("probabilities") or {}
+            check[field] = {"verdict": a.get("choice"),
+                            "p_supports": round(float(probs.get("supports", 0.0)), 3),
+                            "confidence": round(float(a.get("confidence") or 0.0), 3)}
+    k = answers.get("kind") or {}
+    probs = k.get("probabilities") or {}
+    check["kind"] = {"choice": k.get("choice"),
+                     "p_drafted": round(float(probs.get(item.get("kind"), 0.0)), 3),
+                     "confidence": round(float(k.get("confidence") or 0.0), 3)}
+    if "is_news" in answers:
+        check["is_news"] = round(float((answers["is_news"] or {}).get("noul", 0.0)), 3)
+    if "customer" in answers:
+        check["customer"] = round(float((answers["customer"] or {}).get("noul", 0.0)), 3)
     return check
 
 
@@ -521,24 +609,191 @@ def passes(check: Optional[Dict[str, Any]], field: str) -> bool:
             and float(reading.get("p_supports") or 0.0) >= CHECK_MIN_SUPPORT)
 
 
-async def check_writing(verdicts: List[Dict[str, Any]]) -> None:
-    """Attach Jev's check to every verdict that carries writing. In place;
-    a failed check leaves ``check`` unset, which the report reads as unusable."""
-    todo = [v for v in verdicts if v.get("headline") or v.get("summary")]
-    if not todo:
-        return
+def objections(item: Dict[str, Any], check: Optional[Dict[str, Any]]) -> List[str]:
+    """What Jev disputes in one signal, in words the corrector can act on."""
+    if not check or item.get("verdict") != "signal":
+        return []
+    out: List[str] = []
+    kind = item.get("kind")
+    k = check.get("kind") or {}
+    if kind in EVENT_KINDS and k.get("choice") != kind \
+            and float(k.get("p_drafted") or 0.0) < KIND_MIN_SUPPORT:
+        out.append(f'kind "{kind}" is not supported; the checker reads it as '
+                   f'"{k.get("choice")}"')
+    if kind in EVENT_KINDS and float(check.get("is_news", 1.0)) < NEWS_MIN:
+        out.append("the checker does not read the post as announcing a specific "
+                   "new development")
+    if "customer" in check and float(check["customer"]) < CUSTOMER_MIN:
+        out.append(f'"{(item.get("customer") or {}).get("name")}" is not shown by '
+                   "the post to buy or use the product")
+    for field in ("headline", "summary"):
+        if item.get(field) and not passes(check, field):
+            verdict = (check.get(field) or {}).get("verdict") or "no answer"
+            out.append(f"the {field} is not supported by the post ({verdict})")
+    return out
+
+
+async def _validate(verdicts: List[Dict[str, Any]]) -> None:
+    """Attach Jev's check to every signal, in place."""
+    todo = [v for v in verdicts if v.get("verdict") == "signal"]
     gate = asyncio.Semaphore(_CHECK_CONCURRENCY)
 
     async def one(v: Dict[str, Any]) -> None:
         async with gate:
             try:
                 v["check"] = await asyncio.to_thread(
-                    check_one, v.get("source_text") or "",
-                    v.get("headline"), v.get("summary"))
+                    check_one, v.get("source_text") or "", v)
             except Exception as exc:  # noqa: BLE001 — never fail the review over the check
-                logger.warning("writing check failed for %s: %s", v.get("uri"), exc)
+                logger.warning("validation failed for %s: %s", v.get("uri"), exc)
 
     await asyncio.gather(*(one(v) for v in todo))
+
+
+CORRECT_PROMPT = """You are correcting a first reading of vendor posts in the {market} market.
+Another model read each post below and a checker disputed parts of its reading.
+For each post, read the post itself and return a corrected reading. Keep what the
+post supports and fix what the checker disputes, unless the post shows the first
+reading was right. If the post does not announce a specific new development at
+the company (it is commentary, a newsletter, event promotion, a preview, a recap,
+or coverage of someone else), set "verdict" to "commentary" or "noise".
+
+Kinds: launch, funding, customer, partnership, acquisition, award, hiring,
+research, other.
+{kinds}
+
+For "customer": "name" is the organisation that buys or uses the product, exactly
+as written, or null. A publisher, newsletter, partner, co-author, investor or the
+vendor's own product is not the customer. "stage": in_use, evaluation,
+case_study, existing or unclear.
+
+"headline": at most 14 words, "<Company> <did what> <with whom or what>", third
+person, only what the post states, no "we", no hype. "summary": one sentence of
+at most 30 words about the same development, only facts the post states, or null.
+For commentary and noise, headline, summary and customer are null.
+
+Reply with a JSON array, one object per post, in the same order, no prose:
+[{{"n": 1, "verdict": "signal", "kind": "launch", "headline": "...", "summary": "...",
+  "customer": null, "reason": "<12 words or fewer>"}}]
+
+Posts:
+{posts}"""
+
+
+def _corrector_model() -> str:
+    """A stronger model than the drafter, so the correction is a second
+    opinion and not the same reading again."""
+    return os.getenv("MARKET_REVIEW_CORRECTOR_MODEL") or "claude-sonnet-4-5"
+
+
+async def _correct(market_name: str, flagged: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """One call over the flagged posts. Returns corrected items by URI."""
+    import litellm
+
+    from app.ai_models import extract_json_response, resolve_litellm_call_params
+
+    blocks = []
+    for i, v in enumerate(flagged, 1):
+        draft = {k: v.get(k) for k in ("verdict", "kind", "headline", "summary", "customer")}
+        blocks.append(
+            f"{i}. POST: {(v.get('source_text') or '')[:CHECK_SOURCE_CHARS]}\n"
+            f"   FIRST READING: {json.dumps(draft, ensure_ascii=False)}\n"
+            f"   CHECKER DISPUTES: {'; '.join(v.get('objections') or [])}")
+    kinds = "\n".join(f"- {k}: {d}" for k, d in KIND_CRITERIA.items())
+    prompt = CORRECT_PROMPT.format(market=market_name, kinds=kinds,
+                                   posts="\n\n".join(blocks))
+    response = await litellm.acompletion(
+        **resolve_litellm_call_params(_corrector_model()),
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=min(8192, 350 * len(flagged) + 400),
+        temperature=0,
+    )
+    parsed = extract_json_response((response.choices[0].message.content or "").strip())
+    if isinstance(parsed, dict):
+        parsed = parsed.get("results") or parsed.get("posts") or []
+    out: Dict[str, Dict[str, Any]] = {}
+    for item in parsed if isinstance(parsed, list) else []:
+        try:
+            n = int(item.get("n"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 1 <= n <= len(flagged):
+            out[flagged[n - 1]["uri"]] = item
+    return out
+
+
+def _apply_correction(v: Dict[str, Any], item: Dict[str, Any]) -> None:
+    verdict = str(item.get("verdict") or v["verdict"]).strip().lower()
+    if verdict not in VERDICTS:
+        verdict = v["verdict"]
+    kind = str(item.get("kind") or v["kind"]).strip().lower()[:24]
+    v["first_draft"] = {k: v.get(k) for k in ("verdict", "kind", "headline",
+                                               "summary", "customer")}
+    v["verdict"], v["kind"] = verdict, kind
+    signal = verdict == "signal"
+    v["headline"] = _written(item.get("headline"), 200) if signal else None
+    v["summary"] = _written(item.get("summary"), 400) if signal else None
+    v["customer"] = _customer_of({**item, "kind": kind}) if signal else None
+    if item.get("reason"):
+        v["reason"] = str(item["reason"]).strip()[:400]
+
+
+def _hold_what_is_unconfirmed(v: Dict[str, Any]) -> None:
+    """After correction: publish only what the checker confirms."""
+    check = v.get("check")
+    remaining = objections(v, check)
+    if not check or not remaining:
+        return
+    k = check.get("kind") or {}
+    kind_disputed = (v.get("kind") in EVENT_KINDS and k.get("choice") != v.get("kind")
+                     and float(k.get("p_drafted") or 0.0) < KIND_MIN_SUPPORT)
+    not_news = v.get("kind") in EVENT_KINDS and float(check.get("is_news", 1.0)) < NEWS_MIN
+    if kind_disputed or not_news:
+        # Not published. Recorded, so the held items can be read and counted.
+        check["held"] = "; ".join(remaining)
+        v["verdict"] = "commentary"
+        v["headline"] = v["summary"] = v["customer"] = None
+        return
+    if "customer" in check and float(check["customer"]) < CUSTOMER_MIN and v.get("customer"):
+        v["customer"] = {**v["customer"], "name": None, "speaker": "vendor"}
+        check["customer_dropped"] = True
+
+
+async def validate_and_correct(market_name: str, verdicts: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Validate every signal with Jev, correct what it disputes with a second
+    model, validate again, and hold back what is still unconfirmed. In place."""
+    await _validate(verdicts)
+    flagged = []
+    for v in verdicts:
+        v["objections"] = objections(v, v.get("check"))
+        if v["objections"]:
+            flagged.append(v)
+    corrected = 0
+    if flagged:
+        try:
+            fixes = await _correct(market_name, flagged)
+        except Exception as exc:  # noqa: BLE001 — the uncorrected reading is still held below
+            logger.warning("correction failed for %d posts: %s", len(flagged), exc)
+            fixes = {}
+        for v in flagged:
+            if v["uri"] in fixes:
+                _apply_correction(v, fixes[v["uri"]])
+                corrected += 1
+        await _validate([v for v in flagged if v["uri"] in fixes])
+    held = 0
+    for v in verdicts:
+        if v.get("first_draft") and v.get("check") is not None:
+            v["check"]["corrected"] = True
+            v["check"]["first_draft"] = v["first_draft"]
+            v["check"]["objections"] = v.get("objections")
+        before = v["verdict"]
+        _hold_what_is_unconfirmed(v)
+        held += int(before == "signal" and v["verdict"] != "signal")
+    return {"flagged": len(flagged), "corrected": corrected, "held": held}
+
+
+# Kept for callers that only want the writing checked.
+async def check_writing(verdicts: List[Dict[str, Any]]) -> None:
+    await _validate(verdicts)
 
 
 def _written(value: Any, limit: int) -> Optional[str]:
@@ -757,7 +1012,10 @@ async def review(conn, market_id: int, market_name: str, *,
             logger.warning("post review batch failed (%d posts): %s",
                            len(chunk), exc)
             continue
-        await check_writing(verdicts)
+        loop_stats = await validate_and_correct(market_name, verdicts)
+        for key, n in loop_stats.items():
+            result.setdefault("validation", {}).setdefault(key, 0)
+            result["validation"][key] += n
         by_uri = {p["uri"]: p for p in chunk}
         for v in verdicts:
             result["counts"][v["verdict"]] += 1

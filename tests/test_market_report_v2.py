@@ -488,3 +488,14 @@ def test_a_contract_award_is_a_move_tagged_contract():
     assert award not in parts["buckets"]["cases"]
     assert award in parts["buckets"]["moves"] or parts.get("lead") is award
     assert html._v2_tag(award) == "Contract"
+
+
+def test_the_vendors_own_text_is_never_the_summary():
+    own = _dev(7, "partnership", summary="We are proud to announce that we are the partner.",
+               evidence=[{"uri": "https://x/7", "voice": "owned", "social": True}])
+    assert html._summary_unless_duplicate(own) == ""
+    own["dek"] = "Camelot becomes the Ravens' cyber resilience partner."
+    assert html._summary_unless_duplicate(own) == own["dek"]
+    news = _dev(8, "launch", summary="The publisher's own summary of the launch.",
+                evidence=[{"uri": "https://x/8", "voice": "independent", "social": False}])
+    assert html._summary_unless_duplicate(news)

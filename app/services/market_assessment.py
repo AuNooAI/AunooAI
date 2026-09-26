@@ -191,7 +191,10 @@ _SENIOR = re.compile(
     r"head\s+of|director|president|general\s+manager|founder|"
     # "Partner" as a title, not the word: "customer and partner experiences"
     # made a field-marketing hire an executive appointment.
-    r"(managing|general|founding|operating)\s+partner\b)",
+    r"(managing|general|founding|operating)\s+partner\b|"
+    # "Founding Channel Leader" (Mate), "to lead SOC team" (AiStrike).
+    r"founding\s+(\w+\s+){0,2}(leader|lead|head)\b|\bto\s+lead\b|\blead\s+of\b|"
+    r"\b\w+\s+leader\b)",
     re.I)
 
 #: Records that never become a development, whatever they match. Each line is
@@ -278,8 +281,17 @@ _NOT_EVENT = re.compile(
     # A marketplace listing is a place to buy, not a product or a partner.
     # The review files it as an award, and still sent Anvilogic's listing
     # as a partnership and Daylight's as a launch.
-    r"|\b(listed|lists|listing|available|launch(es|ed)?|now\s+on)\b"
-    r"[^.]{0,60}\bmarketplaces?\b"
+    r"|\b(listed|lists|listing|available|launch(es|ed)?|now\s+on|becomes?|"
+    r"awardable)\b[^.]{0,60}\bmarketplaces?\b"
+    # "Awardable" is cleared to bid, not a contract won (BlueDome on
+    # Tradewinds).
+    r"|\bawardable\b"
+    # A preview is not a launch: "D3 Security to unveil Morpheus 2 on
+    # September 16" duplicated the launch it announced.
+    r"|\b(to|will)\s+(unveil|launch|debut|announce|showcase)\b"
+    r"|\bset\s+to\s+(launch|unveil|debut)\b|\bcoming\s+soon\b|\bsneak\s+peek\b"
+    # An advisor is not an executive appointment.
+    r"|\badvis(or|ory\s+board)\b"
     r"|\bcall\s+(for|to)\s+collective\s+action\b",
     re.I)
 
@@ -409,7 +421,7 @@ def record_is_noise(record: Dict[str, Any]) -> bool:
 #: customer: Method Security's "$30M STRATFI award" from the U.S. Space Force
 #: was written up as "raised a $30M strategic round".
 _CONTRACT = re.compile(
-    r"\b(stratfi|sbir|tacfi|awardable|contract)\b"
+    r"\b(stratfi|sbir|tacfi|contract)\b"
     r"|\baward(ed|s)?\b.{0,60}\b(force|army|navy|department|agency|"
     r"government|dod|ministry)\b", re.I | re.S)
 _RAISE = re.compile(r"\b(rais(es|ed|ing)|series\s+[a-e]|seed\s+round|"
@@ -423,6 +435,16 @@ _LOOKS_BACK = re.compile(
     r"^\W*(\w+(\s+\w+)?:\s*)?(looking\s+back|a\s+look\s+back|recap|"
     r"that'?s\s+a\s+wrap|that['’]s\s+a\s+wrap|what\s+a\s+week|last\s+week\b|"
     r"thank\s+you\s+to\s+everyone)", re.I)
+
+
+#: A post in a recurring series: a newsletter or weekly brief mentions the
+#: company's earlier news, and the review read Tuskira's "Threat Brief: Week
+#: of September 21" as a launch (and once as Help Net Security becoming a
+#: customer). Read on the post's own title, not the rewrite.
+_SERIES = re.compile(
+    r"\b(threat\s+brief|newsletter|digest|round-?up|in\s+this\s+issue|"
+    r"week\s+of\s+\w+\s+\d{1,2}|weekly\s+(brief|update|recap)|"
+    r"(monthly|quarterly)\s+(update|recap|brief))\b", re.I)
 
 
 def _refine_funding(kind: Optional[str], text_value: str) -> Optional[str]:
@@ -493,10 +515,18 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
         if record.get("review_verdict") != "signal":
             return None
         shown = checked_writing(record)[0] or headline_of(record)
-        if is_noise(shown) or _NOT_EVENT.search(shown):
+        if is_noise(shown) or _NOT_EVENT.search(shown) \
+                or _SERIES.search(headline_of(record)):
             return None
         mapped = _REVIEW_KIND_MAP.get((record.get("review_kind") or "").lower())
-        if mapped == "executive_appointment" and not _SENIOR.search(text_value):
+        # A contract reads as an award to both models: Method's $30M STRATFI
+        # award from the U.S. Space Force was filed as recognition and hidden.
+        if mapped is None and _CONTRACT.search(shown) and not _RAISE.search(shown):
+            mapped = "customer"
+        # Senior by the headline's own title: "President and Founder" of
+        # somebody else's firm, further down the post, made an advisor an
+        # executive appointment.
+        if mapped == "executive_appointment" and not _SENIOR.search(shown):
             return None
         if mapped is None:
             return None
@@ -1782,6 +1812,12 @@ def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
     for name in names + sorted(_vendor_aliases({"vendors": vendors})):
         if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headline, re.IGNORECASE):
             return headline
+    # The short name the vendor posts under, too short to be an alias
+    # everywhere: "Kai hires Thomas N." under Kai Security read "Kai
+    # Security: Kai hires…".
+    first = re.split(r"[\s(,]", names[0])[0]
+    if first and re.match(rf"{re.escape(first)}\b", headline):
+        return headline
     return f"{names[0]}: {headline}"
 
 
@@ -1800,7 +1836,9 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "event_type_label": EVENT_TYPES.get(dev["event_type"], dev["event_type"]),
         "date": day.isoformat() if day else None,
         "date_established": bool(day) and bool(dev.get("date_established", True)),
-        "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
+        # "Strike48 (A Devo company)" is a note to the operator.
+        "vendors": [{"brand_id": v.get("brand_id"),
+                     "vendor": re.sub(r"\s*\([^)]*\)\s*$", "", v.get("vendor") or "")}
                     for v in dev.get("vendors") or []],
         "headline": _named_headline(plain_letters(dev.get("headline") or "Untitled"),
                                     dev.get("vendors") or []),
@@ -2012,6 +2050,10 @@ def _stored_candidates(conn, market_id: int, days: int
                 if not signals:
                     continue
                 reread = _REVIEW_KIND_MAP.get(signals[0])
+                # A contract re-read as an award is still a customer (Method).
+                if reread is None and _CONTRACT.search(text_value) \
+                        and not _RAISE.search(text_value):
+                    reread = "customer"
                 if reread is None or (reread == "executive_appointment"
                                       and not _SENIOR.search(text_value)):
                     continue
@@ -2034,7 +2076,9 @@ def _stored_candidates(conn, market_id: int, days: int
         # can also be a sentence the stored title was not: "…has passed 6K+
         # downloads" came from Imperum's post body.
         if is_noise(headline if written else text_value) \
-                or _NOT_EVENT.search(headline):
+                or _NOT_EVENT.search(headline) \
+                or any(_SERIES.search(e.get("title") or "") for e in evidence
+                       if e.get("voice") == "owned"):
             continue
         out.append({
             "key": f"event:{f['finding_id']}",
@@ -3121,7 +3165,9 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         unread = (counts.get("incomplete_coverage", 0) + counts.get("paused", 0)
                   + counts.get("not_yet_collected", 0))
         top3 = top_vendors(dist["by_vendor"])
-        top3_txt = ", ".join(f"{v['vendor']} {v['n']}" for v in top3)
+        top3_txt = ", ".join(f"{v['vendor']} {v['n']}" for v in top3[:5])
+        if len(top3) > 5:
+            top3_txt += f", and {len(top3) - 5} more"
         signals = dist.get("signals") or 0
         out.append(_finding(
             "change_concentration",
@@ -3129,8 +3175,12 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             "development.",
             f"{dist['total']} developments in {days} days"
             + (f", plus {signals} hiring or headcount signals" if signals else "")
-            + f". The {len(top3)} most active vendors account for "
-            f"{_pct(dist['top3_share'])} of them ({top3_txt})."
+            # Ties at the cut-off made "the 19 most active vendors".
+            + (f". The {len(top3)} most active vendors account for "
+               if len(top3) <= 5 else
+               f". The {len(top3)} vendors with {top3[-1]['n']} or more "
+               "developments each account for ")
+            + f"{_pct(dist['top3_share'])} of them ({top3_txt})."
             + (f" {quiet} vendors were watched and had none." if quiet else "")
             + (f" {unread} are not fully collected yet." if unread else ""),
             evidence=_vendor_lines(dist["by_vendor"], "n", "developments",

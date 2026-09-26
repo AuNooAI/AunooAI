@@ -79,9 +79,13 @@ def test_only_a_start_failure_is_retried():
 def test_the_writing_check_asks_one_question_per_field():
     from app.services import market_post_review as mpr
 
-    q = mpr._check_questions(["headline", "summary"])
-    assert set(q) == {"headline", "summary"}
+    q = mpr._check_questions({"kind": "customer", "headline": "H", "summary": "S",
+                              "customer": {"name": "Acme"}})
+    assert set(q) == {"is_news", "kind", "headline", "summary", "customer"}
     assert set(q["headline"]["criteria"]) == {"supports", "contradicts", "says_nothing"}
+    assert set(q["kind"]["criteria"]) == set(mpr.KIND_CRITERIA)
+    # No writing and no customer: only the reading is checked.
+    assert set(mpr._check_questions({"kind": "launch"})) == {"is_news", "kind"}
     assert mpr._written("  null ", 200) is None
     assert mpr._written('"Torq launches Auto Triage"', 200) == "Torq launches Auto Triage"
 
@@ -90,5 +94,5 @@ def test_no_jev_means_no_check(monkeypatch):
     from app.services import market_post_review as mpr
 
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-    assert mpr.check_one("post", "headline", None) is None
+    assert mpr.check_one("post", {"kind": "launch", "headline": "H"}) is None
     assert not mpr.passes(None, "headline")
