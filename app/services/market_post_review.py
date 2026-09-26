@@ -130,7 +130,8 @@ comments on a threat, breach or vulnerability, marks an anniversary, or points
 to a webinar, podcast, interview, playbook or newsletter is not a launch: its
 kind is "opinion" (or "research" for a finding, "event" for the webinar).
 Naming the product is not enough — the post has to say something new has shipped
-or is now available. When in doubt between "launch" and "opinion", choose
+or is now available. Financial results, a dividend, a book, and a certification,
+course or training programme are not launches: their kind is "other". When in doubt between "launch" and "opinion", choose
 "opinion".
 
 For kind "customer" only, also give a "customer" object (the kind stays
@@ -385,6 +386,10 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
         **resolve_litellm_call_params(model),
         messages=[{"role": "user", "content": prompt}],
         max_tokens=min(8192, 320 * len(posts) + 400),
+        # The same post must get the same reading. Sampled, a borderline post
+        # (Intezer's Q2 milestone listing four launches) was signal on one
+        # read and commentary on the next.
+        temperature=0,
     )
     raw = (response.choices[0].message.content or "").strip()
     parsed = extract_json_response(raw)
