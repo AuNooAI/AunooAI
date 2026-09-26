@@ -1395,7 +1395,7 @@ async def _scoped_run_reaches_pages(monkeypatch):
 
     monkeypatch.setattr(mm, "_claim_manual_runs", lambda conn, m: dict(manual))
     for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
-                 "_write_briefing", "_profile_voices", "_discover_ats",
+                 "_write_briefing", "_profile_voices", "_check_social", "_discover_ats",
                  "_poll_ats_jobs"):
         monkeypatch.setattr(mm, name, _noop_async)
     for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
@@ -1434,7 +1434,7 @@ async def _scoped_run_non_collecting(monkeypatch):
         return 0
 
     for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
-                 "_write_briefing", "_profile_voices", "_discover_ats", "_poll_ats_jobs",
+                 "_write_briefing", "_profile_voices", "_check_social", "_discover_ats", "_poll_ats_jobs",
                  "_discover_feeds", "_poll_pages"):
         monkeypatch.setattr(mm, name, _noop_async)
     for name in ("_discover_candidates", "_match_corpus", "_extract_events"):

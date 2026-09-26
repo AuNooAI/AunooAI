@@ -1146,7 +1146,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
     who else is talking.
     """
     window = ""
-    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    # Over-fetch: the Jev check below turns some away.
+    params: Dict[str, Any] = {"m": market_id, "lim": limit * 8}
     if days:
         window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
         params["since"] = _iso_days_ago(days)
@@ -1162,7 +1163,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
                  + COALESCE((a.social_meta->>'reposts')::numeric,
                             (a.social_meta->>'shares')::numeric, 0)
                  AS engagement,
-               COALESCE(a.publication_date, a.submission_date) AS published
+               COALESCE(a.publication_date, a.submission_date) AS published,
+               ma.review_check
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
@@ -1185,6 +1187,9 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         # A training log or a job hunt is not an outside voice on the market.
         if not quote or is_noise(f"{row.get('title') or ''} {row.get('summary') or ''}"):
             continue
+        from app.services.market_post_review import social_passes
+        if not social_passes(row):
+            continue
         out.append({
             "uri": row["uri"],
             "author": row["author"],
@@ -1193,6 +1198,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
             "published": row["published"],
             "quote": quote,
         })
+        if len(out) >= limit:
+            break
     return out
 
 

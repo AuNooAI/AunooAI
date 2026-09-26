@@ -82,6 +82,8 @@ SOURCE_BRIEFING = "monthly_briefing"
 # Profiles the most active voices that have no profile yet, a few a day.
 # Each one is two xpoz calls and one short model call.
 SOURCE_VOICE_PROFILES = "voice_profiles"
+# Jev reads each new practitioner post once: on topic, and saying something.
+SOURCE_SOCIAL_CHECK = "social_check"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -198,6 +200,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_VOICE_PROFILES: slow,  # daily, capped by MARKET_PROFILE_DAILY
+        SOURCE_SOCIAL_CHECK: timedelta(hours=4),  # with the corpus match
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -557,6 +560,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
     runs += await _profile_voices(conn, market, now)
+    runs += await _check_social(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -890,6 +894,34 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s post review failed: %s", market_id, exc)
+    return 1
+
+
+async def _check_social(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Have Jev read the practitioner posts that arrived since the last pass.
+
+    In a worker thread on its own connection: each post is one call, and the
+    tick must not stall on them.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_SOCIAL_CHECK, now) is None:
+        return 0
+    from app.services import market_post_review as mpr
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_SOCIAL_CHECK,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await asyncio.to_thread(mpr.check_social_posts, market_id, days=7)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["shown"],
+                     skipped=result["checked"] - result["shown"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s social check failed: %s", market_id, exc)
     return 1
 
 

@@ -96,3 +96,14 @@ def test_no_jev_means_no_check(monkeypatch):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     assert mpr.check_one("post", {"kind": "launch", "headline": "H"}) is None
     assert not mpr.passes(None, "headline")
+
+
+def test_a_social_post_is_hidden_only_when_jev_turned_it_away():
+    from app.services import market_post_review as mpr
+
+    assert mpr.social_passes({"review_check": None})
+    assert mpr.social_passes({"review_check": {"social": {"on_topic": 0.9, "substance": 0.8}}})
+    assert not mpr.social_passes({"review_check": {"social": {"on_topic": 0.1, "substance": 0.9}}})
+    assert not mpr.social_passes({"review_check": {"social": {"on_topic": 0.9, "substance": 0.2}}})
+    q = mpr._social_questions("AI in the SOC", ["AI SOC"])
+    assert set(q) == {"on_topic", "substance"}

@@ -31,7 +31,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -1300,3 +1300,127 @@ async def review_earned(conn, market_id: int, market_name: str, *,
         result["reviewed"] += store_earned(conn, market_id, verdicts, model)
         conn.commit()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Practitioner posts: is it about this market, and does it say anything?
+# ---------------------------------------------------------------------------
+#
+# The Social panel was filtered by phrases alone, so a political joke reply
+# ("@PnL63962200 Hamas in response: We have AI SOC") matched "AI SOC" and was
+# shown. Each practitioner post is now read once by Jev, and the verdict is
+# stored under review_check.social. The page shows a post only when both
+# answers pass. An unchecked post (Jev unreachable, or not read yet) is
+# shown on the phrase filters, and read on the next pass.
+
+#: Least probability for a practitioner post to be shown.
+SOCIAL_MIN = 0.5
+
+
+def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str, Any]]:
+    about = f"{market_name}" + (f" ({', '.join(terms[:8])})" if terms else "")
+    return {
+        "on_topic": {
+            "type": "noul",
+            "instructions": f"Is `post` about {about}?",
+            "criteria": {
+                "true": "It discusses this market, its products, its vendors, or how "
+                        "security teams use or judge them",
+                "false": "It is about something else and only uses the words in "
+                         "passing, as a joke, or about another field"},
+        },
+        "substance": {
+            "type": "noul",
+            "instructions": ("Does `post` say something a practitioner in this market "
+                             "would find informative: a view with a reason, an "
+                             "experience, news, or analysis?"),
+            "criteria": {
+                "true": "It makes a point, reports something, or shares experience",
+                "false": "It is a joke, a bare reply or reaction, a promotion, a job "
+                         "or training post, or chatter with no point"},
+        },
+    }
+
+
+def check_social_one(text_value: str, market_name: str,
+                     terms: List[str]) -> Optional[Dict[str, Any]]:
+    from app.services import typesafe_client
+
+    if not typesafe_client.is_configured() or not (text_value or "").strip():
+        return None
+    out = typesafe_client.system_one(
+        {"post": text_value[:CHECK_SOURCE_CHARS]},
+        _social_questions(market_name, terms),
+        use_case="services.market_post_review:check_social")
+    if not out:
+        return None
+    a = out.get("answers") or {}
+    return {"on_topic": round(float((a.get("on_topic") or {}).get("noul", 0.0)), 3),
+            "substance": round(float((a.get("substance") or {}).get("noul", 0.0)), 3),
+            "model": out.get("model")}
+
+
+def social_passes(row: Dict[str, Any]) -> bool:
+    """Whether a practitioner post may be shown: hidden only when Jev read it
+    and turned it away. An unchecked post falls back to the phrase filters,
+    because "unchecked" includes "Jev could not be reached" — the TypeSafe
+    credits ran out on 26 Sep 2026, and hiding unchecked posts would have
+    emptied the panel."""
+    check = (row.get("review_check") or {}).get("social")
+    if not isinstance(check, dict):
+        return True
+    return (float(check.get("on_topic") or 0.0) >= SOCIAL_MIN
+            and float(check.get("substance") or 0.0) >= SOCIAL_MIN)
+
+
+def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600) -> Dict[str, int]:
+    """Check every unchecked practitioner post in the window. Synchronous and
+    on its own connection, so a caller can run it in a worker thread."""
+    import concurrent.futures
+
+    from app.database import get_database_instance
+    from app.services.market_collect import market_terms
+
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        name = conn.execute(text("SELECT name FROM bw_markets WHERE id = :m"),
+                            {"m": market_id}).scalar() or ""
+        terms = market_terms(conn, market_id)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        rows = conn.execute(text("""
+            SELECT ma.article_uri, a.title, a.summary
+              FROM bw_market_articles ma
+              JOIN articles a ON a.uri = ma.article_uri
+             WHERE ma.market_id = :m
+               AND a.social_meta IS NOT NULL
+               AND a.social_meta->>'author' IS NOT NULL
+               AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+               AND COALESCE(a.publication_date, a.submission_date) >= :since
+               AND (ma.review_check IS NULL OR NOT (ma.review_check ? 'social'))
+             ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+             LIMIT :lim
+        """), {"m": market_id, "since": since, "lim": int(limit)}).fetchall()
+        conn.rollback()
+
+        def one(r):
+            body = f"{r[1] or ''}\n{r[2] or ''}".strip()
+            return r[0], check_social_one(body, name, terms)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_CHECK_CONCURRENCY) as pool:
+            results = list(pool.map(one, rows))
+        stored = shown = 0
+        for uri, check in results:
+            if not check:
+                continue
+            conn.execute(text("""
+                UPDATE bw_market_articles
+                   SET review_check = COALESCE(review_check, '{}'::jsonb)
+                                      || jsonb_build_object('social', CAST(:c AS JSONB))
+                 WHERE market_id = :m AND article_uri = :u
+            """), {"c": json.dumps(check), "m": market_id, "u": uri})
+            stored += 1
+            shown += int(check["on_topic"] >= SOCIAL_MIN and check["substance"] >= SOCIAL_MIN)
+        conn.commit()
+        return {"candidates": len(rows), "checked": stored, "shown": shown}
+    finally:
+        conn.close()

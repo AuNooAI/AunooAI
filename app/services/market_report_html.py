@@ -3859,7 +3859,10 @@ def _v2_sections(developments: List[Dict[str, Any]],
         buckets[key].sort(key=lambda d: str(d.get("date") or ""), reverse=True)
     used = {e.get("uri") for d in developments for e in (d.get("evidence") or [])}
     voices: Dict[str, Dict[str, Any]] = {}
-    for row in [r for r in (corpus_rows or []) if _v2_is_voice(r)] + list(discussion or []):
+    from app.services.market_post_review import social_passes
+    # Practitioner posts only when Jev read them as on topic and substantive.
+    for row in [r for r in (corpus_rows or []) if _v2_is_voice(r)] + \
+            [r for r in (discussion or []) if social_passes(r)]:
         uri = row.get("uri")
         if uri and uri not in used and uri not in voices:
             voices[uri] = row
