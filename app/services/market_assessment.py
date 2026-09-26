@@ -416,6 +416,15 @@ _RAISE = re.compile(r"\b(rais(es|ed|ing)|series\s+[a-e]|seed\s+round|"
                     r"investment\s+round|investors?|led\s+by)\b", re.I)
 
 
+#: A post that looks back on something done earlier. Its date is when it was
+#: posted: Sevii's module launched at Fal.Con and was dated 22 Sep from the
+#: "Looking back at an outstanding CrowdStrike Fal.Con" recap.
+_LOOKS_BACK = re.compile(
+    r"^\W*(\w+(\s+\w+)?:\s*)?(looking\s+back|a\s+look\s+back|recap|"
+    r"that'?s\s+a\s+wrap|that['’]s\s+a\s+wrap|what\s+a\s+week|last\s+week\b|"
+    r"thank\s+you\s+to\s+everyone)", re.I)
+
+
 def _refine_funding(kind: Optional[str], text_value: str) -> Optional[str]:
     if kind == "funding" and _CONTRACT.search(text_value or "") \
             and not _RAISE.search(text_value or ""):
@@ -1272,8 +1281,24 @@ _STAGE_TEXT = {
 }
 
 
+def _coauthor_not_customer(name: Optional[str], text_value: str) -> bool:
+    """Whether ``name`` appears in the post only as the case study's co-author
+    or publisher. Kai's "We worked with Anthropic on a case study covering what
+    Kai does inside a real enterprise environment" named Anthropic as the
+    customer, and the review kept doing so after being told not to."""
+    if not name or not text_value:
+        return False
+    n = re.escape(name.strip())
+    return bool(re.search(
+        rf"\b(worked|partnered|teamed\s+up)\s+with\s+{n}\s+on\s+(a|the|this)\s+"
+        rf"(joint\s+)?case\s+study\b|\b{n}\s+(published|publishes|wrote|co-?wrote)\s+"
+        rf"(a|the|this)\s+case\s+study\b|\bcase\s+study\s+(by|from|with)\s+{n}\b",
+        text_value, re.I))
+
+
 def reading_from_review(stored: Dict[str, Any],
-                        as_of: Optional[str] = None) -> Dict[str, Any]:
+                        as_of: Optional[str] = None,
+                        text_value: Optional[str] = None) -> Dict[str, Any]:
     """The reading the post review stored, in the shape the report uses.
 
     The review pass read the whole post once with a model and recorded the
@@ -1283,6 +1308,8 @@ def reading_from_review(stored: Dict[str, Any],
     two posts about one customer merge, the later one's stage wins.
     """
     name = (stored.get("name") or "").strip() or None
+    if _coauthor_not_customer(name, text_value or ""):
+        name = None
     speaker = (stored.get("speaker") or "vendor") if name else "vendor"
     stage = stored.get("stage") or "unclear"
     return {
@@ -1734,6 +1761,9 @@ def plain_letters(value: str) -> str:
     """Posts dressed in mathematical-bold letters (𝐁𝐅𝐒𝐈) as plain letters.
     Trademark signs go first, because NFKC would spell ™ out as "TM"."""
     value = re.sub(r"[™®©℠]", "", value or "")
+    # Strikethrough and underline done with combining marks ("W̶e̶e̶k̶s̶"):
+    # the marks go, the letters stay.
+    value = re.sub(r"[\u0332\u0333\u0335-\u0338]", "", value)
     return unicodedata.normalize("NFKC", value)
 
 
@@ -1966,7 +1996,8 @@ def _stored_candidates(conn, market_id: int, days: int
                 stored, when = readings.get(e.get("uri")) or (None, None)
                 if isinstance(stored, dict):
                     combined = combine_customer_readings(
-                        combined, reading_from_review(stored, as_of=str(when or "")))
+                        combined, reading_from_review(stored, as_of=str(when or ""),
+                                                      text_value=text_value))
             if combined:
                 attrs = {**attrs, "customer": combined}
         stamp = f.get("occurred_at") or f.get("first_observed_at")
@@ -2010,7 +2041,14 @@ def _stored_candidates(conn, market_id: int, days: int
             "stored_event_id": f["finding_id"],
             "event_type": kind,
             "date": _parse_day(stamp).isoformat() if _parse_day(stamp) else None,
-            "date_established": f.get("occurred_at") is not None,
+            # The stored title is the announcing sentence, so the post's own
+            # opening line is read from its evidence ("Sevii: Looking back at
+            # an outstanding CrowdStrike Fal.Con").
+            "date_established": (f.get("occurred_at") is not None
+                                 and not any(_LOOKS_BACK.search(x or "") for x in
+                                             [f.get("headline")] + [
+                                                 e.get("title") for e in evidence
+                                                 if e.get("voice") == "owned"])),
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
             "headline": headline,
@@ -2110,7 +2148,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
             attrs: Dict[str, Any] = {}
             if kind == "customer" and isinstance(row.get("review_customer"), dict):
                 attrs["customer"] = reading_from_review(
-                    row["review_customer"], as_of=str(row.get("published") or ""))
+                    row["review_customer"], as_of=str(row.get("published") or ""),
+                    text_value=text_value)
             cands.append({
                 "key": f"corpus:{row['uri']}",
                 "event_type": kind,
@@ -2118,6 +2157,9 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "vendors": list(row.get("vendors") or []),
                 "headline": headline,
                 "title": ruled,
+                # A post looking back ("Looking back at Fal.Con…") is dated
+                # by when it was posted, not when the thing happened.
+                "date_established": not _LOOKS_BACK.search(headline_of(row)),
                 "dek": dek,
                 "summary": row.get("summary") or "",
                 "evidence": [evidence],

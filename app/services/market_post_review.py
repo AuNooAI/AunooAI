@@ -78,9 +78,10 @@ def _customer_of(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # output ceiling.
 DEFAULT_BATCH = 20
 
-# Body text sent per post. A LinkedIn post's point is in its first lines; the
-# rest is hashtags.
-SUMMARY_CHARS = 600
+# Body text sent per post. A LinkedIn post's point is in its first lines, but
+# the review now writes a summary too, and at 600 characters Intezer's list of
+# four launches was cut after two and the model supplied the rest.
+SUMMARY_CHARS = 1200
 # A blog article states its news further down, after an opening paragraph
 # that sets the scene.
 BLOG_SUMMARY_CHARS = 1500
@@ -141,8 +142,9 @@ For kind "customer" only, also give a "customer" object (the kind stays
   retailer", "one of our customers", "three banks" and "multiple federal
   agencies" are all null. A pronoun is not a name: "they", "the team", "this
   company" are null. A person's name is not an organisation. The vendor itself,
-  its own products and platforms, and a partner or reseller delivering the
-  deal, are not the customer.
+  its own products and platforms, a partner or reseller delivering the deal,
+  and a company that co-wrote or published the case study, are not the
+  customer.
 - "speaker": "customer" when a named person from the customer is quoted or
   presented speaking about it; otherwise "vendor".
 - "stage": "in_use" when the customer is running it; "evaluation" when they are
@@ -167,8 +169,11 @@ our words, not the vendor's: no "we", "our", "us", "excited", "proud",
   names. "Legion Security joins OpenAI's Daybreak Blue programme for approved
   defenders", not "We're proud to share that we have been accepted".
 - "summary": one sentence of at most 30 words adding what the headline leaves
-  out and the post states: a figure, a date, who is involved, what it does.
-  null when the post says nothing beyond the headline.
+  out and the post states about the same development: a figure, a date, who is
+  involved, what it does. Never a different fact from elsewhere in the post
+  (an acquisition's summary is about the acquisition, not an analyst report the
+  post also mentions). When the post lists items, name them as the post does.
+  null when the post says nothing more about the development.
 For "commentary" and "noise", headline and summary are null.
 
 Reply with a JSON array, one object per post, in the same order, no prose:
@@ -610,8 +615,9 @@ customer.
   retailer", "one of our customers", "three banks" and "multiple federal
   agencies" are all null. A pronoun is not a name: "they", "the team", "this
   company" are null. A person's name is not an organisation. The vendor itself,
-  its own products and platforms, and a partner or reseller delivering the
-  deal, are not the customer.
+  its own products and platforms, a partner or reseller delivering the deal,
+  and a company that co-wrote or published the case study, are not the
+  customer.
 - "speaker": "customer" when a named person from the customer is quoted or
   presented speaking about it; otherwise "vendor".
 - "stage": "in_use" when the customer is running it; "evaluation" when they are

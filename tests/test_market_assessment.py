@@ -1179,3 +1179,24 @@ def test_a_companys_own_site_is_not_independent_in_the_wider_strip():
     cand = ma._wider_candidate(row, {"uri": row["uri"], "voice": "independent",
                                      "key": "domain:atos.net"})
     assert cand and cand["evidence"][0]["voice"] == "owned"
+
+
+def test_a_look_back_post_does_not_date_the_event():
+    assert ma._LOOKS_BACK.search("Sevii: Looking back at an outstanding CrowdStrike "
+                                 "Fal.Con 2026 in Las Vegas")
+    assert ma._LOOKS_BACK.search("That's a wrap on AiStrike India week.")
+    assert not ma._LOOKS_BACK.search("Sevii launches Sevii AI Security module")
+
+
+def test_strikethrough_marks_are_dropped():
+    assert ma.plain_letters("W̶e̶e̶k̶s̶ of work") == "Weeks of work"
+
+
+def test_a_case_studys_co_author_is_not_the_customer():
+    text_value = ("We worked with Anthropic on a case study covering what Kai does "
+                  "inside a real enterprise environment.")
+    reading = ma.reading_from_review({"name": "Anthropic", "stage": "unclear"},
+                                     text_value=text_value)
+    assert reading["named"] is False
+    assert ma.reading_from_review({"name": "Virgin Money", "stage": "in_use"},
+                                  text_value="Virgin Money runs Legion.")["named"]
