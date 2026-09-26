@@ -325,6 +325,15 @@ class SocialEvalService:
         if not model:
             return None
         text = f"{title}\n{body}".strip()[:1500]
+        # Cheapest gate first (AI_DESIGN_PATTERNS 1.4). A post that never names
+        # the brand is capped at 0.3 below, under every on-brand floor, whatever
+        # the model says; so settle it here instead of paying for the call.
+        # About half of collected posts are like this (Sunstar, 26 Sep 2026).
+        gate_anchors = anchors if anchors is not None else _brand_anchor_tokens(brand_topic)
+        gate_raw = f"{text}\n{author or ''}".translate(_SUPERSCRIPT_DIGITS)
+        if gate_anchors and not _mentions_brand(gate_raw.lower(), gate_anchors, gate_raw):
+            return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
+                    "author_role_reason": None, "no_brand_mention": True}
         # brand_context = the bw_brands description. Without it the model cannot
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
@@ -576,7 +585,8 @@ class SocialEvalService:
             jev = await asyncio.to_thread(
                 author_role_jev.read_roles, brand, ctx["description"],
                 author_role_jev.rival_names(db, brand),
-                [by_uri[s["uri"]] for s in scored if s["uri"] in by_uri])
+                [by_uri[s["uri"]] for s in scored
+                 if s["uri"] in by_uri and not s.get("no_brand_mention")])
             for s in scored:
                 s.update(jev.get(s["uri"]) or {})
         for s in scored:
@@ -689,7 +699,7 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         if not scored:
             continue
         verdict = scored[0]
-        if author_role_jev.enabled():
+        if author_role_jev.enabled() and not verdict.get("no_brand_mention"):
             if display_name not in rivals_by_brand:
                 rivals_by_brand[display_name] = author_role_jev.rival_names(db, display_name)
             jev = await asyncio.to_thread(
