@@ -476,3 +476,15 @@ def test_the_same_post_from_two_handles_keys_the_same():
     # With no body, the handle still comes off the title.
     assert (_same_words({"title": f"@one: {body}"})
             == _same_words({"title": f"@two: {body}"}))
+
+
+def test_a_contract_award_is_a_move_tagged_contract():
+    award = _dev(5, "customer")
+    award["headline"] = "Method Security wins $30M STRATFI award from U.S. Space Force"
+    lead = _dev(0, "acquisition")
+    parts = html._v2_sections([lead, award], [], [], [])
+    # The lead rotates by day, so the award is either the lead or a move;
+    # what it must never be is a case study.
+    assert award not in parts["buckets"]["cases"]
+    assert award in parts["buckets"]["moves"] or parts.get("lead") is award
+    assert html._v2_tag(award) == "Contract"

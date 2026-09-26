@@ -3710,7 +3710,19 @@ def _customer_named(dev: Dict[str, Any]) -> bool:
     return bool(reading.get("named"))
 
 
+def _is_contract(dev: Dict[str, Any]) -> bool:
+    """A government contract or award, filed as a customer: Method Security's
+    STRATFI award from the U.S. Space Force is neither a round nor a case
+    study."""
+    from app.services.market_assessment import _CONTRACT
+
+    return (dev.get("event_type") == "customer"
+            and bool(_CONTRACT.search(dev.get("headline") or "")))
+
+
 def _v2_tag(dev: Dict[str, Any]) -> str:
+    if _is_contract(dev):
+        return "Contract"
     if dev.get("event_type") == "customer":
         return "Customer" if _customer_named(dev) else "Case study"
     return dev.get("event_type_label") or ""
@@ -3818,7 +3830,7 @@ def _v2_sections(developments: List[Dict[str, Any]],
             buckets["launches"].append(d)
         elif kind in _V2_HIRING_TYPES:
             buckets["hiring"].append(d)
-        elif kind == "customer" and not _customer_named(d):
+        elif kind == "customer" and not _customer_named(d) and not _is_contract(d):
             buckets["cases"].append(d)
         else:
             buckets["moves"].append(d)

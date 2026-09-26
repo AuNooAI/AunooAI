@@ -1121,3 +1121,61 @@ def test_a_vendor_post_with_no_tracked_vendor_is_not_a_development():
                    article_class="social", vendors=[], review_verdict="signal",
                    review_kind="customer")
     assert ma.classify_record(post) is None
+
+
+# ---------------------------------------------------------------------------
+# Data-quality round three (26 Sep 2026)
+# ---------------------------------------------------------------------------
+
+def test_a_word_in_passing_does_not_drop_a_reviewed_announcement():
+    """Merlin Cyber and Torq's partnership post mentioned the booth."""
+    post = {**_record("Torq: Merlin Cyber and Torq are partnering on federal AI SOC",
+                      article_class="social", vendors=[_vendor("Torq", 50)],
+                      review_verdict="signal", review_kind="partnership",
+                      summary="Find us at booth 12 to see it."),
+            "review_headline": "Merlin Cyber partners with Torq for federal AI SOC",
+            "review_check": _check()}
+    assert ma.classify_record(post) == "partnership"
+
+
+def test_a_government_award_is_a_customer_not_a_round():
+    assert ma._refine_funding("funding", "Method Security wins $30M STRATFI award "
+                              "from U.S. Space Force") == "customer"
+    assert ma._refine_funding("funding", "StrikeReady raises funding led by "
+                              "Wa'ed Ventures") == "funding"
+
+
+def test_led_by_stops_at_the_end_of_the_headline():
+    dev = {"event_type": "funding", "vendors": [_vendor("StrikeReady", 51)],
+           "headline": "StrikeReady raises funding led by Wa'ed Ventures",
+           "summary": "StrikeReady is excited to share our new investment round "
+                      "led by the venture capital arm of Aramco.",
+           "date": "2026-09-16"}
+    assert ma._deal_sentence(dev) == ("StrikeReady raised a new round led by "
+                                      "Wa'ed Ventures on 16 September.")
+
+
+def test_a_marketplace_listing_is_not_an_event():
+    assert ma._NOT_EVENT.search("Daylight Security launches on Google Cloud Marketplace")
+    assert ma._NOT_EVENT.search("Anvilogic listed in Snowflake, Databricks and AWS marketplaces")
+    assert not ma._NOT_EVENT.search("Anvilogic becomes Snowflake Connected App")
+
+
+def test_one_named_customer_told_twice_three_weeks_apart_is_one_item():
+    reading = {"customer": {"named": True, "name": "SEP2"}}
+    first = {**_post("SEP2 runs 24/7 MDR for 70+ customers", vendor="Spectrum Security",
+                     brand_id=52, date="2026-09-03"), "event_type": "customer",
+             "attributes": reading}
+    again = {**_post("Every detection team has a list of coverage it cannot reach",
+                     vendor="Spectrum Security", brand_id=52, date="2026-09-25"),
+             "event_type": "customer", "attributes": reading}
+    assert len(ma.dedupe([first, again])) == 1
+
+
+def test_a_companys_own_site_is_not_independent_in_the_wider_strip():
+    row = {"uri": "https://atos.net/en/2026/press-release/atos-gch",
+           "title": "Atos partners with GCH to open a new AI-driven SOC in the UAE",
+           "summary": "", "published": "2026-09-17T10:00:00Z"}
+    cand = ma._wider_candidate(row, {"uri": row["uri"], "voice": "independent",
+                                     "key": "domain:atos.net"})
+    assert cand and cand["evidence"][0]["voice"] == "owned"

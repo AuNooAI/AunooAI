@@ -275,6 +275,11 @@ _NOT_EVENT = re.compile(
     # prompt says so, and still read UiPath's "Professional Certification"
     # as a launch and Cotool's signature on OpenAI's letter as a partnership.
     r"|\bcertification\b|\bcredential\b|\bopen\s+letter\b"
+    # A marketplace listing is a place to buy, not a product or a partner.
+    # The review files it as an award, and still sent Anvilogic's listing
+    # as a partnership and Daylight's as a launch.
+    r"|\b(listed|lists|listing|available|launch(es|ed)?|now\s+on)\b"
+    r"[^.]{0,60}\bmarketplaces?\b"
     r"|\bcall\s+(for|to)\s+collective\s+action\b",
     re.I)
 
@@ -400,6 +405,24 @@ def record_is_noise(record: Dict[str, Any]) -> bool:
     return is_noise(f"{record.get('title') or ''} {record.get('summary') or ''}")
 
 
+#: A government contract or award, which reads like money raised and is a
+#: customer: Method Security's "$30M STRATFI award" from the U.S. Space Force
+#: was written up as "raised a $30M strategic round".
+_CONTRACT = re.compile(
+    r"\b(stratfi|sbir|tacfi|awardable|contract)\b"
+    r"|\baward(ed|s)?\b.{0,60}\b(force|army|navy|department|agency|"
+    r"government|dod|ministry)\b", re.I | re.S)
+_RAISE = re.compile(r"\b(rais(es|ed|ing)|series\s+[a-e]|seed\s+round|"
+                    r"investment\s+round|investors?|led\s+by)\b", re.I)
+
+
+def _refine_funding(kind: Optional[str], text_value: str) -> Optional[str]:
+    if kind == "funding" and _CONTRACT.search(text_value or "") \
+            and not _RAISE.search(text_value or ""):
+        return "customer"
+    return kind
+
+
 def _refine_product(kind: str, text_value: str) -> str:
     if kind == "product_launch" and _EXPANSION.search(text_value or ""):
         return "product_expansion"
@@ -444,10 +467,14 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
     here — they attach to one as evidence, or stay in the corpus.
     """
     text_value = f"{record.get('title') or ''} {record.get('summary') or ''}"
-    if record_is_noise(record) or _NOT_EVENT.search(headline_of(record)):
-        return None
     kind = record.get("article_class")
-    if kind == "social":
+    # A vendor's own post or blog page the review has read: its reading
+    # decides, and the noise rules judge only the headline the page will
+    # show. Run over the whole post they turned real news away for a word in
+    # passing: a partnership post that mentions the booth (Merlin Cyber and
+    # Torq), a senior hire that ends "talk to us" (Vigilbase), a launch whose
+    # opening line is "We block hackers" (Wirespeed Login Security).
+    if kind == "social" or (kind == "vendor" and record.get("review_verdict")):
         # A post by a company that is no longer one of this market's vendors
         # (panaya dropped its peer tier on 22 Sep 2026) still carries a
         # review, and was still filed: Avo Automation's posts stayed on a
@@ -456,12 +483,18 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
             return None
         if record.get("review_verdict") != "signal":
             return None
+        shown = checked_writing(record)[0] or headline_of(record)
+        if is_noise(shown) or _NOT_EVENT.search(shown):
+            return None
         mapped = _REVIEW_KIND_MAP.get((record.get("review_kind") or "").lower())
         if mapped == "executive_appointment" and not _SENIOR.search(text_value):
             return None
         if mapped is None:
             return None
-        return _refine_product(mapped, text_value)
+        return _refine_funding(_refine_product(mapped, text_value),
+                               f"{shown} {text_value}")
+    if record_is_noise(record) or _NOT_EVENT.search(headline_of(record)):
+        return None
     if kind in ("discussion", "research"):
         return None
     # News and vendor-web pages: a development only when a tracked vendor is
@@ -739,6 +772,13 @@ def same_development(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         return False
     va, vb = _vendor_ids(a), _vendor_ids(b)
     if not _within(a.get("day"), b.get("day"), MERGE_WINDOW_DAYS):
+        # One named customer's story with one vendor, told again weeks later,
+        # is one item: Spectrum posted the SEP2 case study on 3 Sep and
+        # re-shared the interview on 25 Sep.
+        if (a["event_type"] == b["event_type"] == "customer" and (va & vb)
+                and _within(a.get("day"), b.get("day"), PRODUCT_NAME_WINDOW_DAYS)
+                and _customer_name(a) and _customer_name(a) == _customer_name(b)):
+            return True
         # A product named in both headlines is one launch for longer than
         # the usual window: D3 announced Morpheus 2 on 28 August and posted
         # about "new improvements with Morpheus 2" on 17 September, and the
@@ -857,6 +897,13 @@ def _different_products(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     and the page showed as one launch."""
     pairs = _titles_name_pairs(a, b)
     return bool(pairs) and all(na and nb and na != nb for _, na, nb in pairs)
+
+
+def _customer_name(record: Dict[str, Any]) -> Optional[str]:
+    """The customer the review named for a customer item, lowercased."""
+    reading = (record.get("attributes") or {}).get("customer") or {}
+    name = reading.get("name") if isinstance(reading, dict) else None
+    return name.strip().lower() if isinstance(name, str) and name.strip() else None
 
 
 def _vendor_only(record: Dict[str, Any]) -> bool:
@@ -1900,9 +1947,7 @@ def _stored_candidates(conn, market_id: int, days: int
         if not kind:
             continue
         text_value = f"{f.get('headline') or ''} {f.get('summary') or ''}"
-        if is_noise(text_value) or _NOT_EVENT.search(f.get("headline") or ""):
-            continue
-        kind = _refine_product(kind, text_value)
+        kind = _refine_funding(_refine_product(kind, text_value), text_value)
         evidence = []
         for s in f.get("supporting") or []:
             if s.get("uri"):
@@ -1940,7 +1985,8 @@ def _stored_candidates(conn, market_id: int, days: int
                                       and not _SENIOR.search(text_value)):
                     continue
                 if _FAMILY.get(reread) != _FAMILY.get(kind):
-                    kind = _refine_product(reread, text_value)
+                    kind = _refine_funding(_refine_product(reread, text_value),
+                                           text_value)
         written, dek = next((writing[e["uri"]] for e in evidence
                              if e.get("uri") in writing), (None, None))
         original = announcing_headline(
@@ -1951,9 +1997,13 @@ def _stored_candidates(conn, market_id: int, days: int
             reason=next((reasons[e["uri"]] for e in evidence
                          if e.get("uri") in reasons), None))
         headline = written or original
-        # The shown headline can be a sentence the stored title was not:
-        # "…has passed 6K+ downloads" came from Imperum's post body.
-        if _NOT_EVENT.search(headline):
+        # The noise rules judge the headline the page will show, and the
+        # whole post only when the review wrote none: a word in passing
+        # ("booth", "talk to us") turned real news away. The shown headline
+        # can also be a sentence the stored title was not: "…has passed 6K+
+        # downloads" came from Imperum's post body.
+        if is_noise(headline if written else text_value) \
+                or _NOT_EVENT.search(headline):
             continue
         out.append({
             "key": f"event:{f['finding_id']}",
@@ -2035,7 +2085,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
         # "Cribl Just Acquired Radiant Security's AI SOC Technology" is D3's
         # commentary, not D3's acquisition.
         if kind in THIRD_PARTY_KINDS and klass == "vendor" \
-                and not speaks_for_vendor(row.get("title") or "", row):
+                and not speaks_for_vendor(checked_writing(row)[0]
+                                          or row.get("title") or "", row):
             kind = None
         headline = None
         written, dek = (None, None) if klass == "news" else checked_writing(row)
@@ -2171,6 +2222,14 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
         return None
     company = re.split(r"\s+(?:and|&)\s+", lead.group(1).strip())[0]
     company = re.sub(r"['’]s$", "", company)
+    # The company's own site, which has no registry entry for a company we do
+    # not track: atos.net made "Atos partners with GCH" read as reported
+    # independently.
+    slug = re.sub(r"[^a-z0-9]", "", company.lower())
+    site = (_host(row["uri"]) or "").split(".")[0].replace("-", "")
+    if len(slug) >= 3 and site and (site == slug or site.startswith(slug)):
+        evidence = {**evidence, "voice": "owned", "source_type": "vendor",
+                    "key": f"owned:web:{_host(row['uri'])}"}
     return {
         "key": f"wider:{row['uri']}",
         "event_type": kind,
@@ -2841,7 +2900,12 @@ def _deal_sentence(dev: Dict[str, Any]) -> str:
             said = f"{vendor} raised a new round"
             if "in total" in wim:
                 total = f" It has raised {wim.split(' raised in total')[0]} in total, it says."
-        led = _LED_BY.search(text_value)
+        # The headline first, on its own: joined to the post, a headline with
+        # no full stop ran the match on into the vendor's text ("led by Wa'ed
+        # Ventures StrikeReady is excited to share our new investment round
+        # led by the venture").
+        led = (_LED_BY.search(_title_of(dev))
+               or _LED_BY.search(dev.get("summary") or ""))
         if led:
             said += f" led by {led.group(1).strip()}"
         return f"{said}{on}.{total}"
