@@ -340,13 +340,32 @@ class SocialEvalService:
         # the model. On Sunstar's 16,172 posts at 0.1 it skipped half the model
         # calls and lost 6 of 4,406 on-brand posts, all six the model's own
         # errors ("Colgate is an Ivy League school").
+        #
+        # Where the site also sets SOCIAL_JEV_ACCEPT_MIN, a post Jev reads as
+        # about the brand above that minimum, and not negative, is settled
+        # without the model too. At 0.91 on Sunstar's posts, 21 of its 23
+        # disagreements with the model were the model missing real company news
+        # (Colgate's dividend, Haleon's results). A post Jev reads as negative
+        # (p >= _JEV_NEGATIVE_TO_MODEL) still goes to the model: negatives drive
+        # the alerts and get the model's second look. That caught all 115 of the
+        # model's negatives in the accept range. The author role comes from the
+        # Jev role reader, as for every other post on these sites.
         jev_min = _jev_prefilter_min()
-        if jev_min and brand_context and not topic_mode:
+        jev_accept = _jev_accept_min()
+        if (jev_min or jev_accept) and brand_context and not topic_mode:
             jev = await asyncio.to_thread(_jev_about_brand, brand_topic, brand_context,
                                           title, body, author)
-            if jev is not None and jev < jev_min:
-                return {"relevance": round(jev, 3), "sentiment": "neutral", "author_role": None,
-                        "author_role_reason": None, "jev_prefilter": True}
+            if jev is not None:
+                if jev_min and jev["relevance"] < jev_min:
+                    return {"relevance": round(jev["relevance"], 3), "sentiment": "neutral",
+                            "author_role": None, "author_role_reason": None,
+                            "jev_prefilter": True}
+                if (jev_accept and jev["relevance"] > jev_accept
+                        and jev["sentiment"] in ("positive", "neutral")
+                        and jev["p_negative"] < _JEV_NEGATIVE_TO_MODEL):
+                    return {"relevance": round(jev["relevance"], 3), "sentiment": jev["sentiment"],
+                            "author_role": None, "author_role_reason": None,
+                            "jev_accept": True}
         # brand_context = the bw_brands description. Without it the model cannot
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
@@ -987,6 +1006,18 @@ async def sweep_unevaluated_social(db, limit_per_topic: int = 200,
     return total
 
 
+def _jev_accept_min() -> float:
+    """SOCIAL_JEV_ACCEPT_MIN from the site's .env; 0 (off) when unset."""
+    try:
+        return max(0.0, float(os.getenv("SOCIAL_JEV_ACCEPT_MIN", "") or 0))
+    except ValueError:
+        return 0.0
+
+
+#: A post Jev accepts is still sent to the model when Jev gives negative this much.
+_JEV_NEGATIVE_TO_MODEL = 0.3
+
+
 def _jev_prefilter_min() -> float:
     """SOCIAL_JEV_PREFILTER_MIN from the site's .env; 0 (off) when unset."""
     try:
@@ -999,13 +1030,20 @@ _JEV_ABOUT_BRAND = {"relevance": {
     "type": "noul",
     "instructions": "Is `post` substantively about `brand` (its business, products, people, actions, or someone's genuine experience or opinion of it), as `brand.context` describes the brand?",
     "criteria": {"true": "The post is about this brand or someone's experience with it",
-                 "false": "A coincidental name match, a different business or person with the same name, an advert or solicitation that merely lists the brand, or a post that never mentions the brand"}}}
+                 "false": "A coincidental name match, a different business or person with the same name, an advert or solicitation that merely lists the brand, or a post that never mentions the brand"}},
+    "sentiment": {
+    "type": "choice",
+    "instructions": "What is the sentiment of `post` toward `brand`? Judge who is criticised or praised, not the mood of the subject matter.",
+    "criteria": {"positive": "Praise, recommendation, gratitude, a good experience with the brand",
+                 "neutral": "Factual, mixed, or the brand is not the target of any feeling",
+                 "negative": "Complaint, criticism or disappointment aimed at the brand or its products or services"}}}
 
 
 def _jev_about_brand(brand_topic: str, brand_context: str, title: str, body: str,
-                     author: str) -> Optional[float]:
-    """Jev's probability that the post is about the brand; None on any failure,
-    so the post falls through to the model as before."""
+                     author: str) -> Optional[Dict]:
+    """Jev's reading of the post: relevance (probability it is about the brand),
+    sentiment (its choice) and p_negative. None on any failure, so the post
+    falls through to the model as before."""
     try:
         from app.services import typesafe_client
         if not typesafe_client.is_configured():
@@ -1016,7 +1054,12 @@ def _jev_about_brand(brand_topic: str, brand_context: str, title: str, body: str
                           "text": (body or "")[:1500]}}
         out = typesafe_client.system_one(state, _JEV_ABOUT_BRAND,
                                          use_case="services.social_eval_service:jev_prefilter")
-        return float(out["answers"]["relevance"]["noul"]) if out else None
+        if not out:
+            return None
+        a = out["answers"]
+        return {"relevance": float(a["relevance"]["noul"]),
+                "sentiment": str(a["sentiment"].get("choice") or ""),
+                "p_negative": float((a["sentiment"].get("probabilities") or {}).get("negative", 1.0))}
     except Exception as e:  # noqa: BLE001 - the gate is an optimisation, never a blocker
         logger.debug(f"SocialEval Jev prefilter failed: {e}")
         return None
