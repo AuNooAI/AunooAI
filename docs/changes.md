@@ -1,5 +1,20 @@
 # Changes
 
+## 2026-09-27 — A Snowflake Marketplace listing was shown as a customer story
+
+### Fix · The contract rule reads the headline, not the whole post
+The data-quality check found "Anvilogic accepted as Snowflake Marketplace Connected App" under
+Market moves, tagged Customer, with "Marketplace Capacity Drawdown" (a Snowflake billing feature)
+as the customer. The review reads it as an award, which the page does not show. The stored-event
+path in **`app/services/market_assessment.py`** (`material_developments`) re-reads an award as a
+customer when it is a contract, the rule added for Method Security's STRATFI award, and it ran
+`_CONTRACT` over the whole post. The post says "Most Snowflake customers never spend their full
+Committed Capacity contract". It now reads the checked headlines of the vendor's posts, and the
+stored headline only when there is none, as `classify_record` already did. The stored headline
+is not enough on its own, because it is often the post's opening line, and here that was the line
+that said "contract". Against the committed code on the same data, only the Anvilogic item
+changed; Method Security's award still shows as a contract. Applied to panaya, oviva and sunstar.
+
 ## 2026-09-27 — Market review: milestone guard, and Sonnet 5 as the corrector
 
 ### Goal

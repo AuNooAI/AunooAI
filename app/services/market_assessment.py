@@ -2122,8 +2122,19 @@ def _stored_candidates(conn, market_id: int, days: int
                     continue
                 reread = _REVIEW_KIND_MAP.get(signals[0])
                 # A contract re-read as an award is still a customer (Method).
-                if reread is None and _CONTRACT.search(text_value) \
-                        and not _RAISE.search(text_value):
+                # Read on the headline, as classify_record does, not the whole
+                # post: Anvilogic's Snowflake Marketplace listing became a
+                # customer story because the post says "Committed Capacity
+                # contract" in passing.
+                # The stored headline is only the fallback: it is often the
+                # post's opening line, and here that line was the one that
+                # said "contract".
+                said = " ".join(h for h in (
+                    (writing.get(e["uri"]) or (None, None))[0]
+                    for e in evidence if e.get("voice") == "owned") if h) \
+                    or (f.get("headline") or "")
+                if reread is None and _CONTRACT.search(said) \
+                        and not _RAISE.search(said):
                     reread = "customer"
                 if reread is None:
                     continue
