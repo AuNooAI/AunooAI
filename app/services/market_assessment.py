@@ -441,6 +441,37 @@ _LOOKS_BACK = re.compile(
     r"thank\s+you\s+to\s+everyone)", re.I)
 
 
+#: A usage count: "passed 6K+ downloads", "10,000 stars on GitHub".
+_USAGE_COUNT = re.compile(
+    r"\b\d[\d,.]*\s?[km]?\+?\s+(downloads|stars|installs|users|followers|"
+    r"views|pulls|forks)\b", re.I)
+
+#: The opening of a post that announces something new.
+_ANNOUNCES = re.compile(
+    r"^\W*(\w+(\s+\w+)?:\s*)?(\W*)(introducing|announcing|meet\b|today\b|"
+    r"(we['’]?re|we\s+are)\s+(excited|thrilled|proud|launching|releasing|"
+    r"introducing|announcing)|(just|now)\s+(launched|released|available)|new\b)",
+    re.I)
+
+
+def milestone_post(kind: Optional[str], text_value: str) -> bool:
+    """A launch reading of a post that reports a usage count and does not
+    open by announcing anything: a milestone about an earlier launch.
+
+    Read on the post, not the headline. On 27 Sep 2026 Sonnet 5, as the
+    corrector, rewrote Imperum's "thank you for 6K+ downloads" post as
+    "Imperum releases Imperum-CybersecurityLLM v1.0 on Hugging Face"; the
+    count moved to the summary and the headline rule no longer saw it. The
+    model was released on 24 Aug, in its own post.
+    """
+    if kind not in ("product_launch", "product_expansion"):
+        return False
+    text_value = text_value or ""
+    return bool(_USAGE_COUNT.search(text_value)) \
+        and not _ANNOUNCES.search(text_value.split(":", 1)[-1] if
+                                  re.match(r"^[^:]{2,60}:\s", text_value) else text_value)
+
+
 #: A post in a recurring series: a newsletter or weekly brief mentions the
 #: company's earlier news, and the review read Tuskira's "Threat Brief: Week
 #: of September 21" as a launch (and once as Help Net Security becoming a
@@ -534,8 +565,11 @@ def classify_record(record: Dict[str, Any]) -> Optional[str]:
             return None
         if mapped is None:
             return None
-        return _refine_funding(_refine_product(mapped, text_value),
-                               f"{shown} {text_value}")
+        refined = _refine_funding(_refine_product(mapped, text_value),
+                                  f"{shown} {text_value}")
+        if milestone_post(refined, text_value):
+            return None
+        return refined
     if record_is_noise(record) or _NOT_EVENT.search(headline_of(record)):
         return None
     if kind in ("discussion", "research"):
@@ -2118,6 +2152,7 @@ def _stored_candidates(conn, market_id: int, days: int
         # downloads" came from Imperum's post body.
         if is_noise(headline if written else text_value) \
                 or _NOT_EVENT.search(headline) \
+                or milestone_post(kind, text_value) \
                 or any(_SERIES.search(e.get("title") or "") for e in evidence
                        if e.get("voice") == "owned"):
             continue
@@ -2229,7 +2264,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                                          reason=row.get("review_reason")))
             headline = written or ruled
             # The shown headline can be a body sentence the title was not.
-            if _NOT_EVENT.search(headline):
+            if _NOT_EVENT.search(headline) or milestone_post(
+                    kind, f"{row.get('title') or ''} {row.get('summary') or ''}"):
                 kind = None
         if kind:
             attrs: Dict[str, Any] = {}

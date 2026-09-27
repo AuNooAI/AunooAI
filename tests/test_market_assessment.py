@@ -1321,3 +1321,26 @@ def test_only_confident_items_are_featured_or_quoted():
     assert not ma.prominent_ok({"review_confidence": 0.64})
     assert ma.review_confidence({"kind": {"p_drafted": 0.95},
                                  "headline": {"p_supports": 0.64}}) == 0.64
+
+
+def test_a_usage_milestone_is_not_a_launch_whatever_the_headline_says():
+    # Imperum's 11 Sep post thanks readers for 6K+ downloads of a model it
+    # released on 24 Aug. Sonnet 5 rewrote it as "Imperum releases …", so
+    # the guard reads the post, not the headline.
+    milestone = ("Imperum: A big thank you to the cybersecurity community! In less "
+                 "than 3 weeks since launch, Imperum-CybersecurityLLM v1.0 has "
+                 "passed 6K+ downloads")
+    assert ma.milestone_post("product_launch", milestone)
+    assert not ma.milestone_post("partnership", milestone)
+    assert not ma.milestone_post("product_launch", "Imperum: Introducing "
+                                 "Imperum-CybersecurityLLM v1.0. Free to download.")
+    assert not ma.milestone_post("product_launch", "Acme: We're excited to launch "
+                                 "Acme Triage 2.0, already used by 5,000 users in beta.")
+    assert ma.milestone_post("product_expansion", "Acme: Our agent just hit 10K "
+                             "stars on GitHub. Thank you!")
+    record = {"article_class": "vendor", "review_verdict": "signal",
+              "review_kind": "launch", "vendors": [{"brand_id": 1, "vendor": "Imperum"}],
+              "title": milestone, "summary": "",
+              "review_headline": "Imperum releases Imperum-CybersecurityLLM v1.0",
+              "review_check": {"headline": {"verdict": "supports", "p_supports": 0.95}}}
+    assert ma.classify_record(record) is None

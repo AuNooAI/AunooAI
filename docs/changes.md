@@ -1,5 +1,42 @@
 # Changes
 
+## 2026-09-27 — Market review: milestone guard, and Sonnet 5 as the corrector
+
+### Goal
+Oliver asked for a drafter and corrector comparison on the fixed review loop, then for the
+milestone guard to be fixed before switching the corrector to Sonnet 5.
+
+### Result · Model comparison (2 runs per pair: the 30-case regression set plus 200 recent aisocnews posts)
+- **Kimi K3 as drafter: not adopted.** On Bedrock it costs $3 / $15 per million tokens, five
+  times K2.5. A run cost $1.18 to draft against $0.07 and took 2.5 times as long. Jev objected to
+  its drafts as often (about 12%). It hid the Intezer Q2 launches post in all four of its runs.
+- **Sonnet 5 as corrector: adopted.** It cleared 73-86% of Jev's objections against 48-61% for
+  Sonnet 4.5, at about 20% less ($2 / $10). It showed Imperum's downloads milestone as a launch
+  in both batch runs, which the guard below now stops.
+
+### Fix · A usage milestone is not a launch, whatever the headline says
+**`app/services/market_assessment.py`**: `milestone_post` drops a launch reading when the post
+reports a usage count ("6K+ downloads", "10K stars") and does not open by announcing something.
+It reads the post, not the headline: Sonnet 5 had rewritten Imperum's "thank you for 6K+
+downloads" post as "Imperum releases Imperum-CybersecurityLLM v1.0", which moved the count out of
+the headline the old rule checked. The model itself was released on 24 Aug, in its own post. The
+guard runs in `classify_record` and on the stored and corpus paths. It drops none of the 1,365
+news posts stored on the four sites in the last 60 days.
+
+### Change · The corrector is Sonnet 5
+**`app/services/market_post_review.py`**: `_corrector_model` defaults to `claude-sonnet-5`;
+`MARKET_REVIEW_CORRECTOR_MODEL` still overrides it. Over six regression runs each after the
+guard, Sonnet 4.5 passed 176 of 180 and Sonnet 5 174 of 180, with both missing the same cases
+(Wirespeed, VigilBase), so the drafter varies between runs, not the corrector. Sonnet 5 takes no
+temperature. Aliases `claude-sonnet-5` and `bedrock-kimi-k3` added to bugfixing's
+`app/config/litellm_config.yaml`; panaya gained the `claude-sonnet-5` alias (oviva and sunstar
+had it).
+
+### Fix · Claude 5 calls were logged as free
+**`app/services/llm_usage_logger.py`**: the price table had no entry for Sonnet 5, Opus 5 or
+Kimi K3, so the ledger recorded their calls at $0. Oviva and sunstar already had Sonnet 5 in use.
+Added to all six tenants; wiley and wileytest pick it up on their next restart.
+
 ## 2026-09-27 — Market review round 5: role checks, exact checks, a stricter bar for what leads the page, and a daily quality email
 
 ### Goal

@@ -73,6 +73,11 @@ _BATCH_MAX = 500
 # Fallback price table (USD per 1M tokens, input/output) for when litellm
 # can't cost a call. Substring-matched against the resolved model id.
 _PRICE_PER_M: dict[str, tuple[float, float]] = {
+    # Claude 5 family and Kimi K3 (Bedrock list prices, 27 Sep 2026). Missing,
+    # their calls were logged as free.
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-opus-5": (5.00, 25.00),
+    "kimi-k3": (3.00, 15.00),
     "claude-sonnet-4-5": (3.00, 15.00),
     "claude-sonnet-4": (3.00, 15.00),
     "claude-haiku-4-5": (0.80, 4.00),
