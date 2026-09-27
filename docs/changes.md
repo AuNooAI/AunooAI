@@ -1,5 +1,18 @@
 # Changes
 
+## 2026-09-27 — Sunstar's Market Monitor switched on
+
+Sunstar's "Oral Care" market (six brands, created 23 Sep) never ran a scheduled step:
+`MARKET_MONITORING_ENABLED` was not set in sunstar's `.env`, and `market_monitor._enabled()`
+treats a missing value as off. Oliver approved switching it on. Sunstar's `.env` now has
+`MARKET_MONITORING_ENABLED=true` and `MARKET_PROFILE_DAILY=0` (voice profiles off to start: each
+is a Sonnet 4.5 call plus Xpoz reads); backup `.env.bak-marketon-*`. First pass, all
+succeeded: corpus match (53 new), post review, monthly briefing, Social check (15 of 44 shown),
+Wider market and credit checks. The page has no developments yet: its matched articles are
+mostly social posts, and the brands' own newsroom pages are not collected until
+`vendor_web_discovery` (running on the first pass) finds them. No LinkedIn collection: the six
+brands have no LinkedIn pages on file and sunstar has no BrightData key.
+
 ## 2026-09-27 — A team lead is not an executive appointment
 
 Oliver's decision. The senior-title rule in **`app/services/market_assessment.py`** (`_SENIOR`)
