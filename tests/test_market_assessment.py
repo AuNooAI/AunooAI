@@ -1376,3 +1376,26 @@ def test_the_page_shows_only_checked_quoted_or_counted_words():
     assert not ma.shown_on_page({"headline_source": "rule"})
     # The checks unsure what it is: left out rather than guessed.
     assert not ma.shown_on_page({"headline_source": "checked", "review_confidence": 0.39})
+
+
+def test_an_item_is_credited_only_to_a_company_its_sources_say_did_it():
+    dev = {"event_type": "product_launch", "headline": "Synthesized launches UiPath integration",
+           "headline_uri": "https://news/synth", "headline_rank": 0,
+           "vendors": [{"brand_id": 5, "vendor": "UiPath"}, {"brand_id": 6, "vendor": "SmartBear"}],
+           "evidence": [{"uri": "https://news/synth"}, {"uri": "https://uipath.com/blog"}],
+           "head_options": [
+               {"uri": "https://news/synth", "headline": "Synthesized launches UiPath integration",
+                "headline_source": "publisher", "headline_rank": 0},
+               {"uri": "https://uipath.com/blog", "headline": "UiPath launches Integration Service",
+                "headline_source": "checked", "headline_rank": 2}]}
+    # Not checked yet: every pair waits.
+    kept, todo, rejected = ma._credited(dev, {})
+    assert not kept and len(todo) == 4 and not rejected
+    actors = {"https://news/synth": {"5": 0.26, "6": 0.1},
+              "https://uipath.com/blog": {"5": 0.98, "6": 0.05}}
+    kept, todo, rejected = ma._credited(dev, actors)
+    assert [v["vendor"] for v in kept] == ["UiPath"] and not todo and rejected
+    # The headline's own source does not confirm UiPath: take one that does.
+    fixed = ma._confirmed_headline({**dev, "vendors": kept}, actors)
+    assert fixed["headline"] == "UiPath launches Integration Service"
+    assert fixed["headline_uri"] == "https://uipath.com/blog"

@@ -1,5 +1,38 @@
 # Changes
 
+## 2026-09-27 — An item is credited only to a company its sources say did it
+
+### Fix · Wrong-company credit, as a class
+The first weekly sample found three of its four errors of one kind: an item credited to a company
+that did not do it. Two routes caused it. A news article naming a tracked vendor was filed under
+that vendor even when the vendor was only the platform or partner, and merging two items pooled
+their vendors (UiPath joined SmartBear's contract-testing launch).
+- **`app/services/market_actor_review.py`** (new): Jev reads each of an item's sources and answers,
+  for each credited vendor, whether that company did the development or is only mentioned. The
+  question lists research ("published or commissioned the research, survey or benchmark") and says
+  "we" and "our" speak for the account that posted. It is given the vendor's other names and pages,
+  because Louie AI posts as Graphistry. Answers are stored per article and vendor in
+  `review_check.actors`. It runs every 4 hours (`app/tasks/market_monitor.py`, source `actor_review`).
+- **`app/services/market_assessment.py`**: `_credited` keeps a vendor on an item when one of its
+  sources (the headline's own source plus the first three) confirms it. A vendor all its sources
+  reject is removed, an item left with no vendor is held out, and an unchecked item waits.
+  `_confirmed_headline`: when the headline's own source does not confirm the credited vendor, the
+  best headline from a source that does takes its place. Each merged item now keeps every
+  candidate headline with its source (`head_options`, `headline_uri`). That fixed panaya's item
+  that merged UiPath's Integration Service launch with Synthesized's UiPath integration and showed
+  Synthesized's headline under UiPath.
+
+### Result
+- Weekly sample after the fix: panaya 0 of 20 wrong (2 of 20 before); aisocnews 1 of 20 (the
+  AiStrike executive-appointment question, still open); oviva 1 of 3 (WeightWatchers' own post
+  about a Dear Media podcast its Head of Content hosts: Jev reads WeightWatchers as a party, the
+  grader does not).
+- First check on aisocnews: 90 pairs, all confirmed once research and "we" were in the question.
+
+### Not fixed
+- Sunstar's market tick has never run: `bw_collection_runs` is empty there, so none of the
+  scheduled review steps run. Its page has no items. Found while deploying; not investigated.
+
 ## 2026-09-27 — One rule for the market page, readings kept, and a measured error rate
 
 ### Goal

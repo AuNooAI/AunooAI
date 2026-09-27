@@ -86,6 +86,8 @@ SOURCE_VOICE_PROFILES = "voice_profiles"
 SOURCE_SOCIAL_CHECK = "social_check"
 # The "Wider market" strip: other companies' news, written and checked.
 SOURCE_WIDER_REVIEW = "wider_review"
+# Each company an item is credited to must be one its sources say did it.
+SOURCE_ACTOR_REVIEW = "actor_review"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -204,6 +206,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_VOICE_PROFILES: slow,  # daily, capped by MARKET_PROFILE_DAILY
         SOURCE_SOCIAL_CHECK: timedelta(hours=4),  # with the corpus match
         SOURCE_WIDER_REVIEW: timedelta(hours=4),  # with the corpus match
+        SOURCE_ACTOR_REVIEW: timedelta(hours=4),  # with the corpus match
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -565,6 +568,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += await _profile_voices(conn, market, now)
     runs += await _check_social(conn, market, now)
     runs += await _review_wider(conn, market, now)
+    runs += await _review_actors(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -954,6 +958,31 @@ async def _review_wider(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s wider review failed: %s", market_id, exc)
+    return 1
+
+
+async def _review_actors(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Check that each company an item is credited to did it
+    (market_actor_review). An item waits on the page until this has run."""
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_ACTOR_REVIEW, now) is None:
+        return 0
+    from app.services import market_actor_review as mar
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_ACTOR_REVIEW,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mar.review(conn, market_id, days=30)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["confirmed"],
+                     skipped=result["rejected"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s actor review failed: %s", market_id, exc)
     return 1
 
 

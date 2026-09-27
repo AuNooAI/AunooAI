@@ -1039,6 +1039,71 @@ def review_confidence(check: Optional[Dict[str, Any]]) -> Optional[float]:
     return round(min(head, kind), 3)
 
 
+def _credited(dev: Dict[str, Any], actors: Dict[str, Dict[str, float]]
+              ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], bool]:
+    """The vendors an item may be credited to, the (source, vendor) pairs
+    still to check, and whether any vendor was turned away.
+
+    A vendor stays when one of the item's first three sources says it did the
+    development (market_actor_review); it goes when all of them were checked
+    and none did. Synthesized's UiPath integration was listed under UiPath,
+    and a merge put UiPath on SmartBear's launch.
+    """
+    from app.services.market_actor_review import ACTOR_MIN
+
+    sources = [e.get("uri") for e in dev.get("evidence") or [] if e.get("uri")][:3]
+    # The headline's own source is always checked: see _confirmed_headline.
+    if dev.get("headline_uri") and dev["headline_uri"] not in sources:
+        sources = [dev["headline_uri"]] + sources
+    kept, todo, rejected = [], [], False
+    for v in dev.get("vendors") or []:
+        if v.get("brand_id") is None:
+            kept.append(v)
+            continue
+        answers = {u: (actors.get(u) or {}).get(str(v["brand_id"])) for u in sources}
+        if any(a is not None and a >= ACTOR_MIN for a in answers.values()):
+            kept.append(v)
+        elif sources and all(a is not None for a in answers.values()):
+            rejected = True
+        else:
+            todo += [{"uri": u, "brand_id": v["brand_id"], "vendor": v.get("vendor"),
+                      "kind": dev.get("event_type")} for u, a in answers.items() if a is None]
+    return kept, todo, rejected
+
+
+def _confirmed_headline(dev: Dict[str, Any], actors: Dict[str, Dict[str, float]]
+                        ) -> Dict[str, Any]:
+    """The item with a headline whose own source confirms a credited vendor.
+
+    Merging joins sources about one event, and sometimes about two: UiPath's
+    Integration Service launch and Synthesized's UiPath integration merged,
+    and the item showed Synthesized's headline under UiPath. When the
+    headline's source does not say the credited company did it, the best
+    headline from a source that does takes its place.
+    """
+    from app.services.market_actor_review import ACTOR_MIN
+
+    ids = [str(v["brand_id"]) for v in dev.get("vendors") or [] if v.get("brand_id") is not None]
+    if not ids:
+        return dev
+
+    def confirms(uri):
+        answers = actors.get(uri) or {}
+        return any((answers.get(b) or 0.0) >= ACTOR_MIN for b in ids)
+
+    if confirms(dev.get("headline_uri")):
+        return dev
+    options = sorted((o for o in dev.get("head_options") or []
+                      if o.get("headline") and confirms(o.get("uri"))),
+                     key=lambda o: o.get("headline_rank", 9))
+    if not options:
+        return dev
+    best = options[0]
+    return {**dev, "headline": best["headline"], "headline_source": best["headline_source"],
+            "headline_rank": best["headline_rank"], "headline_uri": best["uri"],
+            "summary": best.get("summary"), "dek": best.get("dek")}
+
+
 #: Below this check confidence an item is left out of every section: Jev
 #: and the corrector did not settle what it is. The page shows a little
 #: less and gets less wrong (27 Sep 2026).
@@ -1125,6 +1190,18 @@ def prepare_candidate(cand: Dict[str, Any], stop: Set[str]) -> Dict[str, Any]:
     return cand
 
 
+def _head_option(cand: Dict[str, Any]) -> Dict[str, Any]:
+    """A candidate's headline with the source it came from, kept on the
+    development so a headline can be swapped for one whose source confirms
+    the company credited (see material_developments)."""
+    uri = cand.get("headline_uri") or next(
+        (e.get("uri") for e in cand.get("evidence") or [] if e.get("uri")), None)
+    return {"uri": uri, "headline": cand.get("headline"),
+            "headline_source": cand.get("headline_source"),
+            "headline_rank": cand.get("headline_rank", 9),
+            "summary": cand.get("summary"), "dek": cand.get("dek")}
+
+
 def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
     seen = {(e.get("uri") or e.get("key")) for e in dev["evidence"]}
     for e in cand.get("evidence") or []:
@@ -1163,10 +1240,13 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
         better = cand_en
     else:
         better = cand.get("headline_rank", 9) < dev.get("headline_rank", 9)
+    if cand.get("seed"):
+        dev.setdefault("head_options", []).append(_head_option(cand))
     if cand.get("seed") and better:
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
         dev["headline_source"] = cand.get("headline_source")
+        dev["headline_uri"] = _head_option(cand)["uri"]
         dev["dek"] = cand.get("dek") or dev.get("dek")
     elif not dev.get("dek") and cand.get("dek"):
         dev["dek"] = cand["dek"]
@@ -1204,6 +1284,8 @@ def dedupe(candidates: Iterable[Dict[str, Any]], *,
         if not cand.get("seed"):
             continue
         dev = dict(cand)
+        dev["head_options"] = [_head_option(cand)]
+        dev["headline_uri"] = dev["head_options"][0]["uri"]
         dev["evidence"] = list(cand.get("evidence") or [])
         dev["vendors"] = list(cand.get("vendors") or [])
         dev["words"], dev["names"] = set(cand["words"]), set(cand["names"])
@@ -2164,6 +2246,9 @@ def _stored_candidates(conn, market_id: int, days: int
                                            text_value)
         written, dek = next((writing[e["uri"]] for e in evidence
                              if e.get("uri") in writing), (None, None))
+        headline_uri = next((e["uri"] for e in evidence if e.get("uri") in writing),
+                            next((e.get("uri") for e in evidence
+                                  if e.get("voice") == "owned"), None))
         original = announcing_headline(
             headline_of({"title": f.get("headline"),
                          "summary": f.get("summary"),
@@ -2208,6 +2293,7 @@ def _stored_candidates(conn, market_id: int, days: int
                         for v in f.get("vendors") or []],
             "headline": headline,
             "headline_source": headline_source,
+            "headline_uri": headline_uri,
             "review_confidence": min((confidence[e["uri"]] for e in evidence
                                       if e.get("uri") in confidence), default=None),
             # Deduplication reads the post's own title, not the rewrite: two
@@ -2634,6 +2720,26 @@ def material_developments(conn, market_id: int, days: int = 30, *,
         pass
 
     merged = dedupe(stored + corpus + jobs + heads, stop=stop)
+    # Each credited vendor must be one its sources say did it; an item waits
+    # until that is checked, and one left with no vendor is held out.
+    actors = {r[0]: r[1] for r in conn.execute(text("""
+        SELECT article_uri, review_check->'actors' FROM bw_market_articles
+         WHERE market_id = :m AND review_check ? 'actors'
+    """), {"m": market_id}).fetchall() if isinstance(r[1], dict)}
+    actors_unchecked: List[Dict[str, Any]] = []
+    uncredited: List[Dict[str, Any]] = []
+    credited = []
+    for d in merged:
+        if d.get("event_type") in ("significant_hiring", "headcount_change"):
+            credited.append(d)
+            continue
+        kept, todo, rejected = _credited(d, actors)
+        actors_unchecked += todo
+        if kept:
+            credited.append(_confirmed_headline({**d, "vendors": kept}, actors))
+        elif rejected and not todo:
+            uncredited.append(d)
+    merged = credited
     developments = [finish(d) for d in merged]
     # Dropped after distilling, not before: a research record can still be the
     # evidence that corroborates somebody else's development, and excluding it
@@ -2645,7 +2751,9 @@ def material_developments(conn, market_id: int, days: int = 30, *,
     # only holds what nothing claimed. Counted before the page rule: an item
     # left out is not reborn as discussion from its own evidence.
     attached = {e.get("uri") for d in developments for e in d["evidence"]}
-    held_out = [d for d in developments if not shown_on_page(d)]
+    held_out = [d for d in developments if not shown_on_page(d)] \
+        + [{**finish(d), "held_reason": "not done by the company credited"}
+           for d in uncredited]
     developments = [d for d in developments if shown_on_page(d)]
     developments.sort(key=rank_key)
     for i, dev in enumerate(developments, 1):
@@ -2668,6 +2776,8 @@ def material_developments(conn, market_id: int, days: int = 30, *,
         "developments": developments,
         # Left out by the page rule (shown_on_page), for the daily email.
         "held_out": held_out,
+        # (source, vendor) pairs the page waits on (market_actor_review).
+        "actors_unchecked": actors_unchecked,
         "total": len(developments),
         "records_considered": total_records + len(stored),
         "collected_records": total_records,
