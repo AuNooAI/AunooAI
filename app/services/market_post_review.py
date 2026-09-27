@@ -1392,9 +1392,27 @@ async def review_earned(conn, market_id: int, market_name: str, *,
 
 #: Least probability for a practitioner post to be shown.
 SOCIAL_MIN = 0.5
+#: On topic needs more than the other answers: at 0.5 to 0.6 sat stock-price
+#: lists, an email-triage post and a coding-agents thread (27 Sep 2026).
+SOCIAL_ON_TOPIC_MIN = 0.6
 #: At or above this, a practitioner post is a company advertising itself
 #: (@splunk on its own launch, @lumutech on its patent).
 SELF_PROMO_MAX = 0.6
+#: Accounts that are programs, not practitioners: @grok answers questions,
+#: news bots repost headlines.
+_BOT_AUTHOR = re.compile(r"^(grok|perplexity|chatgpt|gemini|copilot)$|bot$|_bot|bot_", re.I)
+
+
+def _author(row: Dict[str, Any]) -> str:
+    if row.get("author"):
+        return str(row["author"])
+    meta = row.get("social_meta")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = None
+    return str((meta or {}).get("author") or "") if isinstance(meta, dict) else ""
 
 
 def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1457,10 +1475,12 @@ def social_passes(row: Dict[str, Any]) -> bool:
     because "unchecked" includes "Jev could not be reached" — the TypeSafe
     credits ran out on 26 Sep 2026, and hiding unchecked posts would have
     emptied the panel."""
+    if _BOT_AUTHOR.search(_author(row)):
+        return False
     check = (row.get("review_check") or {}).get("social")
     if not isinstance(check, dict):
         return True
-    return (float(check.get("on_topic") or 0.0) >= SOCIAL_MIN
+    return (float(check.get("on_topic") or 0.0) >= SOCIAL_ON_TOPIC_MIN
             and float(check.get("substance") or 0.0) >= SOCIAL_MIN
             and float(check.get("self_promotion") or 0.0) < SELF_PROMO_MAX)
 

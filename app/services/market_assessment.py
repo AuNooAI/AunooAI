@@ -2231,6 +2231,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
     cands: List[Dict[str, Any]] = []
     discussion: List[Dict[str, Any]] = []
     wider: List[Dict[str, Any]] = []
+    wider_unchecked: List[Dict[str, Any]] = []
     for row in rows:
         text_value = _full_text(row)
         noisy = record_is_noise(row)
@@ -2239,7 +2240,9 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
         klass = row.get("article_class")
         if klass in ("news", "discussion") and not row.get("vendors") and not noisy:
             wide = _wider_candidate(row, evidence)
-            if wide:
+            if wide and wide.get("unchecked"):
+                wider_unchecked.append(wide)
+            elif wide:
                 wider.append(wide)
         if row["uri"] in held:
             # Already evidence for a stored event. The event candidate carries
@@ -2326,7 +2329,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 })
             elif klass in ("discussion", "research"):
                 discussion.append(row)
-    return cands, discussion, total, by_class, wider
+    return cands, discussion, total, by_class, wider, wider_unchecked
 
 
 #: What a company outside the vendor list can do that belongs on the page.
@@ -2360,6 +2363,9 @@ def _lead_title(title: str) -> str:
     """
     value = html.unescape(title or "").strip()
     value = re.sub(r"^@[\w.-]+:\s*", "", value)
+    # Leading hashtags: "#Cybersecurity KDDI Expands…" made the company
+    # "Cybersecurity KDDI".
+    value = re.sub(r"^(?:\s*#\w+)+\s+", "", value)
     value = _LEAD_IN.sub("", value)
     return re.sub(r"^[^\w(]+", "", value).strip()
 
@@ -2408,6 +2414,16 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
     if len(slug) >= 3 and site and (site == slug or site.startswith(slug)):
         evidence = {**evidence, "voice": "owned", "source_type": "vendor",
                     "key": f"owned:web:{_host(row['uri'])}"}
+    # The strip shows only what its review wrote and Jev passed
+    # (market_wider_review). An item not read yet waits for the review, and
+    # one that failed is not shown: the post's own text is no headline.
+    reading = (row.get("review_check") or {}).get("wider") \
+        if isinstance(row.get("review_check"), dict) else None
+    if not reading:
+        return {"unchecked": True, "uri": row["uri"], "title": row.get("title"),
+                "summary": row.get("summary"), "company": company, "kind": kind}
+    if not reading.get("passed") or not reading.get("headline"):
+        return None
     return {
         "key": f"wider:{row['uri']}",
         "event_type": kind,
@@ -2416,9 +2432,8 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
         # A shared headline arrives with the poster's links, handles and
         # hashtags: "… Autonomous Threat Era • @QuorumCyber @OntinueMXDR •
         # #DRJ https://t.co/…".
-        "headline": re.sub(r"\s+", " ", re.sub(
-            r"https?://\S+|[#@][\w.]+|\s[•|]\s", " ", headline_of(row))).strip(" •|-"),
-        "summary": row.get("summary") or "",
+        "headline": reading["headline"],
+        "summary": reading.get("summary") or "",
         "evidence": [evidence],
         "seed": True, "seed_rank": 1,
         # A publisher's headline over a post that shares one.
@@ -2570,7 +2585,7 @@ def material_developments(conn, market_id: int, days: int = 30, *,
             "SELECT config FROM bw_markets WHERE id = :m"),
             {"m": market_id}).scalar())
     stored, held = _stored_candidates(conn, market_id, days)
-    corpus, discussion, total_records, by_class, wider = _corpus_candidates(
+    corpus, discussion, total_records, by_class, wider, wider_unchecked = _corpus_candidates(
         conn, market_id, days, held)
     jobs = _hiring_candidates(conn, market_id, days)
     heads = _headcount_candidates(conn, market, days)
@@ -2622,6 +2637,8 @@ def material_developments(conn, market_id: int, days: int = 30, *,
         "records_by_class": by_class,
         "discussion": discussion,
         "wider": wider_devs,
+        # Strip candidates its review has not read yet (market_wider_review).
+        "wider_unchecked": wider_unchecked,
         "types": [{"event_type": t, "label": EVENT_TYPES[t],
                    "n": sum(1 for d in developments if d["event_type"] == t)}
                   for t in EVENT_TYPES

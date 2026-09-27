@@ -84,6 +84,8 @@ SOURCE_BRIEFING = "monthly_briefing"
 SOURCE_VOICE_PROFILES = "voice_profiles"
 # Jev reads each new practitioner post once: on topic, and saying something.
 SOURCE_SOCIAL_CHECK = "social_check"
+# The "Wider market" strip: other companies' news, written and checked.
+SOURCE_WIDER_REVIEW = "wider_review"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -201,6 +203,7 @@ def cadence(source: str) -> timedelta:
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
         SOURCE_VOICE_PROFILES: slow,  # daily, capped by MARKET_PROFILE_DAILY
         SOURCE_SOCIAL_CHECK: timedelta(hours=4),  # with the corpus match
+        SOURCE_WIDER_REVIEW: timedelta(hours=4),  # with the corpus match
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -561,6 +564,7 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += await _write_briefing(conn, market, now)
     runs += await _profile_voices(conn, market, now)
     runs += await _check_social(conn, market, now)
+    runs += await _review_wider(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -922,6 +926,34 @@ async def _check_social(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s social check failed: %s", market_id, exc)
+    return 1
+
+
+async def _review_wider(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Write and check the "Wider market" strip's items that have no reading.
+
+    The strip shows only items this passed (market_wider_review), so until it
+    runs a new item waits rather than showing the article's own text.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_WIDER_REVIEW, now) is None:
+        return 0
+    from app.services import market_wider_review as mwr
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_WIDER_REVIEW,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mwr.review(conn, market_id, days=30)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["passed"],
+                     skipped=result["failed"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s wider review failed: %s", market_id, exc)
     return 1
 
 

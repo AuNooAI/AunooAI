@@ -1001,7 +1001,29 @@ def test_platform_headlines_reach_the_wider_market():
         row = {"uri": f"https://x.test/{abs(hash(title))}", "title": title,
                "summary": "", "published": "2026-09-17T10:00:00Z"}
         cand = ma._wider_candidate(row, {"uri": row["uri"]})
-        assert cand and cand["vendors"][0]["vendor"] == company, title
+        # Not read yet: it waits for the strip's review, named for it.
+        assert cand and cand["unchecked"] and cand["company"] == company, title
+
+
+def _passed_wider(headline, summary=""):
+    return {"wider": {"passed": True, "headline": headline, "summary": summary}}
+
+
+def test_the_wider_strip_shows_only_what_its_review_passed():
+    title = ("🔐 Cisco &amp; NVIDIA bring Splunk AI to on-premises environments "
+             "— launching Cisco AI POD for Splunk")
+    row = {"uri": "https://x.test/cisco", "title": title, "summary": "",
+           "published": "2026-09-17T10:00:00Z"}
+    ok = ma._wider_candidate({**row, "review_check": _passed_wider(
+        "Cisco brings Splunk AI to on-premises NVIDIA hardware")}, {"uri": row["uri"]})
+    assert ok["headline"] == "Cisco brings Splunk AI to on-premises NVIDIA hardware"
+    assert ok["vendors"][0]["vendor"] == "Cisco"
+    failed = {"wider": {"passed": False, "headline": None}}
+    assert ma._wider_candidate({**row, "review_check": failed}, {"uri": row["uri"]}) is None
+    # A leading hashtag is not part of the company's name.
+    tagged = {**row, "title": "#Cybersecurity KDDI Expands Agentic SOC Services "
+                              "Across US and EMEA"}
+    assert ma._wider_candidate(tagged, {"uri": row["uri"]})["company"] == "KDDI"
 
 
 def test_a_customer_that_avoided_an_attack_is_not_a_customer_win():
@@ -1175,7 +1197,8 @@ def test_one_named_customer_told_twice_three_weeks_apart_is_one_item():
 def test_a_companys_own_site_is_not_independent_in_the_wider_strip():
     row = {"uri": "https://atos.net/en/2026/press-release/atos-gch",
            "title": "Atos partners with GCH to open a new AI-driven SOC in the UAE",
-           "summary": "", "published": "2026-09-17T10:00:00Z"}
+           "summary": "", "published": "2026-09-17T10:00:00Z",
+           "review_check": _passed_wider("Atos partners with GCH to open an AI SOC in the UAE")}
     cand = ma._wider_candidate(row, {"uri": row["uri"], "voice": "independent",
                                      "key": "domain:atos.net"})
     assert cand and cand["evidence"][0]["voice"] == "owned"

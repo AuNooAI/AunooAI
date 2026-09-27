@@ -1,5 +1,45 @@
 # Changes
 
+## 2026-09-27 — Wider market strip reviewed; Social bar raised; collection checked
+
+### Fix · The "Wider market" strip shows only headlines its review wrote and Jev passed
+The strip (deals and launches by companies the market does not track) printed each article's own
+text: Splunk's first-person post cut off mid-word, Cisco's with "&amp;" in it. The vendor review
+never saw these items. **`app/services/market_wider_review.py`** (new) runs the same loop over them:
+kimi drafts a headline and a one-sentence summary, Jev checks both against the article (is it
+news, does the text support it, is the company the actor, is the summary about the same event),
+the exact figure-and-name checks run, Sonnet 5 corrects what is disputed, and Jev checks again.
+The reading is stored in `bw_market_articles.review_check` under `wider`.
+**`app/services/market_assessment.py`** `_wider_candidate` shows an item only when its reading
+passed; one not read yet waits for the review (`material_developments` returns it as
+`wider_unchecked`), and one that failed is not shown. `_lead_title` also drops leading hashtags:
+"#Cybersecurity KDDI Expands…" had made the company "Cybersecurity KDDI".
+**`app/tasks/market_monitor.py`** runs the review every 4 hours (source `wider_review`). First
+run on aisocnews: 49 items, 48 passed, 4 corrected; panaya 4 of 6.
+
+### Fix · Social needs a clearer on-topic answer, and bots are hidden
+**`app/services/market_post_review.py`**: `social_passes` needs on-topic ≥ 0.6 (was 0.5). On
+aisocnews that hides 9 posts: 5 off topic (stock lists, email triage, a coding-agents thread, a
+TypeSafe benchmark) and 4 that were fair (three copies of a SOC lab write-up, a post on training
+junior analysts). Accounts that are programs (`grok`, names ending in "bot") are hidden.
+
+### Check · Collection
+- **Bluesky and X are steady** by collection day (Bluesky 13-32 a day, X 30-125). The earlier
+  "drop" compared against backfill days (16 and 21 Sep).
+- **Reddit's public feeds are blocked from this server**: every request in three days got HTTP
+  429 or nothing. Reddit still arrives through Xpoz, which works; we hold half of what it finds
+  for our phrases, and the rest are mostly job posts the filters drop on purpose.
+- **12 vendors had nothing in 30 days.** Six posted before and are quiet (SOC Jedi.ai and
+  HoundBytes since April, Miru Labs since June, Nua since July, Vinci Logic and SecsphereSOC since
+  August). HTCD, Joon, NextSOC, Tencycle and Variance have LinkedIn pages on file but no posts
+  collected; SOCAI has no LinkedIn page on file. Not checked further: it needs paid scrapes.
+
+### Incident · A restart interrupted a detection run
+I restarted bugfixing while the quiet check showed a job running, because the command did not
+wait on the check's result. It cancelled emerging-topics detection run 3675, which the shutdown
+marked failed cleanly; the next scheduled run redoes it. The other restarts were gated on the
+check.
+
 ## 2026-09-27 — A Snowflake Marketplace listing was shown as a customer story
 
 ### Fix · The contract rule reads the headline, not the whole post

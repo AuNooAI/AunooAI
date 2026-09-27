@@ -135,3 +135,16 @@ def test_a_company_promoting_itself_is_hidden_from_social():
 
     assert not mpr.social_passes({"review_check": {"social": {
         "on_topic": 0.9, "substance": 0.8, "self_promotion": 0.9}}})
+
+
+def test_social_hides_bots_and_needs_a_clear_topic_answer():
+    from app.services import market_post_review as mpr
+
+    ok = {"on_topic": 0.9, "substance": 0.9, "self_promotion": 0.1}
+    assert mpr.social_passes({"review_check": {"social": ok}})
+    # Stock lists and email triage sat at 0.5 to 0.6 on topic.
+    assert not mpr.social_passes({"review_check": {"social": {**ok, "on_topic": 0.55}}})
+    assert not mpr.social_passes({"review_check": {"social": ok},
+                                  "social_meta": {"author": "grok"}})
+    assert not mpr.social_passes({"review_check": None, "author": "nuntiobot"})
+    assert mpr.social_passes({"review_check": {"social": ok}, "author": "robotics_jane"})
