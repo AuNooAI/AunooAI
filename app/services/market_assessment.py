@@ -1039,6 +1039,23 @@ def review_confidence(check: Optional[Dict[str, Any]]) -> Optional[float]:
     return round(min(head, kind), 3)
 
 
+#: Below this check confidence an item is left out of every section: Jev
+#: and the corrector did not settle what it is. The page shows a little
+#: less and gets less wrong (27 Sep 2026).
+HOLD_BELOW = 0.6
+
+
+def shown_on_page(dev: Dict[str, Any]) -> bool:
+    """The page's one rule: every headline a reader sees was written by the
+    checked loop, is an outside publisher's own title, or is our own count.
+    A sentence picked by a pattern rule is not shown, and neither is an item
+    the checks are unsure of."""
+    if dev.get("headline_source") == "rule":
+        return False
+    conf = dev.get("review_confidence")
+    return conf is None or conf >= HOLD_BELOW
+
+
 def prominent_ok(dev: Dict[str, Any]) -> bool:
     """Whether a development may be the featured item or quoted in a
     highlight. An outside report, which the review does not write, may."""
@@ -1149,6 +1166,7 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
     if cand.get("seed") and better:
         dev["headline"], dev["summary"] = cand["headline"], cand.get("summary")
         dev["headline_rank"] = cand["headline_rank"]
+        dev["headline_source"] = cand.get("headline_source")
         dev["dek"] = cand.get("dek") or dev.get("dek")
     elif not dev.get("dek") and cand.get("dek"):
         dev["dek"] = cand["dek"]
@@ -1912,6 +1930,9 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         # One checked sentence in our words, when the review wrote one.
         "dek": _vendor_spelling(dev.get("dek"), dev.get("vendors") or []),
         "review_confidence": dev.get("review_confidence"),
+        "headline_source": dev.get("headline_source") or (
+            "data" if dev["event_type"] in ("significant_hiring", "headcount_change")
+            else None),
         "evidence": [{k: e.get(k) for k in
                       ("uri", "title", "source", "published", "voice",
                        "social", "source_type", "key", "author")}
@@ -2151,6 +2172,9 @@ def _stored_candidates(conn, market_id: int, days: int
             reason=next((reasons[e["uri"]] for e in evidence
                          if e.get("uri") in reasons), None))
         headline = written or original
+        headline_source = ("checked" if written else
+                           "data" if kind in ("significant_hiring", "headcount_change")
+                           else "rule")
         # A hire is an executive appointment by the title in the headline,
         # not by a word anywhere in the post ("here to lead the charge on
         # unforgettable customer and partner experiences").
@@ -2183,6 +2207,7 @@ def _stored_candidates(conn, market_id: int, days: int
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
             "headline": headline,
+            "headline_source": headline_source,
             "review_confidence": min((confidence[e["uri"]] for e in evidence
                                       if e.get("uri") in confidence), default=None),
             # Deduplication reads the post's own title, not the rewrite: two
@@ -2293,6 +2318,10 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "date": (row.get("published") or "")[:10] or None,
                 "vendors": list(row.get("vendors") or []),
                 "headline": headline,
+                # Where the words a reader sees came from: the checked loop,
+                # an outside publisher's own title, or a rule's pick.
+                "headline_source": ("publisher" if klass == "news" else
+                                    "checked" if written else "rule"),
                 "review_confidence": (review_confidence(row.get("review_check"))
                                       if klass != "news" else None),
                 "title": ruled,
@@ -2406,14 +2435,6 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
         return None
     company = re.split(r"\s+(?:and|&)\s+", lead.group(1).strip())[0]
     company = re.sub(r"['’]s$", "", company)
-    # The company's own site, which has no registry entry for a company we do
-    # not track: atos.net made "Atos partners with GCH" read as reported
-    # independently.
-    slug = re.sub(r"[^a-z0-9]", "", company.lower())
-    site = (_host(row["uri"]) or "").split(".")[0].replace("-", "")
-    if len(slug) >= 3 and site and (site == slug or site.startswith(slug)):
-        evidence = {**evidence, "voice": "owned", "source_type": "vendor",
-                    "key": f"owned:web:{_host(row['uri'])}"}
     # The strip shows only what its review wrote and Jev passed
     # (market_wider_review). An item not read yet waits for the review, and
     # one that failed is not shown: the post's own text is no headline.
@@ -2424,6 +2445,17 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
                 "summary": row.get("summary"), "company": company, "kind": kind}
     if not reading.get("passed") or not reading.get("headline"):
         return None
+    # The company as the review named it and Jev confirmed as the actor, not
+    # the title rule's guess ("CrowdStrike Agentic SOC").
+    company = reading.get("company") or company
+    # The company's own site, which has no registry entry for a company we do
+    # not track: atos.net made "Atos partners with GCH" read as reported
+    # independently.
+    slug = re.sub(r"[^a-z0-9]", "", company.lower())
+    site = (_host(row["uri"]) or "").split(".")[0].replace("-", "")
+    if len(slug) >= 3 and site and (site == slug or site.startswith(slug)):
+        evidence = {**evidence, "voice": "owned", "source_type": "vendor",
+                    "key": f"owned:web:{_host(row['uri'])}"}
     return {
         "key": f"wider:{row['uri']}",
         "event_type": kind,
@@ -2433,6 +2465,7 @@ def _wider_candidate(row: Dict[str, Any], evidence: Dict[str, Any]
         # hashtags: "… Autonomous Threat Era • @QuorumCyber @OntinueMXDR •
         # #DRJ https://t.co/…".
         "headline": reading["headline"],
+        "headline_source": "checked",
         "summary": reading.get("summary") or "",
         "evidence": [evidence],
         "seed": True, "seed_rank": 1,
@@ -2608,13 +2641,15 @@ def material_developments(conn, market_id: int, days: int = 30, *,
     if not includes_research(market):
         developments = [d for d in developments
                         if d["event_type"] != "research"]
+    # Attached discussion records are evidence now, so the discussion list
+    # only holds what nothing claimed. Counted before the page rule: an item
+    # left out is not reborn as discussion from its own evidence.
+    attached = {e.get("uri") for d in developments for e in d["evidence"]}
+    held_out = [d for d in developments if not shown_on_page(d)]
+    developments = [d for d in developments if shown_on_page(d)]
     developments.sort(key=rank_key)
     for i, dev in enumerate(developments, 1):
         dev["rank"] = i
-
-    # Attached discussion records are evidence now, so the discussion list
-    # only holds what nothing claimed.
-    attached = {e.get("uri") for d in developments for e in d["evidence"]}
     # The wider market: other companies' deals and launches, one item per
     # event, newest first, none that is already evidence for a vendor's own.
     # A social post alone is one account's word; it takes a news report or
@@ -2631,6 +2666,8 @@ def material_developments(conn, market_id: int, days: int = 30, *,
     return {
         "days": days,
         "developments": developments,
+        # Left out by the page rule (shown_on_page), for the daily email.
+        "held_out": held_out,
         "total": len(developments),
         "records_considered": total_records + len(stored),
         "collected_records": total_records,

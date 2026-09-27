@@ -276,7 +276,8 @@ def _model() -> str:
 def candidates(conn, market_id: int, *, limit: int = 200,
                 days: Optional[int] = None,
                 redo: bool = False,
-                kinds: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                kinds: Optional[List[str]] = None,
+                force: bool = False) -> List[Dict[str, Any]]:
     """Vendor posts for this market's vendors that have not been read yet.
 
     Selected from ``bw_article_categories`` rather than from the article's
@@ -299,6 +300,12 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     params: Dict[str, Any] = {"m": market_id, "lim": int(limit)}
     if not redo:
         where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL)")
+    elif not force:
+        # A reading Jev has checked is kept. Each bulk re-read of the 30
+        # days turned up new answers on borderline posts, because the
+        # models vary between runs; a prompt change is tried on the
+        # regression set, and only force=True re-reads checked posts.
+        where.append("NOT COALESCE(ma.review_check ? 'kind', false)")
     if kinds:
         where.append("LOWER(ma.review_kind) = ANY(:kinds)")
         params["kinds"] = [k.lower() for k in kinds]
@@ -1064,11 +1071,11 @@ async def review(conn, market_id: int, market_name: str, *,
                  limit: int = 200, batch: int = DEFAULT_BATCH,
                  days: Optional[int] = None, redo: bool = False,
                  kinds: Optional[List[str]] = None,
-                 dry_run: bool = False) -> Dict[str, Any]:
+                 dry_run: bool = False, force: bool = False) -> Dict[str, Any]:
     """Read unreviewed vendor posts and record what each one is."""
     model = _model()
     posts = candidates(conn, market_id, limit=limit, days=days, redo=redo,
-                       kinds=kinds)
+                       kinds=kinds, force=force)
     result: Dict[str, Any] = {
         "model": model, "candidates": len(posts), "reviewed": 0,
         "batches": 0, "failed_batches": 0, "dry_run": dry_run,

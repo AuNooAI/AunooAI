@@ -3093,6 +3093,8 @@ class PostReviewRequest(BaseModel):
     # With redo: only posts already given one of these kinds.
     kinds: Optional[List[str]] = None
     dry_run: bool = False
+    # With redo: also re-read posts whose reading Jev has checked.
+    force: bool = False
 
 
 @router.post("/markets/{market_id}/posts/review")
@@ -3117,7 +3119,8 @@ async def market_post_review(market_id: int, body: PostReviewRequest,
         return await mpr.review(
             conn, market_id, market["name"],
             limit=body.limit, batch=body.batch, days=body.days,
-            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run)
+            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run,
+            force=body.force)
     finally:
         conn.close()
 

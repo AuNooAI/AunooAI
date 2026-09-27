@@ -39,7 +39,11 @@ _KIND_WORDS = {
 
 DRAFT_PROMPT = """You write short news items for a market-intelligence page about {market}.
 
-Each item below is a news report or post about a company. For each, write:
+Each item below is a news report or post about a company. COMPANY is a guess
+from the title and can be wrong ("CrowdStrike Agentic SOC" is a product of
+CrowdStrike). For each, write:
+- "company": the name of the company that did it, as the text spells the
+  company (not a product, a hashtag or a ticker).
 - "headline": at most 90 characters, third person, present tense, with the
   company named as the one acting. Only facts the text states. No hype words,
   no emoji, no hashtags, no handles, no links.
@@ -49,7 +53,7 @@ Each item below is a news report or post about a company. For each, write:
 If the text does not report that the company did what the item says, set
 "headline" to null.
 
-Return JSON: {{"results": [{{"id": <id>, "headline": ..., "summary": ...}}]}}
+Return JSON: {{"results": [{{"id": <id>, "company": ..., "headline": ..., "summary": ...}}]}}
 
 ITEMS:
 {items}"""
@@ -263,6 +267,7 @@ async def review(conn, market_id: int, *, days: int = 30,
             d = drafts.get(i) or {}
             it["headline"] = _clean(d.get("headline"), 120)
             it["summary"] = _clean(d.get("summary"), 260)
+            it["company"] = _clean(d.get("company"), 60) or it["company"]
             it["model"] = drafter
         await _check_all(chunk)
         disputed = []

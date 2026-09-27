@@ -535,3 +535,17 @@ def test_one_copy_of_each_story_the_most_substantive_one():
             post("c", "Alert triage is high volume and bounded, which is why agents land there", 0.8)]
     kept = html._one_per_story(rows)
     assert [r["uri"] for r in kept] == ["b", "c"]
+
+
+def test_social_quotes_the_post_opening_not_a_picked_sentence():
+    text_value = ("Good to see more young founders building from Riyadh. An AI SOC aimed "
+                  "at the GCC is a smart angle: data residency rules there make US tools "
+                  "a hard sell, and local analysts know the threat actors. Curious how "
+                  "they handle Arabic-language phishing triage at scale.")
+    quote = html._opening_quote({"summary": text_value})
+    assert quote.startswith("Good to see") and "smart angle" in quote
+    assert len(quote) <= html._QUOTE_CHARS
+    assert html._opening_quote({"summary": "@a @b I used to laugh"}) == "I used to laugh"
+    row = html._v2_voice_row({"uri": "https://x/p", "summary": "Short post.",
+                              "social_meta": {"author": "a", "platform": "twitter"}})
+    assert 'data-src="quote"' in row

@@ -1367,3 +1367,12 @@ def test_a_usage_milestone_is_not_a_launch_whatever_the_headline_says():
               "review_headline": "Imperum releases Imperum-CybersecurityLLM v1.0",
               "review_check": {"headline": {"verdict": "supports", "p_supports": 0.95}}}
     assert ma.classify_record(record) is None
+
+
+def test_the_page_shows_only_checked_quoted_or_counted_words():
+    assert ma.shown_on_page({"headline_source": "checked", "review_confidence": 0.9})
+    assert ma.shown_on_page({"headline_source": "publisher", "review_confidence": None})
+    assert ma.shown_on_page({"headline_source": "data"})
+    assert not ma.shown_on_page({"headline_source": "rule"})
+    # The checks unsure what it is: left out rather than guessed.
+    assert not ma.shown_on_page({"headline_source": "checked", "review_confidence": 0.39})

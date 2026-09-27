@@ -2690,7 +2690,7 @@ def _render_hiring_block(devs: List[Dict[str, Any]], *,
                     ' open roles</span></div>')
     first = devs[0]
     return (f'<article class="n-story" id="{_dev_anchor(first)}" '
-            'style="--story:var(--n-green)">'
+            'data-src="data" style="--story:var(--n-green)">'
             '<div class="n-story-tag">Hiring</div>'
             + (f'<h3>Top {len(devs)} by open roles</h3>'
                if total and total > len(devs) else
@@ -2781,6 +2781,7 @@ def _render_developments(devs: List[Dict[str, Any]], *,
         vendors = ", ".join(v.get("vendor") or "" for v in d.get("vendors") or [])
         image = _dev_image(d, images)
         out.append(f'<article class="n-story{" n-story-img" if image else ""}" id="{_dev_anchor(d)}" '
+                   f'data-src="{esc(d.get("headline_source") or "")}" '
                    f'style="--story:{colour}">')
         if image:
             out.append(f'<img class="n-thumb" src="{esc(image)}" alt="" loading="lazy">')
@@ -3950,8 +3951,10 @@ def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
     href = _piece_href(link_params, piece_row)
     title = esc(piece_row.get("title") or "")
     head = f'<h2><a href="{href}">{title}</a></h2>' if lead else f'<h3><a href="{href}">{title}</a></h3>'
+    # Our own bylined analysis: prose written around a block of cited facts
+    # (market_briefing), not a news item, and not checked by Jev.
     return (f'<article class="n-story v2-piece{" v2-lead-story" if lead else ""}" '
-            'style="--story:var(--n-text)">'
+            'data-src="analysis" style="--story:var(--n-text)">'
             f'<div class="n-story-tag">{esc(_piece_tag(piece_row))}</div>'
             + head
             + (f'<p class="n-story-sum">{esc(_clip(opening, 480 if lead else 260))}</p>' if opening else "")
@@ -4176,7 +4179,8 @@ def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
     vendors = ", ".join(v.get("vendor") or "" for v in dev.get("vendors") or [])
     image = _dev_image(dev, images, previews=False)
     out = [f'<article class="n-story v2-lead-story{" n-story-img" if image else ""}" '
-           f'id="{_dev_anchor(dev)}" style="--story:{colour}">',
+           f'id="{_dev_anchor(dev)}" data-src="{esc(dev.get("headline_source") or "")}" '
+           f'style="--story:{colour}">',
            (f'<img class="n-thumb v2-lead-img" src="{esc(image)}" alt="">' if image else ""),
            f'<div class="n-story-tag">Featured development · {esc(_v2_tag(dev))}</div>',
            f'<h2>{esc(dev.get("headline") or "")}</h2>']
@@ -4284,22 +4288,42 @@ def _v2_hiring(devs: List[Dict[str, Any]], hiring: Dict[str, Any], *,
     return "".join(out)
 
 
-def _v2_voice_row(row: Dict[str, Any]) -> str:
+#: How much of a post the Social panel quotes.
+_QUOTE_CHARS = 280
+
+
+def _opening_quote(row: Dict[str, Any], limit: int = _QUOTE_CHARS) -> str:
+    """The post's own opening, word for word, ended at a sentence break when
+    one falls late enough, else at a word with an ellipsis.
+
+    Until 27 Sep 2026 the panel showed one sentence picked by the news
+    headline rule, and it was often the weakest: "Good to see more young
+    founders building from Riyadh." over the post's actual point.
+    """
     from app.services import market_assessment as massess
-    headline = massess.headline_of(row) if row.get("title") else row["uri"]
-    # A vendor's LinkedIn post is titled "<page name>: <first line>", and the
-    # byline already names the vendor: "System Two Security on LinkedIn"
-    # over "detections.ai: Threat actor delivery…".
-    if row.get("article_class") == "social":
-        headline = re.sub(r"^[^:\n]{1,60}:\s+", "", headline, count=1) or headline
-    author = (row.get("social_meta") or {}).get("author")
-    if author and headline.lower().startswith(f"@{author}:".lower()):
-        headline = headline[len(author) + 2:].strip() or headline
+    text = (row.get("summary") or "").strip() or (row.get("title") or "").strip()
+    # "<page name>: <first line>" on a vendor's LinkedIn post, "@author: …"
+    # on a shared one; the byline already names who posted it.
+    if not (row.get("summary") or "").strip():
+        text = re.sub(r"^[^:\n]{1,60}:\s+", "", text, count=1)
+    text = re.sub(r"^(?:@[\w.-]+\s+)+", "", text)           # reply handles
+    text = re.sub(r"\s+", " ", massess.plain_letters(text)).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    stop = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    if stop >= limit * 0.45:
+        return cut[:stop + 1]
+    return cut.rsplit(" ", 1)[0].rstrip(",;:—-") + "…"
+
+
+def _v2_voice_row(row: Dict[str, Any]) -> str:
+    quote = _opening_quote(row) or row["uri"]
     when = _day(row.get("published")) if row.get("published") else ""
-    return ('<div class="n-social">'
+    return ('<div class="n-social" data-src="quote">'
             f'<div class="n-social-meta">{esc(_river_source(row))}'
             + (f" · {esc(when)}" if when else "") + "</div>"
-            f'<p class="n-quote"><a href="{esc(row["uri"])}">{esc(_clip(headline, 220))}</a></p>'
+            f'<p class="n-quote"><a href="{esc(row["uri"])}">{esc(quote)}</a></p>'
             "</div>")
 
 
@@ -4311,7 +4335,7 @@ def _v2_voices(rows: List[Dict[str, Any]], highlights: List[Dict[str, Any]]) -> 
         for h in highlights:
             who = (f'@{h["author"]} on {_PLATFORM_NAMES.get(str(h.get("platform") or "").lower(), h.get("platform") or "")}'
                    if h.get("author") else str(h.get("platform") or ""))
-            out.append('<div class="n-social">'
+            out.append('<div class="n-social" data-src="quote">'
                        f'<div class="n-social-meta">{esc(who)} · '
                        f'{int(h.get("engagement") or 0)} reactions</div>'
                        f'<p class="n-quote"><a href="{esc(h["uri"])}">'

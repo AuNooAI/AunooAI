@@ -282,6 +282,13 @@ model_list:
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
       additional_drop_params: ["reasoning_effort", "response_format", "thinking", "temperature", "top_p", "top_k"]
+  - model_name: claude-opus-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-opus-5
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
   - model_name: claude-sonnet-5
     litellm_params:
       model: bedrock/us.anthropic.claude-sonnet-5

@@ -12,6 +12,7 @@ the models. A failing case means the change brought an old mistake back.
     .venv/bin/python eval/market_review_regression/run.py
     .venv/bin/python eval/market_review_regression/run.py --drafter bedrock-kimi-k3
     .venv/bin/python eval/market_review_regression/run.py --only spectrum_sep2
+    .venv/bin/python eval/market_review_regression/run.py --repeat 3   # the gate
 
 Exit code 0 when every case passes, 1 otherwise.
 """
@@ -112,6 +113,8 @@ async def main() -> int:
     ap.add_argument("--drafter", help="model alias for the drafting review")
     ap.add_argument("--corrector", help="model alias for the corrector")
     ap.add_argument("--only", help="run one case id")
+    ap.add_argument("--repeat", type=int, default=1,
+                    help="runs; a case fails only when it fails in most of them")
     args = ap.parse_args()
     if args.corrector:
         os.environ["MARKET_REVIEW_CORRECTOR_MODEL"] = args.corrector
@@ -126,34 +129,44 @@ async def main() -> int:
         posts = {c["id"]: _post(conn, c["market_id"], c["uri"]) for c in cases}
 
     started = time.monotonic()
-    by_uri = {}
     todo = [dict(p) for p in posts.values() if p]
-    for i in range(0, len(todo), 20):
-        verdicts = await mpr._judge(name, todo[i:i + 20], drafter)
-        await mpr.validate_and_correct(name, verdicts)
-        by_uri.update({v["uri"]: v for v in verdicts})
+    # The models vary between runs (Sonnet 5 takes no temperature, and the
+    # drafter's reading depends on which posts share its batch), so one run
+    # is a noisy measure: a case fails only when it fails in most runs.
+    misses: dict = {c["id"]: [] for c in cases}
+    for run_no in range(args.repeat):
+        by_uri = {}
+        for i in range(0, len(todo), 20):
+            verdicts = await mpr._judge(name, todo[i:i + 20], drafter)
+            await mpr.validate_and_correct(name, verdicts)
+            by_uri.update({v["uri"]: v for v in verdicts})
+        for case in cases:
+            post = posts[case["id"]]
+            if post is None:
+                continue
+            v = by_uri.get(case["uri"])
+            problems = (["the drafter returned no reading"] if v is None
+                        else _judge_case(case, _shown(post, v)))
+            if problems:
+                misses[case["id"]].append("; ".join(problems))
 
     failed = 0
     for case in cases:
-        post = posts[case["id"]]
-        if post is None:
+        if posts[case["id"]] is None:
             print(f"SKIP  {case['id']}: post not found")
             continue
-        v = by_uri.get(case["uri"])
-        if v is None:
-            print(f"FAIL  {case['id']}: the drafter returned no reading")
+        n = len(misses[case["id"]])
+        tally = f" ({n} of {args.repeat} runs)" if args.repeat > 1 else ""
+        if n * 2 > args.repeat:
             failed += 1
-            continue
-        seen = _shown(post, v)
-        problems = _judge_case(case, seen)
-        corrected = " (corrected)" if (v.get("check") or {}).get("corrected") else ""
-        if problems:
-            failed += 1
-            print(f"FAIL  {case['id']}{corrected}: {'; '.join(problems)}\n      why: {case['why']}")
+            print(f"FAIL  {case['id']}{tally}: {misses[case['id']][0]}\n      why: {case['why']}")
+        elif n:
+            print(f"flaky {case['id']}{tally}: {misses[case['id']][0]}")
         else:
-            print(f"pass  {case['id']}{corrected}")
+            print(f"pass  {case['id']}")
     print(f"\n{len(cases) - failed} of {len(cases)} passed with drafter {drafter}, "
-          f"corrector {mpr._corrector_model()}, in {time.monotonic() - started:.0f}s")
+          f"corrector {mpr._corrector_model()}, {args.repeat} run(s), "
+          f"in {time.monotonic() - started:.0f}s")
     return 1 if failed else 0
 
 

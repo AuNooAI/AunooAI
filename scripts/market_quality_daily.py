@@ -45,6 +45,49 @@ MIN_ITEMS = 8
 NEAR_THRESHOLD = 0.9
 
 
+def _page_html(market_id: int, section: str = "") -> str:
+    import time
+
+    from app.routes.market_monitor_routes import _market_report_token
+
+    port = os.getenv("PORT", "10004")
+    exp = int(time.time()) + 3600
+    url = (f"http://127.0.0.1:{port}/api/market-monitor/markets/{market_id}/"
+           f"report.html?public=1&exp={exp}&token={_market_report_token(market_id, exp)}"
+           f"{section}")
+    req = urllib.request.Request(url, headers={"X-Forwarded-Proto": "https"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+#: Where the words of an item on the page may come from (market_assessment.
+#: shown_on_page): the checked loop, an outside publisher's own title, our
+#: own counts, or a word-for-word quote. "analysis" is our bylined monthly
+#: piece: prose around cited facts, the one text not checked by Jev.
+_ALLOWED_SOURCES = {"checked", "publisher", "data", "quote", "analysis"}
+
+
+def provenance(market_id: int) -> list:
+    """Every item a reader sees must say where its words came from."""
+    problems = []
+    for section in ("", "&section=moves", "&section=launches", "&section=cases",
+                    "&section=social"):
+        try:
+            raw = _page_html(market_id, section)
+        except Exception:  # noqa: BLE001 — the lint reports pages that fail
+            continue
+        for m in re.finditer(r'<(article class="n-story[^"]*"|div class="n-social")([^>]*)>',
+                             raw):
+            src = re.search(r'data-src="([^"]*)"', m.group(0))
+            value = src.group(1) if src else ""
+            if value not in _ALLOWED_SOURCES:
+                head = re.search(r"<h[23][^>]*>(.*?)</h[23]>", raw[m.end():m.end() + 2000], re.S)
+                label = html.unescape(re.sub(r"<[^>]+>", "", head.group(1))).strip() if head else "?"
+                problems.append(f"item with {'no source' if not value else value + ' text'}"
+                                f"{' on ' + section.split('=')[-1] if section else ''}: {label[:80]}")
+    return sorted(set(problems))
+
+
 def _page_text(market_id: int, section: str = "") -> str:
     import time
 
@@ -195,7 +238,11 @@ def main() -> int:
             {"m": args.market}).fetchall()}
         for d in devs:
             d["corrected"] = any(e.get("uri") in corrected for e in d.get("evidence") or [])
-        lint_problems = lint(conn, args.market, devs)
+        lint_problems = lint(conn, args.market, devs) + provenance(args.market)
+        held_out = [f"{d.get('event_type_label')} · "
+                    f"{', '.join(v.get('vendor') or '' for v in d.get('vendors') or [])}: "
+                    f"{d.get('headline')} (confidence {d.get('review_confidence')})"
+                    for d in result.get("held_out") or []]
         drift_problems, rates = drift(conn, args.market)
     lead_uri = ""
     try:
@@ -209,7 +256,8 @@ def main() -> int:
         pass
     print(json.dumps({"market": name, "market_id": args.market,
                       "lint": lint_problems, "drift": drift_problems, "rates": rates,
-                      "digest": digest(devs, lead_uri)}, default=str))
+                      "digest": digest(devs, lead_uri), "held_out": held_out},
+                     default=str))
     return 0
 
 

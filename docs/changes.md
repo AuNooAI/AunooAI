@@ -1,5 +1,53 @@
 # Changes
 
+## 2026-09-27 — One rule for the market page, readings kept, and a measured error rate
+
+### Goal
+Each quality check found three to six new faults, because the page was built by two systems:
+the checked loop, and pattern rules that picked sentences, company names and kinds from raw text.
+Every fix added another rule. Oliver agreed a different approach: one rule for what reaches the
+page, keep readings that passed, leave out what the checks are unsure of, and measure the error
+rate instead of hunting for faults.
+
+### Change · The page's one rule
+Every text a reader sees now says where it came from, as a `data-src` marker on the item:
+`checked` (the loop wrote it and Jev passed it), `publisher` (an outside outlet's own title),
+`data` (our own counts), `quote` (a post word for word) or `analysis` (our bylined monthly piece:
+prose around cited facts, the one text not checked by Jev).
+- **`app/services/market_assessment.py`**: every candidate carries `headline_source`, which travels
+  with the headline through merges. `shown_on_page` leaves out items whose headline a rule picked,
+  and items below `HOLD_BELOW = 0.6` check confidence. They are returned as `held_out` for the daily
+  email. On aisocnews that left out two items (BlinkOps / Sentinel at 0.39, Method Security /
+  Palantir at 0.40); every other headline was already checked or counted.
+- **`app/services/market_report_html.py`**: Social quotes the post's opening word for word
+  (`_opening_quote`, up to 280 characters, ending at a sentence) instead of one sentence picked by
+  the news headline rule.
+- **`app/services/market_wider_review.py`**: the drafter names the company and Jev checks it as the
+  actor; the strip no longer takes the title rule's guess ("CrowdStrike Agentic SOC").
+- **`scripts/market_quality_daily.py`**: the lint fails any item without an allowed marker.
+
+### Change · A checked reading is kept
+**`app/services/market_post_review.py`** `candidates(redo=True)` skips posts Jev has checked unless
+`force=True` (also on the review route). Each bulk re-read turned up new answers on borderline
+posts, because the models vary between runs.
+
+### Change · Measure, don't hunt
+- **Weekly sample** (`scripts/market_quality_sample.py`): 20 random items (developments and the
+  strip, not Social quotes), graded against their sources by Opus 5, which is neither the checker
+  nor the corrector. The grader is given each vendor's other names and pages: without them it
+  marked System Two Security's detections.ai launch wrong. It runs on Mondays inside the daily
+  email and reports a rolling four-week rate against a target of under 1 wrong in 50.
+- **Regression gate** (`eval/market_review_regression/run.py --repeat 3`): a case fails only when it
+  fails in most runs. First run: 30 of 30, none flaky.
+- `claude-opus-5` alias added to bugfixing and panaya.
+
+### Result · First weekly sample (27 Sep)
+- aisocnews: 1 wrong of 20. AiStrike's hire "to lead our SOC team" is shown as an executive
+  appointment; the grader reads a team lead as not an executive. Our rule says it is.
+- panaya: 2 of 20, both credited to the wrong company (Synthesized's UiPath integration under
+  UiPath; UiPath attached to a SmartBear launch).
+- oviva: 1 of 3 (Dear Media's podcast credited to WeightWatchers).
+
 ## 2026-09-27 — Wider market strip reviewed; Social bar raised; collection checked
 
 ### Fix · The "Wider market" strip shows only headlines its review wrote and Jev passed
