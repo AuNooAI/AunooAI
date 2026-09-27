@@ -1,5 +1,16 @@
 # Changes
 
+## 2026-09-27 — A team lead is not an executive appointment
+
+Oliver's decision. The senior-title rule in **`app/services/market_assessment.py`** (`_SENIOR`)
+counted "to lead our SOC team" (AiStrike) as an executive appointment; it was the one error in
+aisocnews's first weekly sample. "To lead" now counts only for a function, department or region
+("to lead sales in EMEA"), not a team or operations, and "team leader" no longer matches the
+"… leader" pattern. The regression case `aistrike_soc_lead` now expects any kind but an
+executive appointment (the runner gained `kind_not`). On aisocnews the remaining appointments
+are a VP, a Head of Sales, a Director and a founding channel leader. Applied to panaya, oviva
+and sunstar.
+
 ## 2026-09-27 — An item is credited only to a company its sources say did it
 
 ### Fix · Wrong-company credit, as a class

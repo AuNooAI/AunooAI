@@ -1246,7 +1246,10 @@ def test_a_preview_or_an_advisor_is_not_an_event():
 
 def test_founding_leaders_and_team_leads_are_senior():
     assert ma._SENIOR.search("Mate Security hires Kirra Rice as Founding Channel Leader")
-    assert ma._SENIOR.search("AiStrike hires Bhuvanesh Prabhakaran to lead SOC team")
+    # A team lead is not an executive.
+    assert not ma._SENIOR.search("AiStrike hires Bhuvanesh Prabhakaran to lead SOC team")
+    assert not ma._SENIOR.search("Acme hires Jo Smith as SOC team leader")
+    assert ma._SENIOR.search("Acme hires Jo Smith to lead sales in EMEA")
     assert not ma._SENIOR.search("Legion Security hires Paige Roderick as Lead, Field Marketing")
 
 

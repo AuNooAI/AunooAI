@@ -163,9 +163,9 @@
   "uri": "https://www.linkedin.com/posts/aistrike_aistrike-aisoc-securityoperations-activity-7500930682194391041-EBbc",
   "title": "AiStrike: Welcome to AiStrike, Bhuvanesh Prabhakaran.",
   "expect": {
-   "shown": true
+   "kind_not": "executive_appointment"
   },
-  "why": "Hired to lead the SOC team is senior."
+  "why": "A team lead is not an executive appointment (Oliver, 27 Sep 2026)."
  },
  {
   "id": "coalition_wirespeed",

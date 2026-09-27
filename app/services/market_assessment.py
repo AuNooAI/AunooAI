@@ -192,13 +192,15 @@ _SENIOR = re.compile(
     # "Partner" as a title, not the word: "customer and partner experiences"
     # made a field-marketing hire an executive appointment.
     r"(managing|general|founding|operating)\s+partner\b|"
-    # "Founding Channel Leader" (Mate), "to lead SOC team" (AiStrike).
+    # "Founding Channel Leader" (Mate).
     r"founding\s+(\w+\s+){0,2}(leader|lead|head)\b|\blead\s+of\b|"
-    # "to lead SOC team", not "to lead the charge on customer experiences".
-    r"\bto\s+lead\s+(the\s+|our\s+|its\s+)?(\w+\s+){0,2}(team|teams|function|"
-    r"department|division|organi[sz]ation|operations|sales|engineering|marketing|"
+    # "to lead sales in EMEA" heads a function. A team lead is not an
+    # executive (Oliver, 27 Sep 2026): "to lead our SOC team" (AiStrike) and
+    # "team leader" are hiring, not appointments.
+    r"\bto\s+lead\s+(the\s+|our\s+|its\s+)?(\w+\s+){0,2}(function|"
+    r"department|division|organi[sz]ation|sales|engineering|marketing|"
     r"product|research|go-to-market|gtm|business|region|emea|americas|apac)\b|"
-    r"\b\w+\s+leader\b)",
+    r"\b(?!team\s)\w+\s+leader\b)",
     re.I)
 
 #: Records that never become a development, whatever they match. Each line is

@@ -93,6 +93,8 @@ def _judge_case(case, seen) -> list:
         problems.append(f"shown={seen['shown']}, expected {exp['shown']}")
     if "kind_in" in exp and seen["shown"] and seen["kind"] not in exp["kind_in"]:
         problems.append(f"kind={seen['kind']}, expected one of {exp['kind_in']}")
+    if "kind_not" in exp and seen["shown"] and seen["kind"] == exp["kind_not"]:
+        problems.append(f"kind={seen['kind']}, which it must not be")
     if "customer_name" in exp and seen["customer"] != exp["customer_name"]:
         problems.append(f"customer={seen['customer']!r}, expected {exp['customer_name']!r}")
     if "customer_not" in exp and (seen["customer"] or "") == exp["customer_not"]:
