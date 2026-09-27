@@ -193,7 +193,11 @@ _SENIOR = re.compile(
     # made a field-marketing hire an executive appointment.
     r"(managing|general|founding|operating)\s+partner\b|"
     # "Founding Channel Leader" (Mate), "to lead SOC team" (AiStrike).
-    r"founding\s+(\w+\s+){0,2}(leader|lead|head)\b|\bto\s+lead\b|\blead\s+of\b|"
+    r"founding\s+(\w+\s+){0,2}(leader|lead|head)\b|\blead\s+of\b|"
+    # "to lead SOC team", not "to lead the charge on customer experiences".
+    r"\bto\s+lead\s+(the\s+|our\s+|its\s+)?(\w+\s+){0,2}(team|teams|function|"
+    r"department|division|organi[sz]ation|operations|sales|engineering|marketing|"
+    r"product|research|go-to-market|gtm|business|region|emea|americas|apac)\b|"
     r"\b\w+\s+leader\b)",
     re.I)
 
@@ -988,6 +992,26 @@ THIRD_PARTY_KINDS = frozenset({"acquisition", "market_exit", "funding",
                                "partnership", "customer"})
 
 _FIRST_PERSON = re.compile(r"\b(we|we're|we’re|we've|we’ve|our|us)\b", re.I)
+
+
+def review_confidence(check: Optional[Dict[str, Any]]) -> Optional[float]:
+    """How sure the checks are of a reviewed post: the lower of Jev's support
+    for the headline and for the kind, or None when it was never checked.
+    The featured item and the highlights need PROMINENT_MIN."""
+    if not isinstance(check, dict) or "kind" not in check:
+        return None
+    head = float((check.get("headline") or {}).get("p_supports") or 0.0)
+    kind = float((check.get("kind") or {}).get("p_drafted") or 0.0)
+    return round(min(head, kind), 3)
+
+
+def prominent_ok(dev: Dict[str, Any]) -> bool:
+    """Whether a development may be the featured item or quoted in a
+    highlight. An outside report, which the review does not write, may."""
+    from app.services.market_post_review import PROMINENT_MIN
+
+    conf = dev.get("review_confidence")
+    return conf is None or conf >= PROMINENT_MIN
 
 
 def checked_writing(record: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
@@ -1801,6 +1825,10 @@ def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
     for name in names + sorted(_vendor_aliases({"vendors": vendors})):
         if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headline, re.IGNORECASE):
             return headline
+    # "AquilaI" for a headline that spells it "Aquila I".
+    squashed = re.sub(r"[^a-z0-9]", "", headline.lower())
+    if any(re.sub(r"[^a-z0-9]", "", n.lower()) in squashed for n in names):
+        return headline
     # The short name the vendor posts under, too short to be an alias
     # everywhere: "Kai hires Thomas N." under Kai Security read "Kai
     # Security: Kai hires…".
@@ -1808,6 +1836,20 @@ def _named_headline(headline: str, vendors: Sequence[Dict[str, Any]]) -> str:
     if first and re.match(rf"{re.escape(first)}\b", headline):
         return headline
     return f"{names[0]}: {headline}"
+
+
+def _vendor_spelling(value: Optional[str], vendors: Sequence[Dict[str, Any]]) -> Optional[str]:
+    """A vendor's name as the registry spells it, wherever the text spells it
+    otherwise: the review wrote "AiSOC" and "Vigilbase" for AISOC and
+    VigilBase, and the page showed both spellings side by side."""
+    if not value:
+        return value
+    for v in vendors or []:
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", (v.get("vendor") or "")).strip()
+        if len(name) < 3:
+            continue
+        value = re.sub(rf"(?<![\w.]){re.escape(name)}(?![\w])", name, value, flags=re.I)
+    return value
 
 
 def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
@@ -1829,11 +1871,13 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         "vendors": [{"brand_id": v.get("brand_id"),
                      "vendor": re.sub(r"\s*\([^)]*\)\s*$", "", v.get("vendor") or "")}
                     for v in dev.get("vendors") or []],
-        "headline": _named_headline(plain_letters(dev.get("headline") or "Untitled"),
-                                    dev.get("vendors") or []),
+        "headline": _named_headline(_vendor_spelling(
+            plain_letters(dev.get("headline") or "Untitled"), dev.get("vendors") or []),
+            dev.get("vendors") or []),
         "summary": plain_summary(plain_letters((dev.get("summary") or "").strip())),
         # One checked sentence in our words, when the review wrote one.
-        "dek": dev.get("dek"),
+        "dek": _vendor_spelling(dev.get("dek"), dev.get("vendors") or []),
+        "review_confidence": dev.get("review_confidence"),
         "evidence": [{k: e.get(k) for k in
                       ("uri", "title", "source", "published", "voice",
                        "social", "source_type", "key", "author")}
@@ -1965,6 +2009,7 @@ def _stored_candidates(conn, market_id: int, days: int
     # type its post was given when it was made; when a later review reads the
     # post differently, the event follows the post.
     readings_now: Dict[str, Tuple[str, str]] = {}
+    confidence: Dict[str, float] = {}
     for r in conn.execute(text("""
         SELECT article_uri, review_verdict, review_kind, review_reason,
                review_headline, review_summary, review_check
@@ -1980,6 +2025,9 @@ def _stored_candidates(conn, market_id: int, days: int
         checked = checked_writing(dict(r))
         if checked[0]:
             writing[r["article_uri"]] = checked
+        conf = review_confidence(r["review_check"])
+        if conf is not None:
+            confidence[r["article_uri"]] = conf
 
     out: List[Dict[str, Any]] = []
     held: Set[str] = set()
@@ -2043,8 +2091,7 @@ def _stored_candidates(conn, market_id: int, days: int
                 if reread is None and _CONTRACT.search(text_value) \
                         and not _RAISE.search(text_value):
                     reread = "customer"
-                if reread is None or (reread == "executive_appointment"
-                                      and not _SENIOR.search(text_value)):
+                if reread is None:
                     continue
                 if _FAMILY.get(reread) != _FAMILY.get(kind):
                     kind = _refine_funding(_refine_product(reread, text_value),
@@ -2059,6 +2106,11 @@ def _stored_candidates(conn, market_id: int, days: int
             reason=next((reasons[e["uri"]] for e in evidence
                          if e.get("uri") in reasons), None))
         headline = written or original
+        # A hire is an executive appointment by the title in the headline,
+        # not by a word anywhere in the post ("here to lead the charge on
+        # unforgettable customer and partner experiences").
+        if kind == "executive_appointment" and not _SENIOR.search(headline):
+            continue
         # The noise rules judge the headline the page will show, and the
         # whole post only when the review wrote none: a word in passing
         # ("booth", "talk to us") turned real news away. The shown headline
@@ -2085,6 +2137,8 @@ def _stored_candidates(conn, market_id: int, days: int
             "vendors": [{"brand_id": v.get("brand_id"), "vendor": v.get("vendor")}
                         for v in f.get("vendors") or []],
             "headline": headline,
+            "review_confidence": min((confidence[e["uri"]] for e in evidence
+                                      if e.get("uri") in confidence), default=None),
             # Deduplication reads the post's own title, not the rewrite: two
             # headlines written for one listing need not share the words
             # that match them.
@@ -2189,6 +2243,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 "date": (row.get("published") or "")[:10] or None,
                 "vendors": list(row.get("vendors") or []),
                 "headline": headline,
+                "review_confidence": (review_confidence(row.get("review_check"))
+                                      if klass != "news" else None),
                 "title": ruled,
                 # A post looking back ("Looking back at Fal.Con…") is dated
                 # by when it was posted, not when the thing happened.
@@ -3022,7 +3078,10 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
 
     # 1. Consolidation and exits: any acquisition is a finding on its own.
-    ownership = _devs_of(devs, "acquisition", "market_exit", "market_entry")
+    # Only items the checks are sure of are named in a highlight; every
+    # development still counts.
+    quoted = [d for d in devs if prominent_ok(d)]
+    ownership = _devs_of(quoted, "acquisition", "market_exit", "market_entry")
     if ownership:
         acq = _devs_of(ownership, "acquisition")
         lines = [_evidence_line(d) for d in ownership]
@@ -3040,7 +3099,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
             developments=ownership))
 
     # 2. Capital: funding events in the period, never their absence.
-    funding = _devs_of(devs, "funding")
+    funding = _devs_of(quoted, "funding")
     if funding:
         out.append(_finding(
             "capital",
@@ -3061,7 +3120,8 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
     product = _devs_of(devs, *PRODUCT_TYPES)
     customers = _devs_of(devs, "customer")
     # Counted in full, but only a named customer or a case study is listed.
-    listed_customers = [d for d in customers if _customer_listable(d)]
+    listed_customers = [d for d in customers
+                        if _customer_listable(d) and prominent_ok(d)]
     product_all = _devs_of(counted, *PRODUCT_TYPES)
     customers_all = _devs_of(counted, "customer")
     post_share = _coverage_share(post_cov)

@@ -81,7 +81,8 @@ def test_the_writing_check_asks_one_question_per_field():
 
     q = mpr._check_questions({"kind": "customer", "headline": "H", "summary": "S",
                               "customer": {"name": "Acme"}})
-    assert set(q) == {"is_news", "kind", "headline", "summary", "customer"}
+    assert set(q) == {"is_news", "kind", "headline", "summary", "customer",
+                      "actor", "summary_on_event"}
     assert set(q["headline"]["criteria"]) == {"supports", "contradicts", "says_nothing"}
     assert set(q["kind"]["criteria"]) == set(mpr.KIND_CRITERIA)
     # No writing and no customer: only the reading is checked.
@@ -106,4 +107,31 @@ def test_a_social_post_is_hidden_only_when_jev_turned_it_away():
     assert not mpr.social_passes({"review_check": {"social": {"on_topic": 0.1, "substance": 0.9}}})
     assert not mpr.social_passes({"review_check": {"social": {"on_topic": 0.9, "substance": 0.2}}})
     q = mpr._social_questions("AI in the SOC", ["AI SOC"])
-    assert set(q) == {"on_topic", "substance"}
+    assert set(q) == {"on_topic", "substance", "self_promotion"}
+    assert not mpr.social_passes({"review_check": {"social": {
+        "on_topic": 0.9, "substance": 0.9, "self_promotion": 0.8}}})
+
+
+def test_the_checker_is_told_who_published_the_post_and_checks_roles():
+    from app.services import market_post_review as mpr
+
+    q = mpr._check_questions({"kind": "customer", "headline": "H", "summary": "S",
+                              "customer": {"name": "Acme"}})
+    assert {"actor", "summary_on_event"} <= set(q)
+    assert "publisher" in q["actor"]["instructions"]
+    assert "publisher" in q["customer"]["instructions"]
+    # A headline that failed the actor check is not shown.
+    check = {"headline": {"verdict": "supports", "p_supports": 0.95}, "actor": 0.2}
+    assert not mpr.passes(check, "headline")
+    check = {"summary": {"verdict": "supports", "p_supports": 0.95}, "summary_on_event": 0.3}
+    assert not mpr.passes(check, "summary")
+    assert not mpr.passes({"headline": {"verdict": "supports", "p_supports": 0.95},
+                           "exact": ["the headline gives 47, which the post does not state"]},
+                          "headline")
+
+
+def test_a_company_promoting_itself_is_hidden_from_social():
+    from app.services import market_post_review as mpr
+
+    assert not mpr.social_passes({"review_check": {"social": {
+        "on_topic": 0.9, "substance": 0.8, "self_promotion": 0.9}}})

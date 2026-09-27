@@ -1,5 +1,83 @@
 # Changes
 
+## 2026-09-27 — Market review round 5: role checks, exact checks, a stricter bar for what leads the page, and a daily quality email
+
+### Goal
+The review loop (draft, Jev check, correct) still let through headlines that named the wrong
+company, summaries about a different event than the headline, and junior hires shown as executive
+appointments. Oliver asked for those fixes plus guardrails that catch the next kind of mistake
+before a reader does.
+
+### Fix · Jev now checks who did what, not only whether the words match
+**`app/services/market_post_review.py`**: Jev is told who published the post and asked two new
+questions. `actor` asks whether the headline names the right company as the one acting.
+`summary_on_event` asks whether the summary is about the headline's event. A score under 0.5 on
+either fails that field, and the corrector sees the objection. The customer question also names the
+publisher, so a vendor is no longer read as its own customer. The corrector now second-reads every
+event-kind item, even when Jev raised nothing.
+
+### Fix · Figures and names are checked character by character
+**`app/services/review_exact_checks.py`** (new): every number and every name-like word in a
+headline or summary must appear in the post. Jev had passed "47%" against a post that said 40%,
+and "Okta's XAA Ecosystem" against a post that never names Okta. A miss is an objection like
+Jev's. On stored data it flags 2 items, both real errors.
+
+### Fix · The featured item and highlights need a confident check
+**`app/services/market_assessment.py`**, **`app/services/market_report_html.py`**: an item leads
+the page, or is quoted in a highlight, only when its check confidence is at least 0.85
+(`PROMINENT_MIN`). Every development still counts in the totals. A hire is an executive
+appointment only when the headline's title is senior; "to lead" needs a team or function after it.
+
+### Fix · Social panel and cosmetics
+- Jev asks whether a practitioner post is self-promotion; at 0.6 or above it is hidden.
+- Posts about the same story show once (`_one_per_story`), keeping the most substantive.
+- A summary that repeats its headline is dropped; an "All" link shows only when a section has
+  more than one item; a vendor name keeps one spelling on the page.
+- Data: `bw_brands` 112 renamed "7ai" to "7AI"; the Market Horizon for market 2 recomputed.
+
+### Result · 30-day re-read on four sites (27 Sep)
+| Site | Posts re-read | News | Jev objected | Corrected | Held | Social shown / checked |
+|---|---|---|---|---|---|---|
+| bugfixing (aisocnews) | 804 | 146 | 100 | 65 | 0 | 220 / 637 |
+| panaya | 140 | 27 | 26 | 12 | 0 | 91 / 562 |
+| oviva | 74 | 5 | 7 | 7 | 0 | 1 / 16 |
+| sunstar | 1 | 0 | 0 | 0 | 0 | 238 / 458 |
+
+The self-promotion question alone hides 82 Social posts on aisocnews, mostly vendor accounts
+announcing their own launches and awards. Oviva hides almost everything because its market is a
+container for Oviva's own brand, so posts about Noom or WeightWatchers are rightly off-topic there.
+The on-topic criterion said "security teams", which is wrong for panaya and sunstar; it now says
+"the people who buy or use them". Re-checking both sites changed almost nothing (90 to 91, 240 to
+238), so the old wording was not what hid their posts.
+
+### Guardrail · Regression set of past mistakes
+**`eval/market_review_regression/`**: 30 real posts that went wrong on aisocnews.com, each with
+the right outcome. `run.py` takes them through the live loop without storing anything and
+applies the page's own rules. Run it after any change to the prompts, checks, page rules or
+models. 30 of 30 passed on 26 Sep; 29 of 30 on 27 Sep. The one miss (Coalition acquiring
+Wirespeed) passed 11 of 11 times run alone, so it is batch-dependent drafting, not a rule gap.
+
+### Guardrail · Daily quality email
+**`scripts/market_quality_daily.py`** checks one market page: a lint of the rendered page (a
+company named twice, a summary repeating its headline, two spellings of a vendor, "All 1",
+leftover placeholders), drift in Jev's objection, correction and hold rates against the week
+before, and a digest of what is new. `/home/orochford/bin/market_quality_daily.sh` runs it for
+bugfixing, panaya, oviva and sunstar and emails the result at 07:30
+(`/etc/cron.d/aunoo-market-quality`). `MARKET_QUALITY_DRY_RUN=1` prints instead of sending.
+
+### Incident · the market pages on oviva, panaya and sunstar were broken overnight
+The new `market_assessment.py` was copied to oviva, panaya and sunstar before the restart. Their
+running processes loaded it on the next page view but still held the old `market_post_review`,
+which has no `PROMINENT_MIN`, so from 22:14 on 26 Sep any report page view would have failed
+with an ImportError. The logs show no reader hit it; the first request was the daily email's dry
+run at 09:40, which found it. Restarting the four services fixed it. Copy service files to a
+running tenant only right before its restart.
+
+### Tests
+`tests/test_review_exact_checks.py` (new) and additions to three test files. Three older tests
+depended on the calendar day (the lead rotates daily) or on the old voices order; they now test
+the rule. The four touched files: 159 passed.
+
 ## 2026-09-24/26 — Social relevance: kimi on Sunstar with cheap checks in front of it, Sunstar's motorbike look-alikes, and the market page's 14-second load (`31a90054`, `f7d4db53`, `a1e8d6c2`, `f1e20618`, `68784588`)
 
 ### Goal
@@ -164,6 +242,48 @@ restore returned them to their news-pipeline scores.
 - A tenant `.env` edit on a running site survives a restart: `ExecStopPost` encrypts `.env` and
   `ExecStartPre` decrypts it.
 
+## 2026-09-26 — Market report: the review writes each headline, and Jev checks it
+
+### Goal
+The page showed "Nebulock: When Your Insider Risk Program Is Put to the Test", with "The
+customer is not named; the vendor has published a case study.", along with other vendor sentences
+lifted verbatim ("We're proud to share…"). Oliver asked why we could not write a decent headline
+and summary.
+
+### Why the headlines were bad
+We never wrote a headline. Every headline was a sentence picked out of the vendor's own post by
+pattern rules. The model review read every post, but it returned only a verdict, a kind and a
+label of three to six words.
+
+### Fix (`market_post_review.py`, `market_assessment.py`, `market_report_html.py`, alembic `mm_032`)
+- **The review writes the item.** For every signal it now writes a headline ("<Company> <did
+  what> <with whom>", at most 14 words, third person, no "we", no hype) and one summary sentence
+  of facts from the post. These are stored in `bw_market_articles.review_headline` and
+  `review_summary`.
+- **Jev checks both against the post** (`check_writing`). It gives one choice per field:
+  supports, contradicts or says nothing. The result is stored in `review_check`. The page uses a
+  headline or summary only when Jev chose "supports" with a probability of at least 0.5
+  (`checked_writing`). With no check there is no text, and the old sentence rules remain the
+  fallback. On the first test batch, Jev rejected "Conifers AI finds 47% of security detections
+  need attention", which the post does not say.
+- **Stricter reading:**
+  - A pronoun ("they") is not a customer name, and neither are the vendor's own products.
+  - "case_study" means the post says a case study was published, not that it tells a story.
+  - Acceptance into another company's programme (OpenAI Daybreak Blue, Anthropic's verification
+    programme) is an award, not a partnership.
+- **Stop-gap:** a vendor blog post about a customer it does not name is not a development, in the
+  report or in the event extractor.
+- **Stored vendor events follow the post's current reading.** A post re-read as commentary or an
+  award leaves the page, and so does a post re-read as a hire that is not senior.
+- **Duplicates are still matched on the sentence the old rules picked.** Matching on the rewrite
+  split Exaforce's and SOCNova's launches in two.
+- **Re-review:** the new prompt re-read 836 market-2 posts from the last 30 days: 163 signal,
+  323 commentary and 350 noise. Jev supported 157 of the 163 headlines. It rejected 5 as saying
+  more than the post, four of them vendor blog research posts whose feed text lacked the quoted
+  figure, and 1 as contradicting it (System Two versus detections.ai). The page went from 94 to 67
+  developments, 56 of them with a checked summary. (`fb642c60`, migration `mm_032`, copied with
+  its migration to oviva, panaya (down_revision `sc_001`) and sunstar.)
+
 ## 2026-09-25 — Model names: the code decides by the model that runs, not the alias (`f399f8ba`, `b7d0b3ae`, `a05b5cf3`, `85aa32e5`, `b104102e`, `39c0138c`)
 
 ### Goal
@@ -322,6 +442,156 @@ code is still the pre-tier tree and gets caught up when it is next revived.
   when the computation fails; the shell then staged an empty `changes.md` (`4093020f`, restored in
   `a7037737`). Compute first, write last, and run such shells with `set -e`.
 
+## 2026-09-25 — Daily briefings: the fact-check loop now converges, and the desk shows what it did (`94cac036`, `9ad1833a`, `68d36d1f`, `77872e1e`, `2c3ac01f`, `0c1f31c5`)
+
+### Goal
+Oliver asked why the wileytest review panel lists a fix for every warning but offers no way to apply
+it. The answer was that the fix loop already runs before the desk sees the briefing, and it was not
+working: the 25 Sep briefing (desk briefing 166) went 14 warnings, then 7, 3 and 16 across three
+writer rounds and shipped with 7. Six of those seven were on sentences that already said "reported
+on". The day's work replaced that loop piece by piece, each step checked by regenerating briefing
+166 from its stored articles without saving.
+
+Writer on wileytest is `claude-sonnet-4-5`; the judge (`dr_reviewer_agent`) is `gpt-5.4`.
+
+### Fix: date findings are handled without the writer (`94cac036`)
+**`app/services/daily_report_service.py`.** Almost every judge "date" finding says the same thing: a
+sentence dates an event by the day it was reported. Two deterministic rules replace the writer for
+that class. `_drop_attributed_date_findings` drops a judge date finding whose quoted sentence already
+carries a reporting word (`reported`, `published`, `as of`, …) or states no date at all: there is no
+date claim left to correct. `_apply_date_fixes` takes the remaining date findings, finds the quoted
+sentence in the draft field, and splices "as reported on" into it ("announced on September 24 a
+partnership" becomes "announced, as reported on September 24, a partnership"); nothing else changes,
+and the reviewer runs again. A fixed sentence is attributed, so the class converges in one pass.
+Date-fix passes are recorded in `repair_rounds` with `kind: "date_fix"` and do not count against
+`max_repair_rounds` (`_writer_rounds`). A date that no source states at all (`evidence == "no
+source"`) is left to the writer.
+
+The sanitiser also drops a finding whose `suggested_fix` says the wording is acceptable
+(`_FIX_SAYS_FINE`, matched on the fix only): the 25 Sep review carried "The current wording is
+acceptable as it says 'reports on September 24 stated'…" as a warning.
+
+First dry run after this change: draft 6 errors / 4 warnings, then 6/2 (date fix), 2/2 (writer),
+0/3 (date fix), 2/0 (date fix), 3/2 (writer), 4/0 (writer). Round 3 kept: 0 errors, 3 warnings.
+About thirty date findings on already-attributed sentences were dropped across the six reviews. The
+run also showed the writer making each later round worse, and the judge raising two new errors on
+untouched text after a one-sentence date fix.
+
+### Fix: the writer replaces quoted sentences, and stops when a round adds errors (`9ad1833a`)
+**`REPAIR_PROMPT` and `_repair_synthesis`.** The old prompt said "change that sentence and nothing
+else" and asked for the whole briefing back; the writer dropped Elsevier's name from a sentence
+nobody flagged. The writer now returns `{"replacements": [{"claim_text", "replacement"}]}`, one per
+finding, and `_apply_replacements` splices each into the draft. Unflagged sentences cannot change.
+An empty replacement deletes the sentence; a replacement larger than three times the quote plus 200
+characters is skipped as a rewrite. Findings with no verbatim quote are not sent (they are
+non-blocking warnings already).
+
+**Stop on regression.** After a writer round, `errors_after > errors_before` ends the loop and the
+best round so far ships (`repair_rounds[-1]["stopped"] = "regression"`). No such round has ever
+recovered: 15 Sep 1→4, 24 Sep 0→3, 25 Sep 2→3→4.
+
+**Rubric.** `data/auspex/agents/dr_reviewer_agent.md` (the live prompt; the loader reads it at
+startup) and `DEFAULT_REVIEWER_PROMPT` now say that a sentence with "reported on <date>" or "as
+reported on <date>" is correctly dated and must not be flagged, and that a sentence is never flagged
+for stating no date. The judge still raised 13 to 15 such findings per run afterwards, against about
+30 before; the filter drops every one either way.
+
+### Fix: splice to the sentence end, resolve cited refs with titles, no generic brand words (`68d36d1f`)
+The second dry run exposed two faults.
+
+**Fragment.** Action 5 ended "…company-specific strategy.t shift or represents company-specific
+strategy." `_sanitize_review_findings` capped `claim_text` at 400 characters, so the writer got a
+cut-off sentence and the splice replaced only that span, leaving the tail. `_quote_span` now runs
+the span to the end of the sentence when the quote stops short of one, and the cap is 1500.
+
+**Held for a name its sources contained.** Preflight raised "Pearsons Education is named here, but
+none of the cited items mention it" on a theme whose cited article was Pearson's own research. The
+theme cited `"Article 3: <title>"`; the lookup only knew `"Article 3"`, so every cited item resolved
+to empty text. Refs are now taken from the leading `Article N` / `Incident N`. Underneath that,
+`_name_variants("Pearsons Education")` produced `"Education"` as a brand variant, so every
+"education" in the draft counted as a brand mention. `_GENERIC_NAME_WORDS` (education, publishing,
+research, health, solutions, …) are no longer variants.
+
+Third dry run: draft 4/1, writer 1/2 (4 of 4 replacements landed), date fix 0/0, approved, 281 s.
+No fragments.
+
+### Feature: a judge error holds the draft only when it stands on a second read (`77872e1e`)
+**`CONFIRM_PROMPT`, `_confirm_judge_errors`, `_apply_confirmation`.** When the merged findings carry
+a judge error (after the severity policy, only `actor`, `sourcing` and `contradiction` can be one),
+`_run_review` sends just those findings and the source items back to the same model with a narrower
+question: does this stand, read plainly against the sources, with doubt resolved against it. An
+error it does not uphold becomes `info` with "[withdrawn on second review: <reason>; not blocking]".
+Verdicts match findings by the first 80 characters of the normalised quote; an error with no verdict
+keeps its severity; a failed call keeps the original verdicts. Preflight errors are never re-asked.
+Clean drafts cost nothing extra. `DRConfig.review_timeout` 120 → 200 s for the second call. The
+review dict carries `confirmation: {confirmed, withdrawn}`.
+
+Fourth dry run: draft 3/6 (all three errors preflight, so no confirmation), date fix 3/1, writer
+3/2 with the second pass confirming 3 and withdrawing 0, writer 0/2, writer 0/0, approved, 427 s. The
+pass upheld errors the writer then fixed in one round, so it withdrew nothing this run; it did not
+get a chance to show it catching noise.
+
+### Fix: "None needed" and "No issue" are not findings (`2c3ac01f`)
+An info finding with text "…No issue." and fix "None needed." slipped past `_NO_CHANGE`, which only
+knew "no change needed" phrasings. Both forms are now matched.
+
+### Feature: the desk shows the repair history (`0c1f31c5`)
+**`ui/src/components/newsfeed/BriefingDeskSection.tsx`, `ui/src/services/briefingDeskApi.ts`.**
+`RepairHistory` under `ReviewNote` reads `review.repair_rounds`, `repair_kept_round` and
+`confirmation`: "3 repair passes (1 date fix, 2 writer) · kept pass 3 · judge errors: 3 confirmed,
+0 withdrawn (show)", expanding to a table of errors and warnings after each pass, the result in words
+(clean / warnings only / held), the shipped pass in bold, and a note on the pass that stopped the
+loop. Briefings with no passes show nothing extra. `BriefingRepairRound` typed in the API file.
+
+### Briefing 166 refinalized
+Reopened and finalized again through the same service and facade calls the route uses, with the
+previous row backed up first. Draft 0/2, writer 0/2, date fix 1/3, date fix 0/3, date fix 0/2,
+writer 1/3 (stopped: regression). Kept the first draft: 0 errors, 2 warnings, 1 info, 441 s. The two
+warnings are an inference ("as Trump and Xi prepare AI discussions") and arithmetic on sourced
+figures ("50x in seven days"), which the rubric says is not a finding. It replaced the version with
+7 warnings that shipped at 08:51.
+
+### Verification
+- `tests/test_daily_briefing_review_dates.py`: 20 tests, all passing (`.venv/bin/python -m pytest
+  tests/test_daily_briefing_review_dates.py -q`). They replay the seven sentences briefing 166
+  shipped with, the splice (including a cut-off quote), the sanitiser, the cited-ref lookup, the name
+  variants and the confirmation verdicts.
+- Four dry runs and one refinalize of briefing 166 on wileytest, recorded above, run with
+  `PYTHONPATH=<tenant> .venv/bin/python` against `get_daily_report_service().generate_synthesis`
+  from the stored articles and incidents.
+- `npm run typecheck` clean before the UI build; `ui/deploy-react-ui.sh` from the bugfixing tree,
+  whose `ui/src` had no uncommitted work; served wileytest bundle `newsfeed--Ylop6ZR.js` contains
+  the repair-history strings.
+
+### Propagation
+- Backend and the agent file: bugfixing (committed), wiley and wileytest (same anchored patch
+  scripts applied to each tree, whose `daily_report_service.py` differs from bugfixing only by the
+  Jev citation-shadow block). All three services restarted after each backend step; before every
+  restart `background_tasks` and the last five minutes of `llm_usage_log` were checked, and
+  restarts waited on a live emerging-topics run (bugfixing, twice), a Voices digest (wileytest,
+  twice) and a bundle supervisor call (wileytest). The last restart of all three followed the UI
+  deploy, so every change above is loaded everywhere.
+- UI: static `trend-convergence` rsynced with `--delete` and the six `*_react.html` templates
+  rsynced to wiley and wileytest; drift 0 afterwards. Both had been on the 16 Sep build, so this
+  bundle also carries the UI commits since then: the Voices tab (hidden unless the site's backend
+  says it is on, `6b2d1082`), Swiss Election Watch (registry-gated module) and three Brand Watcher
+  counting fixes.
+- Not on: sunstar, oviva, abm, wbm, pearson, ibaset, panaya. They run the old full-rewrite loop.
+
+### Lessons
+- **The judge is unstable on its blocking types.** Same draft, one sentence changed elsewhere, and
+  it raised two new `actor`/`sourcing` errors on untouched text; on an unchanged draft a rerun
+  raised errors it had not raised before. Design around it (second read, splice-only writer, stop on
+  regression); do not tune the rubric and hope.
+- **Never splice over a truncated quote.** Any cap on `claim_text` must be paired with running the
+  span out to the sentence end, or the tail of the old sentence survives.
+- **Cited refs arrive with titles.** Anything that resolves `supporting_items` must take the leading
+  `Article N`, or the citation silently resolves to nothing and the check that depends on it fires.
+- **A brand's last word can be an ordinary word.** "Pearsons Education" made "education" a brand
+  mention. Keep `_GENERIC_NAME_WORDS` in mind when a preflight name error looks absurd.
+- **wiley and wileytest were nine days behind on the UI bundle.** A shared bundle means every UI
+  deploy to a prod tenant carries all committed UI work since its last build; check the gates.
+
 ## 2026-09-24/25 — Brand Watcher Voices: new sites, better roles, Jev, per-site personas with a settings page; alert emails stop leaking model working
 
 ### Goal
@@ -463,6 +733,85 @@ site, blind-labelled samples, API calls with an admin session, and a traceback c
 - Compare prompts with `.env` loaded on both sides; importing `app.core.routers` loads it and changes the set.
 - Hunt look-alikes by the name local posts actually use: German posts say "Springer Verlag", Dutch posts
   say "Elsevier", neither says the look-alike's full name.
+
+## 2026-09-25 — aisocnews.com, round two: every vendor searched, vendor blogs read, dates in UTC, wires are the vendor's voice
+
+### Goal
+Three read-only checks of aisocnews.com (collection, processing, quality) found that collection
+ran cleanly but missed news it could have had, never read the vendors' own blogs, and still showed
+wrong dates, false "independently reported" labels and some wrong merges.
+
+### Collection
+- **Every vendor is searched by name.** Market 2 ran `plan_market_keywords` in "funded" mode, so
+  52 of 97 vendors were never searched for in the news. Group 16 is now synced in "all" mode
+  (58 → 111 keywords, NewsFirehose only, which batches 8 names per query). HawkEye searches as
+  "DTS HawkEye" (a `search_name` identifier), because bare "HawkEye" is also a keylogger.
+  Adding a vendor now re-syncs the group in the market's stored mode
+  (`market_collect.resync_market_keywords`), and the setup routes keep the stored mode when none
+  is given.
+- **Vendor blog posts are linked to their vendor by domain** (`market_corpus.attribute_owned_pages`,
+  run with the corpus match). The name scan needs the vendor's name in the text, and a blog rarely
+  names itself: 311 posts had no link.
+- **Posts are translated at insert on the two paths that skipped it** (`land_article`, the RSS
+  monitor). Styled letters (𝐁𝐨𝐥𝐝) no longer count as a foreign script
+  (`title_translation._non_latin_share` normalises first). They had sent 257 English LinkedIn
+  posts for translation, which cut the vendor's name off the headline. Those 257 rows were
+  repaired: 214 restored to their English original, 8 given their prefix back, 99 real
+  translations kept.
+- **Xpoz:** one retry when a search fails to start, and `XPOZ_<PLATFORM>_TIMEOUT` overrides the
+  25 s cap for one platform.
+- **RSS:** a feed that parses to nothing now records the error in `rss_feeds.last_error`. The
+  socjedi.ai feed (an empty XML document) is switched off.
+- **Social profiles** are built daily for the 25 busiest unprofiled voices
+  (`market_monitor._profile_voices`, `MARKET_PROFILE_DAILY`). The last run was 8 Sep.
+
+### Processing
+- **The post review reads vendor blog posts** (`owned:%`) as well as LinkedIn, with 1,500
+  characters of body instead of 600. A backfill read 636 posts: 122 signal, 438 commentary,
+  76 noise.
+- **A vendor's blog about someone else's deal is not the vendor's deal.** A blog post can only be
+  an acquisition, funding, partnership or customer item when its headline names the vendor or
+  speaks as it ("we", "our"). D3's "Cribl Just Acquired Radiant Security's AI SOC Technology"
+  would otherwise have become D3's acquisition.
+- **Wire releases are the vendor's own voice** (`report_corpus.is_wire_host`, `menafn.com`
+  added). This affects report evidence, `independence_key_for_article` and stored supporting
+  evidence.
+- **Coverage may sit at most 2 days before the event** (`coverage.MATCH_DAYS_BEFORE`). Intezer's
+  19 Aug article had been attached to its 2 Sep launch; that evidence was detached from event 6426.
+- **`merge_duplicates` only folds events within 14 days of each other.**
+- **The ledger names callers that run on a worker thread** (`llm_usage_logger.remember_caller`,
+  called from `ai_models`). The $30-a-week "unknown" Sonnet 4.5 spend is
+  `emerging_topics.deep_analyzer`.
+- **The data-quality audit samples articles that were actually kept**, off the event loop, and
+  audits each article once.
+
+### The page (`market_assessment.py`)
+- **Dates are UTC days** (`_parse_day`). The database session is in Berlin time, so a post made
+  after 22:00 UTC showed the next day. Coalition acquired Wirespeed on 17 Sep, not 18 Sep.
+- **Merges:**
+  - A vendor post and a launch days apart merge only when both headlines name the same product
+    (Mars Playbooks vs the detection engine, Intezer).
+  - Partnerships naming different partners stay apart (AquilaI).
+  - A follow-up post within 3 days that shares 10 or more subject words merges (Huntbase).
+- **"Wider market" reads past emoji, "&amp;" and lead-ins such as "Exciting news:",** allows
+  "and" and "&" between company names, and knows "is expanding", "expanded" and "bring". Splunk,
+  Cisco and Cisco's WideField acquisition now reach it.
+- **Not events:**
+  - "helped a customer avoid an attack" posts;
+  - download and follower counts;
+  - chip "SoC" posts naming emulation, hardware or FPGAs.
+- **Senior titles:** "partner" counts only as a title (Managing Partner).
+- **Customer highlight:** lists only named customers and case studies.
+- **Hook headlines:** a hook launch headline that names nothing falls back to the review's
+  one-line reading.
+- **Page names:** a company page name longer than the tracked name ("Crogl, Inc.:") is stripped.
+
+### Not done
+- **"Page changed" events are not re-typed.** The page and the findings view already treat them
+  as low and hide them, and re-typing would change their fingerprints, which would make the next
+  extraction run recreate them.
+- **Some long headlines that name nothing** stay as they are (Torq, Camelot). Widening the rewrite
+  to them made customer and research headlines worse.
 
 ## 2026-09-24 — Daily briefings: the reviewer's warnings now get fixed, and incidents stop carrying invented years (`c2f47fd5`, `bb1ed1e8`)
 
@@ -762,6 +1111,377 @@ way." This is a database edit only, with no code change.
   as brand. Check each handle and its posts by hand.
 - A handle that contains a brand name is often a different business: Pearsons estate agents, the
   `@sagepub` pub, Sun-Star Stationery, Colgate University.
+
+## 2026-09-23 — MCP search actually searches; the Perception tab stops counting a brand's own blog as press; reranking switched back on
+
+### Goal
+Oliver asked for a test of the MCP server on oviva.aunoo.ai, every tool and every recipe. All 24
+tools answered and all 5 recipes rendered, but three were wrong in ways a caller could not see.
+Fixing them surfaced a fourth problem underneath: the retrieval reranker had not run on any
+tenant since the GPU filled up.
+
+### Fix: the two "semantic" search tools were literal keyword matches (`7ac8f34f`, `73ff937a`)
+**`app/services/auspex_tools.py`** `semantic_search_and_analyze` and `follow_up_query` passed the
+whole question to `facade.search_articles(keyword=...)`. That is an ILIKE on the phrase, so any
+question written as a sentence matched nothing: "Oviva NHS weight management programme" returned
+0 articles where the single word "Wegovy" returned 6. The `deep_dive` recipe is built on both
+tools, so it produced empty research on every site.
+
+Both now call a new `_retrieve_for_question`, which runs two passes because neither covers the
+store alone. The pgvector index answers the question as a question, but only 1,411 of oviva's
+2,393 articles carry an embedding, so a keyword pass over the question's own terms (`_query_terms`,
+which keeps acronyms and longer words and drops stopwords) picks up the rest. Both sets go to the
+reranker together.
+
+The same function also threw the query away whenever it contained "analysis", "comprehensive",
+"detailed", "insights", "structured" or "breakdown", answering with unfiltered topic articles
+instead. That branch is gone, and `_apply_diversity_filter`, which reordered results against
+relevance and had no other caller, went with it. The tool's description in
+**`app/mcp_access/tools.py`** claimed an AI analysis it never performed; the analysis is counting
+sources, categories, sentiment and dates, and it now says so.
+
+Two repairs fell out. `rerank()` takes a `topic` argument on bugfixing and panaya only — the other
+six tenants run a reranker that predates it and raised `TypeError` on every call, so the first
+propagation broke the tools it had just fixed (`73ff937a`). The argument only feeds the TypeSafe
+Jev shadow and never changes the order returned, so we dropped it. And `_extract_key_themes` and
+`_extract_context_keywords` crashed on any row with a NULL title or summary, because
+`.get(k, '')` hands back that `None` rather than the default; vector metadata rows hit it
+immediately.
+
+### Fix: the Perception tab counted a brand's own website as press coverage (`7ac8f34f`)
+**`app/routes/brand_watcher_routes.py`** `get_perception_dimensions` bucketed a row as `owned`
+only when it was LinkedIn with a `vendor:` bias source. A brand's own blog and press pages carry
+`owned:<domain>` and fell through to `ELSE 'media'`, so the Perception tab reported them as press
+coverage of the brand. On oviva the media score read **+45 over 22 articles, with zero negatives**,
+and a DB check found every one of those rows was the brand's own site: 12 from `Oviva AG` and 9
+from `Oviva UK`, all `bias_source = owned:oviva.com`. A company does not write badly about itself,
+so the score was manufactured.
+
+The CASE now uses the house predicate `social_sources.owned_src_sql`, which covers both `owned:`
+and `vendor:` prefixes, and tests it first, because an owned row is the brand talking whichever
+surface it appears on. `get_brand_stats` was already correct — it uses `earned_news_sql` — which is
+why the two tools disagreed and how the bug showed up.
+
+`wbm` and `abm` run an older version of this query with no owned bucket at all, so they had the
+same bug in a stronger form and needed the bucket added by hand along with the `dim == "owned"`
+skip in the counting loop.
+
+### Fix: a tool's own failure report reached the client as a success (`7ac8f34f`)
+Several tools answer a failure with `{"error": ..., "articles": []}` rather than raising. The MCP
+layer passed that through as a successful empty result and recorded `ok` in `mcp_tool_calls`, so a
+broken tool was indistinguishable from a quiet corpus. **`app/mcp_access/dispatcher.py`** now
+raises `ToolError` on a top-level `error` key. Only top-level: a per-item error, such as one market
+analysis failing while the others succeed, leaves the rest of the payload worth returning.
+
+This immediately exposed `google_web_search`, which has been failing on every tenant. It also
+carries Google's own message now, because a bare status code cannot tell a disabled API from a
+spent quota.
+
+### Fix: the reranker had been silently off on every tenant (`d54ea7b8`, `8ced9710`, `5dfc334d`, `2341e9e0`)
+**`app/retrieval/reranker.py`** loaded its cross-encoder onto the GPU, which vLLM and the two
+encoder services already fill (20,065 of 20,475 MiB, vLLM holding 17.4 GB). The load raised
+`RuntimeError: CUDA error: out of memory`, and the failure path is a no-op that returns the input
+slice, so every tenant served cosine-only retrieval while `RERANK_ENABLED=true` said otherwise.
+Search, market signals, trend convergence and Forecast Assessment's scenario attribution were all
+affected.
+
+`RERANK_DEVICE` now defaults to `cpu`. The budgets were sized for a GPU and had to come down with
+it, and then the model changed too:
+
+- **`RERANK_MAX_SCORED`** 200 on GPU, **32** on CPU. This is the latency dial. It reached 32 in
+  three steps: 16 was the most bge-reranker-v2-m3 could afford, 10 was tried and reverted because
+  at ten candidates the cross-encoder reorders barely more than the slice it returns — measured on
+  oviva, where it dropped the best answer to a question before the caller saw it — and 32 became
+  affordable once the model changed.
+- **`RERANK_MAX_TEXT_LEN`** 4000 on GPU, **700** on CPU. Sequence length is most of the cost: 32
+  candidates take 4.3s at 700 characters against 15s at 1500.
+- **`RERANK_THREADS`** 8. Measured as fast as 20 here, because the pass is bound by memory
+  bandwidth rather than cores, and it leaves the other tenants their share.
+- **`RERANK_MAX_PAIRS`** 1500 on CPU. `assign_exclusive` scores every article against every
+  scenario, so its pair count is a product with no previous ceiling. That path only goes live now,
+  and past the cap Forecast Assessment falls back to topic-only attribution.
+- **`RERANK_MODEL`** now `BAAI/bge-reranker-base` (278M) rather than `BAAI/bge-reranker-v2-m3`
+  (568M). v2-m3 costs 0.72s per pair on this host under load against base's 0.14s.
+
+Capping what gets scored must not cap what gets returned. The old code dropped every candidate
+past the cap, so a CPU cap of 16 would have turned `market_signals_routes`' `top_k=100` into 16
+rows. Candidates past the cap now keep their cosine order behind the scored ones.
+
+Two things were corrected while in the file. The old comment sold v2-m3 on its 8K context window,
+but `_get_model` pins `max_length=512` for every model, so nothing ever read past 512 tokens and
+the window was never a reason to prefer it. And **`app/services/hybrid_relevance_service.py`**
+documents AUC figures (0.885 theme, 0.478 brand) measured against v2-m3; that note now says which
+model it describes and tells the next reader to re-measure. Nothing live depends on it — that tier
+is behind `RELEVANCE_USE_CE_TIER`, which is off on all eight tenants, so the CPU move does **not**
+put a cross-encoder in the ingest path.
+
+### Still broken: the Google Search credential (not fixed, needs a console)
+`google_web_search` returns `403: Requests to this API customsearch method ... are blocked`. All
+eight tenants share one `GOOGLE_API_KEY`, and the Custom Search JSON API is not enabled for its
+Google Cloud project, or the key is API-restricted. This is a Google Cloud console change and
+cannot be made from the host. The code side is done: the failure now surfaces as a tool error with
+Google's own message instead of an empty result logged as `ok`.
+
+### Verification
+All measured on 2026-09-23, after the restarts.
+
+- **Search, oviva.** "What do patients say about the Oviva NHS programme?" went from **0 articles**
+  to 35 candidates. `follow_up_query` on the same site went from 0 to 25.
+- **Search ordering, bugfixing.** "How are SOC teams using AI agents for alert triage?" leads with
+  "Scaling SOC Capabilities: How Threat Intelligence Cuts Triage Time and Burnout" at rerank score
+  0.725. Cosine-only led with an unrelated Google AI roundup; v2-m3 led with a CISO requirements
+  piece at 0.297. "Which companies raised funding for security automation?" leads with an actual
+  funding round at 0.664, against 0.0037 for a construction-AI startup under v2-m3.
+- **Search ordering, oviva, German.** "Was sagen Patienten über die Oviva App?" returns patient
+  posts on Bluesky about prescriptions and missing medication. v2-m3 returned Oviva's own LinkedIn
+  posts for the same question.
+- **Reranker model.** bge-reranker-base scored a relevant and an irrelevant document for the same
+  query at **0.888 and 0.0001**. Per-pair cost at 700 characters, 8 threads, this host under load:
+  **0.14s** against v2-m3's 0.72s (and 0.23s for v2-m3 on an idle box). 32 pairs in 4.27s.
+- **Search latency, end to end.** 4.7–6.9s warm, 12–13s on the first call of a process, which
+  includes the model load. Tenant process RSS 2.19 GB (bugfixing) and 2.30 GB (oviva) with the
+  model resident; it loads lazily, so a tenant that never reranks never pays.
+- **The scoring cap does not truncate results.** `semantic_search_and_analyze` with `limit: 20`
+  returns 20 rows.
+- **Perception, oviva.** `get_brand_perception` media for Oviva went from **score 45, n=22** to
+  **n=0**, which now agrees with `get_brand_stats` (0 earned, 21 owned). Re-running the bucket
+  query live puts 79 rows in `owned` and none in `media`. Noom was wrong too: media went from
+  57 over 7 articles to 75 over 4, so three of its seven "media" rows were noom.com's own blog.
+- **Audit log.** `mcp_tool_calls` on oviva now records `google_web_search` as `error`, where before
+  it recorded `ok`.
+- **No regressions.** Full sweep of all 24 tools on oviva: 23 return data, `google_web_search`
+  errors correctly. All five recipes render with arguments substituted; `prompts/get` on an unknown
+  name returns `-32602`; bad brand, bad market, unknown tool and a missing required argument all
+  return proper JSON-RPC errors; a bad or absent bearer token returns 401.
+
+### Propagation
+Committed in bugfixing (canonical, the only monolith tree with a GitHub remote) as `7ac8f34f`,
+`73ff937a`, `d54ea7b8`, `8ced9710`, `5dfc334d`, `2341e9e0`. Every other tenant tree is a deploy
+copy — oviva, sunstar, panaya and abm are not git repositories at all — so the code there is a
+file-level copy and this entry plus those SHAs are its only record.
+
+All eight monolith tenants carry all five files and have been restarted: bugfixing, oviva, wiley,
+wileytest, sunstar, panaya, wbm, abm. Verified after the last restart that each has
+`_retrieve_for_question`, the owned CASE branch, `_raise_if_tool_reported_failure`,
+`RERANK_MODEL=BAAI/bge-reranker-base` and `RERANK_MAX_SCORED=32`. saas and saasmvp are a different
+application and were deliberately left out.
+
+The patch did not apply cleanly everywhere and none of it was synced wholesale:
+
+- **wbm and abm** needed `brand_watcher_routes.py` and `dispatcher.py` patched by hand. Their
+  perception query has no owned bucket and their dispatcher has no `gate_low_relevance` — still
+  missing, so MCP on those two returns rows below the 0.4 relevance floor that the UI hides. Out
+  of scope here; worth its own pass.
+- **Six tenants** lack the Jev shadow block in `rerank()`, so the `unscored` tail change needed a
+  different edit there (`return ([c for _, c in scored] + unscored)[:top_k]`).
+- **`wiley`** has no `RERANK_ENABLED` in its `.env`, so it never loads the reranker at all. Its
+  code is current; only the flag is missing. Worth setting if reranking is wanted there.
+
+The model lives in the service user's cache at
+`/home/orochford/.cache/huggingface/hub/models--BAAI--bge-reranker-base`, downloaded as
+`orochford`. A tenant cloned fresh will download it on its first rerank.
+
+### Lessons
+- **A silent degradation path hides a dead feature indefinitely.** The reranker caught its own OOM,
+  logged once at startup and returned the input unchanged, so `RERANK_ENABLED=true` told you
+  nothing about whether reranking happened. Retrieval now reports which ordering it used in
+  `search_method`: "reranked against the question" or "ordered by similarity only (the reranker did
+  not load)". ALWAYS make a degraded path say so in its output, not only in a log line at startup.
+- **A tool that returns its failure instead of raising it looks like an empty corpus.** That is how
+  `google_web_search` stayed broken across eight tenants with a clean audit log.
+- **Check the rerank budget against a typical `top_k`.** A cap near `top_k` reorders only what it
+  was going to return anyway and buys nothing for its seconds.
+- **This host's `patch` has no `--exclude`.** Split the diff per file instead; the flag fails the
+  whole invocation and silently applies nothing.
+- **NEVER assume a shared helper has the same signature on every tenant.** `rerank()` gained a
+  `topic` argument on two of eight, and passing it broke the other six at runtime, not at import.
+
+## 2026-09-23 — Sunstar market decks now cite only their own country's press; UK market revived on RSS
+
+### Goal
+Oliver asked why sunstar's Topics list had so many near-identical names. Working through that
+showed three real problems behind the naming: the UK market collected almost nothing, the RSS
+path never recorded where a publisher is based, and the report-time country rule had never
+fired on a single deck.
+
+### Fix: the report country rule never fired (`360eac18`)
+**`app/services/report_corpus.py`** holds a market deck to its own country's press, but the rule
+was switched off in practice for two independent reasons.
+
+- **The deck name matched no group.** `market_country_for_topic` looked the country up by
+  `keyword_groups.topic`. The deck builders pass the tracked name, and on sunstar those differ:
+  `'Oral-Systemic Health - Japan'` returned None while `'Oral Health & Whole-Body Health - Japan'`
+  returned `jp`. A tracked name now resolves through `forecast_topic_metadata.source_topics`.
+- **The corpus query dropped the column.** The horizons SELECT in
+  **`app/services/topic_report_service.py`** and the fallback SELECT in
+  **`app/services/topic_report_pptx.py`** did not fetch `source_country`, so `filter_report_corpus`
+  logged "rows carry no source_country; not country-filtering" and skipped. Both now carry it.
+
+The rule is unanimous or nothing (`_unanimous_country`): every collection group behind the topic
+must declare the same country, or we do not filter. This keeps the `Oral-Systemic Health`
+synthesis deck unfiltered, since its nine source topics span seven countries. It also fixes a
+latent bug. "Brand Monitoring Sunstar" is carried by an English group with no country and a
+Japanese group with `jp`, and the old `LIMIT 1` answered `jp`, which would have held a global
+brand report to Japanese press.
+
+### Fix: RSS rows carried no publisher country (`360eac18`)
+**`app/tasks/rss_feed_monitor.py`** `_store_article` wrote seven columns and none of them was
+country, so every RSS article landed with `source_country` NULL. A strict market deck treats NULL
+as "cannot place" and drops it, so a UK feed would have been thrown away by the UK deck.
+`fetch_feed` now resolves each batch once through the registry, and `_store_article` stamps
+`source_country` and `source_country_method` at insert. A new helper in
+**`app/services/source_country.py`**, `countries_with_method`, returns the method along with the
+country, so a wrong code can be traced to the rung that produced it. Every failure path stores
+the row unstamped rather than stopping the feed.
+
+### Fix: three problems found in review (`360eac18`)
+- **A new feed domain could freeze the tenant.** The registry's model rung calls
+  `model.generate_response` synchronously, and the RSS monitor shares the app's event loop. The
+  lookup now runs in `asyncio.to_thread`.
+- **A failed cache re-read labelled a real answer `unresolved`.** It now says `unknown`.
+- **One failed `information_schema` query switched the filter off until restart.** Both checks in
+  `report_corpus.py` cached `False` on an exception. They now cache only a real answer and log a
+  warning.
+
+### Ops: UK market revived on RSS instead of keywords (sunstar DB)
+The UK group (id 18) was switched off on 21 Sep because it stored almost no UK press. The reason
+recorded then — the US group swallowing the same articles — stopped applying the same day, when
+the ingest country filter landed: 301 GB-published rows sit under the US topic, the last one
+dated 20 Sep. The real limit is volume. The whole sunstar corpus held 415 GB-published articles,
+16 of them approved, and 185 of the US topic's GB rows were Queen's University Belfast press
+releases.
+
+We added three UK feeds to `rss_feeds` under the `Oral Health & Whole-Body Health - United Kingdom`
+topic, each validated with `RSSCollector.test_feed_url` first: The Guardian's dentists feed
+(id 3), Dentistry.co.uk (id 4) and the British Dental Journal (id 5). The BDA feed returns 403 and
+was left out. Group 18 stays `is_active=false`, so the feeds cost nothing against the TheNewsAPI
+quota, which sunstar already overruns (about 201 calls a day asked against a 100-a-day limit
+shared with wileytest).
+
+### Ops: two feeds polled every 24 minutes instead of daily (sunstar DB)
+`rss_feeds.interval_unit` is a string (`minutes`, `hours` or `days`), but sunstar's first two feeds
+had been seeded with `'3600'`, the seconds convention that `keyword_groups.interval_unit` uses.
+`rss_feed_monitor.py` does not recognise that, falls through to minutes, and so polled the EFP
+and Colgate feeds every 24 minutes. We set both to `hours`. None of the other tenants' feeds
+store a numeric value.
+
+### Ops: group names follow one scheme (sunstar DB)
+`keyword_groups.name` for the ten oral-systemic groups now reads
+`Oral-Systemic Health - Research`, `- Consumer Voice` and `- Press, <Country>`. The name carries
+the subject, the kind of source (papers, social posts or press) and the market, and the ten sort
+together. The `topic` strings were deliberately left alone, because 18 tables and 6,720 rows key
+on them, along with `config.json` and the approved decks. Name and topic now differ for these ten,
+as they already did for the brand groups. The old names are in the session scratchpad
+(`keyword_group_names_before.tsv`).
+
+Earlier the same session I recommended renaming the press groups to their language
+("... - German"), then withdrew it before running anything. That advice rested on the report
+country rule, which I believed was working, and it was not.
+
+### Verification
+- `market_country_for_topic` on sunstar after the fix: `Oral-Systemic Health` → None;
+  `- Japan` → `jp`; `- United Kingdom` → `gb`; `- United States` → `us`; the collection topic
+  `Oral Health & Whole-Body Health - Germany` → `de`; `Brand Monitoring Sunstar` → None.
+- Deck corpus sizes before and after the filter (alignment > 0.7, analyzed, whole corpus): the
+  synthesis deck 180 → 171, which comes from the blocklist and duplicate rules, not country.
+  **United States 44 → 14**, Germany 11 → 8, Japan 12 → 11, France 4 → 4, Italy 2 → 2,
+  Spain 2 → 1, Brazil 1 → 1, United Kingdom 1 → 1.
+- RSS stamping: we inserted two probe rows through the real `_store_article` on sunstar. They came
+  back `gb/mediabias` and `gb/tld`, and we deleted them. The resolver answered all three feed
+  domains from the free rungs (`dentistry.co.uk` by TLD; `theguardian.com` and `nature.com` from
+  the MBFC table), so it made no model call.
+- Backfill: the 36 rows the UK feeds stored before the fix are now `gb`, using only the free rungs.
+- First poll of the UK feeds: 36 articles in, 2 approved by the relevance gate. Both are on the
+  mouth-body link: The Guardian's "The mouth is a gateway into your body" and Dentistry.co.uk's
+  "Dental teams could help identify diabetes risk, white paper says".
+- Review fixes: we tested the `to_thread` path; a stubbed cache miss returned `('gb', 'unknown')`;
+  a stubbed failing `information_schema` query returned False, cached nothing, and the next deck
+  lookup resolved `jp`.
+- `rss_feeds` now reads `24 hours` on all five sunstar feeds.
+
+### Propagation
+- **Code** (`360eac18`) is copied to sunstar, wiley, wileytest, oviva and panaya. All five held
+  byte-identical copies of canonical HEAD for these files beforehand. Sunstar is restarted; the
+  others pick it up at their next restart.
+- **In practice only sunstar changes.** wiley and wileytest have no `keyword_groups.country`
+  column, and oviva and panaya have the column but no group declaring a country.
+- **Skipped on purpose:** wbm (no `sc_001` columns, no `source_country.py`, and its
+  `rss_feed_monitor.py` differs by 21 lines), plus ibaset and pearson (hundreds of lines of drift).
+- **The DB changes are sunstar-only and outside version control:** the three feeds, the
+  `interval_unit` correction, the ten renames and the 36-row backfill. This entry is their only
+  record.
+- **Incident:** we restarted sunstar at 17:10 while the automated ingest run was on batch 7 of 7,
+  and the graceful shutdown cancelled that batch. Batches 4–6 had saved 0 articles each. Any
+  articles batch 7 did not reach stay unanalysed until the next run. The check we ran before the
+  restart looked only at `ingest_job_status`, which does not record this run.
+
+### Lessons
+- **Test a helper against live data before building on what it seems to do.** Reading
+  `market_country_for_topic` suggested it worked. One call with a deck name showed it answered
+  None for every deck.
+- **Before restarting a tenant, check the journal for `automated_ingest_service` batch lines.**
+  `ingest_job_status` does not track that run.
+- **A string column and an integer column with the same name hold different units.**
+  `rss_feeds.interval_unit` takes `hours`; `keyword_groups.interval_unit` takes `3600`.
+  Copying one convention into the other fails silently.
+
+## 2026-09-23 — Re-ran the Jev relevance benchmark: same answers, half the latency
+
+### Goal
+Asked whether we had used TypeSafe's Jev anywhere in the digest work (we had not — the digest
+lead paragraph runs on `gpt-5.4-mini`, which routes to `bedrock/moonshotai.kimi-k2.5` on oviva),
+then asked for the benchmark to be run. No code changed. This entry records the measurement.
+
+### What was run
+The 09-19 harness, unchanged: `run_jev.py` sends 240 labelled bugfixing articles to
+`https://api.typesafe.ai/v1/systemone` with four questions each — an `on_topic` Noul, a 0-4
+`alignment` Score, a `category` Choice over the topic's own label list, and a `sentiment` Choice
+— then `compare.py` scores the answers against the verdict the pipeline itself stored
+(`ingest_status` approved vs `filtered_relevance`). Model pinned to `jev-1.13.0`, same as 09-19.
+120 articles per topic, half approved and half filtered, across "AI and Machine Learning" and
+"Market Monitoring SOC Automation".
+
+### The answers barely moved in four days
+240 of 240 answered, 0 errors, 9.6 s wall at 8 threads.
+
+| | 2026-09-19 | 2026-09-23 |
+|---|---|---|
+| `on_topic` AUC vs pipeline verdict, AI topic | 0.896 | 0.897 |
+| `on_topic` AUC vs pipeline verdict, SOC market | 0.841 | 0.849 |
+| `alignment` AUC, AI / SOC | 0.895 / 0.858 | 0.897 / 0.862 |
+| category label agreement, AI / SOC | 69% / 65% | 71% / 68% |
+| sentiment agreement, AI / SOC | 49% / 72% | 49% / 73% |
+| latency p50 / p95 | 0.60 s / 0.68 s | 0.31 s / 0.40 s |
+| cost per 1,000 articles, four answers each | $0.0437 | $0.0437 |
+
+Per article rather than in aggregate: the mean drift on the `on_topic` probability is 0.009 and
+the median is 0.000. Jev returned the same category label on 233 of 240 and the same sentiment on
+239 of 240. Two articles crossed the live accept threshold used by `TYPESAFE_DECIDE_RELEVANCE_ACCEPT`
+(`on_topic >= 0.8`), and both had been sitting on 0.79 — "Security pros should prepare for tough
+questions on AI in 2026" (0.79 → 0.81) and "AI-Assisted Coding: How Developers Can Move 10× Faster"
+(0.79 → 0.80). Nothing else changed side.
+
+The one real difference is speed. Latency roughly halved on identical token counts (1,040 input
+tokens per article both times), so their serving got faster and the judgments did not change.
+
+### Nothing is in git
+The harness lives in the 09-19 session scratchpad and nowhere else. This run copied it to the
+current session's scratchpad under `jev/ts`, kept the 09-19 answers as `jev_results_0919.json`
+alongside the new `jev_results.json`, and left both in place so the comparison can be redone.
+**Both scratchpads are session-scoped and will go.** Anything worth keeping has to be copied into
+a repo; this entry is otherwise the only record of the second run.
+
+### Correction to the stored notes
+The one-line index in the session memory said the benchmark script was written but "NOT yet run".
+That was wrong — it ran on 09-19, with results, and so did about twenty shadow integrations and
+four live `TYPESAFE_DECIDE_*` flags. I repeated the stale line to Oliver before checking the
+memory file itself, which had all of it. Index corrected and the re-run recorded.
+
+### Lessons
+- **Read the memory file, not its index line.** The index is a pointer and goes stale; the file
+  under it is the record.
+- **A re-run of a benchmark is worth its four cents.** It is the only way to tell a stable model
+  from a drifting one, and this one moved a median of 0.000 per article while halving in latency.
 
 ## 2026-09-23 — The market highlight still named no buyer for the Wirespeed acquisition
 

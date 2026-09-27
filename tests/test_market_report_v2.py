@@ -31,11 +31,16 @@ def test_every_development_lands_once_and_the_lead_is_not_repeated():
              "significant_hiring", "headcount_change"]
     devs = [_dev(i, t) for i, t in enumerate(types)]
     parts = html._v2_sections(devs, [], [], [])
-    assert parts["lead"] is devs[0]
+    # The lead rotates daily through the top few by rank, never a hire.
+    lead = parts["lead"]
+    assert lead in devs[:html._V2_LEAD_ROTATION + 2]
+    assert lead["event_type"] not in ("significant_hiring", "headcount_change")
     placed = [d["event_id"] for b in parts["buckets"].values() for d in b
               if "event_id" in d]
-    assert sorted(placed) == sorted(d["event_id"] for d in devs[1:])
-    assert [d["event_type"] for d in parts["buckets"]["launches"]] == ["product_launch", "product_expansion"]
+    assert sorted(placed) == sorted(d["event_id"] for d in devs if d is not lead)
+    assert [d["event_type"] for d in parts["buckets"]["launches"]
+            if d is not lead] == [t for t in ("product_launch", "product_expansion")
+                                  if t != lead["event_type"]]
     assert [d["event_type"] for d in parts["buckets"]["hiring"]] == ["significant_hiring", "headcount_change"]
     assert all(d["event_type"] not in ("product_launch", "product_expansion",
                                        "significant_hiring", "headcount_change")
@@ -88,7 +93,8 @@ def test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view():
     tv = {"voices": [{"platform": "twitter", "author": "h1", "posts": 3,
                       "latest_post": {"url": "https://x/p"}}]}
     shared = html._v2_voices_card(rows, tv, teaser=True)
-    assert shared.index("Person 0") < shared.index("Person 1")
+    # Who posted this period comes first, then the rest by reach.
+    assert shared.index("Person 1") < shared.index("Person 0") < shared.index("Person 2")
     assert "Following" in shared and "3 posts" in shared and "quiet this period" in shared
     assert html._TEASER_START in shared and shared.index("Person 10") > shared.index(html._TEASER_START)
     full = html._v2_voices_card(rows, tv, teaser=False)
@@ -126,7 +132,9 @@ def test_lead_skips_a_hiring_count():
 
 
 def test_named_customer_is_a_customer_and_unnamed_is_a_case_study():
-    lead = _dev(0, "acquisition")
+    # The only fresh item, so it leads whatever day the test runs.
+    from datetime import datetime, timezone
+    lead = _dev(0, "acquisition", date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     named = _dev(1, "customer", attributes={"customer": {"named": True, "name": "Acme"}})
     unnamed = _dev(2, "customer", attributes={"customer": {"named": False}})
     bare = _dev(3, "customer")
@@ -516,3 +524,14 @@ def test_a_vendor_post_row_drops_the_page_name_the_byline_already_gives():
     assert "detections.ai:" not in out and "Threat actor delivery" in out
     assert "(A Devo company)" not in html._river_source(
         {**row, "vendors": [{"vendor": "Strike48 (A Devo company)"}]})
+
+
+def test_one_copy_of_each_story_the_most_substantive_one():
+    def post(uri, text_value, substance):
+        return {"uri": uri, "title": text_value, "summary": "",
+                "review_check": {"social": {"substance": substance}}}
+    rows = [post("a", "The Agentic SOC is not a future fantasy and not a single product feature", 0.4),
+            post("b", "The Agentic SOC is not a future fantasy and not a single product feature!", 0.7),
+            post("c", "Alert triage is high volume and bounded, which is why agents land there", 0.8)]
+    kept = html._one_per_story(rows)
+    assert [r["uri"] for r in kept] == ["b", "c"]

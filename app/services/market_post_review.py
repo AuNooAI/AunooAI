@@ -442,6 +442,7 @@ async def _judge(market_name: str, posts: List[Dict[str, Any]],
             "summary": _written(item.get("summary"), 400) if verdict == "signal" else None,
             "followed": bool(post.get("followed")),
             "source_text": f"{post.get('title') or ''}\n{post.get('summary') or ''}",
+            "vendor": post.get("vendor"),
         })
     return out
 
@@ -472,6 +473,11 @@ KIND_MIN_SUPPORT = 0.25
 #: Below this, Jev does not read the post as news, or the name as a customer.
 NEWS_MIN = 0.4
 CUSTOMER_MIN = 0.5
+#: The headline's actor and the summary's subject, as Jev reads them.
+ROLE_MIN = 0.5
+#: The featured item and the highlights need more than a pass: both the
+#: headline and the kind at this probability or better.
+PROMINENT_MIN = 0.85
 _CHECK_CONCURRENCY = 4
 
 #: Kinds that become a development on the page. A wrong one of these is what
@@ -523,7 +529,8 @@ def _check_questions(item: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                              "customer, a hire, a funding round, published research?"),
             "criteria": {
                 "true": "It announces something specific the company has done or "
-                        "that has happened to it",
+                        "that has happened to it, including a named customer's "
+                        "deployment of its product or the results they got",
                 "false": "It is commentary, a newsletter, event or webinar "
                          "promotion, a preview of something coming, a recap, or "
                          "coverage of another company"},
@@ -544,12 +551,40 @@ def _check_questions(item: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                                  "customer into a named one, or adds a detail the "
                                  "post lacks is not supported."),
                 "criteria": _CHECK_CRITERIA}
+    if item.get("headline"):
+        # Who did it, not only whether the words are in the post: "SEP2
+        # publishes case study on Spectrum Security deployment" passed the
+        # support question at 0.92 for Spectrum's own post.
+        q["actor"] = {
+            "type": "noul",
+            "instructions": ("`post` was published by `publisher`. Does `headline` "
+                             "name the right company as the one that did what it "
+                             "describes?"),
+            "criteria": {
+                "true": "The company the headline says acted is the one that did "
+                        "it according to the post",
+                "false": "The headline makes another company the actor: the "
+                         "customer, a partner, a co-author or a publication"},
+        }
+    if item.get("headline") and item.get("summary"):
+        # A true fact from elsewhere in the post is still the wrong summary:
+        # Coalition's acquisition of Wirespeed was summarised with a Forrester
+        # report the post also mentioned.
+        q["summary_on_event"] = {
+            "type": "noul",
+            "instructions": "Is `summary` about the same development as `headline`?",
+            "criteria": {
+                "true": "It adds detail about the development the headline reports",
+                "false": "It reports a different fact, event or topic from the post"},
+        }
     if (item.get("customer") or {}).get("name"):
         q["customer"] = {
             "type": "noul",
-            "instructions": ("According to `post`, is `customer_name` an "
-                             "organisation that buys, deploys or uses the "
-                             "company's product?"),
+            "instructions": ("`post` was published by `publisher`. According to "
+                             "`post`, is `customer_name` an organisation that buys, "
+                             "deploys or uses `publisher`'s product? A company that "
+                             "co-wrote, published or partnered on something with "
+                             "`publisher` is not its customer."),
             "criteria": {
                 "true": "The post says it buys, runs, deploys, uses or is "
                         "evaluating the product, or is the subject of its "
@@ -568,7 +603,8 @@ def check_one(source_text: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]
 
     if not typesafe_client.is_configured():
         return None
-    state: Dict[str, Any] = {"post": (source_text or "")[:CHECK_SOURCE_CHARS]}
+    state: Dict[str, Any] = {"post": (source_text or "")[:CHECK_SOURCE_CHARS],
+                             "publisher": item.get("vendor") or "the company"}
     for field in ("headline", "summary"):
         if item.get(field):
             state[field] = item[field]
@@ -598,6 +634,15 @@ def check_one(source_text: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]
         check["is_news"] = round(float((answers["is_news"] or {}).get("noul", 0.0)), 3)
     if "customer" in answers:
         check["customer"] = round(float((answers["customer"] or {}).get("noul", 0.0)), 3)
+    for key in ("actor", "summary_on_event"):
+        if key in answers:
+            check[key] = round(float((answers[key] or {}).get("noul", 0.0)), 3)
+    # Figures and names, checked by characters rather than by a model.
+    from app.services.review_exact_checks import exact_objections
+    exact = exact_objections(item.get("headline"), item.get("summary"),
+                             source_text or "", [item.get("vendor") or ""])
+    if exact:
+        check["exact"] = exact
     return check
 
 
@@ -605,6 +650,12 @@ def passes(check: Optional[Dict[str, Any]], field: str) -> bool:
     """Whether the stored check lets ``field`` be shown. No check, no text:
     an unchecked headline is exactly what this exists to stop."""
     reading = (check or {}).get(field) or {}
+    if any(x.startswith(f"the {field} ") for x in (check or {}).get("exact") or []):
+        return False
+    if field == "headline" and float((check or {}).get("actor", 1.0)) < ROLE_MIN:
+        return False
+    if field == "summary" and float((check or {}).get("summary_on_event", 1.0)) < ROLE_MIN:
+        return False
     return (reading.get("verdict") == "supports"
             and float(reading.get("p_supports") or 0.0) >= CHECK_MIN_SUPPORT)
 
@@ -626,10 +677,19 @@ def objections(item: Dict[str, Any], check: Optional[Dict[str, Any]]) -> List[st
     if "customer" in check and float(check["customer"]) < CUSTOMER_MIN:
         out.append(f'"{(item.get("customer") or {}).get("name")}" is not shown by '
                    "the post to buy or use the product")
+    if item.get("headline") and float(check.get("actor", 1.0)) < ROLE_MIN:
+        out.append("the headline makes the wrong company the actor; the post was "
+                   f"published by {item.get('vendor') or 'the vendor'}")
+    if item.get("summary") and float(check.get("summary_on_event", 1.0)) < ROLE_MIN:
+        out.append("the summary is about a different fact from the headline's "
+                   "development")
+    out.extend(check.get("exact") or [])
     for field in ("headline", "summary"):
-        if item.get(field) and not passes(check, field):
-            verdict = (check.get(field) or {}).get("verdict") or "no answer"
-            out.append(f"the {field} is not supported by the post ({verdict})")
+        reading = check.get(field) or {}
+        if item.get(field) and not (reading.get("verdict") == "supports" and
+                                    float(reading.get("p_supports") or 0.0) >= CHECK_MIN_SUPPORT):
+            out.append(f"the {field} is not supported by the post "
+                       f"({reading.get('verdict') or 'no answer'})")
     return out
 
 
@@ -695,9 +755,10 @@ async def _correct(market_name: str, flagged: List[Dict[str, Any]]) -> Dict[str,
     for i, v in enumerate(flagged, 1):
         draft = {k: v.get(k) for k in ("verdict", "kind", "headline", "summary", "customer")}
         blocks.append(
-            f"{i}. POST: {(v.get('source_text') or '')[:CHECK_SOURCE_CHARS]}\n"
+            f"{i}. PUBLISHED BY: {v.get('vendor') or 'unknown'}\n"
+            f"   POST: {(v.get('source_text') or '')[:CHECK_SOURCE_CHARS]}\n"
             f"   FIRST READING: {json.dumps(draft, ensure_ascii=False)}\n"
-            f"   CHECKER DISPUTES: {'; '.join(v.get('objections') or [])}")
+            f"   CHECKER DISPUTES: {'; '.join(v.get('objections') or []) or 'nothing; confirm or correct'}")
     kinds = "\n".join(f"- {k}: {d}" for k, d in KIND_CRITERIA.items())
     prompt = CORRECT_PROMPT.format(market=market_name, kinds=kinds,
                                    posts="\n\n".join(blocks))
@@ -726,8 +787,7 @@ def _apply_correction(v: Dict[str, Any], item: Dict[str, Any]) -> None:
     if verdict not in VERDICTS:
         verdict = v["verdict"]
     kind = str(item.get("kind") or v["kind"]).strip().lower()[:24]
-    v["first_draft"] = {k: v.get(k) for k in ("verdict", "kind", "headline",
-                                               "summary", "customer")}
+    before = {k: v.get(k) for k in ("verdict", "kind", "headline", "summary", "customer")}
     v["verdict"], v["kind"] = verdict, kind
     signal = verdict == "signal"
     v["headline"] = _written(item.get("headline"), 200) if signal else None
@@ -735,6 +795,10 @@ def _apply_correction(v: Dict[str, Any], item: Dict[str, Any]) -> None:
     v["customer"] = _customer_of({**item, "kind": kind}) if signal else None
     if item.get("reason"):
         v["reason"] = str(item["reason"]).strip()[:400]
+    after = {k: v.get(k) for k in ("verdict", "kind", "headline", "summary", "customer")}
+    # A second read that confirms is not a correction.
+    if after != before:
+        v["first_draft"] = before
 
 
 def _hold_what_is_unconfirmed(v: Dict[str, Any]) -> None:
@@ -765,7 +829,11 @@ async def validate_and_correct(market_name: str, verdicts: List[Dict[str, Any]])
     flagged = []
     for v in verdicts:
         v["objections"] = objections(v, v.get("check"))
-        if v["objections"]:
+        # Every item that can reach the page gets a second reading, disputed
+        # or not: the featured item on 26 Sep was a newsletter every check
+        # had passed.
+        if v["objections"] or (v.get("verdict") == "signal"
+                               and v.get("kind") in EVENT_KINDS):
             flagged.append(v)
     corrected = 0
     if flagged:
@@ -777,7 +845,7 @@ async def validate_and_correct(market_name: str, verdicts: List[Dict[str, Any]])
         for v in flagged:
             if v["uri"] in fixes:
                 _apply_correction(v, fixes[v["uri"]])
-                corrected += 1
+                corrected += int(bool(v.get("first_draft")))
         await _validate([v for v in flagged if v["uri"] in fixes])
     held = 0
     for v in verdicts:
@@ -785,6 +853,9 @@ async def validate_and_correct(market_name: str, verdicts: List[Dict[str, Any]])
             v["check"]["corrected"] = True
             v["check"]["first_draft"] = v["first_draft"]
             v["check"]["objections"] = v.get("objections")
+        if v.get("check") is not None and v.get("verdict") == "signal":
+            v["check"]["second_read"] = bool(v.get("first_draft")) or bool(
+                v.get("kind") in EVENT_KINDS)
         before = v["verdict"]
         _hold_what_is_unconfirmed(v)
         held += int(before == "signal" and v["verdict"] != "signal")
@@ -1315,6 +1386,9 @@ async def review_earned(conn, market_id: int, market_name: str, *,
 
 #: Least probability for a practitioner post to be shown.
 SOCIAL_MIN = 0.5
+#: At or above this, a practitioner post is a company advertising itself
+#: (@splunk on its own launch, @lumutech on its patent).
+SELF_PROMO_MAX = 0.6
 
 
 def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1325,9 +1399,19 @@ def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str,
             "instructions": f"Is `post` about {about}?",
             "criteria": {
                 "true": "It discusses this market, its products, its vendors, or how "
-                        "security teams use or judge them",
+                        "the people who buy or use them judge them",
                 "false": "It is about something else and only uses the words in "
                          "passing, as a joke, or about another field"},
+        },
+        "self_promotion": {
+            "type": "noul",
+            "instructions": ("Is `post` a company promoting its own product, event, "
+                             "patent or achievement?"),
+            "criteria": {
+                "true": "The author is the company, or speaks for it, and the post "
+                        "advertises what that company does or has won",
+                "false": "Someone else's view, news about another company, or an "
+                         "independent practitioner's own experience"},
         },
         "substance": {
             "type": "noul",
@@ -1357,6 +1441,7 @@ def check_social_one(text_value: str, market_name: str,
     a = out.get("answers") or {}
     return {"on_topic": round(float((a.get("on_topic") or {}).get("noul", 0.0)), 3),
             "substance": round(float((a.get("substance") or {}).get("noul", 0.0)), 3),
+            "self_promotion": round(float((a.get("self_promotion") or {}).get("noul", 0.0)), 3),
             "model": out.get("model")}
 
 
@@ -1370,10 +1455,12 @@ def social_passes(row: Dict[str, Any]) -> bool:
     if not isinstance(check, dict):
         return True
     return (float(check.get("on_topic") or 0.0) >= SOCIAL_MIN
-            and float(check.get("substance") or 0.0) >= SOCIAL_MIN)
+            and float(check.get("substance") or 0.0) >= SOCIAL_MIN
+            and float(check.get("self_promotion") or 0.0) < SELF_PROMO_MAX)
 
 
-def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600) -> Dict[str, int]:
+def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600,
+                       redo: bool = False) -> Dict[str, int]:
     """Check every unchecked practitioner post in the window. Synchronous and
     on its own connection, so a caller can run it in a worker thread."""
     import concurrent.futures
@@ -1396,10 +1483,11 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600) -> D
                AND a.social_meta->>'author' IS NOT NULL
                AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
                AND COALESCE(a.publication_date, a.submission_date) >= :since
-               AND (ma.review_check IS NULL OR NOT (ma.review_check ? 'social'))
+               AND (:redo OR ma.review_check IS NULL OR NOT (ma.review_check ? 'social'))
              ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
              LIMIT :lim
-        """), {"m": market_id, "since": since, "lim": int(limit)}).fetchall()
+        """), {"m": market_id, "since": since, "lim": int(limit),
+               "redo": bool(redo)}).fetchall()
         conn.rollback()
 
         def one(r):
@@ -1419,7 +1507,7 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600) -> D
                  WHERE market_id = :m AND article_uri = :u
             """), {"c": json.dumps(check), "m": market_id, "u": uri})
             stored += 1
-            shown += int(check["on_topic"] >= SOCIAL_MIN and check["substance"] >= SOCIAL_MIN)
+            shown += int(social_passes({"review_check": {"social": check}}))
         conn.commit()
         return {"candidates": len(rows), "checked": stored, "shown": shown}
     finally:

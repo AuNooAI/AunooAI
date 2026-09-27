@@ -25,7 +25,7 @@ import re
 from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.html_report_common import esc, html_document, section_open
 
@@ -2719,8 +2719,13 @@ def _summary_unless_duplicate(dev: Dict[str, Any]) -> str:
     summary = (dev.get("dek") or (dev.get("summary") if outside else "") or "").strip()
     head_key = _norm_words(dev.get("headline") or "")
     sum_key = _norm_words(summary)
+    # Or says it again in other words: "Kai hires Thomas N. as VP of Product
+    # Marketing" over "Thomas N. joined Kai as VP of Product Marketing".
+    head_words, sum_words = set(head_key.split()), set(sum_key.split())
+    overlap = (len(head_words & sum_words) / len(sum_words)) if sum_words else 0.0
     duplicate = bool(head_key) and (head_key[:60] in sum_key
-                                    or sum_key[:60] in head_key)
+                                    or sum_key[:60] in head_key
+                                    or overlap >= 0.75)
     return "" if duplicate else summary
 
 
@@ -3783,6 +3788,30 @@ def _spread_voices(rows: List[Dict[str, Any]], cap: int) -> List[Dict[str, Any]]
     return (first + rest)[:cap]
 
 
+def _story_words(row: Dict[str, Any]) -> set:
+    text_value = re.sub(r"https?://\S+|[@#][\w.]+", " ",
+                        f"{row.get('title') or ''} {row.get('summary') or ''}".lower())
+    return {w for w in re.findall(r"[a-z0-9]{4,}", text_value)}
+
+
+def _one_per_story(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One post per story: amplified copies ("The Agentic SOC is not a future
+    fantasy…" from two accounts) and different posts sharing most of their
+    words collapse to the one Jev found most substantive."""
+    def substance(r: Dict[str, Any]) -> float:
+        return float(((r.get("review_check") or {}).get("social") or {}).get("substance") or 0.0)
+
+    kept: List[Tuple[set, Dict[str, Any]]] = []
+    for row in sorted(rows, key=substance, reverse=True):
+        words = _story_words(row)
+        if words and any(len(words & w) / max(1, min(len(words), len(w))) >= 0.6
+                         for w, _ in kept):
+            continue
+        kept.append((words, row))
+    order = {id(r): i for i, r in enumerate(rows)}
+    return sorted((r for _, r in kept), key=lambda r: order[id(r)])
+
+
 def _v2_is_voice(row: Dict[str, Any]) -> bool:
     """A vendor post that is opinion or research rather than an
     announcement. Practitioner discussion arrives separately, already
@@ -3826,8 +3855,12 @@ def _v2_sections(developments: List[Dict[str, Any]],
         for pool in (fresh, developments):
             if not pool:
                 continue
+            # The featured item must be one the checks are sure of: on
+            # 26 Sep a newsletter every check had passed led the page.
+            from app.services.market_assessment import prominent_ok
             rotation = [d for d in pool
-                        if d.get("event_type") not in _V2_HIRING_TYPES][:_V2_LEAD_ROTATION]
+                        if d.get("event_type") not in _V2_HIRING_TYPES
+                        and prominent_ok(d)][:_V2_LEAD_ROTATION]
             lead = rotation[day % len(rotation)] if rotation else pool[0]
             break
     buckets: Dict[str, List[Dict[str, Any]]] = {k: [] for k in V2_SECTIONS}
@@ -3860,9 +3893,10 @@ def _v2_sections(developments: List[Dict[str, Any]],
     used = {e.get("uri") for d in developments for e in (d.get("evidence") or [])}
     voices: Dict[str, Dict[str, Any]] = {}
     from app.services.market_post_review import social_passes
-    # Practitioner posts only when Jev read them as on topic and substantive.
+    # Practitioner posts only when Jev read them as on topic, substantive and
+    # not a company advertising itself; one copy of each story.
     for row in [r for r in (corpus_rows or []) if _v2_is_voice(r)] + \
-            [r for r in (discussion or []) if social_passes(r)]:
+            _one_per_story([r for r in (discussion or []) if social_passes(r)]):
         uri = row.get("uri")
         if uri and uri not in used and uri not in voices:
             voices[uri] = row
@@ -4177,8 +4211,9 @@ def _v2_section(key: str, inner: str, *, count: int, days: int,
     """One section: its name, a line saying what it holds, and its items or
     a line saying there are none. The front page links to the full list."""
     sec = V2_SECTIONS[key]
+    # "All 1" says nothing the section does not already show.
     more = (f'<a class="v2-more" href="{more_href}">All {count} &rarr;</a>'
-            if more_href and count else "")
+            if more_href and count > 1 else "")
     if not inner:
         inner = ('<p class="n-empty">' + esc(sec["empty"]) + '</p>' if sec.get("empty") else
                  f'<p class="n-empty">No {esc(sec["thing"])} in the '

@@ -1308,3 +1308,16 @@ def test_a_highlight_source_line_reads_like_the_rest_of_the_page():
     dev = {"headline": "Coalition acquires Wirespeed", "date": "2026-09-17",
            "provenance_label": "Vendor sources only"}
     assert ma._evidence_line(dev) == "Coalition acquires Wirespeed (Vendor sources only, 17 Sep 2026)"
+
+
+def test_a_vendor_name_takes_the_registered_spelling():
+    assert ma._vendor_spelling("Vigilbase launches Vigilbase Platform",
+                               [_vendor("VigilBase", 70)]) == "VigilBase launches VigilBase Platform"
+
+
+def test_only_confident_items_are_featured_or_quoted():
+    assert ma.prominent_ok({"review_confidence": None})
+    assert ma.prominent_ok({"review_confidence": 0.9})
+    assert not ma.prominent_ok({"review_confidence": 0.64})
+    assert ma.review_confidence({"kind": {"p_drafted": 0.95},
+                                 "headline": {"p_supports": 0.64}}) == 0.64
