@@ -11,7 +11,7 @@ Brand Watcher is an adverse-media and brand-intelligence screen. It continuously
 - **Topics** — articles arrive through monitoring topics (e.g. `Brand Monitoring Wiley` for social, `Wiley - Brand Watch` for official records). The header brand selector scopes most tabs to one brand.
 - **Relevance (topic alignment)** — every article and post is scored 0–1 for "is this actually about the brand?". **All brand views filter at relevance ≥ 0.4** to keep name-collisions (people called Wiley, unrelated companies) out of your numbers. Off-brand items still exist in the database; they are just excluded from brand analytics.
 - **Sentiment** — articles and posts are classified (Positive / Neutral / Negative and variants like Concerned or Critical). The standard rollup is **net sentiment = (positive − negative) ÷ scored × 100**, shown as −100…+100. Unrated items never count in the base.
-- **Categories** — news is classified into an 11-category taxonomy (Financial Performance, Legal & Regulatory, Customer & Product Issues, …) by a local model with LLM fallback; confidence and method are stored per classification.
+- **Categories** — news is classified into an 11-category taxonomy (Financial Performance, Legal & Regulatory, Customer & Product Issues, …) by a local model with LLM fallback; confidence and method are stored per classification. A paper, book chapter or dataset the brand published goes to a separate **Publications** bucket instead, because a publisher's own output is not coverage of the publisher.
 
 ## Tabs
 

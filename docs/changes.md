@@ -1,5 +1,31 @@
 # Changes
 
+## 2026-09-28 — A paper is not product news: scholarly records go to a Publications bucket
+
+Wiley's 'Product & Innovation' coverage spike on wbm (46 this week, average 20.2) was 45 papers
+and one press release: 33 chapters of one Wiley Blackwell companion volume from Crossref, four
+OpenAlex records, and eight journal pages relayed through Google News. The August spike fix
+(747e178a) had excluded scholarly sources from the older notification path only; the rules
+engine that writes `bw_alert_events` never had it, and the classifier itself was still filing
+papers as product news.
+
+- **`app/services/bw_official_sources.py`**: Crossref and OpenAlex records land as
+  `Publications`, not `Product & Innovation`. Their relevance and official status are unchanged.
+- **`app/services/opoint_brand_matcher.py`**: `is_scholarly_article()` extends the domain check
+  with the two shapes it could not see: bare doi.org index records and Google News relays whose
+  title tail names a journal platform ("- Wiley Online Library"). `SCHOLARLY_CATEGORY` holds the
+  bucket name.
+- **`app/routes/brand_watcher_routes.py`**: the classification loop sends a scholarly article to
+  `Publications` (method `scholarly`) and skips the SLM, LLM and keyword classifiers for it.
+- **`app/tasks/brand_watcher_monitor.py`**: the `category_spike` rule never counts
+  `Publications`. The rule itself is switched off on wbm and wileytest through
+  `bw_alert_config.rules`, because a bucket count is not a signal about the company.
+
+The UI shows an unlisted category in grey with its own name, so no UI build is needed. Applied
+to bugfixing, wiley, wileytest and wbm. Existing rows still need the backfill (783 scholarly
+articles on wbm, 794 on wileytest, most from Semantic Scholar); the script is in the session
+scratchpad.
+
 ## 2026-09-28 — A brand's post about a partner's product is not the brand's development
 
 Oliver's decision on the open case from the weekly sample. **`app/services/market_actor_review.py`**:

@@ -2362,6 +2362,8 @@ async def classify_articles(
 
 async def _run_classification_task(run_id: int, brand_id: Optional[int], run_type: str, days_back: int, topics: Optional[List[str]] = None):
     """Background: classify articles per brand using SLM → LLM → keyword waterfall."""
+    from app.services.opoint_brand_matcher import (
+        is_scholarly_article as _is_scholarly_article, SCHOLARLY_CATEGORY as _SCHOLARLY_CATEGORY)
     import asyncio
 
     db = get_database_instance()
@@ -2588,9 +2590,19 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 method = "keyword"
                 confidence = None
 
+                # A paper, chapter or dataset record is the brand's own output,
+                # not coverage of it. It goes to the Publications bucket and
+                # skips the news classifiers, which read a chemistry abstract as
+                # a product breakthrough: 45 of the 46 articles behind Wiley's
+                # 'Product & Innovation' spike of 2026-09-27 were papers.
+                if _is_scholarly_article(art_source, uri, title):
+                    categories = [_SCHOLARLY_CATEGORY]
+                    method = "scholarly"
+                    confidence = 1.0
+
                 # Step 1: SLM (with per-brand threshold)
                 brand_threshold = brand.get("config", {}).get("slm_confidence_threshold")
-                if slm_available:
+                if slm_available and not categories:
                     try:
                         slm_result = slm.classify(text_input, threshold=brand_threshold, return_scores=True)
                         categories = slm_result.get("categories", [])

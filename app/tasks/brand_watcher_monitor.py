@@ -762,6 +762,7 @@ def evaluate_adverse_alerts(db) -> int:
                       FROM bw_article_categories bac
                       JOIN articles a ON a.uri = bac.article_uri
                       WHERE bac.brand_id = :b
+                        AND bac.category <> 'Publications'
                         AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                         AND {_not_fp_sql('a')}
                       GROUP BY bac.category)
