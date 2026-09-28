@@ -257,7 +257,7 @@ Product & Innovation spikes fired on 12, 13, 14, 15 and 22 August and on 26 and 
 
 The UI renders an unlisted category in grey under its own name, so no UI build.
 
-### Ops · The category-spike rule is off on all four sites
+### Ops · The category-spike rule is off on the four Wiley sites and oviva
 Oliver's call, after asking what the rule measures. It counts rows the classifier put in a
 bucket over 7 days against the same count over 30 days divided by four, and fires at twice the
 average with a floor of five. It measures our ingest and our classifier, not the company: the
@@ -268,12 +268,14 @@ carry an event and a direction (`high_risk_finding`, `news_net_negative`, `neg_s
 
 ```sql
 UPDATE bw_alert_config SET rules = rules || '{"category_spike": {"enabled": false}}'::jsonb
-WHERE brand_id IS NULL;   -- wbm and wileytest in the morning; wiley and bugfixing (DB `test`) after
+WHERE brand_id IS NULL;   -- wbm and wileytest in the morning; wiley, bugfixing (DB `test`), oviva after
 ```
 
 Do not re-enable it with more input filters. It is off on wbm, wileytest, wiley and bugfixing, the
-four sites that run the Brand Watcher alert engine for Wiley. The other Brand Watcher sites (oviva,
-sunstar, abm, pbm, bwtemplate) were not touched and still have the code default, enabled.
+four sites that run the Brand Watcher alert engine for Wiley, and on oviva. sunstar has no
+`bw_alert_config` row and no `bw_alert_events` row ever: the engine returns before evaluating any
+rule there, so nothing fires, and inserting a row to disable one rule would switch the whole engine
+on. Left alone. abm, pbm and bwtemplate were not touched and still have the code default, enabled.
 
 ### Ops · Backfill of existing category rows (wbm, wileytest)
 Run on Oliver's instruction after a first attempt was blocked by the permission classifier. The
@@ -317,8 +319,8 @@ regeneration.
 Both fixes committed in bugfixing (canonical) and copied by file to wiley and wileytest.
 The Publications change also to wbm, which is the tenant that asked; wbm has no incident
 tracker, so the Highlights fix does not apply there. The rule switch and the backfill are data
-changes: the rule switch on all four databases, the backfill on wbm and wileytest only, because the
-bugfixing and wiley databases had no scholarly rows to move.
+changes: the rule switch on the four Wiley databases and oviva, the backfill on wbm and wileytest
+only, because the bugfixing and wiley databases had no scholarly rows to move.
 
 ### Lessons
 - **One alert, two code paths.** `brand_watcher_monitor.py` has a legacy spike check that writes
