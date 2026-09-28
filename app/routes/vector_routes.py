@@ -1824,6 +1824,36 @@ _YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
 _MONTH_YEAR = re.compile(r"\b(" + _MONTH_NAMES + r")\.?(\s+\d{1,2}(?:st|nd|rd|th)?,?)?\s+(19[5-9]\d|20\d\d)\b")
 
 
+_FULL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def date_incident_timeline(inc: Dict) -> None:
+    """Card date: a full date the articles state, else "reported <published>".
+
+    The model answers "2026-06" when an article says "in June", and the
+    card's formatter turns that into 01.06.2026, a day nobody stated
+    (wileytest, 28 Sep 2026: two OpenAI agent incidents reported on 27 Sep
+    showed 01.06.2026). A bare year or year-month stays on the item as
+    event_period; the description already says "in June", and the card
+    shows when the story was reported. Items in the old shape, with no
+    event_date or published field, are left alone.
+    """
+    if not isinstance(inc, dict) or not ("event_date" in inc or "published" in inc):
+        return
+    ev = inc.get("event_date")
+    ev = ev.strip()[:10] if isinstance(ev, str) else ""
+    if ev.lower() in ("null", "none", "unknown"):
+        ev = ""
+    published = inc.get("published")
+    published = published.strip()[:10] if isinstance(published, str) else ""
+    if ev and not _FULL_DATE.match(ev):
+        inc["event_period"] = ev
+        ev = ""
+    inc["event_date"] = ev or None
+    inc["published"] = published or None
+    inc["timeline"] = ev or (f"reported {published}" if published else "")
+
+
 def strip_unstated_incident_years(incidents: List[Dict], source_text_by_uri: Dict[str, str],
                                   published_by_uri: Dict[str, str]) -> None:
     """Remove event years that no cited article states.
@@ -1905,7 +1935,11 @@ async def analyze_incidents(
             if row and row[0]:
                 logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
                 import json
-                return json.loads(row[0])
+                cached = json.loads(row[0])
+                # Stored rows predate the partial-date rule; apply it on the way out.
+                for _inc in (cached.get("incidents") or []) if isinstance(cached, dict) else []:
+                    date_incident_timeline(_inc)
+                return cached
             return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
 
         # Get articles for analysis
@@ -2335,13 +2369,9 @@ Output a pure JSON array only."""
                 continue
             tl = inc.get("timeline")
             if isinstance(tl, dict):
-                event_date = (tl.get("event_date") or "").strip() if isinstance(tl.get("event_date"), str) else ""
-                published = (tl.get("published") or "").strip() if isinstance(tl.get("published"), str) else ""
-                if event_date.lower() in ("null", "none", "unknown"):
-                    event_date = ""
-                inc["event_date"] = event_date or None
-                inc["published"] = published or None
-                inc["timeline"] = event_date or (f"reported {published}" if published else "")
+                inc["event_date"] = tl.get("event_date") if isinstance(tl.get("event_date"), str) else None
+                inc["published"] = tl.get("published") if isinstance(tl.get("published"), str) else None
+                date_incident_timeline(inc)
 
         try:
             _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}

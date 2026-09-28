@@ -1,5 +1,17 @@
 # Changes
 
+## 2026-09-28 — Highlights: a month is not a day
+
+Two OpenAI agent incidents reported on 27 September showed 01.06.2026 on their wileytest
+Highlights cards. The articles say "in June" and "during the summer", the model answered
+`event_date: "2026-06"`, and the card's formatter read that as 1 June. Fabricated day, wrong
+quarter. **`app/routes/vector_routes.py`**: `date_incident_timeline()` accepts a full ISO date
+only; a bare year or year-month is kept on the item as `event_period` and the card shows
+"reported <published>". Applied when a fresh analysis is parsed and when a stored one is
+served, so the cached cards correct themselves without a regeneration. On the current
+wileytest cache this changes three of 26 items and leaves the rest as they were. Applied to
+bugfixing, wiley and wileytest.
+
 ## 2026-09-28 — A paper is not product news: scholarly records go to a Publications bucket
 
 Wiley's 'Product & Innovation' coverage spike on wbm (46 this week, average 20.2) was 45 papers
