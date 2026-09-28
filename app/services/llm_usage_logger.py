@@ -350,6 +350,28 @@ def _flusher() -> None:
             conn = None
 
 
+def _async_ledger():
+    """The ledger as a litellm CustomLogger, for asynchronous calls.
+
+    litellm (1.80) calls a plain function in ``success_callback`` for
+    synchronous calls only. Every ``acompletion`` (direct or through a Router)
+    went unlogged: the market review's Kimi drafter and Sonnet 5 corrector
+    never reached llm_usage_log, found 28 Sep 2026. Async calls reach only
+    this hook and sync calls only the function, so no success is counted twice.
+    """
+    from litellm.integrations.custom_logger import CustomLogger
+
+    class _AsyncLedger(CustomLogger):
+        _aunoo_ledger = True
+
+        # Successes only: failed async calls already reach the plain
+        # failure_callback, and hooking them here logged each one twice.
+        async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+            _on_success(kwargs, response_obj, start_time, end_time)
+
+    return _AsyncLedger()
+
+
 def install() -> None:
     """Register callbacks + start the flusher. Idempotent; call at startup."""
     global _INSTALLED
@@ -364,6 +386,8 @@ def install() -> None:
         litellm.success_callback.append(_on_success)
     if _on_failure not in litellm.failure_callback:
         litellm.failure_callback.append(_on_failure)
+    if not any(getattr(c, "_aunoo_ledger", False) for c in litellm.callbacks):
+        litellm.callbacks.append(_async_ledger())
     _install_call_site_tagging()
     threading.Thread(target=_flusher, name="llm-usage-flusher", daemon=True).start()
     _INSTALLED = True

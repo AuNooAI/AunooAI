@@ -1,5 +1,30 @@
 # Changes
 
+## 2026-09-28 — The cost ledger now records asynchronous model calls
+
+### Fix · Every `acompletion` call was missing from llm_usage_log
+**What was missing:** the market review's Kimi drafter and Sonnet 5 corrector never reached
+`llm_usage_log`. Nor did any other asynchronous LiteLLM call, direct or through a Router.
+**Cause:** LiteLLM 1.80 calls a plain function in `litellm.success_callback` for synchronous calls
+only, and the ledger (`app/services/llm_usage_logger.py`) registered only such a function.
+Reproduced: a sync call fired the callback, an async call did not, even with the event loop kept
+open.
+**Fix:** `install()` also registers the ledger as a LiteLLM `CustomLogger` (`_async_ledger`), whose
+`async_log_success_event` fires for async calls. Tested on all three routes: direct
+`acompletion`, Router `acompletion` and sync `completion`. Each success reaches exactly one hook.
+Failures are left to the existing `failure_callback`, which does fire for async calls; hooking
+them as well logged each failure twice.
+**Verified in app code:** a Sonnet 5 call from `market_wider_review._write` logged as
+`services.market_wider_review:_write` at $0.0013. Probe rows were deleted.
+**Deployed:** a shared file, so it went to bugfixing, panaya, oviva, sunstar, wiley and
+wileytest (all on LiteLLM 1.80.0), each restarted after a clear quiet check. That also brought
+yesterday's Sonnet 5 / Opus 5 / Kimi K3 prices live on wiley and wileytest.
+
+### What this means for past figures
+Asynchronous calls before today are not in the ledger and cannot be recovered from it. Cost
+views built on `llm_usage_log` undercount every async caller, including the market review since
+it began. Provider bills (Bedrock) are the source of truth for that period.
+
 ## 2026-09-28 — Sunstar's first market page; a vendor is named by the names it goes by
 
 ### Sunstar after its first full day
