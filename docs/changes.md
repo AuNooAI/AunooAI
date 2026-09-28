@@ -1,5 +1,120 @@
 # Changes
 
+## 2026-09-28 — Sunstar Oral Care: LinkedIn and Crunchbase switched on, panel wording fixed, Voices cut to five rows
+
+### Goal
+Oliver pasted Sunstar's Oral Care market page: every LinkedIn panel read "not set up · no active
+linkedin_company_url identifier on file", and "5 of 6 vendors monitored". Later in the session he
+pasted the Sunstar Voices panel, nine rows deep, and called it useless. Three things came out of
+it: a wording fix, a data wiring job on the Sunstar site, and a display-only persona set.
+
+### Fix · Market panels quoted a column name to the reader (`fe18e7d1`)
+When a vendor lacks the identifier a source needs, `entity_scheduler.seed_policies` stored the
+reason as `no active linkedin_company_url identifier on file`, and `market_metrics.collection_state`
+quoted that string on the page as the state detail. **`app/services/entity_scheduler.py`** now has
+`IDENTIFIER_LABELS` (LinkedIn company page, Crunchbase profile, PitchBook profile, ZoomInfo
+profile, website domain, careers-site job board), `identifier_label()` and
+`missing_identifier_reason()`, which writes "no LinkedIn company page on file" or, for the
+job-board case, "no careers-site job board found yet". **`app/services/market_metrics.py`** uses
+the same label in its "no vendor in this market has a …" fallback. The stored reasons are
+rewritten on every seeding pass, so existing rows correct themselves; on Sunstar I ran the
+equivalent UPDATE (30 rows) so the page changed at once. `tests/test_entity_scheduler.py:222`
+asserted the old string and now asserts the new sentence.
+
+### Ops · Sunstar Oral Care now collects LinkedIn and Crunchbase (site config and data, no commit)
+The panels were "not set up" for two real reasons: none of the six vendors had a LinkedIn or
+Crunchbase identifier, and the Sunstar `.env` had no Bright Data key at all. Oliver chose to turn
+it on and asked for the pages to be verified first. LinkedIn answers HTTP 999 to both curl and
+WebFetch from this host, so each page was verified from the company's own website footer or from
+the search-index snippet, then checked against what Bright Data returned.
+
+| Brand | LinkedIn page | Verified by | Bright Data headcount |
+|---|---|---|---|
+| 1 sunstar | company/sunstar-global | snippet: Etoy and Takatsuki HQ, GUM, founded 1932 | 1,430 |
+| 2 lion-corporation | company/lion-corporation-jp | lion.co.jp footer | 279 |
+| 3 kao-corporation | company/kao-group | kao.com footer | not collected (collection off) |
+| 4 colgate-palmolive | company/colgate-palmolive | snippet: 2.3M followers, brand list | 31,296 |
+| 5 pg-oral-b | company/procter-and-gamble | pg.com footer; parent company, see below | 97,078 |
+| 6 haleon | company/haleon | snippet: 393k followers, Sensodyne, Centrum | 18,832 |
+
+Oral-B has no official corporate page (a 441-follower stub in Belmont and a Leicester "executive
+office" page that is not P&G). The parent page is on file with that recorded in the row's
+provenance, so Oral-B's posts and headcount on the market page are P&G's. The showcase page
+`crest-oral-b-for-dental-professionals` is the only Oral-B-specific alternative and the dataset
+does not take showcase URLs. Six `crunchbase_url` rows are slug guesses (`verified: false`); all
+five resolved on the first run.
+
+Sunstar `.env` (backup `.env.bak-brightdata-20260928_125911`): `APP_URL=https://sunstar.aunoo.ai`
+(it was unset, so `market_monitor_routes.callback_url` built a webhook URL with no host and
+Bright Data results would never have arrived), the shared `BRIGHTDATA_API_KEY`,
+`BRIGHTDATA_LINKEDIN_ENABLED=true`, a fresh `BRIGHTDATA_LINKEDIN_WEBHOOK_SECRET`, and
+`MARKET_MONTHLY_BUDGET_USD=20`. Twelve rows went into `bw_vendor_identifiers`; `seed_policies`
+updated 48 policy rows, five of six vendors eligible for each LinkedIn source and Crunchbase. Kao
+(brand 3) has had `collection_enabled=false` since 23 September and stays off; that is the "5 of
+6" line and was not changed.
+
+### Feature · Voices "consumer" persona set: five rows instead of fourteen (`ed068acc`)
+A consumer brand on the standard role list gets one Voices row per stored role. On Sunstar that
+was nine rows, three of them under five posts. **`app/services/voices_personas.py`** adds a
+`consumer` set built at first use from `standard_dict()`, so the role list and the classifier
+prompt stay byte for byte what an unset site sends and only the display changes: patients and
+carers fold into Customers, clinicians and academics into Dental & health professionals,
+industry professionals and investors into Press & analysts, employees into the brand; the
+brand's own posts and bystanders are hidden, as the health set already does. `named_set()` and
+`named_sets()` replace the direct reads of `_SETS` in the module and in
+**`app/routes/voices_personas_routes.py`**, so the settings page lists `consumer` as a preset.
+Enabled on Sunstar with `VOICES_PERSONAS=consumer` in its `.env`.
+
+Oviva was checked for the same treatment and needs none: a health set saved on its Voices
+settings page on 25 September (`voices_persona_sets` id 2, active) already shows Patients,
+Clinicians, Press & analysts and Competitors, opening on clinicians against patients, and every
+Oviva post in the last year carries a role inside that set.
+
+### Verification
+- `pytest tests/test_entity_scheduler.py tests/test_market_metrics.py`: 44 passed, 1 skipped,
+  after the assertion change.
+- `market_metrics.collection_state` on the Sunstar database after the copy: LinkedIn sources
+  `not_configured` / "no LinkedIn company page on file"; Crunchbase "no Crunchbase profile on
+  file"; `ats_jobs` "no careers-site job board found yet".
+- First Sunstar market tick after the 13:07 restart queued four Bright Data batches within two
+  seconds. Runs 22 to 25: `linkedin_company_post` 25 received / 24 new / $0.0375;
+  `linkedin_company_profile` 5 / 5 / $0.0075; `crunchbase_company` 5 / 5; `linkedin_jobs` 40 / 40.
+  All five profile snapshots name the right company and city (Etoy, Tokyo, New York, Cincinnati,
+  London); their `normalization_status` is still `pending`, which is the normal next step. An
+  unauthenticated POST to the public webhook URL answers 401.
+- `audience_voices.voices` for brand Sunstar, last 30 days, run as the route runs it: the standard
+  set reproduces the pasted panel exactly (nine rows, Brand voice 58, Customers 39, Retailers 27,
+  Bystanders 19, Press 9, Dental professionals 4, Professionals 3, Employees 1, Competitors 126);
+  the consumer set gives Customers 39, Retailers 27, Press & analysts 12, Dental & health
+  professionals 4, Competitors 126, opening on dental professionals against customers.
+- Oviva brand, same call: 4 rows over 30 days (Patients 12, Clinicians 8, Press & analysts 1,
+  Competitors 3) and 4 over 90 days.
+- Not verified: the Sunstar market page in a browser after the LinkedIn data landed, and the
+  Voices page in a browser (both checked through the same service calls the routes make).
+
+### Propagation
+`fe18e7d1` (two service files) copied to sunstar, oviva, panaya and bwtemplate, the trees that
+carry Market Monitor; the sunstar copy also brought along the committed `last_attempt_at` fix its
+`entity_scheduler.py` was missing. Restarted with `restart_when_quiet.sh`: sunstar 12:38, oviva
+12:42, panaya 12:43, all with tracebacks 0; bwtemplate has no running unit. `ed068acc` (two files)
+copied to sunstar only, with the env var; sunstar restarted at 13:07 (Bright Data settings) and
+13:35 (Voices). Oviva's `voices_personas.py` and `voices_personas_routes.py` still predate
+`ed068acc`; nothing there depends on it. wiley and wileytest were not touched: neither runs Market
+Monitor, and wileytest keeps `VOICES_PERSONAS=publisher`. The Sunstar env, identifier rows and
+policy rows exist only on that site and are not in version control; this entry is their record.
+The auto-mode permission classifier refused the copy-and-env step for Voices until Oliver said
+"go ahead"; the two `fe18e7d1` copies earlier in the session went through unchallenged.
+
+### Lessons
+- When calling `audience_voices.voices` by hand, pass `bw_brands.display_name` ("Sunstar"), not
+  the slug. The row query matches the topic name, and with the slug every row but Competitors
+  disappears, which looks like a broken persona set.
+- `APP_URL` is what Bright Data posts results back to. A cloned site with Market Monitor on and
+  `APP_URL` unset queues paid batches whose results never arrive.
+- LinkedIn cannot be fetched from this host by any tool. Verify a company page from the company
+  site's footer or a search snippet, record which in `provenance`, and confirm with the first
+  profile snapshot's name and headquarters.
+
 ## 2026-09-28 — Aunoo brand monitoring MCP brought level with Oviva's; empty detection runs left open
 
 ### Goal
