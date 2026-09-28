@@ -37,7 +37,7 @@ def _current() -> Dict[str, Any]:
         return {"source": "saved", "set": saved.to_dict()}
     import os
     name = (os.getenv("VOICES_PERSONAS") or "").strip().lower()
-    code = voices_personas._SETS.get(name) if name and name != "default" else None
+    code = voices_personas.named_set(name) if name and name != "default" else None
     if code is not None:
         return {"source": f"code ({name})", "set": code.to_dict()}
     return {"source": "code (standard)", "set": voices_personas.standard_dict()}
@@ -67,7 +67,7 @@ async def personas_page(request: Request, session=Depends(require_admin)):
 @router.get("/api/voices/personas")
 async def get_personas(session=Depends(require_admin)):
     cur = await asyncio.to_thread(_current)
-    cur["presets"] = ["standard", *sorted(voices_personas._SETS)]
+    cur["presets"] = ["standard", *sorted(voices_personas.named_sets())]
     cur["counts"] = await asyncio.to_thread(_role_counts)
     return cur
 

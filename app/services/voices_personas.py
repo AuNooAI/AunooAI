@@ -238,6 +238,77 @@ HEALTH = PersonaSet(
 
 _SETS: Dict[str, PersonaSet] = {"publisher": PUBLISHER, "health": HEALTH}
 
+# Groups a consumer brand's Voices view shows. The standard list stores
+# fourteen roles and a page that shows them all is a wall of small rows
+# (Sunstar, 28 Sep 2026: nine rows, three of them under five posts). Five
+# rows carry the same information: the detailed role stays on each post.
+_CONSUMER_GROUPS: Dict[str, str] = {
+    "patient": "customer",
+    "caregiver": "customer",
+    "clinician": "dental_professional",
+    "academic": "dental_professional",
+    "professional": "journalist",
+    "investor": "journalist",
+    "employee": "brand",
+}
+_CONSUMER_DISPLAY: Dict[str, Dict[str, str]] = {
+    "customer": {"label": "Customers", "plural": "customers",
+                 "hint": "People using or buying the products, and carers speaking for them"},
+    "retailer": {"label": "Retailers", "plural": "retailers",
+                 "hint": "Shops, pharmacies, online sellers and distributors"},
+    "dental_professional": {"label": "Dental & health professionals", "plural": "dental and health professionals",
+                            "hint": "Dentists, hygienists, doctors, pharmacists and researchers speaking as such"},
+    "journalist": {"label": "Press & analysts", "plural": "press and analysts",
+                   "hint": "Reporters, analysts, investors and industry commentators"},
+    "brand": {"label": "Brand voice", "plural": "brand accounts",
+              "hint": "The brand's own accounts, staff and paid promotion"},
+    "competitor": {"label": "Competitors", "plural": "competitors",
+                   "hint": "Rival brands' own accounts"},
+    "unknown": {"label": "Bystanders", "plural": "bystanders",
+                "hint": "Commentary with no sign of a role"},
+}
+_consumer_cache: Dict[str, Any] = {}
+
+
+def _consumer_set() -> PersonaSet:
+    """The standard roles, shown as five rows.
+
+    Built from the standard list at first use rather than written out, so the
+    classifier prompt stays byte for byte what an unset site sends and only
+    the view changes. Customers, Retailers and Dental & health professionals
+    are columns; Press & analysts and Competitors are rows; the brand's own
+    posts and bystanders are left out, as the health set leaves them out.
+    """
+    cached = _consumer_cache.get("set")
+    if cached is not None:
+        return cached
+    std = standard_dict()
+    built = PersonaSet(
+        name="consumer",
+        definitions={a["key"]: a["definition"] for a in std["audiences"]},
+        guide=std["guide"],
+        reasons={a["key"]: a["reason"] for a in std["audiences"]},
+        person_roles=tuple(std["person_roles"]),
+        groups=dict(_CONSUMER_GROUPS),
+        display=dict(_CONSUMER_DISPLAY),
+        not_audiences=("journalist",),
+        hidden=("brand", "unknown", "unclassified"),
+        open_pairs=(("dental_professional", "customer"),),
+    )
+    _consumer_cache["set"] = built
+    return built
+
+
+def named_sets() -> Dict[str, PersonaSet]:
+    """Every set a site can name with VOICES_PERSONAS, by name."""
+    return {**_SETS, "consumer": _consumer_set()}
+
+
+def named_set(name: str) -> Optional[PersonaSet]:
+    if name == "consumer":
+        return _consumer_set()
+    return _SETS.get(name)
+
 # Rows the Voices view never makes a column, whatever a set says.
 _ALWAYS_BUTTONS = {"brand", "competitor", "journal_society", "unknown", "unclassified"}
 # The account registry and the fallbacks write these roles, so every set needs them.
@@ -288,7 +359,7 @@ def active_set() -> Optional[PersonaSet]:
     name = (os.getenv("VOICES_PERSONAS") or "").strip().lower()
     if not name or name == "default":
         return None
-    return _SETS.get(name)
+    return named_set(name)
 
 
 def standard_dict() -> Dict[str, Any]:
@@ -318,7 +389,7 @@ def standard_dict() -> Dict[str, Any]:
 def preset(name: str) -> Optional[Dict[str, Any]]:
     if name == "standard":
         return standard_dict()
-    s = _SETS.get(name)
+    s = named_set(name)
     return s.to_dict() if s else None
 
 
@@ -390,6 +461,6 @@ def clear_saved(updated_by: str) -> None:
 def all_role_names() -> Tuple[str, ...]:
     """Every role any set can produce, for code that must recognise all of them."""
     seen = []
-    for s in _SETS.values():
+    for s in named_sets().values():
         seen.extend(r for r in s.roles if r not in seen)
     return tuple(seen)
