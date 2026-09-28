@@ -4,7 +4,7 @@ _2026-09-28 · Brand Watcher (Wiley sites): categories, alerts; Highlights cards
 ## What shipped
 - Journal papers, book chapters and datasets a publisher puts out now sit in their own
   "Publications" bucket in Brand Watcher, instead of being counted as product news.
-- The "category coverage spike" alert is switched off on the Wiley sites.
+- The "category coverage spike" alert is switched off on all the Wiley sites.
 - Highlights cards no longer show a made-up day when a story only gives a month.
 
 ## Why it matters
@@ -34,7 +34,7 @@ average over the last month, and fired when the count doubled. That number depen
 collectors fetched and where our classifier put it. It does not say what the articles are about,
 and it cannot tell good news from bad.
 
-**Now.** The alert is off on the Wiley sites. The alerts that describe a real event stay on: a
+**Now.** The alert is off on all four Wiley sites. The alerts that describe a real event stay on: a
 new adverse finding such as a retraction or a lawsuit, news sentiment turning net negative, a
 burst of negative social posts, or a new critic gaining reach.
 
@@ -53,7 +53,7 @@ story was reported. The three affected cards now read "reported 2026-09-27".
 ## Release notes (copy-ready)
 - Brand Watcher: papers, book chapters and datasets a brand publishes now appear under
   "Publications" rather than in the news categories.
-- Brand Watcher: the "category coverage spike" alert is switched off on the Wiley sites. Alerts
+- Brand Watcher: the "category coverage spike" alert is switched off on all the Wiley sites. Alerts
   for adverse findings, sentiment turns and social activity are unchanged.
 - Highlights: a card shows a full date only when its sources state one; otherwise it shows the
   date the story was reported.
@@ -79,7 +79,8 @@ sentiment (24 September).
   the brand published this week; the count is visible, the contents are not analysed.
 - Detection is by source and by the platform name Google News appends to a title. A paper relayed
   through a news aggregator that strips that tail will still reach the news classifier.
-- The category spike alert is off on the Wiley sites only. Other sites still have it, and it will
-  keep producing the same kind of alert there until it is switched off or replaced.
+- The category spike alert is off on the four Wiley sites only. Other Brand Watcher customers'
+  sites still have it, and it will keep producing the same kind of alert there until it is
+  switched off or replaced.
 - Highlights keeps the month the model extracted on the item, but nothing displays it yet. A card
   could say "June, reported 27 Sep" once the design allows a second date.
