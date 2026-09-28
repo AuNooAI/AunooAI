@@ -725,8 +725,12 @@ Investigate with Auspex AI: {auspex_url}
         if report_download_url:
             body_text += f"\nDownload full report (no login needed, 30 days): {report_download_url}\n"
 
+        # An observer agent stores one ``email_recipient`` string. Let it hold
+        # several addresses separated by commas or semicolons, so a second
+        # reader can be added without a schema change.
+        to_addresses = [a.strip() for a in re.split(r"[,;]", to_address or "") if a.strip()]
         return self.send_email(
-            to_addresses=[to_address],
+            to_addresses=to_addresses,
             subject=subject,
             body_html=body_html,
             body_text=body_text,
