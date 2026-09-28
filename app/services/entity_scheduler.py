@@ -134,6 +134,35 @@ REQUIRED_IDENTIFIER: Dict[str, str] = {
     'ats_jobs': 'ats_board',
 }
 
+# What each identifier is called when a reader sees it. The policy reason
+# and the market panel both quote it, and "no active linkedin_company_url
+# identifier on file" is a column name, not a sentence.
+IDENTIFIER_LABELS: Dict[str, str] = {
+    'linkedin_company_url': 'LinkedIn company page',
+    'crunchbase_url': 'Crunchbase profile',
+    'pitchbook_url': 'PitchBook profile',
+    'zoominfo_url': 'ZoomInfo profile',
+    'domain': 'website domain',
+    'ats_board': 'careers-site job board',
+}
+
+
+def identifier_label(kind: Optional[str]) -> str:
+    """Plain name for an identifier kind; the raw kind if it has none."""
+    if not kind:
+        return 'required identifier'
+    return IDENTIFIER_LABELS.get(kind, kind.replace('_', ' '))
+
+
+def missing_identifier_reason(kind: Optional[str]) -> str:
+    """The one sentence stored as ``ineligible_reason`` when a vendor lacks
+    the identifier a source needs. One place, so the panel and the policy
+    table never describe the same gap two different ways."""
+    if kind == 'ats_board':
+        return 'no careers-site job board found yet'
+    return f'no {identifier_label(kind)} on file'
+
+
 SCHEDULED_SOURCES = tuple(CADENCE_HOURS)
 
 # A claim older than this belonged to a pass that died. Reclaimable.
@@ -193,7 +222,7 @@ def seed_policies(conn, source: Optional[str] = None) -> Dict[str, Any]:
         for row in rows:
             ok = bool(row['has_identifier']) if identifier_kind else True
             reason = (None if ok
-                      else f'no active {identifier_kind} identifier on file')
+                      else missing_identifier_reason(identifier_kind))
             eligible += 1 if ok else 0
             result = conn.execute(text("""
                 INSERT INTO bw_entity_source_policies
