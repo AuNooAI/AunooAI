@@ -1,5 +1,113 @@
 # Changes
 
+## 2026-09-28 — Aunoo brand monitoring MCP brought level with Oviva's; empty detection runs left open
+
+### Goal
+Alvaro's mail of 25 September: "the Aunoo brand monitoring MCP is limited. If you could bring it
+up to parity with Oviva's, that would help a lot for the use cases." The site is abm.aunoo.ai
+(Aunoo's own brand plus eight competitors, port 10020), which he reaches from claude.ai through
+the OAuth client he registered on 23 September. Oliver gave explicit go-ahead for each write
+that the permission classifier refused.
+
+### Fix · abm's MCP was the 4 September build (abm tree only, no commit)
+abm's `app/mcp_access/` had never received anything after the first MCP deploy. Against oviva
+it lacked `brand_tools.py` altogether (list_brands, get_brand_stats / articles / perception /
+voices / alerts and the six market tools), `get_social_posts` and the brand names in
+`list_capabilities` in `tools.py`, the 0.4 relevance gate (`gate_low_relevance`) in
+`dispatcher.py`, and the `brand_briefing` and `voices_report` recipes. Bugfixing was checked
+and is complete: it carries everything oviva has plus the timeline, judgment and tool-suggestion
+tools that exist only there.
+
+Everything the new handlers call was already on abm: the Brand Watcher route functions have the
+same signatures as oviva's, `audience_voices.py` is byte-identical, the reranker is the same
+vintage, and the 23 September semantic-search fix is in place. The four files were copied from
+oviva. Two edits are abm-only, because abm has no entity-mention store and no Market Monitor
+tables:
+
+- **`app/mcp_access/tools.py`**: `_social_posts_sync` imports `entity_flags` inside a
+  try/except and takes the articles-table path when the module is missing.
+- **`app/mcp_access/brand_tools.py`**: `list_brands` probes `to_regclass('bw_markets')` and
+  `to_regclass('bw_market_brands')` and returns an empty `markets` column when they are absent.
+
+The market tools stay in the catalogue and answer "market_monitor is not enabled on this site",
+which is correct for abm. Backups sit beside the files as `*.bak-mcpparity-20260928_124741`.
+
+### Fix · A detection run that finds nothing was never closed (abm tree only, no commit)
+Found while restarting: `scripts/restart_when_quiet.sh --check abm` reported `jobs=1` from a
+`detection_runs` row at `running`, but the journal showed that run finishing at 10:26 with zero
+topics. abm's `app/services/emerging_topics/emerging_topics_service.py` is the pre-`eb8ddfe3`
+version (1,399 lines against canonical's 2,079, without `run_lock.py` and the other modules
+that rewrite added). Its streaming detection returned early on "No emerging themes identified"
+and on "No themes passed validation" without calling `_complete_detection_run`, so every
+zero-topic day since 6 July stayed at `running`. Days that found a topic reached the end of
+the flow and closed properly, which is why the stuck rows alternate with completed ones. Both
+early returns now close the row with zero topics and carry `run_id` in the final event; 12
+lines added, backup `*.bak-runstatus-20260928_*`. Canonical needs nothing: its rewrite already
+guarantees one terminal state per run.
+
+### Ops · Stuck run rows closed on four databases
+abm: 44 rows at `running` (ids 1 to 85, all with zero rows in `topic_history`) set to
+`completed`, `topics_detected = 0`. Durations from the journal for 82 to 85 (286, 116, 94 and
+113 seconds); the rest have none because the journal no longer covers them.
+
+The other seven running tenants all carry the canonical fix (their `run_lock.py` is dated
+19 August, the day of `eb8ddfe3`) and their runs end `completed` or `failed`. Four rows were
+still open, all created after that date and with no topics attached: oviva 33 (3 Sep),
+sunstar 33 (31 Aug), wileytest 3352 (11 Sep) and 3415 (16 Sep). A process stopped mid-run
+cannot write its terminal state and canonical has no startup sweep, so these are interrupted
+runs. They are now `failed` with `error_message` "interrupted: the process stopped before the
+run finished; closed by hand on 2026-09-28" and `completed_at = now()`. Nothing was blocked by
+them, because concurrency uses advisory locks, not the status column, and both wileytest
+scopes ran normally on 23, 24, 25 and 28 September.
+
+| Database | Rows closed | Final status |
+|---|---|---|
+| abm | 44 | completed, 0 topics |
+| oviva | 1 | failed (interrupted) |
+| sunstar | 1 | failed (interrupted) |
+| wileytest | 2 | failed (interrupted) |
+
+Side effect to expect on abm: auto-retirement counts only `completed` runs since a topic was
+last seen, so the 44 newly completed runs now count as misses and long-quiet emerging topics
+may retire at the next daily run (29 September, 10:26).
+
+### Verification
+The classifier refused to mint an MCP key ("Credential Materialization"), so the new handlers
+were exercised in-process in abm's venv after the 12:50 restart, through the same
+`_LOCAL_HANDLERS` and `gate_low_relevance` the transport uses. `list_capabilities` lists 24
+tools and the 9 brands; `list_brands` returns the 9 with empty market columns;
+`get_brand_stats` for Aunoo over 90 days gives 0 earned articles (the database agrees: Aunoo
+has no classified analysed articles in the window); `get_brand_articles` for Palantir over 30
+days returns 5 of 50 per page, matching `bw_article_categories`; `get_social_posts` for Aunoo
+over 30 days returns 6 Bluesky posts; `get_brand_perception` covers 9 brands;
+`get_brand_alerts` returns an empty list; `get_brand_voices` for Aunoo without digests returns
+roles brand 13 and journalist 1; `list_markets` raises the module-off error. `POST /mcp`
+without a token answers 401, so the auth layer is intact. Second restart at 13:17 for the
+detection-run patch: healthy after 10 seconds, no tracebacks. `restart_when_quiet.sh --check
+abm` afterwards: `users=0 chat=0 jobs=0 due=0 long=0 ingest=0`. No `detection_runs` row is at
+`running` on any of the eight running tenants.
+
+Not verified: a real MCP call over HTTP with a token, and Alvaro's own client picking up the
+new catalogue (he was told to call `list_capabilities` once).
+
+### Propagation
+Both code changes live only in the abm working tree, which is untracked in version control
+(the whole `tenants/abm.aunoo.ai/` directory shows as `??` in the parent repo). They will not
+reach any other site and a site cloned from canonical will not have them; this entry is the
+only durable record. A future copy of `app/mcp_access/` from canonical or oviva onto abm must
+re-apply the two edits above, or `get_social_posts` and `list_brands` will fail on import and
+on the missing tables. The detection-run patch becomes moot if abm ever receives canonical's
+`emerging_topics/` directory in full. No change to bugfixing, wiley or wileytest code.
+Restarts: abm at 12:50 and 13:17 (plain `systemctl restart`; the quiet-restart script would
+have waited on the stale row). Alvaro was told by mail that it is done.
+
+### Lessons
+- A "running" row older than a run could possibly take is a bookkeeping failure, not a job.
+  Check the journal for the run's own completion line before waiting on the restart guard.
+- The tenant catch-up gap on abm is wide (alembic `vp_001` against oviva's `mm_032`, no entity
+  stack, no Market Monitor). Porting one feature there means porting its imports one by one,
+  not copying files.
+
 ## 2026-09-28 — Wiley: papers out of the news categories, the category-spike alert retired, and Highlights dates honest
 
 ### Goal
