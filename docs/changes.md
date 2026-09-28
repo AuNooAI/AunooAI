@@ -1,42 +1,108 @@
 # Changes
 
-## 2026-09-28 — Highlights: a month is not a day
+## 2026-09-28 — Wiley: papers out of the news categories, the category-spike alert retired, and Highlights dates honest
 
-Two OpenAI agent incidents reported on 27 September showed 01.06.2026 on their wileytest
-Highlights cards. The articles say "in June" and "during the summer", the model answered
-`event_date: "2026-06"`, and the card's formatter read that as 1 June. Fabricated day, wrong
-quarter. **`app/routes/vector_routes.py`**: `date_incident_timeline()` accepts a full ISO date
-only; a bare year or year-month is kept on the item as `event_period` and the card shows
-"reported <published>". Applied when a fresh analysis is parsed and when a stored one is
-served, so the cached cards correct themselves without a regeneration. On the current
-wileytest cache this changes three of 26 items and leaves the rest as they were. Applied to
-bugfixing, wiley and wileytest.
+### Goal
+Oliver's question on a wbm alert: "Product & Innovation coverage spike to 46 articles this week
+against an average of 20.2", where the articles were journal papers. Why did it come back after
+the August fix, and what does the alert even measure. A second report the same morning: two
+Highlights cards on wileytest dated 01.06.2026 for stories reported on 27 September.
 
-## 2026-09-28 — A paper is not product news: scholarly records go to a Publications bucket
-
-Wiley's 'Product & Innovation' coverage spike on wbm (46 this week, average 20.2) was 45 papers
-and one press release: 33 chapters of one Wiley Blackwell companion volume from Crossref, four
-OpenAlex records, and eight journal pages relayed through Google News. The August spike fix
-(747e178a) had excluded scholarly sources from the older notification path only; the rules
-engine that writes `bw_alert_events` never had it, and the classifier itself was still filing
-papers as product news.
+### Fix · A paper is not product news (commit `a9438f0d`)
+The 46 were 45 papers and one press release: 33 chapters of one Wiley Blackwell companion volume
+from Crossref, four OpenAlex records (two of them the same Zenodo dataset under its version and
+concept DOIs), and eight journal pages relayed through Google News. Two causes, neither touched
+by the August fix (`747e178a`): the official-source table hardcoded every Crossref and OpenAlex
+record to `Product & Innovation` at relevance 1.0, and the classifier read a chemistry abstract
+as a product breakthrough. The August exclusion had gone into `_check_category_spikes`, the
+older in-app notification path. The rules engine at the bottom of the same file, which writes
+`bw_alert_events` and is what the user reads, never had it. The alert history shows it: Wiley
+Product & Innovation spikes fired on 12, 13, 14, 15 and 22 August and on 26 and 27 September.
 
 - **`app/services/bw_official_sources.py`**: Crossref and OpenAlex records land as
-  `Publications`, not `Product & Innovation`. Their relevance and official status are unchanged.
-- **`app/services/opoint_brand_matcher.py`**: `is_scholarly_article()` extends the domain check
-  with the two shapes it could not see: bare doi.org index records and Google News relays whose
-  title tail names a journal platform ("- Wiley Online Library"). `SCHOLARLY_CATEGORY` holds the
-  bucket name.
+  `Publications`. Relevance and official status are unchanged, so the official-sources status
+  and the brand overview, which count them through `bw_article_categories`, keep working.
+- **`app/services/opoint_brand_matcher.py`**: `is_scholarly_article(news_source, url, title)`
+  extends `is_scholarly_source()` with the two shapes it could not see: bare doi.org index
+  records, and Google News relays whose opaque URL says nothing but whose title tail names a
+  journal platform ("- Wiley Online Library"). `SCHOLARLY_CATEGORY = "Publications"`.
 - **`app/routes/brand_watcher_routes.py`**: the classification loop sends a scholarly article to
-  `Publications` (method `scholarly`) and skips the SLM, LLM and keyword classifiers for it.
+  `Publications` with method `scholarly` and skips the SLM, LLM and keyword classifiers.
 - **`app/tasks/brand_watcher_monitor.py`**: the `category_spike` rule never counts
-  `Publications`. The rule itself is switched off on wbm and wileytest through
-  `bw_alert_config.rules`, because a bucket count is not a signal about the company.
+  `Publications`.
+- **`docs/brand_watcher_help.md`**: one sentence on the Publications bucket.
 
-The UI shows an unlisted category in grey with its own name, so no UI build is needed. Applied
-to bugfixing, wiley, wileytest and wbm. Existing rows still need the backfill (783 scholarly
-articles on wbm, 794 on wileytest, most from Semantic Scholar); the script is in the session
-scratchpad.
+The UI renders an unlisted category in grey under its own name, so no UI build.
+
+### Ops · The category-spike rule is off on wbm and wileytest
+Oliver's call, after asking what the rule measures. It counts rows the classifier put in a
+bucket over 7 days against the same count over 30 days divided by four, and fires at twice the
+average with a floor of five. It measures our ingest and our classifier, not the company: the
+bucket is heterogeneous, the count moves when Crossref emits a 33-chapter book, and there is no
+direction (a Financial Performance spike is a great quarter or a profit warning). The rules that
+carry an event and a direction (`high_risk_finding`, `news_net_negative`, `neg_social_spike`,
+`new_critic`) stay on. Switched off with one row each, no restart:
+
+```sql
+UPDATE bw_alert_config SET rules = rules || '{"category_spike": {"enabled": false}}'::jsonb
+WHERE brand_id IS NULL;   -- wbm and wileytest
+```
+
+Do not re-enable it with more input filters. Bugfixing and wiley still have it on.
+
+### Ops · Backfill of existing category rows (wbm, wileytest)
+Run on Oliver's instruction after a first attempt was blocked by the permission classifier. The
+detector picked the scholarly article set (783 URIs on wbm, 794 on wileytest, most from the
+Semantic Scholar collector). Per article and brand, duplicate category rows were collapsed to one
+(official row preferred), the survivor moved to `Publications`, and the article record for
+official Crossref/OpenAlex rows set to match. One transaction per database.
+
+| Database | Rows moved to Publications | Duplicate rows removed |
+|---|---|---|
+| wbm | 821 (730 scholarly, 91 official) | 212 |
+| wileytest | 831 (732 scholarly, 99 official) | 213 |
+
+Wiley's week on wbm afterwards: Publications 45, Financial Performance 25, Competitive Landscape
+9, Product & Innovation 0. wileytest keeps 5 Product & Innovation rows this week, checked: real
+items, not papers.
+
+### Fix · Highlights: a month is not a day (commit `bb7e88dd`)
+The two cards came from the incident tracker in **`app/routes/vector_routes.py`**. The articles
+say "in June" and "during the summer", the model answered `event_date: "2026-06"` as the prompt
+asks ("as the articles state it"), and the card formatter fed that to JavaScript's date parser,
+which reads a bare month as its first day. Same two articles as the "June 2023" year bug fixed on
+24 September; this was the next gap in the same place. `date_incident_timeline()` accepts a full
+ISO date only. A bare year or year-month is kept on the item as `event_period`, the description
+already says "in June", and the card shows "reported <published>". It runs when a fresh analysis
+is parsed and when a stored one is served, so cached cards correct themselves without a
+regeneration.
+
+### Verification
+- Detector test over every Brand Watcher article row on wbm (3,556 rows): 783 matched, every one
+  a paper or index record; 0 Google News journal relays missed. Import-cycle check passed
+  (`bw_official_sources` imports the constant from `opoint_brand_matcher`).
+- `py_compile` on the four edited files in all four trees, and on `vector_routes.py` in three.
+- Live call to `POST /api/incident-tracking` with `cache_only` on wileytest after its restart:
+  26 cards, the three with a bare month now read `reported 2026-09-27`, 23 unchanged, none left
+  with a bare year or year-month.
+- Restarts: wbm 10:13, wiley and bugfixing 10:14 and again after the Highlights fix, wileytest
+  10:37 with no running background task interrupted. All four `/health` 200, no import errors.
+
+### Propagation
+Both fixes committed in bugfixing (canonical) and copied by file to wiley and wileytest.
+The Publications change also to wbm, which is the tenant that asked; wbm has no incident
+tracker, so the Highlights fix does not apply there. The rule switch and the backfill are data
+changes on wbm and wileytest only; bugfixing and wiley databases had no scholarly rows to move.
+
+### Lessons
+- **One alert, two code paths.** `brand_watcher_monitor.py` has a legacy spike check that writes
+  in-app notifications and a rules engine that writes `bw_alert_events`. Before fixing an alert,
+  find the table the user-visible text comes from and fix that path. The August fix was correct
+  and invisible.
+- **Filter at the source, not at each reader.** Excluding papers from one counter left them in
+  every category chart and view. Giving them their own category fixed all consumers at once.
+- **A count of our own pipeline's output is not a signal about the company.** Retire it rather
+  than tune it.
 
 ## 2026-09-28 — A brand's post about a partner's product is not the brand's development
 
