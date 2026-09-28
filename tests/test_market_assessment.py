@@ -1402,3 +1402,11 @@ def test_an_item_is_credited_only_to_a_company_its_sources_say_did_it():
     fixed = ma._confirmed_headline({**dev, "vendors": kept}, actors)
     assert fixed["headline"] == "UiPath launches Integration Service"
     assert fixed["headline_uri"] == "https://uipath.com/blog"
+
+
+def test_a_vendor_is_named_by_the_names_it_goes_by():
+    # "P&G Oral-B" is written "Oral-B" in the press.
+    dev = {"vendors": [{"brand_id": 5, "vendor": "P&G Oral-B", "aliases": ["Oral-B"]}]}
+    assert ma._names_vendor_of({"title": "Oral-B iO Series 2 launched in India"}, dev)
+    assert not ma._names_vendor_of({"title": "Oral-B iO Series 2 launched in India"},
+                                   {"vendors": [{"brand_id": 5, "vendor": "P&G Oral-B"}]})

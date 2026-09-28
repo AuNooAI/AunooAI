@@ -1,5 +1,31 @@
 # Changes
 
+## 2026-09-28 — Sunstar's first market page; a vendor is named by the names it goes by
+
+### Sunstar after its first full day
+LinkedIn collection started on its own: someone added LinkedIn pages for all six brands today
+(`origin: operator`), and sunstar has a BrightData key (I had said it had none; I misread my
+check). Cost today: $0.11 for 75 records. P&G Oral-B is mapped to the Procter & Gamble parent page,
+so P&G posts arrive under Oral-B; the credit check is what keeps them off the page. The 21:35
+review read 23 posts, 6 of them news, and corrected 2. The page now shows 6 items: Colgate's
+Optic White Pro launch, Lion's GK2 research, Colgate's 30-year UCLA report, Oral-B's iO2 India
+launch, and hiring counts for Haleon and Colgate. Lint clean, nothing held out, the grader found
+0 wrong of 4 graded.
+
+### Fix · A news article naming "Oral-B" now counts for "P&G Oral-B"
+**`app/services/market_assessment.py`** `_vendor_aliases` knew only a vendor's display name and its
+first word (skipped when three letters or fewer, so "P&G" was dropped). "Oral-B iO Series 2
+launched in India" never became Oral-B's news. Corpus rows now carry each vendor's registry names
+(`search_name`, `alias`, `former_name` via `_registry_names`). On aisocnews nothing changed (63
+items); sunstar gained the Oral-B launch. Applied to all four sites.
+
+### Found · The market review's model calls are not in the ledger
+On sunstar and bugfixing, `llm_usage_log` has the market review's Jev calls but none of its
+LiteLLM calls: no Kimi drafter rows, and no Sonnet 5 corrector rows at all, although sunstar's
+review corrected 2 items at 21:35. The ledger wraps `litellm.acompletion` and registers
+callbacks (`llm_usage_logger.install`), so the cause is narrower; not investigated yet. The same
+likely applies to `market_wider_review`, which calls LiteLLM the same way.
+
 ## 2026-09-28 — Sunstar Oral Care: LinkedIn and Crunchbase switched on, panel wording fixed, Voices cut to five rows
 
 ### Goal

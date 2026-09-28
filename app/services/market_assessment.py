@@ -1431,6 +1431,26 @@ def _vendor_aliases(dev: Dict[str, Any]) -> set:
         head = re.split(r"[\s(,]", name)[0].lower()
         if len(head) > 3:
             out.add(head)
+        # The names the registry holds for it: "P&G Oral-B" is written
+        # "Oral-B" in the press, so an Oral-B launch was never its news.
+        out.update(a.lower() for a in v.get("aliases") or [] if len(a) >= 3)
+    return out
+
+
+def _registry_names(conn, brand_ids) -> Dict[int, List[str]]:
+    """Other names a vendor goes by, from its identifiers."""
+    ids = sorted({b for b in brand_ids if b is not None})
+    if not ids:
+        return {}
+    out: Dict[int, List[str]] = {}
+    for bid, value in conn.execute(text("""
+        SELECT brand_id, coalesce(display_value, normalized_value)
+          FROM bw_vendor_identifiers
+         WHERE brand_id = ANY(:b) AND valid_to IS NULL
+           AND kind IN ('search_name', 'alias', 'former_name')
+    """), {"b": ids}).fetchall():
+        if value:
+            out.setdefault(bid, []).append(value.strip())
     return out
 
 
@@ -2332,6 +2352,11 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
     from app.services.market_corpus import _iso_days_ago
 
     rows = mcorp.articles(conn, market_id, limit=5000, days=days)
+    names = _registry_names(conn, [v.get("brand_id") for r in rows
+                                   for v in r.get("vendors") or []])
+    for r in rows:
+        r["vendors"] = [{**v, "aliases": names.get(v.get("brand_id"), [])}
+                        for v in r.get("vendors") or []]
     by_class: Dict[str, int] = {}
     for row in rows:
         by_class[row.get("article_class") or "other"] = \
