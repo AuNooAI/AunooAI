@@ -50,13 +50,19 @@ _QUESTION = {
             "commissioned the research, survey or benchmark, or whose product "
             "the customer bought or uses? Where `post` says \"we\" or \"our\", it "
             "speaks for the account that posted it, named before the colon in "
-            "its first line."),
+            "its first line. A company that announces, promotes, sponsors or "
+            "hosts another company's product, show or event did not do it, even "
+            "on its own account (Oliver, 28 Sep 2026: WeightWatchers announcing "
+            "Dear Media's podcast, hosted by a WeightWatchers executive)."),
         "criteria": {
             "true": "The post says `company` (or the account speaking as \"we\", "
-                    "when that is `company`) did it or is a party to it",
-            "false": "`company` is only mentioned: a platform something integrates "
-                     "with, a host, an employer of someone involved, a customer of "
-                     "someone else, a competitor, or not named at all"},
+                    "when that is `company`) did it: its own product, its own deal "
+                    "or research, or a partnership or joint launch it is party to",
+            "false": "`company` is only mentioned, or only announces, promotes, "
+                     "sponsors or hosts what another company did: a platform "
+                     "something integrates with, a host, an employer of someone "
+                     "involved, a customer of someone else, a competitor, or not "
+                     "named at all"},
     },
 }
 

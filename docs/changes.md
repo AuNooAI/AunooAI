@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-09-28 — A brand's post about a partner's product is not the brand's development
+
+Oliver's decision on the open case from the weekly sample. **`app/services/market_actor_review.py`**:
+the credit question now says a company that announces, promotes, sponsors or hosts another
+company's product, show or event did not do it, even on its own account; its own product, deal or
+research, or a partnership or joint launch it is party to, still counts. All stored answers were
+re-checked on aisocnews, panaya and oviva. The only item that changed: oviva's "WeightWatchers
+launches The Weigh In podcast with Dear Media" is held out. aisocnews (63 items) and panaya (23)
+are unchanged. Applied to all four sites.
+
 ## 2026-09-28 — First weekly sample; the daily email's send and the grader fixed
 
 ### Fix · The daily email was refused by Resend
