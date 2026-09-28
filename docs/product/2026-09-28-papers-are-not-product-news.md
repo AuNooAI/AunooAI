@@ -79,8 +79,8 @@ sentiment (24 September).
   the brand published this week; the count is visible, the contents are not analysed.
 - Detection is by source and by the platform name Google News appends to a title. A paper relayed
   through a news aggregator that strips that tail will still reach the news classifier.
-- The category spike alert is off on the four Wiley sites and on Oviva's. Sunstar's alert engine
-  has never been switched on, so nothing fires there. The remaining Brand Watcher sites still have
-  the rule and will keep producing the same kind of alert until it is switched off or replaced.
+- The category spike alert is off on the four Wiley sites and on Oviva's. On every other Brand
+  Watcher site the alert engine has never been switched on, so nothing fires there. If one of them
+  turns alerts on later, this rule should be switched off at the same time.
 - Highlights keeps the month the model extracted on the item, but nothing displays it yet. A card
   could say "June, reported 27 Sep" once the design allows a second date.

@@ -275,7 +275,8 @@ Do not re-enable it with more input filters. It is off on wbm, wileytest, wiley 
 four sites that run the Brand Watcher alert engine for Wiley, and on oviva. sunstar has no
 `bw_alert_config` row and no `bw_alert_events` row ever: the engine returns before evaluating any
 rule there, so nothing fires, and inserting a row to disable one rule would switch the whole engine
-on. Left alone. abm, pbm and bwtemplate were not touched and still have the code default, enabled.
+on. Left alone. abm, pbm and bwtemplate are in the same state as sunstar: no config row, no alert
+event ever, engine idle. Checked and left alone for the same reason.
 
 ### Ops · Backfill of existing category rows (wbm, wileytest)
 Run on Oliver's instruction after a first attempt was blocked by the permission classifier. The
