@@ -1,5 +1,32 @@
 # Changes
 
+## 2026-09-28 — First weekly sample; the daily email's send and the grader fixed
+
+### Fix · The daily email was refused by Resend
+The first real 07:30 send failed with HTTP 403: Resend sits behind Cloudflare, which rejects a
+request with no User-Agent, and `/home/orochford/bin/market_quality_daily.sh` sent none (the
+Jev health alert works because it uses curl). The dry runs never sent, so they could not catch
+it. The request now carries a User-Agent; the next scheduled run confirms it.
+
+### Fix · The grader now reads each headline's own source
+The W40 sample marked CrowdStrike's "expanded agentic SOC with multi-agent AI investigations"
+wrong: the grader read only an item's first three sources, and this merged strip item took its
+headline from a later one ("CrowdStrike Agentic SOC Adds Coordinated Multi-Agent AI").
+**`app/services/market_assessment.py`** `finish()` now carries `headline_uri`, and
+**`scripts/market_quality_sample.py`** puts that source first. Re-graded: 0 of 20 wrong. The
+aisocnews W40 entry in `/var/log/aunoo-market-quality-samples.jsonl` was replaced with the
+re-grade (backup `.bak-20260928`).
+
+### Result · Weekly sample, W40
+aisocnews 0 of 20, panaya 0 of 20, oviva 1 of 3 (WeightWatchers' own post about a Dear Media
+podcast, the open judgement call), sunstar no items yet.
+
+### Checked
+- No Sonnet 5 corrections in production yet: since the switch the review has read 4 posts with
+  one news item, a research post Jev did not dispute, so the corrector had nothing to do.
+- Sunstar: the site collector fetched 9 pages from the brands' own websites on its first pass;
+  the daily post review reads them next.
+
 ## 2026-09-27 — Sunstar's Market Monitor switched on
 
 Sunstar's "Oral Care" market (six brands, created 23 Sep) never ran a scheduled step:

@@ -2014,6 +2014,9 @@ def finish(dev: Dict[str, Any]) -> Dict[str, Any]:
         # One checked sentence in our words, when the review wrote one.
         "dek": _vendor_spelling(dev.get("dek"), dev.get("vendors") or []),
         "review_confidence": dev.get("review_confidence"),
+        # The source the headline came from: a merged item's headline can come
+        # from its fifth source, and the weekly grader read only the first three.
+        "headline_uri": dev.get("headline_uri"),
         "headline_source": dev.get("headline_source") or (
             "data" if dev["event_type"] in ("significant_hiring", "headcount_change")
             else None),

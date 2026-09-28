@@ -82,7 +82,12 @@ def _aliases(conn, dev) -> str:
 
 
 def _sources(conn, dev) -> str:
+    # The headline's own source first: a merged item's headline can come from
+    # a source beyond the first three, and CrowdStrike's "multi-agent AI
+    # investigations" was graded wrong against three sources that lacked it.
     uris = [e.get("uri") for e in dev.get("evidence") or [] if e.get("uri")][:3]
+    if dev.get("headline_uri") and dev["headline_uri"] not in uris:
+        uris = [dev["headline_uri"]] + uris
     if not uris:
         return "(none)"
     rows = conn.execute(text("""
