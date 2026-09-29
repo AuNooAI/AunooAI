@@ -1,5 +1,26 @@
 # Changes
 
+## 2026-09-29 — Daily email delivered; ledger shows the review; confidence follows the headline
+
+### Checked
+- The 07:30 email was delivered (Resend 200), the first real send.
+- The ledger now shows the market review: last night 2 Kimi drafter calls ($0.010) and 2 Sonnet 5
+  corrector calls ($0.017) on aisocnews.
+- Drift alert: Jev objected to 2 of 9 news items (22% against 7%). Both handled as designed:
+  Fig Security's founding membership of NVIDIA's Open Agent Safety Platform was corrected from
+  partnership to award (not shown, as for Legion and OpenAI); a second Nebulock post's headline
+  checked at 0.48.
+
+### Fix · An item's confidence is its shown headline's, not its weakest source's
+**`app/services/market_assessment.py`**: a stored event took the lowest check confidence of its
+sources, so an extra weak source could only hide an item. Nebulock's GATES Method was held out at
+0.48 from a second post while the headline shown checked at 0.99. The stored path now uses the
+confidence of the headline's own source (the lowest only when that is unknown), and merges and
+headline swaps (`_merge_into`, `_confirmed_headline`, `_head_option`) carry the confidence with
+the headline. Against the committed code on all four sites, the only change: Nebulock returns on
+aisocnews. Deployed to bugfixing and sunstar; panaya and oviva had jobs due and are deployed
+when each is quiet.
+
 ## 2026-09-28 — The cost ledger now records asynchronous model calls
 
 ### Fix · Every `acompletion` call was missing from llm_usage_log

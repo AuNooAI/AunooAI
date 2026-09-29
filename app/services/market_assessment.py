@@ -1103,7 +1103,8 @@ def _confirmed_headline(dev: Dict[str, Any], actors: Dict[str, Dict[str, float]]
     best = options[0]
     return {**dev, "headline": best["headline"], "headline_source": best["headline_source"],
             "headline_rank": best["headline_rank"], "headline_uri": best["uri"],
-            "summary": best.get("summary"), "dek": best.get("dek")}
+            "summary": best.get("summary"), "dek": best.get("dek"),
+            "review_confidence": best.get("review_confidence")}
 
 
 #: Below this check confidence an item is left out of every section: Jev
@@ -1201,7 +1202,8 @@ def _head_option(cand: Dict[str, Any]) -> Dict[str, Any]:
     return {"uri": uri, "headline": cand.get("headline"),
             "headline_source": cand.get("headline_source"),
             "headline_rank": cand.get("headline_rank", 9),
-            "summary": cand.get("summary"), "dek": cand.get("dek")}
+            "summary": cand.get("summary"), "dek": cand.get("dek"),
+            "review_confidence": cand.get("review_confidence")}
 
 
 def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
@@ -1249,6 +1251,7 @@ def _merge_into(dev: Dict[str, Any], cand: Dict[str, Any]) -> None:
         dev["headline_rank"] = cand["headline_rank"]
         dev["headline_source"] = cand.get("headline_source")
         dev["headline_uri"] = _head_option(cand)["uri"]
+        dev["review_confidence"] = cand.get("review_confidence")
         dev["dek"] = cand.get("dek") or dev.get("dek")
     elif not dev.get("dek") and cand.get("dek"):
         dev["dek"] = cand["dek"]
@@ -2319,8 +2322,12 @@ def _stored_candidates(conn, market_id: int, days: int
             "headline": headline,
             "headline_source": headline_source,
             "headline_uri": headline_uri,
-            "review_confidence": min((confidence[e["uri"]] for e in evidence
-                                      if e.get("uri") in confidence), default=None),
+            # The confidence of the headline shown, not the weakest source:
+            # Nebulock's GATES Method was held out at 0.48, from a second post,
+            # while its headline's own source checked at 0.99.
+            "review_confidence": confidence.get(headline_uri, min(
+                (confidence[e["uri"]] for e in evidence if e.get("uri") in confidence),
+                default=None)),
             # Deduplication reads the post's own title, not the rewrite: two
             # headlines written for one listing need not share the words
             # that match them.

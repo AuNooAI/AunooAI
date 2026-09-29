@@ -1410,3 +1410,16 @@ def test_a_vendor_is_named_by_the_names_it_goes_by():
     assert ma._names_vendor_of({"title": "Oral-B iO Series 2 launched in India"}, dev)
     assert not ma._names_vendor_of({"title": "Oral-B iO Series 2 launched in India"},
                                    {"vendors": [{"brand_id": 5, "vendor": "P&G Oral-B"}]})
+
+
+def test_confidence_travels_with_the_headline_shown():
+    opt = ma._head_option({"headline": "Nebulock releases GATES Method",
+                           "headline_uri": "https://a", "review_confidence": 0.99,
+                           "headline_rank": 2})
+    assert opt["review_confidence"] == 0.99
+    dev = {"headline": "weak", "headline_uri": "https://b", "review_confidence": 0.48,
+           "vendors": [{"brand_id": 1, "vendor": "Nebulock"}],
+           "head_options": [opt, {"uri": "https://b", "headline": "weak",
+                                  "headline_rank": 3, "review_confidence": 0.48}]}
+    swapped = ma._confirmed_headline(dev, {"https://a": {"1": 0.9}, "https://b": {"1": 0.1}})
+    assert swapped["headline_uri"] == "https://a" and swapped["review_confidence"] == 0.99
