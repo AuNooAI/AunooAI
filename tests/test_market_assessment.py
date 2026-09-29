@@ -1423,3 +1423,14 @@ def test_confidence_travels_with_the_headline_shown():
                                   "headline_rank": 3, "review_confidence": 0.48}]}
     swapped = ma._confirmed_headline(dev, {"https://a": {"1": 0.9}, "https://b": {"1": 0.1}})
     assert swapped["headline_uri"] == "https://a" and swapped["review_confidence"] == 0.99
+
+
+def test_a_split_between_launch_and_partnership_is_not_doubt():
+    check = {"headline": {"p_supports": 1.0},
+             "kind": {"choice": "partnership", "p_drafted": 0.39, "confidence": 0.56}}
+    assert ma.review_confidence(check, "launch") == 0.95
+    # A split into a kind that changes the claim still counts alone.
+    award = {"headline": {"p_supports": 1.0},
+             "kind": {"choice": "award", "p_drafted": 0.39, "confidence": 0.56}}
+    assert ma.review_confidence(award, "launch") == 0.39
+    assert ma.review_confidence(check) == 0.39

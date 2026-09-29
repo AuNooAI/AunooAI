@@ -1030,14 +1030,33 @@ THIRD_PARTY_KINDS = frozenset({"acquisition", "market_exit", "funding",
 _FIRST_PERSON = re.compile(r"\b(we|we're|we’re|we've|we’ve|our|us)\b", re.I)
 
 
-def review_confidence(check: Optional[Dict[str, Any]]) -> Optional[float]:
+#: Kinds that can all be right for one post: an integration with Microsoft
+#: is a product expansion and a partnership; a joint programme is a launch
+#: and a partnership. A split between them is not doubt about what happened.
+_INTERCHANGEABLE_KINDS = frozenset({"launch", "partnership"})
+
+
+def review_confidence(check: Optional[Dict[str, Any]],
+                      drafted: Optional[str] = None) -> Optional[float]:
     """How sure the checks are of a reviewed post: the lower of Jev's support
     for the headline and for the kind, or None when it was never checked.
-    The featured item and the highlights need PROMINENT_MIN."""
+    The featured item and the highlights need PROMINENT_MIN.
+
+    When the drafted kind and Jev's choice are both launch or partnership,
+    the kind counts as the two together: BlinkOps's Sentinel integration
+    (launch 0.39, partnership 0.56) and Method and Palantir's joint programme
+    (partnership 0.40, launch 0.53) were held out with near-perfect headlines
+    (Oliver, 29 Sep 2026). A split into any other kind still counts alone.
+    """
     if not isinstance(check, dict) or "kind" not in check:
         return None
     head = float((check.get("headline") or {}).get("p_supports") or 0.0)
-    kind = float((check.get("kind") or {}).get("p_drafted") or 0.0)
+    k = check.get("kind") or {}
+    kind = float(k.get("p_drafted") or 0.0)
+    choice = (k.get("choice") or "").lower()
+    if (drafted or "").lower() in _INTERCHANGEABLE_KINDS and choice in _INTERCHANGEABLE_KINDS \
+            and choice != (drafted or "").lower():
+        kind = min(1.0, kind + float(k.get("confidence") or 0.0))
     return round(min(head, kind), 3)
 
 
@@ -2190,7 +2209,7 @@ def _stored_candidates(conn, market_id: int, days: int
         checked = checked_writing(dict(r))
         if checked[0]:
             writing[r["article_uri"]] = checked
-        conf = review_confidence(r["review_check"])
+        conf = review_confidence(r["review_check"], r["review_kind"])
         if conf is not None:
             confidence[r["article_uri"]] = conf
 
@@ -2445,7 +2464,8 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
                 # an outside publisher's own title, or a rule's pick.
                 "headline_source": ("publisher" if klass == "news" else
                                     "checked" if written else "rule"),
-                "review_confidence": (review_confidence(row.get("review_check"))
+                "review_confidence": (review_confidence(row.get("review_check"),
+                                                        row.get("review_kind"))
                                       if klass != "news" else None),
                 "title": ruled,
                 # A post looking back ("Looking back at Fal.Con…") is dated

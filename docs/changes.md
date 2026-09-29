@@ -1,5 +1,17 @@
 # Changes
 
+## 2026-09-29 — A split between launch and partnership is not doubt
+
+Oliver asked what was wrong with the two items held out at 0.39 and 0.40: nothing. Both headlines
+checked at 0.99 to 1.00 and both read as news (0.93, 0.94). Jev split between two kinds that both
+fit: BlinkOps's integration with Microsoft Sentinel Data Lake (drafted launch 0.39, Jev
+partnership 0.56) and Method Security and Palantir's Cardinal Program (drafted partnership 0.40,
+Jev launch 0.53). **`app/services/market_assessment.py`** `review_confidence` now takes the
+drafted kind; when it and Jev's choice are both launch or partnership, the kind counts as the
+two together. A split into any other kind (award, customer, a non-event) still counts alone.
+Against the code before, on all four sites, the only change: both items return on aisocnews.
+Deployed as each site is quiet.
+
 ## 2026-09-29 — Daily email delivered; ledger shows the review; confidence follows the headline
 
 ### Checked
