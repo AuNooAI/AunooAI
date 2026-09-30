@@ -36,7 +36,8 @@ class PersonaSet:
                  display: Optional[Dict[str, Dict[str, str]]] = None,
                  not_audiences: Tuple[str, ...] = (),
                  hidden: Tuple[str, ...] = (),
-                 open_pairs: Tuple[Tuple[str, str], ...] = ()):
+                 open_pairs: Tuple[Tuple[str, str], ...] = (),
+                 link_share_roles: Tuple[str, ...] = ()):
         self.name = name
         self.definitions = definitions
         self.guide = guide
@@ -53,6 +54,9 @@ class PersonaSet:
         self.hidden = set(hidden)
         # The pairs the view opens on, first match wins; empty = the default pairs.
         self.open_pairs = tuple(tuple(p) for p in open_pairs)
+        # Stored roles whose bare paper links (title and link, nothing said)
+        # are shown as "Paper shares" instead. Empty = the view does not split.
+        self.link_share_roles = set(link_share_roles)
 
     def group(self, role: str) -> str:
         return self.groups.get(role, role)
@@ -81,7 +85,8 @@ class PersonaSet:
             })
         return {"name": self.name, "audiences": audiences, "guide": self.guide,
                 "open_pairs": [list(p) for p in self.open_pairs],
-                "person_roles": sorted(self.person_roles)}
+                "person_roles": sorted(self.person_roles),
+                "link_share_roles": sorted(self.link_share_roles)}
 
     @classmethod
     def from_dict(cls, name: str, d: Dict[str, Any]) -> "PersonaSet":
@@ -98,7 +103,8 @@ class PersonaSet:
                    guide=d.get("guide") or "", reasons=reasons,
                    person_roles=tuple(d.get("person_roles") or ("unknown",)),
                    groups=groups, display=display, not_audiences=not_audiences,
-                   hidden=hidden, open_pairs=tuple(tuple(p) for p in d.get("open_pairs") or ()))
+                   hidden=hidden, open_pairs=tuple(tuple(p) for p in d.get("open_pairs") or ()),
+                   link_share_roles=tuple(d.get("link_share_roles") or ()))
 
     @property
     def roles(self) -> Tuple[str, ...]:
@@ -176,12 +182,19 @@ PUBLISHER = PersonaSet(
         "retailer": {"label": "Sellers", "plural": "sellers", "hint": "Bookshops, second-hand dealers, sales bots and shop links"},
         "journalist": {"label": "Press & analysts", "plural": "press and analysts", "hint": "Reporters, market analysts, investors and industry commentators"},
         "brand": {"label": "Brand voice", "plural": "brand accounts", "hint": "The brand's own accounts, staff and paid promotion"},
+        "paper_share": {"label": "Paper shares", "plural": "paper shares", "hint": "A paper's title and link posted with nothing said about it. Who posted it stays on each post"},
     },
-    not_audiences=("journalist",),
+    not_audiences=("journalist", "paper_share"),
     # Oliver, 25 Sep: still too many rows. The view shows the six audiences
     # and Competitors; press, the brand's own posts, journal accounts and
     # bystanders are left out of it.
     hidden=("journalist", "brand", "journal_society", "unknown", "unclassified"),
+    # Oliver, 30 Sep: Researchers was 386 posts on wileytest, 286 of them a
+    # bare "Title - Author - Journal - Wiley Online Library" link with no
+    # comment. Those count as reach, not as something researchers said, so
+    # they get their own row and Researchers keeps the posts that say
+    # something. Authors sharing their own paper stay Authors.
+    link_share_roles=("academic", "reader", "student", "educator", "unknown"),
 )
 
 HEALTH = PersonaSet(

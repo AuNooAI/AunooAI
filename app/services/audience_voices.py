@@ -57,6 +57,7 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "educator":        {"label": "Educators",        "plural": "educators",        "hint": "Teachers and instructors teaching with the brand's materials"},
     "reader":          {"label": "Readers",          "plural": "readers",          "hint": "Members of the public reading or buying the brand's books or articles"},
     "unknown":      {"label": "Bystanders",    "plural": "bystanders",    "hint": "Commenting from the sidelines: the post shows no part in the programme, the profession or the company"},
+    "paper_share":  {"label": "Paper shares",  "plural": "paper shares",  "hint": "A paper's title and link posted with nothing said about it"},
     "unclassified": {"label": "Not yet classified", "plural": "posts not yet classified", "hint": "Scored before roles existed; run the backfill"},
 }
 
@@ -473,7 +474,40 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
         for p in out:
             p["author_role_detail"] = p["author_role"]
             p["author_role"] = alt.group(p["author_role"])
+    if alt is not None and alt.link_share_roles:
+        for p in out:
+            detail = p.get("author_role_detail") or p["author_role"]
+            if detail in alt.link_share_roles and is_bare_paper_share(p.get("text") or ""):
+                p.setdefault("author_role_detail", detail)
+                p["author_role"] = "paper_share"
     return out
+
+
+# A publisher's share button writes "Title - Author - [Year -] Journal -
+# Wiley Online Library" followed by the link. The platform names below are
+# the ones those buttons append.
+_SHARE_PLATFORM = re.compile(
+    r"\s[-\u2013|]\s*(Wiley Online Library|ScienceDirect|SAGE Journals|"
+    r"Taylor & Francis Online|SpringerLink)\b", re.I)
+_SHARE_NOISE = re.compile(r"https?://\S+|\b[\w.-]+\.(?:com|org|net|io)/\S*|@[\w.-]+:?|#\w+")
+
+
+def is_bare_paper_share(text_: str) -> bool:
+    """True when a post is a paper's share-button text and a link, nothing more.
+
+    Anything after the platform name, or a long run of text before it, is
+    somebody saying something, so the post stays with its author's role.
+    Measured on wileytest (30 Sep 2026, Wiley, 30 days): 286 of the 386
+    posts read as researchers matched; a hand check of the ones kept found
+    comments, questions and citations, and of the ones moved found titles.
+    """
+    cleaned = re.sub(r"\s+", " ", _SHARE_NOISE.sub(" ", text_ or "")).strip()
+    m = _SHARE_PLATFORM.search(cleaned)
+    if not m:
+        return False
+    before, after = cleaned[:m.start()], cleaned[m.end():]
+    after = re.sub(r"^[\s|\-\u2013:.]+", "", after)
+    return len(before) <= 300 and len(after) <= 20
 
 
 def _role_meta(role: str) -> Dict[str, str]:
@@ -823,7 +857,10 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
         })
     # Competitors last: their row counts rivals' own posts, which would
     # otherwise outrank every audience actually talking about this brand.
-    roles.sort(key=lambda r: (r["role"] == "competitor", -r["n"], list(ROLE_LABELS).index(r["role"])
+    # Paper shares just before them, for the same reason: bare links
+    # outnumber everything a publisher's audiences say.
+    _tail = {"paper_share": 1, "competitor": 2}
+    roles.sort(key=lambda r: (_tail.get(r["role"], 0), -r["n"], list(ROLE_LABELS).index(r["role"])
                               if r["role"] in ROLE_LABELS else 99))
 
     from app.services import voices_personas
