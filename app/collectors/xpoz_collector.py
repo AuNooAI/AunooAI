@@ -18,6 +18,7 @@ import concurrent.futures
 import logging
 import threading
 import time
+import unicodedata
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -196,9 +197,28 @@ def _term_match_mode() -> str:
     return os.getenv("XPOZ_TERM_MATCH", "root").strip().lower()
 
 
+#: Japanese kana, CJK ideographs and Hangul. Before 30 Sep 2026 the term gate
+#: only read [a-z0-9], so a Japanese keyword had no tokens and every post Xpoz
+#: returned for it passed unchecked: on sunstar, 5,500 posts in 30 days for the
+#: Japanese brand keywords, about 1 in 20 on topic.
+_CJK = "぀-ヿㇰ-ㇿ㐀-䶿一-鿿豈-﫿가-힯"
+_CJK_RUN = re.compile(f"[{_CJK}]+")
+_TOKEN_RE = re.compile(f"[a-z0-9']+|[{_CJK}]+")
+
+
+def _norm(text: str) -> str:
+    """Lowercase, with half-width katakana and full-width letters folded (NFKC)."""
+    return unicodedata.normalize("NFKC", text or "").lower()
+
+
 def _term_tokens(term: str) -> List[str]:
-    """Meaningful words of the search query, lowercased (punctuation/&/quotes dropped)."""
-    return [t for t in re.findall(r"[a-z0-9']+", (term or "").lower()) if len(t) >= 2]
+    """Meaningful words of the search query, lowercased (punctuation/&/quotes dropped).
+
+    Latin words need two letters or more. A run of Japanese, Chinese or Korean
+    script counts as one word at any length, since one kanji can be a word.
+    """
+    return [t for t in _TOKEN_RE.findall(_norm(term))
+            if len(t) >= 2 or _CJK_RUN.fullmatch(t)]
 
 
 def _tok_present(tok: str, hay: str) -> bool:
@@ -207,7 +227,11 @@ def _tok_present(tok: str, hay: str) -> bool:
     ``tok`` matches at a word start and may be a prefix of a longer word, so
     "wiley" hits "#Wiley"/"@wileyglobal"/"WileyGlobal". A trailing-``s`` stem
     variant is also tried so "publications" matches "publication" and vice-versa.
+    Japanese and Chinese are written without spaces, so a CJK token matches
+    anywhere in the text ("サンスター" inside "株式会社サンスター").
     """
+    if _CJK_RUN.fullmatch(tok):
+        return tok in hay
     variants = {tok, tok[:-1] if tok.endswith("s") and len(tok) > 4 else tok + "s"}
     return any(re.search(r"(?<![a-z0-9])" + re.escape(v), hay) for v in variants)
 
@@ -225,9 +249,9 @@ def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
     if not tokens:
         return True
     meta = row.get("social_meta") or {}
-    hay = " ".join(str(x) for x in (
+    hay = _norm(" ".join(str(x) for x in (
         row.get("title"), row.get("summary"),
-        meta.get("author"), meta.get("subreddit")) if x).lower()
+        meta.get("author"), meta.get("subreddit")) if x))
 
     root, rest = tokens[0], tokens[1:]
     if not _tok_present(root, hay):
