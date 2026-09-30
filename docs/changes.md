@@ -1,5 +1,75 @@
 # Changes
 
+## 2026-09-30 — wileytest Voices: bare paper links get their own row; leftover posts classified
+
+### Goal
+Oliver pasted the wileytest Voices panel for Wiley and asked why. Researchers was 386 posts in
+30 days at net +4 and dwarfed every other audience. A "1 post(s) were scored before author roles
+existed" note sat above the panel.
+
+### Fix · Researchers counted bare paper links as things researchers said (`78661db1`)
+The classifier was right. A sample of the busiest accounts showed working researchers (a
+palaeontologist, a physiologist, a plant pathologist, a health-policy academic) sharing other
+people's Wiley papers, with reasons like "Sharing research published by Wiley, not their own
+work". But 286 of the 386 posts were only a paper's share-button text ("Title - Author - Journal -
+Wiley Online Library") and a link. They carry no opinion, so 365 of the 386 read as neutral and
+the row's net sentiment sat near zero.
+
+**`app/services/voices_personas.py`**: `PersonaSet` takes `link_share_roles`, and it round-trips
+through the settings-page format (`to_dict` / `from_dict`). The publisher set turns it on for
+academic, reader, student, educator and unknown. Authors sharing their own paper stay under
+Authors & editors, as in the six-audience design of 25 September. Paper shares is added as a
+not-audience, so the page shows it as a row, not a column.
+
+**`app/services/audience_voices.py`**: `is_bare_paper_share` finds a share-platform name (Wiley
+Online Library, ScienceDirect, SAGE Journals, Taylor & Francis Online, SpringerLink). It ignores
+links, handles and hashtags, and allows at most 300 characters before the platform name and 20
+after it. At the end of `_rows`, a matching post from one of the named roles moves to role
+`paper_share`, and its detailed role is kept on the post. Because `_rows` also feeds the digest
+and the MCP Voices tool, all three see the same split. The roles sort so that Paper shares sits
+after the audiences and before Competitors. Other persona sets have no `link_share_roles`, so
+their output does not change.
+
+### Ops · Three posts without a role classified (wileytest data, no commit)
+`scripts/backfill_author_roles.py --apply --days 60 --brand Wiley` found three role-less posts, not
+one. It classified them with the site's social evaluation model: 2 author, 1 academic. One was the
+"We the Patients in a Barnes & Noble window" tweet of 4 September behind the note.
+
+### Verification
+- `py_compile` on both files. The publisher set round-trips through `to_dict` / `from_dict` with
+  `link_share_roles` intact, `validate()` passes, and the consumer and health sets report an empty
+  split. There are no Voices tests in the repo.
+- `is_bare_paper_share` on four real post shapes: title plus link, true. Title followed by "Are we
+  focusing on the important things?", false. A sentence of comment plus a link, false. Journal
+  promo text ending "| Wiley Online Library #rewilding", true.
+- `audience_voices.voices` in wileytest's venv against its database, Wiley, 30 days, after the
+  copy. Before: Researchers 386 (+4), Authors & editors 70, Libraries 27, Students & teachers 21,
+  Readers 21, Sellers 6, Competitors 77. After: Researchers 81 (+12), Authors & editors 71 (+59),
+  Libraries 27, Readers 12, Students & teachers 9, Sellers 6, Paper shares 340 (+2),
+  Competitors 77. Elsevier over the same window gets only 19 paper shares.
+- wileytest restarted at 11:13:51 on Oliver's instruction: answering after about 12 seconds, no
+  tracebacks. The same call afterwards returns the "after" rows above and no coverage note.
+- Not verified: the page in a browser.
+
+### Propagation
+Committed in bugfixing as `78661db1`. Copied to wileytest only, with backups
+`*.bak-papershare-20260930_105121`, because only wileytest runs the publisher set. wiley has
+`BW_VOICES_ENABLED=0`. Oviva and Sunstar use other sets, and the feature was asked for on
+wileytest only. Copying `voices_personas.py` whole also brought `ed068acc`'s `consumer` preset to
+wileytest. It stays inactive unless someone selects it on the settings page.
+
+**Restart.** `restart_when_quiet.sh --soft 5 --max 15 wileytest` gave up after 15 minutes with
+6 users still on the site (19 at first). Oliver then said "restart", and wileytest was restarted at
+11:13:51 with no jobs running. The role backfill had been visible before that, because it is data
+and needs no restart.
+
+### Lessons
+- A dominant Voices row is not automatically a misclassification. Check the stated reasons and
+  the post shapes before touching the classifier. Here the labels were right and the view was
+  counting reach as opinion.
+- `ls tests/test_*voices*` matched nothing. Passing that empty list to pytest made it collect the
+  whole tree, including saasmvp-app, and it errored. Check that the file list is not empty first.
+
 ## 2026-09-30 — Real corrections counted apart from rewording; wire press releases reviewed
 
 ### Fix · The drift alert counts corrections that change what an item claims
