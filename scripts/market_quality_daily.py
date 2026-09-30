@@ -169,7 +169,14 @@ def _rates(conn, market_id: int, since, until) -> dict:
                count(*) FILTER (WHERE review_verdict = 'signal') AS signals,
                count(*) FILTER (WHERE review_check ? 'kind') AS checked,
                count(*) FILTER (WHERE jsonb_array_length(COALESCE(review_check->'objections', '[]'::jsonb)) > 0) AS objected,
-               count(*) FILTER (WHERE (review_check->>'corrected')::boolean) AS corrected,
+               -- A correction that changed what the item claims. Rewording
+               -- alone is counted apart: Sonnet 5 rewords most second reads.
+               count(*) FILTER (WHERE (review_check->>'corrected')::boolean
+                                  AND COALESCE((review_check->>'material_correction')::boolean,
+                                               true)) AS corrected,
+               count(*) FILTER (WHERE (review_check->>'corrected')::boolean
+                                  AND NOT COALESCE((review_check->>'material_correction')::boolean,
+                                                   true)) AS reworded,
                count(*) FILTER (WHERE review_check ? 'held') AS held,
                count(*) FILTER (WHERE review_verdict = 'signal' AND review_headline IS NULL) AS no_headline
           FROM bw_market_articles

@@ -1,5 +1,32 @@
 # Changes
 
+## 2026-09-30 — Real corrections counted apart from rewording; wire press releases reviewed
+
+### Fix · The drift alert counts corrections that change what an item claims
+Sonnet 5 rewords most second reads, and the monitor counted every change as a correction: on
+29 Sep 5 of 10 items were "corrected", 2 of them only reworded.
+**`app/services/market_post_review.py`**: `material_change` marks a correction as material when
+it changes the verdict, the kind, the customer's name or stage, or removes a headline. The check
+stores `material_correction`.
+**`scripts/market_quality_daily.py`**: counts `corrected` (material) and `reworded`, and the drift
+alert reads only the first. The email shows both.
+**Backfill:** past corrections were backfilled from each row's stored first draft. aisocnews had 20
+material and 55 reworded; panaya 6 and 15; oviva 4 and 3; sunstar 1 and 2.
+**Still fires, correctly:** today the alert fires on 3 real corrections of 10 against 6% the week
+before. That is Sonnet 5 correcting more (two customer stages fixed to "case study", a headcount
+headline removed), and it settles as the baseline fills with Sonnet 5 days.
+
+### Fix · Vendors' press releases on wire services are reviewed
+A vendor's release on GlobeNewswire, BusinessWire and similar services counts as the vendor's
+voice, but `candidates` read only LinkedIn posts and vendor sites. The press review had already
+given these releases a verdict, so they were never picked up, and had no checked headline.
+Intezer's UK channel partnership with Cyber Fusion Distribution stayed off the page as a result.
+Candidates now include wire-host rows (`report_corpus.wire_sources`) that the loop has not checked.
+First run on aisocnews: 9 releases. Intezer's partnership is on the page, and Method Security and
+Palantir's item now takes the release's checked headline. The tool-list mentions were read as
+noise, AiStrike's Awardable status as an award, and Intezer's revenue release as "other", so none
+became items. Applied to all four sites.
+
 ## 2026-09-29 — A split between launch and partnership is not doubt
 
 Oliver asked what was wrong with the two items held out at 0.39 and 0.40: nothing. Both headlines

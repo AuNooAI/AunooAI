@@ -295,11 +295,24 @@ def candidates(conn, market_id: int, *, limit: int = 200,
     # The vendor's LinkedIn posts and its own website's articles. Until 25 Sep
     # 2026 only the first: 3 of about 330 blog posts had ever been read, so an
     # announcement made on a vendor's blog never became a development.
-    where = ["(a.bias_source = 'vendor:linkedin' OR a.bias_source LIKE 'owned:%')",
+    # And its releases on a wire service (GlobeNewswire, BusinessWire…): the
+    # vendor's own words, but never read here, so Intezer's UK channel
+    # partnership (28 Sep 2026) had no checked headline and stayed off the page.
+    from app.services.report_corpus import wire_sources
+
+    host_sql = ("lower(regexp_replace(split_part(split_part(a.uri, '://', 2), '/', 1), "
+                "'^www\\.', ''))")
+    wire_sql = (f"(a.bias_source IS NULL AND ({host_sql} = ANY(:wires) "
+                "OR lower(a.news_source) = ANY(:wires)))")
+    where = [f"(a.bias_source = 'vendor:linkedin' OR a.bias_source LIKE 'owned:%' OR {wire_sql})",
              own_voice_sql("a")]
-    params: Dict[str, Any] = {"m": market_id, "lim": int(limit)}
+    params: Dict[str, Any] = {"m": market_id, "lim": int(limit),
+                              "wires": sorted(wire_sources())}
     if not redo:
-        where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL)")
+        # A wire release the press review already judged still needs this
+        # review's checked writing; it has a verdict but no check.
+        where.append("(ma.review_verdict IS NULL OR ma.article_uri IS NULL "
+                     f"OR ({wire_sql} AND NOT COALESCE(ma.review_check ? 'kind', false)))")
     elif not force:
         # A reading Jev has checked is kept. Each bulk re-read of the 30
         # days turned up new answers on borderline posts, because the
@@ -812,6 +825,23 @@ def _apply_correction(v: Dict[str, Any], item: Dict[str, Any]) -> None:
     # A second read that confirms is not a correction.
     if after != before:
         v["first_draft"] = before
+        v["material_correction"] = material_change(before, after)
+
+
+def material_change(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
+    """Whether a correction changed what the item claims, not only its words:
+    the verdict, the kind, who the customer is or what stage it is at, or a
+    headline removed. Sonnet 5 rewords most second reads, and counting every
+    rewording as a correction fired the daily drift alert (29 Sep 2026: 5 of
+    10 "corrected", 3 of them material)."""
+    if before.get("verdict") != after.get("verdict") or before.get("kind") != after.get("kind"):
+        return True
+    if bool(before.get("headline")) != bool(after.get("headline")):
+        return True
+    def who(c):
+        c = c if isinstance(c, dict) else {}
+        return ((c.get("name") or "").strip().lower(), (c.get("stage") or "").lower())
+    return who(before.get("customer")) != who(after.get("customer"))
 
 
 def _hold_what_is_unconfirmed(v: Dict[str, Any]) -> None:
@@ -864,6 +894,7 @@ async def validate_and_correct(market_name: str, verdicts: List[Dict[str, Any]])
     for v in verdicts:
         if v.get("first_draft") and v.get("check") is not None:
             v["check"]["corrected"] = True
+            v["check"]["material_correction"] = bool(v.get("material_correction"))
             v["check"]["first_draft"] = v["first_draft"]
             v["check"]["objections"] = v.get("objections")
         if v.get("check") is not None and v.get("verdict") == "signal":

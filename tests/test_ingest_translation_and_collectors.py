@@ -148,3 +148,14 @@ def test_social_hides_bots_and_needs_a_clear_topic_answer():
                                   "social_meta": {"author": "grok"}})
     assert not mpr.social_passes({"review_check": None, "author": "nuntiobot"})
     assert mpr.social_passes({"review_check": {"social": ok}, "author": "robotics_jane"})
+
+
+def test_a_rewording_is_not_a_material_correction():
+    from app.services import market_post_review as mpr
+
+    base = {"verdict": "signal", "kind": "customer", "headline": "Tronox uses Strike48",
+            "summary": "a", "customer": {"name": "Tronox", "stage": "in_use"}}
+    assert not mpr.material_change(base, {**base, "summary": "b", "headline": "Tronox runs Strike48"})
+    assert mpr.material_change(base, {**base, "customer": {"name": "Tronox", "stage": "case_study"}})
+    assert mpr.material_change(base, {**base, "kind": "launch"})
+    assert mpr.material_change(base, {**base, "headline": None})
