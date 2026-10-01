@@ -35,7 +35,10 @@ every article that way, and nothing retries them once the list is filled in
 whatever their category or status. It repairs rows whose labels came from
 another topic's analysis: the enrichment UPDATE wrote a second topic's
 labels onto a row still filed under the first until 67b32d38 (wileytest,
-1 Oct 2026). Each row is re-analysed against the topic it is filed under.
+1 Oct 2026). Each row is re-analysed against the topic it is filed under, or
+against the topic after a tab on its line ("<uri>\t<topic>"). The second form
+offers a row to a topic that wanted it: the pipeline refiles a row that is not
+approved when that topic approves it, and leaves it filed otherwise.
 
 Articles are grouped by their stored `topic` because the analysis ontology
 (categories, future signals, sentiments...) is resolved per topic.
@@ -155,9 +158,13 @@ async def missing_ontology(ingest: AutomatedIngestService, topic: str) -> List[s
 
 async def reenrich(since: str | None, topic: str | None, limit: int | None,
                    batch_size: int, rescrape: bool, dry_run: bool,
-                   status: str | None = None, uris: List[str] | None = None) -> None:
+                   status: str | None = None, uris: List[str] | None = None,
+                   topic_for: Dict[str, str] | None = None) -> None:
     db = Database()
     candidates = fetch_candidates(db, since, topic, limit, status, uris)
+    for c in candidates:
+        if topic_for and c['uri'] in topic_for:
+            c['topic'] = topic_for[c['uri']]
 
     if not candidates:
         logger.info("No articles match the stuck-enrichment signature. Nothing to do.")
@@ -268,14 +275,21 @@ def main():
     args = parser.parse_args()
     if args.uri_file and args.status:
         parser.error("--uri-file and --status select rows in different ways; pass one")
-    uris = None
+    uris, topic_for = None, None
     if args.uri_file:
-        uris = [u.strip() for u in Path(args.uri_file).read_text().splitlines() if u.strip()]
+        uris, topic_for = [], {}
+        for line in Path(args.uri_file).read_text().splitlines():
+            uri, _, line_topic = line.strip().partition("\t")
+            if uri:
+                uris.append(uri)
+                if line_topic.strip():
+                    topic_for[uri] = line_topic.strip()
         if not uris:
             parser.error(f"{args.uri_file} lists no URIs")
 
     asyncio.run(reenrich(args.since, args.topic, args.limit,
-                         args.batch_size, args.rescrape, args.dry_run, args.status, uris))
+                         args.batch_size, args.rescrape, args.dry_run, args.status, uris,
+                         topic_for))
 
 
 if __name__ == "__main__":
