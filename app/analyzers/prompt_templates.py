@@ -3,9 +3,46 @@ import json
 import os
 import logging
 import hashlib
+import re
+from datetime import date, datetime, timezone
 from .prompt_manager import PromptManager, PromptManagerError
 
 logger = logging.getLogger(__name__)
+
+
+_RANGE_RE = re.compile(r"(\d+)\s*(?:-|\u2013|to)\s*(\d+)\s*months?", re.I)
+_OPEN_RE = re.compile(r"(\d+)\s*\+\s*months?", re.I)
+
+
+def _add_months(d: date, months: int) -> date:
+    y, m = divmod(d.month - 1 + months, 12)
+    return date(d.year + y, m + 1, 1)
+
+
+def time_to_impact_windows(options: List[str], today: date) -> str:
+    """Turn labels like "Short-term (6-18 months)" into calendar windows.
+
+    Models handed only today's date still miscount months ("2027 is about
+    27 months from October 2026"), so the code does the counting and the
+    model only has to find which window a date falls in. Labels without a
+    month range ("Short-term") get no window; the result is "" when none do.
+    """
+    lines = []
+    for opt in options or []:
+        m = _RANGE_RE.search(opt)
+        if m:
+            lo, hi = int(m.group(1)), int(m.group(2))
+            start = "now" if lo == 0 else _add_months(today, lo).strftime("%B %Y")
+            end = _add_months(today, hi).strftime("%B %Y")
+            lines.append(f"- {opt}: from {start} up to {end}")
+            continue
+        m = _OPEN_RE.search(opt)
+        if m:
+            lines.append(f"- {opt}: {_add_months(today, int(m.group(1))).strftime('%B %Y')} or later")
+    if not lines:
+        return ""
+    return ("Counted from today, the options cover these calendar windows. Pick the one\n"
+            "that contains the date the impact is expected:\n" + "\n".join(lines) + "\n")
 
 class PromptTemplateError(Exception):
     pass
@@ -35,7 +72,7 @@ class PromptTemplates:
         "content_analysis": {
             "version": "1.0.6",
             "system_prompt": "You are an expert analyst who summarizes and classifies news articles. Write summaries in the voice of {summary_voice}, as {summary_type} content. Reply only with the labelled fields requested, in the exact order and wording given, with no preamble, commentary, or markdown.",
-            "user_prompt": "Analyze the following news article.\n\nTitle: {title}\nSource: {source}\nURL: {uri}\nContent: {article_text}\n\nProduce every field listed under OUTPUT FORMAT below, in that order.\n\nTitle\nReuse the article's title shown above if it is present and meaningful. If it is\nmissing, empty, or a placeholder, write your own concise title of under 15 words.\n\nSummary\nSummarize the article in at most {summary_length} words, in the voice of a\n{summary_voice}, as {summary_type} content. Write the summary, every\nexplanation and the tags in English, whatever language the article is written in.\nKeep every qualifier that changes what a number means: \"adjusted\", \"non-GAAP\",\n\"preliminary\", \"estimated\", \"constant currency\". When the article reports\nfinancial results, the summary must state the GAAP result (profit or loss, with\nthe per-share figure if given), say whether any headline earnings figure is\nadjusted, and give the consensus comparison and its basis when the article has\none. These facts take priority over other detail within the word limit. Do not\ncall a result a beat or a miss unless the article says what it is compared against.\nIf the article does not say whether a figure is GAAP or adjusted, write \"reported\"\nand never guess the basis.\n\nCategory\nClassify the article as exactly one of: {categories}\nIf none of these fit, use \"Other\".\n\nFuture Signal\nClassify the article as exactly one of: {future_signals}\nJudge this on what the article implies about how its subject develops from here,\nnot on its tone alone.\n\nSentiment\nClassify the sentiment as exactly one of: {sentiment_options}\n\nTime to Impact\nClassify the time to impact as exactly one of: {time_to_impact_options}\n\nDriver Type\nClassify the underlying driver as exactly one of: {driver_types}\n\nPolitical Bias\nClassify as exactly one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed\nJudge the political perspective, ideological stance, and any partisan framing.\n\nFactuality\nClassify as exactly one of: Very High, High, Mixed, Low, Very Low\nJudge the use of sources, evidence, fact-checking, and overall credibility.\n\nTags\nGive 3-5 concise tags capturing the article's main topics or themes. Write each\ntag as a normal English phrase with spaces between words (for example: chip\nmanufacturing, export controls) - never hashtags, never camelCase, never words\njoined together.\n\nEvery field whose label ends in \"Explanation\" is one or two sentences justifying\nthe classification on the line directly above it.\n\nOUTPUT FORMAT\nReply with exactly the lines below, in this order, one field per line.\nCopy each label character-for-character, followed by a colon and a space.\nDo not number the lines. Do not add markdown - no asterisks, hashes, or bold.\nDo not rename, merge, reorder, add, or omit any line.\n\nTitle: <title>\nSummary: <summary>\nCategory: <one of the categories listed above>\nFuture Signal: <one of the future signals listed above>\nFuture Signal Explanation: <one or two sentences>\nSentiment: <one of the sentiment values listed above>\nSentiment Explanation: <one or two sentences>\nTime to Impact: <one of the time to impact values listed above>\nTime to Impact Explanation: <one or two sentences>\nDriver Type: <one of the driver types listed above>\nDriver Type Explanation: <one or two sentences>\nPolitical Bias: <one of the political bias values listed above>\nPolitical Bias Explanation: <one or two sentences>\nFactuality: <one of the factuality values listed above>\nFactuality Explanation: <one or two sentences>\nTags: first tag, second tag, third tag"
+            "user_prompt": "Analyze the following news article.\n\nTitle: {title}\nSource: {source}\nURL: {uri}\nContent: {article_text}\n\nProduce every field listed under OUTPUT FORMAT below, in that order.\n\nTitle\nReuse the article's title shown above if it is present and meaningful. If it is\nmissing, empty, or a placeholder, write your own concise title of under 15 words.\n\nSummary\nSummarize the article in at most {summary_length} words, in the voice of a\n{summary_voice}, as {summary_type} content. Write the summary, every\nexplanation and the tags in English, whatever language the article is written in.\nKeep every qualifier that changes what a number means: \"adjusted\", \"non-GAAP\",\n\"preliminary\", \"estimated\", \"constant currency\". When the article reports\nfinancial results, the summary must state the GAAP result (profit or loss, with\nthe per-share figure if given), say whether any headline earnings figure is\nadjusted, and give the consensus comparison and its basis when the article has\none. These facts take priority over other detail within the word limit. Do not\ncall a result a beat or a miss unless the article says what it is compared against.\nIf the article does not say whether a figure is GAAP or adjusted, write \"reported\"\nand never guess the basis.\n\nCategory\nClassify the article as exactly one of: {categories}\nIf none of these fit, use \"Other\".\n\nFuture Signal\nClassify the article as exactly one of: {future_signals}\nJudge this on what the article implies about how its subject develops from here,\nnot on its tone alone.\n\nSentiment\nClassify the sentiment as exactly one of: {sentiment_options}\n\nTime to Impact\nClassify the time to impact as exactly one of: {time_to_impact_options}\nToday's date is {current_date}. Measure the time to impact from today, using the\ndates the article states. Never assume the current year is earlier than today.\n{time_to_impact_windows}\nDriver Type\nClassify the underlying driver as exactly one of: {driver_types}\n\nPolitical Bias\nClassify as exactly one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed\nJudge the political perspective, ideological stance, and any partisan framing.\n\nFactuality\nClassify as exactly one of: Very High, High, Mixed, Low, Very Low\nJudge the use of sources, evidence, fact-checking, and overall credibility.\n\nTags\nGive 3-5 concise tags capturing the article's main topics or themes. Write each\ntag as a normal English phrase with spaces between words (for example: chip\nmanufacturing, export controls) - never hashtags, never camelCase, never words\njoined together.\n\nEvery field whose label ends in \"Explanation\" is one or two sentences justifying\nthe classification on the line directly above it.\n\nOUTPUT FORMAT\nReply with exactly the lines below, in this order, one field per line.\nCopy each label character-for-character, followed by a colon and a space.\nDo not number the lines. Do not add markdown - no asterisks, hashes, or bold.\nDo not rename, merge, reorder, add, or omit any line.\n\nTitle: <title>\nSummary: <summary>\nCategory: <one of the categories listed above>\nFuture Signal: <one of the future signals listed above>\nFuture Signal Explanation: <one or two sentences>\nSentiment: <one of the sentiment values listed above>\nSentiment Explanation: <one or two sentences>\nTime to Impact: <one of the time to impact values listed above>\nTime to Impact Explanation: <one or two sentences>\nDriver Type: <one of the driver types listed above>\nDriver Type Explanation: <one or two sentences>\nPolitical Bias: <one of the political bias values listed above>\nPolitical Bias Explanation: <one or two sentences>\nFactuality: <one of the factuality values listed above>\nFactuality Explanation: <one or two sentences>\nTags: first tag, second tag, third tag"
         },
         "date_extraction": {
             "version": "1.0.0",
@@ -157,8 +194,15 @@ Output Format (JSON Object):
         kwargs["categories"] = ', '.join(kwargs.get("categories", []))
         kwargs["future_signals"] = ', '.join(kwargs.get("future_signals", []))
         kwargs["sentiment_options"] = ', '.join(kwargs.get("sentiment_options", []))
+        today = datetime.now(timezone.utc).date()
+        kwargs.setdefault("time_to_impact_windows", time_to_impact_windows(
+            kwargs.get("time_to_impact_options", []), today))
         kwargs["time_to_impact_options"] = ', '.join(kwargs.get("time_to_impact_options", []))
         kwargs["driver_types"] = ', '.join(kwargs.get("driver_types", []))
+        # Without today's date the model guesses the year from its training
+        # data and measures time to impact from there ("2027 is about three
+        # years away" in September 2026).
+        kwargs.setdefault("current_date", today.strftime("%d %B %Y").lstrip("0"))
 
         return [
             {"role": "system", "content": template["system_prompt"].format(**kwargs)},
