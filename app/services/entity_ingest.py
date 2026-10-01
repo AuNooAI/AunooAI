@@ -59,7 +59,8 @@ def link_content(conn, article_uri: str,
     """
     context = context or {}
     article = conn.execute(text("""
-        SELECT uri, title, summary, news_source, bias_source, social_meta
+        SELECT uri, title, summary, news_source, bias_source, social_meta,
+               topic
           FROM articles WHERE uri = :u
     """), {'u': article_uri}).mappings().first()
     if not article:
@@ -329,11 +330,39 @@ def _discover_candidates(conn, article, channel: str) -> List[Dict[str, Any]]:
     terms = entity_content.safe_terms_for(
         conn, _enabled_social_brands(conn) if channel in
         ('public_social', 'community') else _all_brands(conn))
+    if channel in ('public_social', 'community'):
+        # Listed first so the collecting brand wins candidates_from_terms'
+        # one-match-per-brand rule with its own name.
+        terms = _collecting_brand_terms(conn, article.get('topic')) + terms
     return [{'brand_id': c['brand_id'], 'query_term_id': c['query_term_id'],
              'term': c['term'], 'excerpt': c['excerpt'],
              'attribution_method': 'query_term',
              'mention_type': _mention_type(c['term_kind'])}
             for c in entity_content.candidates_from_terms(blob, terms)]
+
+
+def _collecting_brand_terms(conn, topic: Optional[str]) -> List[Dict[str, Any]]:
+    """Every enabled term of the brand whose own social group found this post.
+
+    A post under "Brand Monitoring Voy" came back from a search for Voy, so
+    the topic is the qualification a short or ordinary-word name otherwise
+    lacks. Safe terms alone never include "Voy" (three letters), so on oviva
+    on 1 Oct 2026 the 132 posts Voy's new social group collected, customers
+    on its Mounjaro programme among them, produced no mentions at all. The
+    same held for brands outside any market (Zanadio, HelloBetter), which
+    _enabled_social_brands never returns.
+    """
+    prefix = 'Brand Monitoring '
+    if not topic or not topic.startswith(prefix):
+        return []
+    rows = conn.execute(text("""
+        SELECT t.id, t.brand_id, t.term, t.normalized_term, t.term_kind
+          FROM bw_entity_query_terms t
+          JOIN bw_brands b ON b.id = t.brand_id
+         WHERE b.display_name = :name AND b.enabled AND t.enabled
+         ORDER BY length(t.normalized_term) DESC
+    """), {'name': topic[len(prefix):]}).mappings().all()
+    return [dict(r) for r in rows]
 
 
 def _mention_type(term_kind: str) -> str:

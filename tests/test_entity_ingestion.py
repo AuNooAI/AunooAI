@@ -597,3 +597,31 @@ def test_the_same_page_is_earned_coverage_for_another_vendor_it_names(
     """), {'u': uri}).fetchall())
     assert channels[owner] == 'owned_web'
     assert channels[other] == 'earned_news'
+
+
+def test_short_name_links_on_its_own_brand_social_topic(conn):
+    """A three-letter name is unsafe anywhere except in posts its own group found."""
+    from app.services import entity_ingest
+
+    brand = conn.execute(text("""
+        INSERT INTO bw_brands (name, display_name, brand_keywords, enabled)
+        VALUES ('pytest-voy', 'Pytvo', '[]'::jsonb, TRUE) RETURNING id
+    """)).scalar()
+    conn.execute(text("""
+        INSERT INTO bw_entity_query_terms
+            (brand_id, term, normalized_term, term_kind,
+             qualification_required, enabled, provenance)
+        VALUES (:b, 'Pyt', 'pyt', 'name', TRUE, TRUE, CAST('{}' AS JSONB))
+    """), {'b': brand})
+    post = {'uri': 'pytest://entity-ingestion/short-name',
+            'title': 'Went back to PYT for my Mounjaro', 'summary': '',
+            'topic': 'Brand Monitoring Pytvo'}
+
+    found = entity_ingest._discover_candidates(conn, post, 'public_social')
+    assert [c['brand_id'] for c in found] == [brand]
+
+    # The same post under another topic has nothing to qualify the name.
+    elsewhere = dict(post, topic='Brand Monitoring Someone Else')
+    assert brand not in [c['brand_id'] for c in
+                         entity_ingest._discover_candidates(
+                             conn, elsewhere, 'public_social')]
