@@ -1147,6 +1147,31 @@ def _discover_candidates(conn, market: Dict[str, Any], now: datetime) -> int:
 
 # ── Feeds ───────────────────────────────────────────────────────────────────
 
+
+def _vendor_feed_topic(conn, market: Dict[str, Any], vendor: Dict[str, Any],
+                       market_topic: str) -> str:
+    """Topic a vendor's discovered feeds are filed under.
+
+    The market's collection topic by default. A market whose config sets
+    ``collection.vendor_feed_topics = "brand"`` files each vendor's feeds under
+    that vendor's own brand topic when the site has one. Oviva's market sent
+    every feed to "Brand Monitoring Oviva", so Noom's blog read as Oviva news
+    (42 articles, Sep 2026).
+    """
+    own = f"Brand Monitoring {vendor.get('display_name') or ''}".strip()
+    try:
+        mode = conn.execute(text(
+            "SELECT config->'collection'->>'vendor_feed_topics' FROM bw_markets WHERE id = :m"),
+            {"m": market["id"]}).scalar()
+        if mode != "brand":
+            return market_topic
+        if conn.execute(text("SELECT 1 FROM keyword_groups WHERE topic = :t LIMIT 1"),
+                        {"t": own}).scalar():
+            return own
+    except Exception:  # noqa: BLE001 - fall back to the market topic
+        logger.debug("vendor feed topic lookup failed", exc_info=True)
+    return market_topic
+
 async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                           now: datetime, forced_run_id: Optional[int] = None) -> int:
     """Record each vendor's RSS/Atom feeds and the pages worth watching."""
@@ -1262,13 +1287,14 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
             # Register the feeds so the existing RSS collector polls them.
             # Recording them only in the baseline would leave a vendor's blog
             # "discovered" and never read.
+            feed_topic = _vendor_feed_topic(conn, market, vendor, topic_name)
             for feed_url in sources.feeds:
                 conn.execute(text("""
                     INSERT INTO rss_feeds (name, url, topic, description, is_active)
                     SELECT :n, :u, :t, :d, TRUE
                     WHERE NOT EXISTS (SELECT 1 FROM rss_feeds WHERE url = :u)
                 """), {"n": f"{vendor['display_name']} feed"[:255], "u": feed_url,
-                       "t": topic_name[:255],
+                       "t": feed_topic[:255],
                        "d": f"Discovered on {sources.domain} by Market Monitor"})
                 found += 1
 

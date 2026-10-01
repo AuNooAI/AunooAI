@@ -2500,6 +2500,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
 
             # Build SQL brand search with word-boundary matching for short terms
             brand_filter, brand_params = _build_brand_filter_sql(search_terms)
+            # A mention kept by brand_mention_gate usually names the brand only in
+            # the body, so the name filter above would never select it.
+            try:
+                from app.services.brand_mention_gate import kept_mentions_sql
+                brand_filter, brand_params = kept_mentions_sql(
+                    brand_filter, brand_params, brand["display_name"])
+            except Exception as _kept_err:
+                logger.debug(f"kept-mentions filter skipped: {_kept_err}")
 
             base_params = {"start": start_date, "end": end_date, **brand_params, **social_excl_params}
             if topics:

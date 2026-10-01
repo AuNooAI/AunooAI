@@ -11,6 +11,19 @@ Two modes:
                       through the pipeline, and have a COST-CONSCIOUS model
                       (nova-lite) independently judge true relevance. Reports
                       pipeline-vs-judge agreement; catches data drift.
+  --audit [DAYS]      Brand topics: look in the stored data for the faults the
+                      two modes above cannot see, because they score only a
+                      title and summary and never look at sources. Added 1 Oct
+                      2026 after oviva reports kept repeating three of them:
+                        dropped mentions   rejected articles whose page names
+                                           the brand (a quote, a CEO booking)
+                        same-name kept     kept rows where every mention is a
+                                           different subject (OVIVA the trial)
+                        one-site press     one site supplying most of a brand's
+                                           kept press (a fan recipe site)
+                        feed in wrong topic a brand's own feed filed under
+                                           another brand's topic
+                      Uses brand_mention_gate and each brand's bw_brands.config.
 
 Exit code 1 if accuracy < PASS_THRESHOLD, so it can drive a cron alert.
 
@@ -153,6 +166,127 @@ def run_live(svc, n):
     log_run("live", acc, prec, rec, cm, len(pairs))
     return acc,prec,rec
 
+_SOCIAL_SQL = ("(a.news_source LIKE 'xpoz:%%' OR a.news_source ILIKE ANY (ARRAY["
+               "'%%bluesky%%','%%twitter%%','%%reddit%%','%%instagram%%','%%tiktok%%',"
+               "'%%linkedin%%','%%youtube%%','%%glassdoor%%','%%threads%%','%%mastodon%%']))")
+CONCENTRATION_SHARE = 0.40   # one site above this share of a brand's kept press is flagged
+CONCENTRATION_MIN = 10       # ...once the brand has at least this many kept press items
+
+
+def run_audit(days=7):
+    """Brand-topic data audit. Returns the number of findings (0 = clean)."""
+    sys.path.insert(0, os.path.abspath(os.path.join(HERE, "../..")))
+    try:
+        from app.services import brand_mention_gate as g
+    except ImportError:
+        log("RESULT: SKIP  (this site has no app/services/brand_mention_gate.py)")
+        return 0
+    conn = db_conn(); cur = conn.cursor()
+    cur.execute("SELECT to_regclass('bw_brands')")
+    if not cur.fetchone()[0]:
+        log("RESULT: SKIP  (no bw_brands table)"); return 0
+    cur.execute("SELECT id, display_name, brand_keywords, product_keywords, config "
+                "FROM bw_brands WHERE enabled ORDER BY id")
+    brands = []
+    for bid, name, kw, prod, cfg in cur.fetchall():
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except ValueError: cfg = {}
+        brands.append((bid, name, g.build_brand(name, g._as_list(kw), g._as_list(prod),
+                                                cfg if isinstance(cfg, dict) else {})))
+    since = f"{int(days)} days"
+    findings = []
+
+    def text_of(*parts):
+        return "\n".join(str(p or "") for p in parts)
+
+    skipped = []
+    for bid, name, b in brands:
+        topic = f"Brand Monitoring {name}"
+        # 1. dropped mentions. Only for a brand with a mention_context list:
+        # without one, a common-word name ("Second Nature") matches the phrase.
+        if b["context"] is None:
+            skipped.append(name)
+        cur.execute(f"""SELECT a.uri, a.news_source, a.title, a.summary, r.raw_markdown
+                         FROM articles a LEFT JOIN raw_articles r ON r.uri = a.uri
+                        WHERE a.topic = %s AND a.ingest_status = 'filtered_relevance'
+                          AND NOT {_SOCIAL_SQL}
+                          AND a.publication_date >= to_char(now() - interval %s, 'YYYY-MM-DD')""",
+                    (topic, since))
+        dropped = []
+        for uri, src, title, summ, raw in cur.fetchall():
+            v = g.judge(b, text_of(title, summ, raw), uri, src or "")
+            if v["verdict"] == "named":
+                dropped.append(f"{(title or '')[:70]} | {v['snippet'][:90]}")
+        if dropped and b["context"] is not None:
+            findings.append(f"{name}: {len(dropped)} rejected article(s) name the brand. "
+                            f"e.g. {dropped[0]}")
+        # 2. same-name kept, and 5. non-press still kept
+        # "Kept" means either score a reader uses: the Brand Watcher stats read
+        # COALESCE(bw_article_categories.relevance_score, topic_alignment_score).
+        cur.execute("""SELECT a.uri, a.news_source, a.title, a.summary
+                         FROM articles a
+                        WHERE a.topic = %s
+                          AND (a.topic_alignment_score >= 0.4 OR EXISTS (
+                               SELECT 1 FROM bw_article_categories bac
+                                WHERE bac.article_uri = a.uri AND bac.brand_id = %s
+                                  AND bac.relevance_score >= 0.4))
+                          AND a.publication_date >= to_char(now() - interval %s, 'YYYY-MM-DD')""",
+                    (topic, bid, since))
+        wrong, nonpress = [], 0
+        for uri, src, title, summ in cur.fetchall():
+            v = g.judge(b, text_of(title, summ), uri, src or "")
+            if v["verdict"] == "excluded":
+                wrong.append(v["snippet"][:100])
+            elif v["verdict"] == "non_press":
+                nonpress += 1
+        if wrong:
+            findings.append(f"{name}: {len(wrong)} kept row(s) name a different subject with "
+                            f"the same name. e.g. \"{wrong[0]}\"")
+        if nonpress:
+            findings.append(f"{name}: {nonpress} kept row(s) come from a site listed as "
+                            f"non-press for this brand")
+        # 3. one-site press
+        cur.execute(f"""SELECT a.uri FROM articles a
+                        WHERE a.topic = %s AND a.topic_alignment_score >= 0.4 AND a.analyzed
+                          AND NOT {_SOCIAL_SQL}
+                          AND COALESCE(a.bias_source, '') NOT LIKE 'owned:%%'
+                          AND COALESCE(a.bias_source, '') NOT LIKE 'vendor:%%'
+                          AND a.publication_date >= to_char(now() - interval '90 days', 'YYYY-MM-DD')""",
+                    (topic,))
+        hosts = [g.host_of(u) for (u,) in cur.fetchall()]
+        if len(hosts) >= CONCENTRATION_MIN:
+            from collections import Counter
+            host, n = Counter(hosts).most_common(1)[0]
+            if n / len(hosts) > CONCENTRATION_SHARE:
+                findings.append(f"{name}: {host} supplies {n} of {len(hosts)} kept press items "
+                                f"in 90 days. Check it is press, not a fan or listing site")
+    # 4. feed filed under another brand's topic
+    try:
+        cur.execute("""SELECT i.normalized_value, b.display_name FROM bw_vendor_identifiers i
+                         JOIN bw_brands b ON b.id = i.brand_id
+                        WHERE i.kind = 'domain' AND i.valid_to IS NULL AND b.enabled""")
+        owners = {d.lower().removeprefix("www."): n for d, n in cur.fetchall()}
+        cur.execute("SELECT id, url, topic FROM rss_feeds WHERE is_active AND topic LIKE 'Brand Monitoring %%'")
+        for fid, url, topic in cur.fetchall():
+            host = g.host_of(url)
+            owner = next((n for d, n in owners.items() if host == d or host.endswith("." + d)), None)
+            if owner and topic != f"Brand Monitoring {owner}":
+                findings.append(f"feed {fid} ({url}) belongs to {owner} but is filed under '{topic}'")
+    except Exception as e:
+        conn.rollback()
+        log(f"  (feed check skipped: {str(e)[:70]})")
+    cur.close(); conn.close()
+    log(f"\n=== BRAND DATA AUDIT: {len(brands)} brands, last {days} days ===")
+    if skipped:
+        log("INFO: dropped-mention check skipped (no mention_context in bw_brands.config): "
+            + ", ".join(skipped))
+    for f in findings:
+        log(f"FINDING: {f}")
+    log(f"RESULT: {'PASS' if not findings else 'FAIL'}  ({len(findings)} finding(s))")
+    return len(findings)
+
+
 REVIEW_MODEL = os.getenv("RELEVANCE_REVIEW_MODEL", "nova-lite")   # cost-conscious reviewer
 
 def run_review(limit=30):
@@ -206,7 +340,11 @@ def main():
     ap.add_argument("--golden", action="store_true")
     ap.add_argument("--trend", type=int, default=0, help="print the last N logged runs and exit")
     ap.add_argument("--review", action="store_true", help="LLM-review the trend history and exit")
+    ap.add_argument("--audit", type=int, nargs="?", const=7, default=0,
+                    help="brand-topic data audit over the last N days (default 7) and exit")
     args=ap.parse_args()
+    if args.audit:
+        sys.exit(1 if run_audit(args.audit) else 0)
     if args.review:
         run_review(); sys.exit(0)
     if args.trend:

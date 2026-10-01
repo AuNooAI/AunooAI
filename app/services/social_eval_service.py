@@ -334,6 +334,20 @@ class SocialEvalService:
         if gate_anchors and not _mentions_brand(gate_raw.lower(), gate_anchors, gate_raw):
             return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
                     "author_role_reason": None, "no_brand_mention": True}
+        # Same name, different subject: a brand's exclude_context marks every
+        # mention in the post as something else (OVIVA the antibiotics trial,
+        # cited by infectious-disease doctors; oviva, Sep 2026). Settled here
+        # like a post that never names the brand, without a model call.
+        try:
+            from app.services import brand_mention_gate as _bmg
+            _gb = _bmg.brand_for_topic(brand_topic)
+            if (_gb and _gb["exclude"] is not None
+                    and _bmg.judge(_gb, gate_raw)["verdict"] == "excluded"):
+                return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
+                        "author_role_reason": None, "no_brand_mention": True,
+                        "excluded_context": True}
+        except Exception as _gate_err:  # noqa: BLE001 - never block scoring
+            logger.debug(f"brand exclude gate skipped: {_gate_err}")
         # Second cheap gate (AI_DESIGN_PATTERNS 2.1), where the site sets
         # SOCIAL_JEV_PREFILTER_MIN. Jev (TypeSafe, ~$0.00006 a post) reads whether
         # the post is about the brand; under the minimum it is settled without

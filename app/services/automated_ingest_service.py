@@ -543,6 +543,17 @@ class AutomatedIngestService:
             except Exception as tracker_err:
                 self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")
 
+            # Brand topics: a page that names the brand is coverage even when it
+            # is not about the brand, a listed non-press site never is, and a
+            # same-name subject (the OVIVA antibiotics trial) is not the brand.
+            # Off unless the site sets BW_BRAND_MENTION_FLOOR or a brand carries
+            # exclude_context / non_press_domains (brand_mention_gate).
+            try:
+                from app.services import brand_mention_gate
+                brand_mention_gate.apply(relevance_result, topic, article_data)
+            except Exception as gate_err:
+                self.logger.debug(f"Brand mention gate skipped: {gate_err}")
+
             self.logger.debug(f"Hybrid relevance for {article_data.get('uri')}: score={relevance_result['relevance_score']:.3f}, method={hybrid_result.get('method')}")
 
             return relevance_result
