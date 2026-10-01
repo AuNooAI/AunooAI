@@ -491,6 +491,9 @@ class ArticleResponse(BaseModel):
     # signals: [{key, band, score}]} — compact row summary; full detail via
     # GET /signals/detail.
     signals_summary: Optional[dict] = None
+    # A mention kept because the body names the brand (brand_mention_gate):
+    # the sentence that names it. matched_keywords then carries the brand.
+    brand_mention: Optional[str] = None
 
 
 class ArticlesListResponse(BaseModel):
@@ -2531,7 +2534,13 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     SELECT a.uri, a.title, a.summary, a.topic, a.topic_alignment_score,
                            a.news_source, a.factual_reporting, a.sentiment FROM articles a
                     LEFT JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
-                    WHERE a.publication_date >= :start AND a.publication_date <= :end
+                    -- Collected in the window counts too. Collectors deliver items days
+                    -- after publication, and the 6-hourly incremental_since_last run
+                    -- starts at its last run's date, so an article published on
+                    -- 7 Aug and collected on 9 Sep was never classified: it showed in
+                    -- perception but never in the article list (Voy on oviva, 1 Oct).
+                    WHERE ((a.publication_date >= :start AND a.publication_date <= :end)
+                           OR a.submission_date >= :start)
                     AND a.analyzed = true
                     AND bac.id IS NULL
                     {social_excl}
@@ -3870,6 +3879,18 @@ async def get_articles(
                 signals_summary=signals_map.get((row[0], row[6])),
             ))
 
+        # Kept mentions name the brand in the body, so the keyword match above
+        # is empty for them; say where the brand is named instead.
+        try:
+            from app.services.brand_mention_gate import kept_mention_evidence
+            _ev = kept_mention_evidence(conn, [a.uri for a in articles if not a.matched_keywords])
+            for a in articles:
+                e = _ev.get(a.uri)
+                if e and (not a.brand_name or e["brand"] == a.brand_name):
+                    a.matched_keywords = [e["brand"]]
+                    a.brand_mention = e["snippet"]
+        except Exception as _ev_err:
+            logger.debug(f"kept-mention evidence skipped: {_ev_err}")
         from app.services.bw_signals_service import signals_available
         return ArticlesListResponse(
             articles=articles, total_count=total_count,

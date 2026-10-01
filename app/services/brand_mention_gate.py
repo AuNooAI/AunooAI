@@ -284,6 +284,31 @@ def kept_mentions_sql(brand_filter: str, params: Dict[str, Any], display_name: s
             f" AND {alias}.overall_match_explanation LIKE :_bmg_mark))"), p
 
 
+def kept_mention_evidence(conn, uris: List[str]) -> Dict[str, Dict[str, str]]:
+    """For kept mentions among ``uris``: {uri: {"brand": name, "snippet": text}}.
+
+    A kept mention names the brand in the body, so a keyword match on the
+    title and summary comes back empty. A reader, human or model, then
+    concludes the article does not mention the brand at all: an MCP report
+    on oviva (1 Oct 2026) said "none of the 13 earned articles contain an
+    Oviva keyword". The explanation written at ingest carries the sentence.
+    """
+    if not uris:
+        return {}
+    from sqlalchemy import text
+    out: Dict[str, Dict[str, str]] = {}
+    rows = conn.execute(text("""
+        SELECT uri, overall_match_explanation FROM articles
+         WHERE uri = ANY(:u) AND overall_match_explanation LIKE :m
+    """), {"u": list(uris), "m": KEPT_MARK + "%"}).fetchall()
+    pat = re.compile(re.escape(KEPT_MARK) + r'(.+?) \(subject score [0-9.]+\): "(.*)"\s*$', re.S)
+    for uri, expl in rows:
+        m = pat.match(expl or "")
+        if m:
+            out[uri] = {"brand": m.group(1), "snippet": m.group(2)}
+    return out
+
+
 def _stored_page(uri: str) -> str:
     """The page text stored for this URL in raw_articles, or ''."""
     if not uri:

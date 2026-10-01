@@ -106,3 +106,18 @@ def test_kept_mentions_sql_widens_the_name_filter():
     assert params == {"b0": "%oviva%", "_bmg_topic": "Brand Monitoring Oviva",
                       "_bmg_mark": g.KEPT_MARK + "Oviva%"}
     assert g.kept_mentions_sql("", {}, "Oviva") == ("", {})
+
+
+def test_kept_mention_evidence_parses_the_explanation():
+    expl = g.KEPT_MARK + 'Oviva (subject score 0.10): "referred to Oviva, an NHS partner"'
+
+    class _Conn:
+        def execute(self, *_a, **_k):
+            class _R:
+                def fetchall(self_inner):
+                    return [("u1", expl), ("u2", "Hybrid scoring: something else")]
+            return _R()
+
+    assert g.kept_mention_evidence(_Conn(), ["u1", "u2"]) == {
+        "u1": {"brand": "Oviva", "snippet": "referred to Oviva, an NHS partner"}}
+    assert g.kept_mention_evidence(_Conn(), []) == {}
