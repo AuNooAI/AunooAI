@@ -188,6 +188,172 @@ only on Oviva.
 - An empty `matched_keywords` reads to a model as "the brand is not mentioned". Any field a reader
   uses as evidence has to carry the evidence for every row it shows.
 
+## 2026-10-01 — Articles kept another topic's labels; fixed for new saves, last 30 days on wileytest repaired
+
+### Goal
+While re-running the intralogistics topic, we found articles filed under one topic that carried
+labels from another. Two examples:
+- An Iran story filed under intralogistics, labelled "Military Activity" and "Escalation".
+- "Nvidia to buy Hugging Face" filed under intralogistics, labelled "Deal announced".
+
+Oliver asked for a diagnosis, then a fix, with the 7 unexplained rows checked first, and then a
+repair of the last 30 days.
+
+### Root cause · a topic that didn't claim the row still wrote its labels
+Several keyword groups often find the same article. Each group's run analyses it against its own
+topic. The labels (category, future signal, sentiment, time to impact, driver type) are chosen
+from that topic's lists in `config.json`. Then **`build_enrichment_update`** in
+`app/services/async_db.py` writes the row.
+
+`a86edfe4` (16 Sep) made the topic and score move together, under `_REFILE`. That condition is
+true when the row isn't approved yet, is already filed under this topic, or this topic scored it
+higher. But the labels, their explanations and `tags` were still written on every save. The
+comment called them "topic-independent". So when a second topic approved the article without
+outscoring the first, the row stayed filed under the first topic and took the second topic's
+labels. A tie counts as not outscoring, because `>` is strict.
+
+Before `a86edfe4`, the update never wrote the topic at all and always wrote the score and labels.
+The first group kept the row, and the last group's score and labels were stamped on it. The Iran
+example (1 Sep) is from that older code. wileytest received `a86edfe4` at 10:49 on 16 Sep.
+
+Rejections were already safe. `save_below_threshold_article` cannot demote a row another topic
+approved, because of the `WHERE` at `async_db.py:446`.
+
+### Evidence (wileytest, approved news)
+| Saved | Approved | Category from another topic's list |
+|---|---|---|
+| 16 Aug – 15 Sep | 16,364 | 1,145 (7.0%) |
+| 16–30 Sep | 9,035 | 190 (2.1%) |
+| All time (since Dec 2025) | | 8,725, across 20 topics |
+
+All 1,335 "foreign" categories from 16 Aug on appear in some other topic's list, so none were
+renamed or invented. We checked the 173 rows since 17 Sep against the per-group verdicts in
+`keyword_article_matches` (`scored_at`, `topic_alignment_score`, `relevance_status`):
+
+| Result | Rows |
+|---|---|
+| Filed topic approved first; the label topic approved later with a lower or equal score | 158 |
+| The label topic's record now shows a later rejection; the journal shows an earlier approval pass (for example, Geopolitical Hotspots at 04:42 on 30 Sep) | 4 |
+| Labelled "Other", which isn't in the topic's own list: 10 Pearson, 1 Wiley; single-group rows, so not this bug | 11 |
+
+The first check reported 151 matches and 7 unexplained rows. All 7 were ties, missed because the
+query compared a rounded score with an unrounded one.
+
+### Fix (`67b32d38`)
+`build_enrichment_update` now writes the `_LABEL_COLUMNS` under the same `_REFILE` condition as
+the topic. Those columns are category, sentiment, future_signal, time_to_impact, driver_type,
+their four explanations, and tags. The topic, its score and its labels move together, or none of
+them do. Summary, bias and source fields are still written on every save. In
+`tests/test_relevance_topic_scoping.py`, the test that asserted category and sentiment are always
+written is replaced by `test_the_topics_labels_move_with_the_verdict`.
+
+### Repair tooling (`65edeed7`)
+`scripts/reenrich_parse_failures.py --uri-file PATH` re-runs exactly the listed URIs, whatever
+their category or status. It re-analyses each one against the topic it is filed under. It cannot
+be combined with `--status`.
+
+### Repair · last 30 days on wileytest (Oliver chose option 1)
+- **Scope:** 684 approved articles saved in the last 30 days that carry another topic's category,
+  across 17 topics (331 in AI and Machine Learning). Older rows keep their wrong labels; Oliver
+  declined the full repair of 8,725 rows.
+- **How it runs:** through the normal pipeline, so each row also gets the relevance check for its
+  filed topic again. Some rows may now be rejected.
+- **Snapshot for comparison and undo:** `wileytest.aunoo.ai/repair_labels_before_20261001.csv`
+  holds each row's topic, status, score, five labels and summary before the run.
+- **Result:** the run ran 10:21–10:51. It processed 684 rows with 0 errors:
+
+  | Outcome | Rows | Score before | Score after |
+  |---|---|---|---|
+  | Approved again, now with their own topic's labels | 484 | 0.82 | 0.81 |
+  | Rejected by their filed topic | 200 | 0.73 | 0.13 |
+
+  - **Why the rejections are right:** the "before" score on the rejected rows belonged to the
+    topic whose labels they carried, not the topic they were filed under. Samples confirm it:
+    "LexisNexis and EvenUp announce strategic alliance" under Geopolitical Hotspots, "Thai
+    developer buying an Italian hotel" under AI and Machine Learning, a quantum chip factory
+    under Patent Cliffs. Rejected rows keep the old labels, but no reader view shows rejected
+    rows.
+  - **Side effect:** an article rejected by the topic it was filed under doesn't move to the topic
+    that wanted it. For example, "Wiley reaffirms FY2027 adjusted EPS" was rejected by Publishing &
+    Integrity and isn't refiled under Brand Monitoring Wiley. So up to 200 articles drop out of
+    every topic.
+  - **Log:** the run logged 9 ERROR lines, all model answers missing a field, which the pipeline
+    handled.
+
+### Repair · the 200 rejected rows offered to the topic that wanted them (`138cd4e6`)
+Oliver asked to re-run the 200 rows under the topic that had wanted them. `--uri-file` lines can
+now carry a topic after a tab (`<uri>\t<topic>`). The pipeline refiles a non-approved row when
+that topic approves it, and otherwise leaves it filed where it was, keeping the score and status
+of the topic that rejected it.
+
+We chose the target topic like this:
+- **33 rows by verdict:** the highest-scoring other group that approved the row, from
+  `keyword_article_matches.relevance_status`.
+- **153 rows by label:** the only other topic that matched the article and whose category list
+  contains the row's old category.
+- **14 rows skipped:** no other topic matched them.
+
+The run took place at 13:57–14:00. It waited because another session was deploying
+`ea752164` to wileytest. That session had copied in code that needs migration `si_001`, while
+the database was still on `vp_001`. A watcher waited for the migration (11:56) and was stopped
+at the tool's 2-hour limit while waiting for a wileytest restart, which hadn't come by 13:56. The
+script loads code from disk, and that code matched the migrated database, so we ran it then.
+
+| Outcome | Rows |
+|---|---|
+| Approved and refiled under the topic that wanted them, with that topic's labels | 82 |
+| Rejected again, so they stay hidden | 104 |
+
+- **By target topic:** Geopolitical Hotspots 19 of 33, AI and Machine Learning 14 of 23, Quantum
+  Computing 13 of 27, Scientific Publishers 12 of 19, Patent Cliffs 8 of 29, M&A Updates 7 of 29.
+- **Example:** "Wiley reaffirms FY2027 adjusted EPS" is now approved under Scientific Publishers
+  – General Monitoring.
+- **One failure:** one rejection save failed after about 60 s with an empty error (a Gaza
+  article). That row is unchanged: rejected and hidden.
+- **Restart queue:** while waiting, we stopped our own restart queue, because wileytest was next
+  in it and was mid-deploy. We then restarted only the sites the other deploy hadn't touched:
+  panaya 11:56, wbm 11:57, oviva 12:04, sunstar 12:05, abm 12:06, all with no tracebacks.
+
+### Verification
+- `pytest tests/test_relevance_topic_scoping.py`: 10 passed.
+- We ran the real generated SQL against bugfixing's Postgres inside a transaction that was
+  always rolled back, on an approved row (Attacks on Expertise, 0.70).
+  - A different topic at 0.60 left the topic, score and labels unchanged.
+  - The same topic at 0.75 moved the topic, score and labels together.
+  - After the rollback, the row read as it did before.
+- The 4 pre–16 Sep sites (wbm, oviva, sunstar, abm) each have exactly one caller of the update,
+  and it sets `"topic": topic` just before the call. So the topic-moving code can't write a NULL
+  topic there.
+
+### Propagation
+`async_db.py` was copied from canonical to wiley, wileytest, panaya, wbm, oviva, sunstar and abm,
+with backups `async_db.py.bak-labels-20261001`.
+- wiley, wileytest and panaya had the same pre-fix file as canonical.
+- wbm, oviva, sunstar and abm ran the pre–16 Sep code, so they also gain `a86edfe4`'s
+  topic-and-score rule and its rejection guard. Its per-group verdict recording needs migration
+  `rel_001`, which those four don't have. It skips quietly at debug level, and their ingest
+  service doesn't call it.
+
+Restarts went through `restart_when_quiet.sh --max 360`, one site at a time:
+- bugfixing: 10:12
+- wiley: 10:13
+- wileytest: 10:19, done by hand on Oliver's instruction, after waiting for detection run 3668
+  to finish at 10:19:28
+- panaya 11:56, wbm 11:57, oviva 12:04, sunstar 12:05, abm 12:06 (a separate queue; see the re-filing section)
+
+The fix only works on a site after its restart.
+
+### Still open
+- **Older rows:** 8,041 rows saved more than 30 days ago on wileytest still carry another topic's
+  labels. The other sites haven't been measured.
+- **Summary:** whether the summary is written for a specific topic, so that it should move with
+  the labels too, is unchecked.
+- **Noisy relevance scores:** the same group scored the same article anywhere from 0.3 to 0.8 on
+  different passes (the Iran/Hormuz article, six passes from 29 Sep to 1 Oct).
+- **Unneeded schema statement:** while building the snapshot we ran `create table _tmp_noop;
+  drop table _tmp_noop;` on wileytest's database. It changed nothing, but schema statements on a
+  tenant database belong in Alembic.
+
 ## 2026-10-01 — Social coverage for every brand: new search groups on four sites, and posts now link to the brand that collected them
 
 ### Goal
@@ -303,6 +469,19 @@ Oviva restarted at 08:26. bugfixing loads it at its next restart; we did not res
 the tree holds other sessions' uncommitted work. panaya runs an older copy of the file and has no
 brand-topic social groups, so it was left alone. wiley and wileytest don't have the entity layer.
 
+Later the same day, at Oliver's request:
+- **bugfixing** restarted at 12:06 and now runs the fix. The restart also loaded another
+  session's staged "story identity" work. Its migration `si_001` was already applied, and its
+  tests and ours passed (43) before the restart.
+- **sunstar** got the fix as a patch: the three changes from `2ac1b6d1`, applied with `patch`.
+  We didn't copy the whole file because sunstar's copy is older and differs by 71 lines. The
+  patch does nothing yet. sunstar's `.env` doesn't set `ENTITY_INTELLIGENCE_ENABLED` or
+  `ENTITY_INTELLIGENCE_SOCIAL_ENABLED`, so the linking pass doesn't run there, and
+  `bw_entity_mentions` has never had a row. sunstar loads the file at its next restart; we didn't
+  schedule one.
+- **abm** has no `entity_ingest.py` and no mentions tables, so there was nothing to copy. Its
+  Voices view reads posts straight from the brand topic, so it never had this problem.
+
 ### Data · re-examining posts that matched nothing (oviva)
 The linking pass never looks again at a post it has examined. With Oliver's go-ahead we deleted the
 780 `bw_entity_link_attempts` rows with `links_found = 0` for brand-topic social posts on oviva.
@@ -323,7 +502,7 @@ First pass after the restart: 200 posts examined. Mentions: Voy 30, Second Natur
 - **Dead route.** `bw_keyword_entity_map` is read by `entity_content.candidates_from_keywords`
   but never written. We left it as it is.
 
-## 2026-10-01 — wileytest data check: NewsFirehose stopped, intralogistics topic repaired
+## 2026-10-01 — wileytest data check: NewsFirehose stopped, intralogistics topic repaired; bugfixing: Panaya brands disabled, Harm Reduction topic deleted
 
 ### Goal
 Oliver asked for a data-quality check of wileytest, Wiley's live site. He then asked us to fix
@@ -402,6 +581,58 @@ pipeline's `update_article_with_enrichment` updates the existing row and writes 
 `ingest_status`, so a re-run replaces each failure in place. A dry run on wileytest found 536
 candidates in the topic. The other 6 of the 542 already have a category.
 
+### Ops · bugfixing: Panaya demo brands disabled (DB, no commit)
+Oliver asked why UiPath was on bugfixing, and why it still showed in the competitive views after
+he deselected it.
+
+UiPath came from the Panaya demo market (1312, "Enterprise Test Automation"). We built that
+market on bugfixing on 21 Sep and then moved it to panaya.aunoo.ai the same day. The move
+disabled the market and its keyword groups 28–30. It also set the four dropped peer vendors
+(49841–49844) to `enabled = false`. It left the six tracked vendors (49835–49840: Panaya,
+Tricentis, smartShift, Nova Intelligence, Worksoft, UiPath) enabled. Because the daily Brand
+Watcher classification checks existing articles against every enabled brand, those six kept
+getting tagged articles with no collection running. UiPath had 42 in 30 days.
+
+Deselecting had no effect because of how the views are built. The brand picker chooses only
+which brand is in view. The Analysis tab's competitor row is "enabled brands not selected"
+(`ui/src/components/newsfeed/BrandWatcherTab.tsx:3902`). `/comparison` and `/share-of-voice` in
+`app/routes/brand_watcher_routes.py` read every brand with `enabled = true`. So deselecting a
+brand turns it into a competitor. Only `bw_brands.enabled = false` removes a brand from these
+views.
+
+We set `enabled = false` on 49835–49840. Bugfixing now has 49 enabled brands, down from 55. The
+rows and history are kept, and panaya.aunoo.ai is unaffected because it has its own database.
+
+### Ops · bugfixing: Harm Reduction topic deleted (DB + config, no commit)
+Oliver asked why a Harm Reduction topic was on bugfixing. Someone created it through the UI on
+23 Sep at 19:42 CEST, as keyword group 31 with 33 keywords and no `providers`. An unrelated
+session swept it into git on 28 Sep (`2502cfbd`, "found in the tree"). Nothing records who
+created it. The journal no longer reaches back to 23 Sep, articles carry no `created_by`, and no
+chat, agent, briefing or newsletter refers to the topic.
+
+It could never produce anything. All five label lists were empty, so the AI analysis step
+refused every article. Its keywords were broad ("NGO", "WHO", "policy", "laws", "insurance").
+From 24 to 29 Sep it collected 1,877 articles: 1,827 were rejected for relevance (average score
+0.13), 50 failed analysis, and none was approved.
+
+On Oliver's instruction ("switch it off, remove it", then "delete") we deactivated group 31,
+then deleted:
+- the 1,877 articles. Their cascades also removed 2,254 `keyword_article_matches` rows and 117
+  `raw_articles` rows. None of the five tables whose foreign keys block an article delete
+  referred to them.
+- keyword group 31 and its 33 keywords
+- the topic's entry in `app/config/config.json` (44 lines). The diff confirmed nothing else
+  changed. The file still carries another session's uncommitted European Battery Industry topic,
+  which we left alone.
+
+Backups in the bugfixing root: `hr_articles.csv` (article rows only, not their cascaded child
+rows), `hr_kw.sql` (keyword_groups and monitored_keywords before the delete), and
+`app/config/config.json.bak-harmreduction-20261001`.
+
+This is the second topic in two days with empty label lists (after wileytest's intralogistics
+topic). Some UI path creates a topic without them, and that topic then fails every article
+silently. We have not found which path it is.
+
 ### Other findings, not acted on
 - **Duplicate wire copies:** 1,863 of the 17,030 approved articles in 30 days (11%) are extra
   copies of a story that another site also carried, mostly AP. One story appears 28 times in
@@ -419,17 +650,32 @@ candidates in the topic. The other 6 of the 542 already have a category.
 - Group 28's keyword list after the change: ids 516, 519, 521, 522, 523, 524. No keyword alerts
   or suggestions referenced the deleted ids.
 - `py_compile` on the script passed. The dry run on wileytest listed 536 rows.
-- Not yet verified: whether new articles in the topic now enrich. That needs the restart. The
-  re-run of the 536 rows has not happened either.
+- The intralogistics re-run, after wileytest restarted at 09:14, took two passes:
+
+  | Pass | Time | Rows | Approved | Errors |
+  |---|---|---|---|---|
+  | First | 09:16–09:31 | 536 | 129 | 117 |
+  | Second | 09:33–09:46 | 257 | 110 | 0 |
+
+  - **Why the first pass had errors:** another session changed the analysis prompt during the
+    run. It edited `prompt_templates.py` at 09:20 and `data/prompts/content_analysis/current.json`
+    at 09:27 so the prompt needs `{current_date}`, and restarted wileytest at 09:27:49. The script
+    held the old code and read the new prompt from disk, so every analysis from batch 6 on failed
+    with `KeyError: 'current_date'`. The live site had none of these errors. The second pass
+    started fresh on the new code.
+  - **The topic now:** 333 approved, up from 114. 146 are still failed, and 140 of those have
+    only a title because their page couldn't be fetched, so a retry won't help.
+  - **Labels:** 234 approved articles carry one of the new future signals. "Adoption
+    accelerating" alone accounts for 166, so one label dominates.
 
 ### Propagation
 `cdefe88c` was committed in bugfixing and copied to wileytest only, with backup
-`*.bak-status-20261001`. The config and keyword changes are wileytest-only data. The new label
-list does nothing until wileytest restarts, because the process holds the topic config in
-memory. `restart_when_quiet.sh --max 360 wileytest` was started at about 07:47. At 08:10
-wileytest had not yet restarted; it was last started at 06:05. When the restart happens, run:
-`.venv/bin/python scripts/reenrich_parse_failures.py --status enrichment_failed --topic "What
-are the technology trends in the interalogistics markets"`.
+`*.bak-status-20261001`. The config and keyword changes are wileytest-only data. wileytest
+restarted at 09:14, and the re-run is done (see Verification).
+
+The bugfixing changes are database rows plus a live `config.json` edit, so nothing was committed.
+The Panaya brands take effect without a restart. bugfixing restarted at 09:50 and again at 10:12,
+after which its logs no longer mentioned Harm Reduction.
 
 ### Lessons
 - A negative keyword (`-word`) stored as its own monitored keyword is a search for everything
@@ -438,6 +684,11 @@ are the technology trends in the interalogistics markets"`.
   check on NewsFirehose, such as the newest `fetched_at`, not just an article count.
 - Before saying how a keyword is searched, read `_search_with_collector`. The prefixes are
   stripped there.
+- When a demo market moves to its own site, disable every one of its vendor brands on the source
+  site, not only the dropped ones. An enabled brand appears in every competitive view whatever
+  the brand picker says.
+- Check a new or unexplained topic's label lists first. All five empty means it can never
+  analyse an article.
 
 ## 2026-09-30 — Oviva and Sunstar data check: Xpoz over its limit, Sunstar keywords pruned, HelloBetter and Zanadio fixed, Japanese keywords filtered
 
