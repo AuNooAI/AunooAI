@@ -26,6 +26,11 @@ Selection criteria (the signature of a mid-pipeline drop):
                                  the business of reenrich_filtered_articles.py
   - news_source <> 'bluesky'  -- social posts are enriched on another path
 
+--status enrichment_failed selects the rows the ingest pipeline marked as
+failed instead of the NULL-status ones. A topic with an empty label list fails
+every article that way, and nothing retries them once the list is filled in
+(wileytest's intralogistics topic, 542 articles in 30 days, 1 Oct 2026).
+
 Articles are grouped by their stored `topic` because the analysis ontology
 (categories, future signals, sentiments...) is resolved per topic.
 
@@ -38,6 +43,7 @@ Usage:
     python scripts/reenrich_parse_failures.py --since 2026-07-01
     python scripts/reenrich_parse_failures.py --topic "Brand Monitoring Wiley"
     python scripts/reenrich_parse_failures.py --limit 500 --rescrape
+    python scripts/reenrich_parse_failures.py --status enrichment_failed --topic "..."
 """
 
 import argparse
@@ -64,19 +70,22 @@ COLUMNS = ['uri', 'title', 'summary', 'news_source', 'publication_date',
 
 
 def fetch_candidates(db: Database, since: str | None, topic: str | None,
-                     limit: int | None) -> List[Dict[str, Any]]:
+                     limit: int | None, status: str | None = None) -> List[Dict[str, Any]]:
     """Pull rows that entered enrichment and never had fields written back."""
-    sql = """
+    status_sql = "ingest_status = :status" if status else "ingest_status IS NULL"
+    sql = f"""
         SELECT uri, title, summary, news_source, publication_date,
                submission_date, topic
         FROM articles
         WHERE category IS NULL
-          AND ingest_status IS NULL
+          AND {status_sql}
           AND news_source <> 'bluesky'
           AND topic IS NOT NULL AND topic <> ''
           AND title IS NOT NULL AND title <> ''
     """
     params: Dict[str, Any] = {}
+    if status:
+        params["status"] = status
     if since:
         sql += " AND submission_date >= :since"
         params["since"] = since
@@ -131,9 +140,10 @@ async def missing_ontology(ingest: AutomatedIngestService, topic: str) -> List[s
 
 
 async def reenrich(since: str | None, topic: str | None, limit: int | None,
-                   batch_size: int, rescrape: bool, dry_run: bool) -> None:
+                   batch_size: int, rescrape: bool, dry_run: bool,
+                   status: str | None = None) -> None:
     db = Database()
-    candidates = fetch_candidates(db, since, topic, limit)
+    candidates = fetch_candidates(db, since, topic, limit, status)
 
     if not candidates:
         logger.info("No articles match the stuck-enrichment signature. Nothing to do.")
@@ -237,10 +247,12 @@ def main():
                         help="Fetch full article text instead of reusing the stored summary")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report the backlog without processing it")
+    parser.add_argument("--status", choices=["enrichment_failed"], default=None,
+                        help="Select rows with this ingest_status instead of NULL")
     args = parser.parse_args()
 
     asyncio.run(reenrich(args.since, args.topic, args.limit,
-                         args.batch_size, args.rescrape, args.dry_run))
+                         args.batch_size, args.rescrape, args.dry_run, args.status))
 
 
 if __name__ == "__main__":
