@@ -1421,6 +1421,18 @@ class KeywordMonitor:
                 f"success={result.get('success')}, articles={result.get('new_articles', 0)}"
             )
 
+            # Copy and press-release labels for rows that arrived by an insert
+            # path that does not set them. Off the event loop: it is a run of
+            # small sync queries.
+            try:
+                from app.services.story_identity import label_unlabelled
+                lab = await asyncio.to_thread(label_unlabelled, self.db.facade, 2000)
+                if lab.get("labelled"):
+                    logger.info(f"Story labels: {lab['labelled']} rows, "
+                                f"{lab['copies']} copies, {lab['press_releases']} press releases")
+            except Exception as le:
+                logger.warning(f"Story labelling sweep failed: {le}")
+
             return result
 
         except Exception as e:

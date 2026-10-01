@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from app.services.article_visibility import story_sql
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session, verify_session_api
@@ -1418,6 +1419,7 @@ async def get_category_counts(
             AND summary NOT LIKE '%Call@%'
             AND summary NOT LIKE '%phone%number%'
             AND news_source NOT LIKE '%medium.com/@%'
+            AND {story_sql()}
             GROUP BY category
             ORDER BY count DESC
         """
@@ -1518,6 +1520,7 @@ async def get_category_articles(
             AND summary NOT LIKE '%Call@%'
             AND summary NOT LIKE '%phone%number%'
             AND news_source NOT LIKE '%medium.com/@%'
+            AND {story_sql()}
         """
 
         count_result = await run_in_threadpool(db.fetch_one, count_query)
@@ -1548,6 +1551,7 @@ async def get_category_articles(
             AND summary NOT LIKE '%Call@%'
             AND summary NOT LIKE '%phone%number%'
             AND news_source NOT LIKE '%medium.com/@%'
+            AND {story_sql()}
             ORDER BY publication_date DESC
             LIMIT {per_page} OFFSET {offset}
         """

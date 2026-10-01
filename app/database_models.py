@@ -406,6 +406,10 @@ t_articles = Table(
     Column('original_title', Text),  # collector title when `title` is an English translation of it
     Column('original_summary', Text),  # collected post/description when `summary` is its English translation
     Column('social_meta', JSONB),  # Social post media + engagement (thumbnail, likes/reposts/comments/plays) for xpoz posts
+    # Set at insert by app/services/story_identity.py (migration si_001).
+    Column('url_key', Text),  # the URL without tracking parameters
+    Column('duplicate_of', Text),  # uri of the first copy of the same story in this topic
+    Column('source_type', Text),  # 'news' or 'press_release'; NULL = not yet classified
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),

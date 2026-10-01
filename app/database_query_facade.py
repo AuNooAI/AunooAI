@@ -7,6 +7,7 @@ import json
 
 # TODO SQLAlchemy: Replace all references to sqlite.
 # TODO SQLAlchemy:
+from app.services.article_visibility import story_clause
 from sqlalchemy import (select,
                         insert,
                         update,
@@ -442,6 +443,23 @@ class DatabaseQueryFacade:
         # Don't call begin() - transaction is auto-started by PostgreSQL on first execute
         try:
             inserted_new_article = False
+            labels = {}
+            if not article_exists:
+                # Is this a copy of a row we already hold? The same URL with
+                # different tracking parameters is that row; the same story on
+                # another outlet is inserted and marked as a copy.
+                try:
+                    from app.services.story_identity import label_article
+                    labels = label_article(self, article_url, article.get('title'),
+                                           article.get('source'), topic,
+                                           article.get('published_date'))
+                except Exception as _le:
+                    self.logger.warning(f"Story labels skipped for {article_url}: {_le}")
+                    labels = {}
+                if labels.get('same_row'):
+                    self.logger.info(f"Same article as {labels['same_row']}: {article_url}")
+                    article_url = labels['same_row']
+                    article_exists = True
             if not article_exists:
                 # English title and text for a row collected in another language.
                 # Done here, at the first insert, because social posts and news
@@ -468,7 +486,10 @@ class DatabaseQueryFacade:
                     # Social posts (xpoz/bluesky) carry author + engagement here; the
                     # social-only group path saves ONLY via this insert, so dropping
                     # it loses author/likes for good (adverse rules depend on both).
-                    social_meta=article.get('social_meta')
+                    social_meta=article.get('social_meta'),
+                    url_key=labels.get('url_key'),
+                    source_type=labels.get('source_type'),
+                    duplicate_of=labels.get('duplicate_of'),
                 ))
 
                 inserted_new_article = True
@@ -707,7 +728,7 @@ class DatabaseQueryFacade:
                 raw_articles_table,
                 articles.c.uri == raw_articles_table.c.uri
             )
-        ).where(and_(*conditions))
+        ).where(and_(*conditions, story_clause(articles)))
         if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
             statement = statement.order_by(articles.c.publication_date.desc(), articles.c.title.asc())
         else:
@@ -5136,6 +5157,29 @@ class DatabaseQueryFacade:
                 select(articles.c.uri).where(articles.c.uri == uri)
             )
 
+            labels = {}
+            if not existing:
+                # Same URL apart from tracking parameters: update that row.
+                # Same story on another outlet: insert, marked as a copy.
+                try:
+                    from app.services.story_identity import label_article
+                    labels = label_article(self, uri, article_data.get('title'),
+                                           article_data.get('news_source'), topic,
+                                           article_data.get('publication_date'))
+                except Exception as _le:
+                    self.logger.warning(f"Story labels skipped for {uri}: {_le}")
+                    labels = {}
+                if labels.get('same_row'):
+                    self.logger.info(f"Same article as {labels['same_row']}: {uri}")
+                    uri = labels['same_row']
+                    article_data = dict(article_data, uri=uri)
+                    existing = (uri,)
+                else:
+                    article_data = dict(article_data,
+                                        url_key=labels.get('url_key'),
+                                        source_type=labels.get('source_type'),
+                                        duplicate_of=labels.get('duplicate_of'))
+
             # Define all possible article fields
             valid_fields = [
                 'uri', 'title', 'news_source', 'summary', 'sentiment',
@@ -5151,7 +5195,8 @@ class DatabaseQueryFacade:
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
                 'ingest_status', 'auto_ingested', 'article_origin',
-                'opoint_entities', 'original_title', 'original_summary'
+                'opoint_entities', 'original_title', 'original_summary',
+                'url_key', 'source_type', 'duplicate_of'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -5941,7 +5986,7 @@ class DatabaseQueryFacade:
             articles.c.driver_type,
             articles.c.driver_type_explanation
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         ).order_by(
             # Sort by date first (newest day first), then by quality within each day
             # This ensures today's articles always appear before yesterday's
@@ -6077,7 +6122,7 @@ class DatabaseQueryFacade:
         ).select_from(
             articles
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         )
 
         # Execute and return scalar result
@@ -6187,7 +6232,7 @@ class DatabaseQueryFacade:
             articles.c.bias_country,
             articles.c.user_preference,
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         ).order_by(
             articles.c.publication_date.desc()
         ).offset(offset).limit(limit)
@@ -6278,7 +6323,7 @@ class DatabaseQueryFacade:
         ).select_from(
             articles
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         )
 
         result = self._scalar_with_rollback(statement)
