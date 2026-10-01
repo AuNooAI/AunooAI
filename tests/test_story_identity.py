@@ -148,3 +148,13 @@ def test_second_check_limits():
                            "Switzerland rejects stricter interpretation of its neutrality",
                            "bluesky", TOPIC, "2026-09-29T08:00:00")
     assert lab["duplicate_of"] is None
+
+
+def test_wileytest_check_limits():
+    assert not si.same_story("BEng (Hons) or MEng — 2027 entry Electronic Engineering with Artificial Intelligence",
+                             "BEng (Hons) or MEng — 2027 entry Mechanical Engineering")
+    assert not si.same_story("Progress on share buyback programme", "Progress on share buyback programme",
+                             press_release=True, same_host=True)
+    assert si.same_story("Globex Discovers Wide Gold Zones at the Salt Spring Project in Arizona",
+                         "Globex Discovers Wide Gold Zones at the Salt Spring Project in Arizona",
+                         press_release=True, same_host=False)

@@ -7,6 +7,7 @@ sweep after each check, so this is only needed once per site.
 
     .venv/bin/python scripts/backfill_story_identity.py [--topic NAME] [--dry-run]
     .venv/bin/python scripts/backfill_story_identity.py --sample 50   # links to check by eye
+    .venv/bin/python scripts/backfill_story_identity.py --recheck     # after tightening the rule
 
 Spec: docs/INGEST_DUPLICATES_AND_PRESS_RELEASES_SPEC.md
 """
@@ -24,7 +25,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 from sqlalchemy import text  # noqa: E402
 
 from app.database import Database  # noqa: E402
-from app.services.story_identity import label_unlabelled  # noqa: E402
+from app.services.story_identity import label_unlabelled, recheck_links  # noqa: E402
 
 
 def sample(facade, n):
@@ -69,12 +70,27 @@ def main():
     ap.add_argument("--batch", type=int, default=2000)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--sample", type=int, help="print N title-matched links and exit")
+    ap.add_argument("--recheck", action="store_true",
+                    help="clear title links the current rule no longer makes, then exit")
     args = ap.parse_args()
 
     facade = Database().facade
     if args.sample:
         sample(facade, args.sample)
         return
+
+    if args.recheck:
+        db = OneConnection(Database._pg_engine_instance or facade.db._temp_get_connection().engine)
+        after, checked, cleared = "", 0, 0
+        while True:
+            st = recheck_links(db, limit=args.batch, after_uri=after)
+            db.commit()
+            checked += st["checked"]
+            cleared += st["cleared"]
+            print(f"{checked} links checked, {cleared} cleared", flush=True)
+            if st["checked"] < args.batch:
+                return
+            after = st["last"]
 
     batch_db = OneConnection(Database._pg_engine_instance or facade.db._temp_get_connection().engine)
     totals = {"labelled": 0, "copies": 0, "press_releases": 0}

@@ -120,7 +120,14 @@ MIN_TOKENS_FOR_NEAR_MATCH = max(MIN_TOKENS_FOR_SIMILARITY, 6)
 _DIGITS = re.compile(r"\d+")
 
 
-def same_story(title_a: Any, title_b: Any, press_release: bool = False) -> bool:
+#: Near matches on a shorter title than this need every token to match: one
+#: differing word in a short title is often the point ("BEng 2027 entry
+#: Electronic Engineering with AI" against "... Mechanical Engineering").
+MIN_TOKENS_FOR_PARTIAL = 8
+
+
+def same_story(title_a: Any, title_b: Any, press_release: bool = False,
+               same_host: bool = False) -> bool:
     """Do two titles in the same topic describe the same story?
 
     The briefing composer's rule (``title_similarity``): equal after
@@ -132,7 +139,8 @@ def same_story(title_a: Any, title_b: Any, press_release: bool = False) -> bool:
     - Equal titles need at least 3 significant tokens ("Editorial").
     - Near matches need the same numbers ("AP Technology SummaryBrief at
       6:33 p.m." against "at 6:07 p.m." are different summaries).
-    - Press releases link only on equal titles. Their wording is a formula,
+    - Press releases link only on equal titles from different sites. Their
+      wording is a formula,
       so "Radware Reports Second Quarter 2026 Financial Results" was 86%
       contained in PTC Therapeutics' release of the same name.
     """
@@ -141,6 +149,10 @@ def same_story(title_a: Any, title_b: Any, press_release: bool = False) -> bool:
     na, ta = _title_key(str(title_a))
     nb, tb = _title_key(str(title_b))
     if not na or not nb:
+        return False
+    if press_release and same_host:
+        # One wire publishing the same title twice is two releases: "Progress
+        # on share buyback programme" is a weekly title many companies use.
         return False
     if na == nb:
         return len(ta) >= MIN_TOKENS_FOR_EQUALITY
@@ -153,6 +165,8 @@ def same_story(title_a: Any, title_b: Any, press_release: bool = False) -> bool:
         return False
     if len(shorter) / len(longer) < MIN_TITLE_LENGTH_RATIO:
         return False
+    if len(shorter) < MIN_TOKENS_FOR_PARTIAL:
+        return shorter <= longer
     return len(shorter & longer) / len(shorter) >= TITLE_SIMILARITY_THRESHOLD
 
 
@@ -241,6 +255,36 @@ def _candidates_sql():
 _MORE_SOCIAL = ("linkedin", "twitter", "instagram", "tiktok", "facebook", "youtube", "threads")
 
 
+def _host(uri: Any) -> str:
+    return normalize_uri(uri).split("/", 1)[0]
+
+
+def recheck_links(facade, limit: int = 5000, after_uri: str = "") -> dict:
+    """Clear title-based links the current rule no longer makes.
+
+    For tightening the rule without relabelling a whole site: every rule
+    change so far only removes links, so a copy whose pair fails the current
+    ``same_story`` becomes an original again. Links made by URL key stay.
+    Pages through copies by URI; pass back ``last`` as ``after_uri``.
+    """
+    from sqlalchemy import text
+    rows = facade._fetchall_with_rollback(text(
+        "SELECT c.uri, c.title, c.source_type, o.uri, o.title, o.source_type "
+        "FROM articles c JOIN articles o ON o.uri = c.duplicate_of "
+        "WHERE c.uri > :after AND c.url_key IS DISTINCT FROM o.url_key "
+        "ORDER BY c.uri LIMIT :limit"), {"after": after_uri, "limit": limit})
+    stats = {"checked": 0, "cleared": 0, "last": None}
+    clear = text("UPDATE articles SET duplicate_of = NULL WHERE uri = :uri")
+    for cu, ct, cs, ou, ot, os_ in rows or []:
+        stats["checked"] += 1
+        stats["last"] = cu
+        pr = PRESS_RELEASE in (cs, os_)
+        if not same_story(ct, ot, press_release=pr, same_host=_host(cu) == _host(ou)):
+            facade._execute_with_rollback(clear, {"uri": cu})
+            stats["cleared"] += 1
+    return stats
+
+
 def _is_social(news_source: Any) -> bool:
     from app.services.social_sources import is_social_source
     s = str(news_source or "").lower()
@@ -276,11 +320,13 @@ def label_article(facade, uri: str, title: Any, news_source: Any, topic: Any,
     rows = facade._fetchall_with_rollback(
         _candidates_sql(), {"topic": topic, "lo": bounds[0], "hi": bounds[1], "uri": uri})
     mine_pr = labels["source_type"] == PRESS_RELEASE
+    my_host = _host(uri)
     for r in rows or []:
         their_pr = len(r) > 2 and r[2] == PRESS_RELEASE
         if len(r) > 3 and _is_social(r[3]):
             continue
-        if same_story(title, r[1], press_release=mine_pr or their_pr):
+        if same_story(title, r[1], press_release=mine_pr or their_pr,
+                      same_host=my_host == _host(r[0])):
             labels["duplicate_of"] = r[0]
             break
     return labels
