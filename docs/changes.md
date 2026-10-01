@@ -1,5 +1,140 @@
 # Changes
 
+## 2026-10-01 — Social coverage for every brand: new search groups on four sites, and posts now link to the brand that collected them
+
+### Goal
+Oliver saw this note on oviva's Voices view for Voy: "Aunoo collected no social posts about Voy
+in 90 days. This is a collection gap." He asked us to fix it, then to run the same check on the
+other sites. His decisions along the way: every brand needs coverage; bugfixing and panaya
+vendors get Bluesky only; `XPOZ_TERM_MATCH=all` on oviva and abm.
+
+### Root cause · six oviva brands had no social search at all
+Only Oviva, Noom and WeightWatchers had a "- Social" keyword group (groups 9, 10 and 11), which is
+what runs the xpoz and Bluesky searches. Second Nature, Numan, Voy, Juniper, Zanadio and
+HelloBetter had news groups only. Voy's 71 social posts were all its own LinkedIn page
+(`owned_social`), which the Voices view leaves out on purpose. Nothing in this log says the six
+were left out deliberately; the competitors were added after the first three social groups and
+never got one.
+
+### Check across sites
+We counted, for each enabled brand, the active social groups on its topic.
+
+| Site | Brands | Social groups before | Action |
+|---|---|---|---|
+| oviva | 9 | 3 | 6 groups added |
+| abm | 9 | 7 | 2 groups added (Meltwater, Signal AI) |
+| sunstar | 5 | all covered | none |
+| wbm | 5 | all covered | none |
+| wileytest | 4 | all covered | none |
+| wiley | 0 enabled | — | none |
+| bugfixing | 55 market vendors | 2 (7AI, Dropzone AI) | 1 Bluesky-only market group |
+| panaya | 7 market vendors | market group names 6 of 7 | 1 Bluesky-only group for SmartBear |
+
+### Config · new social groups (DB only, no commit)
+- **oviva, groups 17–22**, copied from group 9: xpoz and Bluesky, daily, platforms
+  twitter/reddit/instagram/tiktok. Brands with a unique name search it bare (`Zanadio`,
+  `HelloBetter`). Brands whose name is a common word keep their qualified terms, for example
+  `Voy Wegovy`, `joinvoy`, `Juniper Mounjaro`, `Numan weight loss`, `Second Nature NHS`. Bare
+  "Voy" is a common Spanish word, and bare "Numan" finds Gary Numan.
+- **abm, groups 17–18**, copied from group 10: `Meltwater`; `Signal AI` and `SignalAI`.
+- **bugfixing, group 32** "SOC Automation - Vendor Social (Bluesky)" on the market topic, 46
+  terms for the 45 AI-SOC vendors without a group of their own. Ordinary-word names use the terms
+  the SOC news group already uses (`Torq security`, `Mave security`, `Variance security`).
+  We left out the six Enterprise Test Automation vendors, because that market is off on
+  bugfixing and runs on panaya.
+- **panaya, group 31** "Enterprise Test Automation - Vendor Social (Bluesky)": `SmartBear`,
+  `TestComplete`.
+
+One market group is used on bugfixing rather than 45 brand groups, because posts on a market
+topic are matched to vendors by name later.
+
+First runs on oviva, before the word-check change below:
+
+| Brand | Posts | Scored 0.4 or higher |
+|---|---|---|
+| Voy | 132 | 19 |
+| HelloBetter | 27 | 15 |
+| Juniper | 47 | 12 |
+| Numan | 45 | 10 |
+| Zanadio | 12 | 10 |
+| Second Nature | 106 | 9 |
+
+abm: Meltwater 31 posts, 6 relevant; Signal AI 35 posts, none relevant. bugfixing group 32
+brought in 777 Bluesky posts. Of the first 500 scored, 226 cleared the market's 0.45 cut;
+the rest were things like "Arcanna" fan fiction and "GuardDog" the novel. panaya group 31 brought
+in 44 posts, 34 relevant.
+
+### Config · `XPOZ_TERM_MATCH=all` on oviva and abm (`.env`, restart)
+The xpoz word check defaults to `root`: a post only has to contain the first word of the search
+term. So `Voy Wegovy` needed only "voy", and `Second Nature Mounjaro` only "second". Most of the
+first-run noise came from that, for example "Second Amendment: the right to bear arms". With
+`all`, every word must appear. The setting doesn't change single-word terms such as `Oviva` or
+`Noom`. On abm it narrows `Signal AI`, `Feedly AI` and three Palantir phrases, and bare `Feedly`
+and `Palantir` are still searched. Backups are `.env.bak-termmatch-*` on both sites. abm restarted
+at 08:06 and oviva at 08:12, both through `restart_when_quiet.sh`, with no tracebacks.
+
+Bluesky has no word check of its own. "Signal AI" on Bluesky returns posts with "signal" and "AI"
+anywhere in them. The relevance score keeps those off the page; each one costs a scoring call.
+
+### Data · social linking switched on, missing matching terms seeded (DB only)
+The Voices view reads `bw_entity_mentions`, not the collected posts. A public post becomes a
+mention only when the linking pass (`entity_ingest.process_pending`, hourly) matches it to a
+brand. Two settings stopped that for brands that now had posts:
+
+- `bw_market_brands.social_collection_enabled` was false for Second Nature, Numan, Voy and
+  Juniper on oviva, and for 11 vendors on bugfixing (Torq, Anvilogic, BlinkOps and others).
+  Public posts never match a brand with this off. Its only reader is
+  `entity_ingest._enabled_social_brands`, so turning it on costs nothing. We turned it on for all
+  15.
+- Brands with no rows in `bw_entity_query_terms` can't be matched at all. These were Zanadio and
+  HelloBetter on oviva (38 terms), 20 vendors on bugfixing, all added since late August (77
+  terms), and all 7 vendors on panaya (58 terms). We seeded them with
+  `entity_content.seed_query_terms`, the function the existing terms came from.
+
+### Fix · a post links to the brand whose own group collected it (`2ac1b6d1`)
+**`app/services/entity_ingest.py`**. With the settings fixed, Voy's posts still did not link. The
+linking pass matches only "safe" terms, and a name under four letters or an ordinary word is
+never safe. So "went back to VOY for my Mounjaro" matched nothing. We found that the second
+matching route, through `bw_keyword_entity_map`, is dead: nothing in the app writes to that
+table.
+
+A post under the topic "Brand Monitoring Voy" came back from a search for Voy, so the topic is
+the qualification the name lacks. `_discover_candidates` now adds every enabled term of that
+topic's brand, qualified ones included, for public and community posts. It also covers brands
+outside any market, such as Zanadio and HelloBetter, which `_enabled_social_brands` never
+returns. A post on any other topic is matched exactly as before.
+
+Verification:
+- New test `test_short_name_links_on_its_own_brand_social_topic`; `tests/test_entity_ingestion.py`
+  30 passed.
+- Dry run against oviva's posts: every post scored 0.4 or higher now links (Voy 19/19, Juniper
+  12/12, HelloBetter 15/15, Zanadio 10/10).
+
+Deployed to oviva by copy, after checking oviva's file matched the version before the fix.
+Oviva restarted at 08:26. bugfixing loads it at its next restart; we did not restart it, because
+the tree holds other sessions' uncommitted work. panaya runs an older copy of the file and has no
+brand-topic social groups, so it was left alone. wiley and wileytest don't have the entity layer.
+
+### Data · re-examining posts that matched nothing (oviva)
+The linking pass never looks again at a post it has examined. With Oliver's go-ahead we deleted the
+780 `bw_entity_link_attempts` rows with `links_found = 0` for brand-topic social posts on oviva.
+The posts and mentions themselves were not touched.
+
+First pass after the restart: 200 posts examined. Mentions: Voy 30, Second Nature 16, HelloBetter
+14, Juniper 13, Numan 13 and Zanadio 6. All were scored within minutes; 5 to 14 per brand scored
+0.4 or higher.
+
+### Still open
+- **Voy's Voices view was still empty at 08:31.** All 14 relevant Voy mentions linked so far are
+  Bluesky posts from January to March 2026, outside the 90-day window. Bluesky search returns
+  posts of any age, and the pass works in URI order, so `at://` Bluesky posts came first. 580
+  posts were still waiting, among them 4 recent relevant posts for Voy, 4 for HelloBetter, 2 for
+  Zanadio and 1 for Oviva. They clear at 200 an hour. HelloBetter's view already showed 5 posts.
+- **xpoz use.** oviva went from 3 to 22 xpoz search terms, each searched on four platforms
+  daily, on a key shared with sunstar. That key ran out twice in September.
+- **Dead route.** `bw_keyword_entity_map` is read by `entity_content.candidates_from_keywords`
+  but never written. We left it as it is.
+
 ## 2026-10-01 — wileytest data check: NewsFirehose stopped, intralogistics topic repaired
 
 ### Goal
