@@ -1,5 +1,193 @@
 # Changes
 
+## 2026-10-01 — Oviva: press that names the brand is kept; same-name and recipe-site rows out; relevance sweep audits brand data
+
+### Goal
+Oviva MCP reports kept repeating three data-quality notes: "no earned news coverage of Oviva" in
+90 days, a "clinician" post that was about the OVIVA antibiotics trial, and a WeightWatchers media
+score inflated by a recipe site. Oliver asked why we keep seeing them, then to fix all of them and
+make the relevance sweep catch this class of fault.
+
+### Fix · Brand topics dropped coverage that names the brand (`80507f6e`)
+The relevance scorer asks whether an article is about its topic. For a brand topic, a dietitian
+quoted in a CHIP/Focus piece, the CEO booked for a Sat.1 panel or a Sun reader on Oviva's NHS
+waiting list are not about Oviva, so they scored 0.0 to 0.1 and the quick check dropped them
+before analysis. Over 90 days that was 19 press articles naming Oviva, 31 naming WeightWatchers
+and 10 naming Noom.
+
+**`app/services/brand_mention_gate.py`** (new) reads three per-brand lists from `bw_brands.config`:
+`mention_context` (words that must sit within 200 characters of a mention), `exclude_context`
+(same name, different subject) and `non_press_domains`. Terms match as whole words; a trailing `*`
+makes a stem. With `BW_BRAND_MENTION_FLOOR` set (off when unset), a brand-topic article that names
+the brand with context nearby gets that relevance and an explanation starting "Kept as a mention
+of". A brand with no `mention_context` list is never lifted, because for a common-word name a match
+is usually not the brand: the audit found 42 "Second Nature" rows that were the phrase, 7 Numan
+rows that were a surname, 5 Voy rows. An all-lowercase match of a multi-word name does not count
+("for weight watchers" in a McDonald's piece means dieters).
+
+**`app/services/automated_ingest_service.py`**: `score_article_relevance` applies the gate, so the
+quick and final checks agree. The gate also reads the stored page from `raw_articles` when the
+collector's text does not name the brand. That mattered: every collection cycle re-scores the same
+URLs from the collector's snippet, and it turned eight recovered articles back into rejections
+within minutes of the first re-run.
+
+**`app/routes/brand_watcher_routes.py`**: the classification selects articles by brand name in the
+title, AI summary, tags or keywords. 28 of 29 recovered Oviva articles name the brand only in the
+body, so they never reached `bw_article_categories`, which every Brand Watcher stat and the MCP
+`get_brand_stats` read. `kept_mentions_sql` widens that filter to rows in the brand's own topic
+that the gate kept.
+
+### Fix · Same-name subjects and non-press sites (`80507f6e`)
+OVIVA is also a well-known antibiotics trial in bone and joint infection. Three Bluesky posts by
+infectious-disease doctors cited it in September and the social scorer passed one at 0.80, so it
+showed as a clinician voice. **`app/services/social_eval_service.py`**: after the existing
+mention-first gate, a post whose every mention sits beside an `exclude_context` term is settled
+like a post that never names the brand, with no model call. The same check sends such news rows to
+0. Oviva's list covers the trial wording and the Japanese account @OVIVA_OVIVA, which the check also
+turned up. ww-recipes.net supplied 37 of WeightWatchers' 48 kept press items; it and
+skinnytaste.com are now WeightWatchers' `non_press_domains`, and their pages score 0.
+
+### Fix · Noom's blog filed under Oviva (`80507f6e`)
+Market Monitor discovered noom.com's two feeds on 3 September and filed them under the Oviva
+topic, because feed discovery sends every vendor's feeds to one topic. 42 Noom blog posts read as
+Oviva news. **`app/tasks/market_monitor.py`**: `_vendor_feed_topic` files a vendor's feeds under its
+own brand topic when the market's config sets `collection.vendor_feed_topics = "brand"` and that
+topic exists. Other markets keep the current behaviour.
+
+### Feature · The relevance sweep audits brand data (`80507f6e`)
+`eval/relevance_regression` never ran on Oviva, and could not have caught these faults: its golden
+and live checks score only a title and summary, and the live check samples 40 random articles
+across all topics without looking at sources. **`eval/relevance_regression/run.py --audit N`** checks
+each brand topic for four faults: rejected articles that name the brand (brands with a
+`mention_context` list only), kept rows where every mention is a different subject, one site
+supplying over 40% of a brand's kept press, and a brand's feed filed under another brand's topic.
+"Kept" means either score a reader uses, `COALESCE(bw_article_categories.relevance_score,
+topic_alignment_score)`. **`cron.sh audit`** runs it and emails findings; both cron emails now send a
+User-Agent, which Resend requires from this host. On sites without the new module the audit
+reports SKIP.
+
+### Ops · Oviva data repair and settings (no commit)
+- `bw_brands.config`: lists set for Oviva (`mention_context`, `exclude_context`), WeightWatchers
+  (`mention_context`, `non_press_domains`), Noom and HelloBetter (`mention_context`).
+- `.env`: `BW_BRAND_MENTION_FLOOR=0.5` (backup `.env.bak-brandgate-20261001`).
+- `bw_markets` 1: `collection.vendor_feed_topics = "brand"`.
+- Repair: feeds 4 and 5 and 42 Noom articles moved to "Brand Monitoring Noom" in `articles`,
+  `raw_articles` and `rss_feeds`. The Brand Watcher tables already credited them to Noom. 53
+  recipe-site rows and 2 same-name rows set to 0 in `articles`; 2 `bw_entity_mentions` and 43
+  `bw_article_categories` rows set to 0.
+- Recovered with `scripts/reenrich_filtered_articles.py --topic "Brand Monitoring X" --brand-mentions`
+  (new option: rejected articles whose stored page names the brand, page passed as the body):
+  Oviva 37, Noom 11, WeightWatchers 10, HelloBetter 2, none still rejected, no errors. Then an
+  incremental Brand Watcher classification over 120 days for brands 1, 6, 7 and 9 (runs 239 to
+  242, all completed).
+- Root cron on Oviva: `cron.sh audit` daily 06:50, `live` Mondays 06:50, `review` Mondays 07:20. No
+  golden set, because Oviva has no hand-checked fixtures.
+
+### Fix · Kept mentions looked like they did not name the brand (`e23dc28e`)
+A second MCP report the same afternoon said "none of the 13 earned articles counted for Oviva
+contain an Oviva keyword" and advised tightening the brand keywords. The articles do name Oviva,
+in the body. The articles route builds `matched_keywords` from the title, the AI summary, tags and
+keywords only, so it came back empty for every kept mention. **`app/routes/brand_watcher_routes.py`**
+now fills `matched_keywords` with the brand and adds `brand_mention`, the sentence that names it,
+for kept mentions. The sentence comes from the explanation written at ingest
+(**`brand_mention_gate.kept_mention_evidence`**).
+
+### Fix · Articles collected after publication were never classified (`e23dc28e`)
+The same report found Voy with five media items in perception and no articles. The "Daily
+classification" schedule runs every 6 hours as `incremental_since_last`: it starts at the date of
+its last run and selects by publication date. An article published on 7 August and collected on
+9 September therefore never entered `bw_article_categories`, which the article list and stats
+read, while perception, which reads `articles` directly, counted it. Before the fix, 15 kept press
+articles across six brands in the last 120 days had been collected more than two days after
+publication and never classified. Incremental runs now also take articles collected since the
+window start (`a.submission_date >= :start`). Already-classified rows stay excluded, so nothing is
+classified twice.
+
+### Ops · Context lists for Voy, Juniper, Numan and zanadio (no commit)
+Voy's other two media items were Sun articles quoting Voy's director of clinical innovation. They
+name Voy only in the body, and Voy had no `mention_context` list because "voy" is also a Spanish
+word. Voy, Juniper and Numan now have narrow English weight-loss lists (weight, Wegovy, Mounjaro,
+GLP-1, fat jab, telehealth, NHS and similar; Numan adds erectile, hair loss, testosterone). Juniper
+also has `exclude_context` for Juniper Investment, Juniper Networks, Juniper Research, portfolio,
+LLC and 13F, after its first recovery included a fund's 13F filing; that row was set to 0 by hand.
+Recovered with `--brand-mentions`: Voy 5, Juniper 5 (one of them the fund), Numan 4. zanadio's
+`brand_keywords` were `["Zanadio", "\"Zanadio Group\"", "\"Zanadio SAS\"", "\"Zanadio Inc\""]`, with
+the quote marks stored as characters, so three of them could never match. They are now
+`["Zanadio", "zanadio App", "zanadio DiGA"]`, with a German health context list. A full incremental
+classification over 120 days (run 245) then took 50 articles across the brands.
+
+### Ops · HelloBetter and zanadio added to Oviva's market (no commit)
+Oliver asked for both to be added; Aunoo is running a proof of value with Oviva. Both were brand
+topics with no place in market 1.
+- `bw_market_brands`: rows for brands 8 (Zanadio) and 9 (HelloBetter), vendor, collection, brand
+  monitoring and social collection on, matching the other seven.
+- HelloBetter: `domain` hellobetter.de (imprint: GET.ON Institut für Online Gesundheitstrainings
+  GmbH, Hamburg), LinkedIn `company/hellobetter`, Crunchbase `hellobetter` (slug guess).
+- zanadio: `domain` zanadio.de. Its imprint names Sidekick Health Germany GmbH (formerly aidhere)
+  as operator. LinkedIn was first set to `company/aidhere`, which search results still list, but
+  Bright Data returned `dead_page`; that identifier is retired and LinkedIn now points at the group
+  page `company/sidekick-health`. zanadio's LinkedIn posts and headcount are therefore the Sidekick
+  group's. Crunchbase `aidhere` resolved.
+- Instagram @hellobetterde (36k followers, the company's own) and @zanadio.de (linked from
+  zanadio.de) registered as owned in `bw_entity_social_identities`; `reattribute_owned_account`
+  moved 1 and 2 posts into the owned lane.
+- `seed_policies`: seven sources eligible per vendor; `ats_jobs` waits for a job board, which
+  neither site has.
+- First runs queued as `bw_collection_runs` rows, the same rows the vendor page's "Fetch now" writes:
+  runs 396 to 405, all succeeded.
+
+### Verification
+- `pytest tests/test_brand_mention_gate.py`: 13 passed. The cases are real Oviva and WeightWatchers
+  text.
+- `run.py --audit 90` on Oviva before the repair: 13 findings, including all four faults (18 dropped
+  Oviva mentions, 2 OVIVA-trial rows, ww-recipes.net supplying 45 of 60 kept WeightWatchers press
+  items, Noom's two feeds under Oviva). After: `RESULT: PASS (0 finding(s))`. `cron.sh audit` run by
+  hand logged the same.
+- Earned press over 90 days, using the app's `earned_news_sql` with relevance at least 0.4: Oviva
+  19 (was 0), WeightWatchers 19, Noom 13. MCP `get_brand_stats`: Oviva 13 articles (was 0),
+  WeightWatchers 17 (44 while recipe pages still counted). MCP `get_brand_perception` media for
+  Oviva rests on 19 items. Voices for Oviva shows 6 clinicians where the trial post had counted.
+- The live collector after the 12:48 restart: no "filtered early" lines for the recovered URLs.
+- `_vendor_feed_topic` on Oviva's market: Noom goes to "Brand Monitoring Noom", Oviva to its own
+  topic, an unknown vendor to "Market Monitoring Oviva".
+- After `e23dc28e`: MCP `get_brand_articles` for Oviva over 90 days returns 13 earned articles, all
+  13 with "Oviva" in `matched_keywords` and a `brand_mention` sentence. `pytest
+  tests/test_brand_mention_gate.py`: 14 passed.
+- Perception media against the article list, 90 days: Voy 8 and 8 (was 5 and 0), HelloBetter 5
+  and 5, Oviva 19 and 15, Noom 13 and 12, WeightWatchers 21 and 17, Numan 5 and 4, Juniper 2 and 1.
+  The remaining gaps are articles classification gave no category.
+- New vendors: MCP `get_market_vendors` lists 9 vendors and `list_brands` puts every brand in the
+  Oviva market. Profile snapshots: HelloBetter (Berlin, 130 on LinkedIn), Sidekick Health
+  (Reykjavík, 209). Crunchbase snapshots name aidhere and HelloBetter. Posts: HelloBetter 5
+  received / 1 new, zanadio 5 / 5.
+- `run.py --audit 90` after all of it: `RESULT: PASS (0 finding(s))`; only Second Nature is skipped
+  for lack of a context list.
+- The five WeightWatchers spike alerts the report cited date from 3 to 7 September, before the
+  recipe-site fix, and are acknowledged. `category_spike` is disabled on Oviva.
+- Not verified: the Brand Watcher page in a browser, and a real MCP call over HTTP.
+
+### Propagation
+Committed in bugfixing as `80507f6e` and `e23dc28e`. Copied to oviva only, with backups
+`*.bak-brandgate-*`. Oviva restarted at 12:37, 12:48, 12:55, 13:41, 13:53 and 13:59 when quiet,
+with no tracebacks. On bugfixing the code is
+inert: no floor setting, no brand lists, no market flag. Not restarted. Sunstar, panaya, wiley and
+wileytest do not have the module. The brand lists, settings, repaired rows and cron entries live
+only on Oviva.
+
+### Lessons
+- `x NOT ILIKE ANY (ARRAY[...])` is true when `x` misses any one pattern, so "bluesky" passes a
+  social filter because it is not "twitter". Use `NOT (x ILIKE ANY (...))`. This session's ad-hoc
+  query made that mistake and two figures sent to Oliver on 30 Sep included social posts.
+- Zeroing `topic_alignment_score` is not enough. The Brand Watcher readers read
+  `COALESCE(bw_article_categories.relevance_score, topic_alignment_score)`, so repairs must zero both.
+- A re-run that recovers articles can be undone by the next collection cycle, which re-scores the
+  same URLs from the collector's snippet. Watch the log after a recovery.
+- `sudo crontab <file>` failed on the long scratchpad path; `sudo crontab - < file` works.
+- A LinkedIn page that search results still show can be dead. Check the first profile snapshot
+  for `dead_page` before calling a vendor done.
+- An empty `matched_keywords` reads to a model as "the brand is not mentioned". Any field a reader
+  uses as evidence has to carry the evidence for every row it shows.
+
 ## 2026-10-01 — Social coverage for every brand: new search groups on four sites, and posts now link to the brand that collected them
 
 ### Goal
