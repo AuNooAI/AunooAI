@@ -1,5 +1,223 @@
 # Changes
 
+## 2026-10-01 — wileytest data check: NewsFirehose stopped, intralogistics topic repaired
+
+### Goal
+Oliver asked for a data-quality check of wileytest, Wiley's live site. He then asked us to fix
+the intralogistics topic and to re-run its failed articles after a restart. He also reported
+that Xpoz was working again.
+
+### Incident · NewsFirehose has fetched nothing since 29 Sep (not fixed)
+Our NewsFirehose service at 188.40.128.115:8000 serves `/v1/search` normally, but its newest
+article was fetched at 13:55 UTC on 29 Sep. We confirmed this with date-sorted searches for
+"news", "government", "market" and "research". Searches still return about 22,000 results a day
+to wileytest, but these are articles it already holds. So the pipeline runs without errors and
+saves almost nothing new:
+
+| Day | Approved news | Rejected news |
+|---|---|---|
+| 23–29 Sep | 396–866 | 2,794–4,278 |
+| 30 Sep | 174 | 594 |
+| 1 Oct, to 07:30 | 29 | 145 |
+
+Every site that uses the firehose is affected: bugfixing, abm, oviva, sunstar, wbm and saas. We
+could not log in to the host (SSH publickey refused). `collector_health_check.sh` kept reporting
+wileytest as OK, for example "articles_12h=282" at 07:30, because some articles still arrive from
+TheNewsAPI and NewsData. The firehose's daily fetch runs at 08:00 server time, so the 30 Sep run
+either failed or did not run.
+
+### Incident · Xpoz usage limit on wileytest (resolved upstream)
+wileytest and wbm share a separate Xpoz key from the sunstar/oviva one. Its searches failed with
+"Usage limit exceeded" from 23:27 on 28 Sep until 01:14 on 1 Oct. Oliver restored the account.
+The sunstar key worked from 02:07 ("Colgate", 25 Twitter posts). wileytest's "Wiley - Social"
+group ran at about 08:10 and collected 38 posts with no limit errors. Xpoz returns only the newest
+posts for each search, so the gap is not backfilled.
+
+### Fix · Intralogistics topic: label list and keywords (config + DB, no commit)
+The topic "What are the technology trends in the interalogistics markets" (group 28, created
+25 Aug) had `future_signals: []` in `app/config/config.json`. `analyze_content()` rejects an
+empty label list before it calls the model, so the pipeline marked every article in the topic as
+`enrichment_failed`. In 30 days, 542 articles failed and 38 were approved. We added eight labels,
+in the style of the Trend Monitoring and Quantum Computing topics:
+
+- Adoption accelerating
+- Adoption stalling
+- Hype outpacing deployment
+- Cost or ROI breakthrough
+- Labour shortage driving automation
+- Consolidation or acquisition
+- Standards or interoperability advancing
+- Setback or project failure
+
+The keywords. `keyword_monitor._strip_entity_prefix` already removes the `company:` and `tech:`
+prefixes before searching, so those keywords worked. (The check report said they were searched
+literally, and that was wrong.) The real fault was the two negative keywords. `-cryptocurrency`
+and `-blockchain` were each searched on their own, which tells TheNewsAPI to return any article
+that lacks the word. Measured on this topic's own articles over 30 days:
+
+| Keyword | Change | Articles | Passed |
+|---|---|---|---|
+| `-cryptocurrency` (525) | removed | 3,735 | 4.2% |
+| `-blockchain` (526) | removed | 2,364 | 10.4% |
+| `tech:warehouse automation` (520) | removed; duplicate of `warehouse automation` | 373 | 21.7% |
+| `company:Fetch Robotics` (518), `company:Kiva Systems` (517) | removed; old names | 49 | 6 articles |
+| `material handling` (524) | quoted as `"material handling"` | 2,296 | 1.6% |
+| `company:Amazon Robotics` (516) | quoted as `company:"Amazon Robotics"` | 599 | 4.0% |
+
+`tech:robotic process` stays. It passes only 7.1%, but that is 115 articles a month, which clears
+the Sunstar rule (drop only when under 10% pass AND under 100 pass). We changed the config.json
+`keywords` list for this topic to match. A diff confirmed that no other topic changed.
+
+Backups: `app/config/config.json.bak-intralog-20261001` and
+`wileytest.aunoo.ai/kw_backup_20261001.sql`.
+
+### Fix · Re-analysis script can select failed rows (`cdefe88c`)
+**`scripts/reenrich_parse_failures.py`** selected only rows with `ingest_status IS NULL`. The
+rows the pipeline gives up on carry `enrichment_failed`, and nothing retried them. A new
+`--status enrichment_failed` option selects those rows instead. The default is unchanged. The
+pipeline's `update_article_with_enrichment` updates the existing row and writes the new
+`ingest_status`, so a re-run replaces each failure in place. A dry run on wileytest found 536
+candidates in the topic. The other 6 of the 542 already have a category.
+
+### Other findings, not acted on
+- **Duplicate wire copies:** 1,863 of the 17,030 approved articles in 30 days (11%) are extra
+  copies of a story that another site also carried, mostly AP. One story appears 28 times in
+  "Attacks on Expertise & Peer Review". This needs a spec for removing duplicates at intake.
+- **Pearson spam:** 84 exam-cheating spam posts ("Bypass PROCTORED EXAMS") sit in "Brand
+  Monitoring Pearsons Education" as social posts.
+- **Analysis failures:** apart from the intralogistics topic, 820 articles failed analysis in 30
+  days, and none recorded an error message.
+- **Embeddings:** these are fine. Every approved article has one. The 98,516 without one are
+  rejected rows.
+
+### Verification
+- `config.json` still loads as valid JSON after the patch. A diff shows only the target topic
+  changed.
+- Group 28's keyword list after the change: ids 516, 519, 521, 522, 523, 524. No keyword alerts
+  or suggestions referenced the deleted ids.
+- `py_compile` on the script passed. The dry run on wileytest listed 536 rows.
+- Not yet verified: whether new articles in the topic now enrich. That needs the restart. The
+  re-run of the 536 rows has not happened either.
+
+### Propagation
+`cdefe88c` was committed in bugfixing and copied to wileytest only, with backup
+`*.bak-status-20261001`. The config and keyword changes are wileytest-only data. The new label
+list does nothing until wileytest restarts, because the process holds the topic config in
+memory. `restart_when_quiet.sh --max 360 wileytest` was started at about 07:47. At 08:10
+wileytest had not yet restarted; it was last started at 06:05. When the restart happens, run:
+`.venv/bin/python scripts/reenrich_parse_failures.py --status enrichment_failed --topic "What
+are the technology trends in the interalogistics markets"`.
+
+### Lessons
+- A negative keyword (`-word`) stored as its own monitored keyword is a search for everything
+  without that word. It belongs inside another query, never on its own line.
+- `collector_health_check.sh` passes while the main news source is dead. It needs a freshness
+  check on NewsFirehose, such as the newest `fetched_at`, not just an article count.
+- Before saying how a keyword is searched, read `_search_with_collector`. The prefixes are
+  stripped there.
+
+## 2026-09-30 — Oviva and Sunstar data check: Xpoz over its limit, Sunstar keywords pruned, HelloBetter and Zanadio fixed, Japanese keywords filtered
+
+### Goal
+Oliver asked for a data-quality check of the Oviva and Sunstar sites, then asked us to prune
+Sunstar's noisy keywords, fix the two broken Oviva brands, and fix the Xpoz filter for Japanese
+keywords.
+
+### Incident · Xpoz social collection down on seven sites since 29 Sep (not fixed)
+Since 00:00 on 29 Sep, every Xpoz search (Twitter, Instagram, Reddit, TikTok) has failed with
+`OperationFailedError: Usage limit exceeded`, per the oviva and sunstar journals. Only Bluesky and
+LinkedIn posts still arrive. Sunstar fell from 500–700 social posts a day to 138 on 29 Sep and 59
+on 30 Sep. Oviva fell from about 20 to 7–8. abm, bugfixing, oviva, panaya, saas, sunstar and a saas
+backup tree all share one `XPOZ_API_KEY`, so all of them are affected. Raising the limit is an
+account decision for Oliver. The half-hourly `collector_health_check.sh` did not catch this: it
+checks only bugfixing, wileytest and wbm, and only their article counts.
+
+### Ops · Sunstar: 27 low-yield keywords removed (DB, no commit)
+We measured each keyword's yield over 30 days from `keyword_article_matches`, counting posts that
+reached the 0.4 relevance cut. The rule: drop a keyword when fewer than 1 in 10 of its posts pass
+and fewer than 100 pass in total. We made one exception. Bare "Sunstar" passes 5% and stays,
+because it is the client's own name.
+
+Together, the removed keywords matched posts 16,766 times in 30 days, and 749 of those matches
+passed (4.5%). A post that matched two keywords counts twice.
+
+Removed ids 2–5, 7, 9 (group 1: Sunstar Group/Americas/Europe/Suisse, GUM toothbrush, BUTLER
+toothbrush); 68, 70, 75, 76 (group 8: bleeding gums diabetes, oil pulling, receding gums, 歯周病);
+80–82, 84, 85 (group 9: Lion Corporation, Lion Corp, ライオン株式会社, Clinica toothpaste, Dentor
+Systema); 102, 103 (group 12: Crest toothpaste, blend-a-med); 121, 123, 124 (group 13); 126, 128,
+129, 131 (group 14, including NONIO, which was also searched in group 9); 144, 145, 148 (group 17).
+Before deleting, we checked for dependent rows in `bw_keyword_entity_map`, `keyword_alerts` or
+`keyword_suggestions`, and none of these keywords had any. Lion is now tracked only through its
+products (NONIO, Systema, クリニカ, ライオン オーラルケア): "Lion Corp" and "Lion Corporation"
+brought 2,214 social posts and 301 news articles in 30 days. Of those, 13 social posts and no
+news articles passed.
+Backup: `sunstar.aunoo.ai/kw_backup_20260930.sql` (monitored_keywords, keyword_groups,
+bw_keyword_entity_map).
+
+### Fix · Oviva: HelloBetter and Zanadio collect real articles (DB, no commit)
+Someone added both German brands through the UI. Zanadio (group 13, added 14 Sep) had no keywords,
+so it collected nothing. HelloBetter (group 14, added 24 Sep) had 41 keywords. All 14 of its articles
+came from keyword 92, "David Ebert", which matched film reviews about Roger Ebert. We found both
+brands have German coverage and no English coverage. TheNewsAPI returned 11 German and 0 English
+articles for HelloBetter, and 2 German for Zanadio.
+
+- Groups 13 and 14 now search only the bare brand name, using `["newsfirehose","thenewsapi"]`, over
+  30 days.
+- New groups 15 "HelloBetter - Brand Watch DE" and 16 "Zanadio - Brand Watch DE" search the same
+  names in German (`language='de'`), using TheNewsAPI only. The NewsData key is empty on oviva, so
+  it would do nothing there. The existing Oviva German group 8 has the same gap.
+
+Backup: `oviva.aunoo.ai/kw_backup_20260930.sql`.
+
+### Fix · Xpoz term gate reads Japanese, Chinese and Korean keywords (`04d6ae58`)
+**`app/collectors/xpoz_collector.py`**: after an Xpoz search, `_post_matches_terms` checks that
+the post contains the keyword. `_term_tokens` built its word list with `[a-z0-9']+`, so a Japanese
+keyword produced no tokens, and every returned post passed unchecked. On Sunstar that let through
+Chinese weekend greetings under "サンスター 歯周病".
+
+- A run of kana, CJK ideographs or Hangul now counts as one token at any length.
+- `_tok_present` matches such a token anywhere in the text, because Japanese has no spaces.
+- Terms and post text are NFKC-folded (`_norm`) so half-width katakana match full-width.
+- Latin tokens and matching are unchanged.
+
+### Verification
+- The same data-check SQL we ran on both site databases found three more issues that we left open:
+  - Oviva: "Brand Monitoring Second Nature" collected 493 articles in 30 days, and none passed.
+  - Oviva: "Market Monitoring Oviva" collected 269, and none passed.
+  - Sunstar: 111 articles failed the AI analysis step with no error message recorded.
+- Oviva, first run after the fix, 17:13: the German groups collected 5 HelloBetter articles and 1
+  Zanadio article. The English groups collected 0. Three HelloBetter data-breach reports were
+  approved at alignment 0.90, and two off-topic articles were filtered.
+- Term gate: we ran assertions on token lists and matches for Latin, Japanese and half-width
+  terms, and they passed. Then we replayed the gate on Sunstar's stored Xpoz posts from the last 30
+  days:
+  - The removed Japanese keywords would have kept 543 of 6,730 posts. The dropped posts include
+    146 that had passed relevance, mostly Latin-script posts that Xpoz returned for a Japanese term.
+  - The kept Japanese keywords lose 114 of 1,115 posts, 24 of which had passed relevance. For
+    ポリデント, 17 on-topic "Polident" posts are dropped, and the English Haleon group caught 16 of
+    them.
+- Sunstar restarted after `restart_when_quiet.sh --check sunstar` reported nothing running. It came
+  back active with no tracebacks.
+- Not verified: live filtering on Sunstar. Xpoz is still over its limit, so no Japanese search
+  has run since the deploy.
+
+### Propagation
+`04d6ae58` was committed in bugfixing (branch `fix/market-monitor-voices-relevance`). We copied the
+file to sunstar, oviva, wiley, wileytest and panaya, with backups `*.bak-cjk-20260930`. Sunstar and
+oviva also receive canonical's earlier HTML-entity decoding in the same file. We restarted only
+sunstar. None of the others has any CJK keywords, so they need no restart until their next one.
+abm and wbm run drifted copies of the collector, and we did not patch them. The keyword changes
+are database rows on oviva and sunstar only. The backups listed above are their only record
+outside this entry.
+
+### Lessons
+- A keyword filter written for `[a-z0-9]` passes non-Latin keywords silently. Check what script a
+  tenant's keywords use before trusting a term gate.
+- Xpoz translates keywords across scripts: ポリデント returns "Polident" posts. A per-script gate
+  drops those, so keep a Latin-script keyword in the English group for the same product.
+- `collector_health_check.sh` does not cover sunstar or oviva, and it does not look at social
+  volume per platform.
+
 ## 2026-09-30 — wileytest Voices: bare paper links get their own row; leftover posts classified
 
 ### Goal
