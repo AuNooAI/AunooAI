@@ -553,7 +553,7 @@ async def list_vendors(
             sql = """SELECT mb.brand_id, mb.role, mb.sort_order, mb.is_public,
                             mb.collection_enabled, mb.brand_monitoring_enabled,
                             mb.review_status, mb.baseline,
-                            b.name AS slug, b.display_name, b.enabled,
+                            b.name AS slug, b.display_name, b.enabled, b.color,
                             (SELECT json_agg(json_build_object(
                                  'kind', i.kind, 'value', i.display_value,
                                  'normalized', i.normalized_value))
@@ -3852,7 +3852,8 @@ async def vendor_detail(market_id: int, brand_id: int,
                 SELECT mb.brand_id, mb.role, mb.collection_enabled,
                        mb.brand_monitoring_enabled, mb.is_public,
                        mb.review_status, mb.baseline, mb.sort_order,
-                       b.name AS slug, b.display_name, b.enabled, b.brand_keywords
+                       b.name AS slug, b.display_name, b.enabled, b.brand_keywords,
+                       b.color
                 FROM bw_market_brands mb
                 JOIN bw_brands b ON b.id = mb.brand_id
                 WHERE mb.market_id = :m AND mb.brand_id = :b

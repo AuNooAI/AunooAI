@@ -20,6 +20,7 @@ import {
   type MarketFinding, type MarketFindings, type MarketOverview, type MarketPulse,
 } from '../../services/marketMonitorApi';
 import { DataStateBadge, UnmeasuredNotice } from './MarketMetric';
+import { useVendorColours, VendorSwatch, type VendorColours } from './vendorColours';
 
 interface Props {
   marketId: number;
@@ -112,8 +113,9 @@ function MaterialityBadge({ level, reason }: { level: string; reason: string | n
   );
 }
 
-function FindingRow({ f, onVendor, open, onToggle }: {
+function FindingRow({ f, onVendor, open, onToggle, colours }: {
   f: MarketFinding; onVendor: (id: number) => void; open: boolean; onToggle: () => void;
+  colours: VendorColours;
 }) {
   const by = saidBy(f);
   const evidence = f.strongest_evidence;
@@ -132,9 +134,10 @@ function FindingRow({ f, onVendor, open, onToggle }: {
                 <span key={v.brand_id}
                       role="link"
                       onClick={e => { e.stopPropagation(); onVendor(v.brand_id); }}
-                      className="text-xs px-1.5 py-0.5 rounded border cursor-pointer
+                      className="text-xs px-1.5 py-0.5 rounded border cursor-pointer inline-flex items-center gap-1
                                  bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100
                                  dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                  <VendorSwatch color={colours.byId(v.brand_id)} />
                   {v.vendor}
                 </span>
               ))}
@@ -187,6 +190,7 @@ function FindingRow({ f, onVendor, open, onToggle }: {
 }
 
 export function MarketFindingsView({ marketId, days, onVendor, overview, pulse }: Props) {
+  const colours = useVendorColours(marketId);
   const [data, setData] = useState<MarketFindings | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -305,7 +309,7 @@ export function MarketFindingsView({ marketId, days, onVendor, overview, pulse }
             Needs attention
           </div>
           {executive.map(f => (
-            <FindingRow key={`x-${f.finding_id}`} f={f} onVendor={onVendor}
+            <FindingRow key={`x-${f.finding_id}`} f={f} onVendor={onVendor} colours={colours}
                         open={open.has(-f.finding_id)} onToggle={() => toggle(-f.finding_id)} />
           ))}
         </div>
@@ -357,7 +361,7 @@ export function MarketFindingsView({ marketId, days, onVendor, overview, pulse }
             </span>
           </div>
           {rows.map(f => (
-            <FindingRow key={f.finding_id} f={f} onVendor={onVendor}
+            <FindingRow key={f.finding_id} f={f} onVendor={onVendor} colours={colours}
                         open={open.has(f.finding_id)} onToggle={() => toggle(f.finding_id)} />
           ))}
         </div>

@@ -17,6 +17,7 @@ import {
 } from '../../services/marketMonitorApi';
 import { Panel } from './MarketAnalysisView';
 import { labelSpots, labelWidth, spreadDots } from './horizonLabels';
+import { useVendorColours, VendorSwatch } from './vendorColours';
 import type { HorizonCuts } from '../../services/marketMonitorApi';
 
 const TIER_ORDER = ['executors', 'innovators', 'established', 'emerging'] as const;
@@ -583,6 +584,7 @@ export function MarketHorizonView({ marketId, onVendor }: {
     try { return localStorage.getItem('mm-horizon-view') === 'grid' ? 'grid' : 'arc'; } catch { return 'arc'; }
   });
   const [highlight, setHighlight] = useState<MarkerKey | null>(null);
+  const colours = useVendorColours(marketId);
   const pickView = (v: 'arc' | 'grid') => {
     setView(v);
     try { localStorage.setItem('mm-horizon-view', v); } catch { /* private mode */ }
@@ -717,6 +719,7 @@ export function MarketHorizonView({ marketId, onVendor }: {
                     <ul className="mt-1 text-sm space-y-0.5">
                       {rows.map(r => (
                         <li key={r.brand_id} className="flex items-baseline gap-2">
+                          <VendorSwatch color={colours.byId(r.brand_id)} className="self-center" />
                           {onVendor ? (
                             <button onClick={() => onVendor(r.brand_id)}
                                     className="text-sky-700 dark:text-sky-400 hover:underline">{r.vendor}</button>

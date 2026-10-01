@@ -22,6 +22,7 @@ import {
 import { DataTable } from './DataTable';
 import { CoverageLine, Panel } from './MarketAnalysisView';
 import type { DrilldownSpec } from './MarketDrilldownHost';
+import { useVendorColours, VendorSwatch } from './vendorColours';
 
 const PLATFORM_LABEL: Record<string, string> = {
   twitter: 'X', bluesky: 'Bluesky', reddit: 'Reddit', tiktok: 'TikTok',
@@ -88,6 +89,7 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
   days?: number;
   onRecords?: (spec: DrilldownSpec) => void;
 }) {
+  const colours = useVendorColours(marketId);
   const [voices, setVoices] = useState<TopVoices | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -455,8 +457,9 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                           ))}
                           {vendors.map(x => (
                             <span key={x.vendor}
-                                  className="text-xs px-1 py-0.5 rounded border
+                                  className="text-xs px-1 py-0.5 rounded border inline-flex items-center gap-1
                                              bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                              <VendorSwatch color={colours.byName(x.vendor)} />
                               {x.vendor}
                             </span>
                           ))}

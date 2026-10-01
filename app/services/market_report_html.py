@@ -644,8 +644,10 @@ def _activity_row(vendor: Dict[str, Any]) -> str:
 
 
 def _bar_chart(rows: List[Dict[str, Any]], *, label_key: str, value_key: str,
-               height: int = 180, colour: str = "#475569") -> str:
-    """A plain vertical bar chart.
+               height: int = 180, colour: str = "#475569",
+               colours: Optional[Dict[str, str]] = None) -> str:
+    """A plain vertical bar chart. ``colours`` maps a row's label to its own
+    bar colour (a vendor's brand colour); rows not in it keep ``colour``.
 
     Written out rather than pulled from a library because the page must render
     with no network access. Forty lines of SVG is cheaper than that constraint
@@ -677,7 +679,7 @@ def _bar_chart(rows: List[Dict[str, Any]], *, label_key: str, value_key: str,
         x = pad_l + i * slot + (slot - bar_w) / 2
         y = pad_t + plot_h - bar_h
         parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-                     f'height="{bar_h:.1f}" fill="{colour}" rx="2"><title>'
+                     f'height="{bar_h:.1f}" fill="{(colours or {}).get(str(row[label_key])) or colour}" rx="2"><title>'
                      f'{esc(str(row[label_key]))}: {esc(str(row[value_key]))}'
                      '</title></rect>')
         # Only label every nth category when they would collide, and give
@@ -2760,7 +2762,7 @@ def _vendor_line(dev: Dict[str, Any], logos: Optional[Dict[str, str]]) -> str:
     """The development's vendors, each with its mark when there is one."""
     names = [v.get("vendor") or "" for v in dev.get("vendors") or []]
     # One span per vendor, so a flex byline keeps the mark with its name.
-    return ", ".join(f'<span class="v2-vendor">{_mark(logos, n)}{esc(n)}</span>'
+    return ", ".join(f'<span class="v2-vendor">{_dot(logos, n)}{_mark(logos, n)}{esc(n)}</span>'
                      for n in names if n)
 
 
@@ -3970,7 +3972,8 @@ def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]],
 
     publisher = r.get("publisher") or ""
     mark = _mark(logos, r.get("vendor") or publisher, 16) if (r.get("vendor") or publisher) else ""
-    who = (f'<span class="v2-vendor">{mark}{esc(publisher)}</span>' if publisher else "")
+    dot = _dot(logos, r.get("vendor") or publisher) if (r.get("vendor") or publisher) else ""
+    who = (f'<span class="v2-vendor">{dot}{mark}{esc(publisher)}</span>' if publisher else "")
     if who and r.get("sponsored"):
         who = "Sponsored by " + who
     bits = [esc(r.get("byline") or ""), who,
@@ -4550,7 +4553,8 @@ def _v2_top_vendors(by_vendor: List[Dict[str, Any]],
                 move = '<span class="v2-move same" title="the same in the period before">=</span>'
         out.append('<div class="v2-bar">'
                    f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
-                   f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                   f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%'
+                   f'{_fill_style(logos, r["vendor"])}"></div></div>'
                    f'<div class="v2-bar-n">{n}</div>{move}</div>')
     out.append("</div>")
     return "".join(out)
@@ -4675,7 +4679,8 @@ def _v2_motion(rows: List[Dict[str, Any]],
             n = int(r["reactions"])
             out.append('<div class="v2-bar">'
                        f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
-                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%'
+                       f'{_fill_style(logos, r["vendor"])}"></div></div>'
                        f'<div class="v2-bar-n">{n:,}</div>'
                        + (_delta(r["vendor"], "reactions", n) or
                           f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span>')
@@ -4690,7 +4695,8 @@ def _v2_motion(rows: List[Dict[str, Any]],
             n = int(r["earned"])
             out.append('<div class="v2-bar">'
                        f'<div class="v2-bar-name">{_mark(logos, r["vendor"])}{esc(r["vendor"])}</div>'
-                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%"></div></div>'
+                       f'<div class="v2-bar-track"><div class="v2-bar-fill" style="width:{100 * n / top:.0f}%'
+                       f'{_fill_style(logos, r["vendor"])}"></div></div>'
                        f'<div class="v2-bar-n">{n}</div>'
                        + (_delta(r["vendor"], "earned", n) or "<span></span>")
                        + '</div>')
@@ -4759,10 +4765,48 @@ def _v2_horizon(horizon: Dict[str, Any], full_href: str) -> str:
             f'<a href="{full_href}">Full map with names</a>.</p>')
 
 
+class _VendorMarks(dict):
+    """Logo data URIs by display name, as before, plus ``colours``: each
+    vendor's brand colour by display name. Riding on the logos dict means
+    every function that already takes ``logos`` can colour its vendor
+    without a second parameter threaded through the page."""
+
+    def __init__(self, *args, colours: Optional[Dict[str, str]] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.colours = colours or {}
+
+    def __bool__(self) -> bool:
+        # A market with colours but no logos still gets the vendor chips.
+        return bool(len(self) or self.colours)
+
+
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _vendor_colours(conn, market_id: int) -> Dict[str, str]:
+    """Each vendor's brand colour (``bw_brands.color``) by display name, for
+    the vendors that have one. Only a well-formed #rrggbb is kept, since the
+    value goes into a style attribute.
+
+    None of the colours may be one of the hex values the v2 CSS remaps for
+    the theme (#475569 #30a46c #0f172a #94a3b8 #1d4ed8 #b45309 and the
+    other greys under "Charts drawn with literal colours"): a bar drawn in
+    one would be repainted. None of the current ones is; we do not guard."""
+    from sqlalchemy import text as _sql
+
+    rows = conn.execute(_sql("""
+        SELECT b.display_name, b.color
+          FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND b.color IS NOT NULL
+    """), {"m": market_id}).fetchall()
+    return {r[0]: r[1] for r in rows if r[1] and _HEX.match(str(r[1]))}
+
+
 def _v2_logos(conn, market_id: int) -> Dict[str, str]:
     """Each vendor's mark by display name, for the vendors that have one
     (``bw_brands.logo_data``, a data URI written by
-    ``scripts/fetch_vendor_logos.py``)."""
+    ``scripts/fetch_vendor_logos.py``). The result also carries the brand
+    colours as ``.colours`` (see ``_VendorMarks``)."""
     from sqlalchemy import text as _sql
 
     rows = conn.execute(_sql("""
@@ -4770,7 +4814,36 @@ def _v2_logos(conn, market_id: int) -> Dict[str, str]:
           FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
          WHERE mb.market_id = :m AND b.logo_data IS NOT NULL
     """), {"m": market_id}).fetchall()
-    return {r[0]: r[1] for r in rows if r[1] and str(r[1]).startswith("data:image/")}
+    try:
+        colours = _vendor_colours(conn, market_id)
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("vendor colours failed: %s", exc)
+        colours = {}
+    return _VendorMarks({r[0]: r[1] for r in rows
+                         if r[1] and str(r[1]).startswith("data:image/")},
+                        colours=colours)
+
+
+def _colour(logos: Optional[Dict[str, str]], vendor: str) -> str:
+    """The vendor's brand colour from a ``_VendorMarks``, or ""."""
+    return (getattr(logos, "colours", None) or {}).get(vendor or "", "")
+
+
+def _dot(logos: Optional[Dict[str, str]], vendor: str) -> str:
+    """A small dot in the vendor's brand colour, or nothing. Styled inline
+    so it also shows on the older report, which lacks the v2 CSS."""
+    c = _colour(logos, vendor)
+    if not c:
+        return ""
+    return ('<span aria-hidden="true" style="display:inline-block;width:8px;height:8px;'
+            f'border-radius:50%;background:{c};margin-right:4px;vertical-align:middle"></span>')
+
+
+def _fill_style(logos: Optional[Dict[str, str]], vendor: str) -> str:
+    """The extra inline style for a v2 bar fill: the brand colour, or
+    nothing so the fill keeps var(--accent)."""
+    c = _colour(logos, vendor)
+    return f";background:{c}" if c else ""
 
 
 def _mark(logos: Optional[Dict[str, str]], vendor: str, size: int = 18) -> str:
@@ -5433,6 +5506,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
     link_params = dict(link_params or {})
 
     dataset = mp.build_dataset(conn, market["id"])
+    try:
+        vendor_colours = _vendor_colours(conn, market["id"])
+    except Exception as exc:                                      # noqa: BLE001
+        logger.warning("vendor colours failed: %s", exc)
+        vendor_colours = {}
     articles = mcorp.articles(conn, market["id"], limit=60, days=days)
     try:
         from app.services import market_lists as mlists
@@ -5998,7 +6076,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             'scored.</p>')
         if scored:
             body.append(_bar_chart(top, label_key="vendor",
-                                   value_key="activity_index"))
+                                   value_key="activity_index",
+                                   colours=vendor_colours))
         body.append(
             '<table class="mm-table"><thead><tr><th>Vendor</th>'
             '<th class="mm-num">Score</th>'
@@ -6026,7 +6105,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             body.append(_bar_chart(
                 [{"vendor": v["vendor"], "pct": round((v["earned_share"] or 0) * 100)}
                  for v in earned_rows],
-                label_key="vendor", value_key="pct", colour="#30a46c"))
+                label_key="vendor", value_key="pct", colour="#30a46c",
+                colours=vendor_colours))
         loud_rows = [v for v in sov.get("vendors") or []
                      if v.get("reactions_per_post") is not None]
         if loud_rows:

@@ -164,6 +164,8 @@ export interface Vendor {
   enabled: boolean;
   baseline: VendorBaseline;
   identifiers: VendorIdentifier[] | null;
+  /** Brand colour (#rrggbb, bw_brands.color); null when none is set. */
+  color?: string | null;
 }
 
 export interface FacetValue { value: string; n: number }
@@ -1191,6 +1193,8 @@ export interface VendorDetail {
   is_public: boolean;
   review_status: string;
   enabled: boolean;
+  /** Brand colour (#rrggbb, bw_brands.color); null when none is set. */
+  color?: string | null;
   baseline: VendorBaseline;
   identifiers: VendorIdentifier2[];
   profile_series: ProfileReading[];

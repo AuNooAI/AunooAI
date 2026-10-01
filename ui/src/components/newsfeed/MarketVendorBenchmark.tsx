@@ -52,7 +52,7 @@ function clockOf(b: VendorBenchmark, days: number): string {
 /** A horizontal plot of one metric: the vendor's marker, the market median and
  *  average, and the shaded quartile band of the top cohort. Scaled to the
  *  largest of everything shown so the markers cannot fall off the end. */
-function Plot({ b }: { b: VendorBenchmark }) {
+function Plot({ b, color }: { b: VendorBenchmark; color?: string | null }) {
   const points = [b.vendor_value, b.market_median, b.market_average,
                   b.top_median, b.top_q3].filter(
                     (n): n is number => n !== null && n !== undefined);
@@ -80,8 +80,9 @@ function Plot({ b }: { b: VendorBenchmark }) {
              title={`Market average ${fmt(b.market_average, b.metric.unit)}`} />
       )}
       {b.vendor_value !== null && (
-        <div className="absolute -top-0.5 -bottom-0.5 w-1.5 rounded bg-blue-600 dark:bg-blue-400"
-             style={{ left: at(b.vendor_value) }}
+        <div className={`absolute -top-0.5 -bottom-0.5 w-1.5 rounded ${
+               color ? '' : 'bg-blue-600 dark:bg-blue-400'}`}
+             style={{ left: at(b.vendor_value), ...(color ? { backgroundColor: color } : {}) }}
              title={`${b.vendor ?? 'This vendor'}: ${fmt(b.vendor_value, b.metric.unit)}`} />
       )}
     </div>
@@ -106,7 +107,7 @@ function flatZero(b: VendorBenchmark): boolean {
     && (b.market_median ?? 0) === 0 && (b.top_median ?? 0) === 0;
 }
 
-function Row({ b, days }: { b: VendorBenchmark; days: number }) {
+function Row({ b, days, color }: { b: VendorBenchmark; days: number; color?: string | null }) {
   const unit = b.metric.unit;
   if (flatZero(b)) {
     return (
@@ -161,7 +162,7 @@ function Row({ b, days }: { b: VendorBenchmark; days: number }) {
         </p>
       ) : (
         <>
-          <div className="mt-2"><Plot b={b} /></div>
+          <div className="mt-2"><Plot b={b} color={color} /></div>
           <div className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4 dark:text-gray-400">
             <span>Market median <strong className="text-slate-800 dark:text-gray-200">{fmt(b.market_median, unit)}</strong></span>
             <span>Market average <strong className="text-slate-800 dark:text-gray-200">{fmt(b.market_average, unit)}</strong></span>
@@ -209,8 +210,10 @@ function Row({ b, days }: { b: VendorBenchmark; days: number }) {
   );
 }
 
-export function MarketVendorBenchmark({ marketId, brandId, days = 30 }: {
+export function MarketVendorBenchmark({ marketId, brandId, days = 30, color }: {
   marketId: number; brandId: number; days?: number;
+  /** The vendor's brand colour for its own marker; blue when unset. */
+  color?: string | null;
 }) {
   const [data, setData] = useState<VendorBenchmarks | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +251,7 @@ export function MarketVendorBenchmark({ marketId, brandId, days = 30 }: {
         <>
           <div className="mt-2">
             {data.metrics.map(b => (
-              <Row key={b.metric.key} b={b} days={data.period_days} />
+              <Row key={b.metric.key} b={b} days={data.period_days} color={color} />
             ))}
           </div>
           <p className="text-xs text-slate-400 mt-3 dark:text-gray-500">
