@@ -31,6 +31,12 @@ failed instead of the NULL-status ones. A topic with an empty label list fails
 every article that way, and nothing retries them once the list is filled in
 (wileytest's intralogistics topic, 542 articles in 30 days, 1 Oct 2026).
 
+--uri-file PATH re-runs exactly the URIs listed in the file (one per line),
+whatever their category or status. It repairs rows whose labels came from
+another topic's analysis: the enrichment UPDATE wrote a second topic's
+labels onto a row still filed under the first until 67b32d38 (wileytest,
+1 Oct 2026). Each row is re-analysed against the topic it is filed under.
+
 Articles are grouped by their stored `topic` because the analysis ontology
 (categories, future signals, sentiments...) is resolved per topic.
 
@@ -44,6 +50,7 @@ Usage:
     python scripts/reenrich_parse_failures.py --topic "Brand Monitoring Wiley"
     python scripts/reenrich_parse_failures.py --limit 500 --rescrape
     python scripts/reenrich_parse_failures.py --status enrichment_failed --topic "..."
+    python scripts/reenrich_parse_failures.py --uri-file uris.txt --dry-run
 """
 
 import argparse
@@ -70,22 +77,29 @@ COLUMNS = ['uri', 'title', 'summary', 'news_source', 'publication_date',
 
 
 def fetch_candidates(db: Database, since: str | None, topic: str | None,
-                     limit: int | None, status: str | None = None) -> List[Dict[str, Any]]:
-    """Pull rows that entered enrichment and never had fields written back."""
-    status_sql = "ingest_status = :status" if status else "ingest_status IS NULL"
+                     limit: int | None, status: str | None = None,
+                     uris: List[str] | None = None) -> List[Dict[str, Any]]:
+    """Pull rows that entered enrichment and never had fields written back,
+    or exactly the given URIs when ``uris`` is passed."""
+    params: Dict[str, Any] = {}
+    if uris:
+        names = [f"u{i}" for i in range(len(uris))]
+        params.update(zip(names, uris))
+        where = "uri IN (" + ", ".join(f":{n}" for n in names) + ")"
+    else:
+        where = ("category IS NULL AND "
+                 + ("ingest_status = :status" if status else "ingest_status IS NULL"))
+        if status:
+            params["status"] = status
     sql = f"""
         SELECT uri, title, summary, news_source, publication_date,
                submission_date, topic
         FROM articles
-        WHERE category IS NULL
-          AND {status_sql}
+        WHERE {where}
           AND news_source <> 'bluesky'
           AND topic IS NOT NULL AND topic <> ''
           AND title IS NOT NULL AND title <> ''
     """
-    params: Dict[str, Any] = {}
-    if status:
-        params["status"] = status
     if since:
         sql += " AND submission_date >= :since"
         params["since"] = since
@@ -141,9 +155,9 @@ async def missing_ontology(ingest: AutomatedIngestService, topic: str) -> List[s
 
 async def reenrich(since: str | None, topic: str | None, limit: int | None,
                    batch_size: int, rescrape: bool, dry_run: bool,
-                   status: str | None = None) -> None:
+                   status: str | None = None, uris: List[str] | None = None) -> None:
     db = Database()
-    candidates = fetch_candidates(db, since, topic, limit, status)
+    candidates = fetch_candidates(db, since, topic, limit, status, uris)
 
     if not candidates:
         logger.info("No articles match the stuck-enrichment signature. Nothing to do.")
@@ -249,10 +263,19 @@ def main():
                         help="Report the backlog without processing it")
     parser.add_argument("--status", choices=["enrichment_failed"], default=None,
                         help="Select rows with this ingest_status instead of NULL")
+    parser.add_argument("--uri-file", default=None,
+                        help="Re-run exactly these URIs (one per line), whatever their status")
     args = parser.parse_args()
+    if args.uri_file and args.status:
+        parser.error("--uri-file and --status select rows in different ways; pass one")
+    uris = None
+    if args.uri_file:
+        uris = [u.strip() for u in Path(args.uri_file).read_text().splitlines() if u.strip()]
+        if not uris:
+            parser.error(f"{args.uri_file} lists no URIs")
 
     asyncio.run(reenrich(args.since, args.topic, args.limit,
-                         args.batch_size, args.rescrape, args.dry_run, args.status))
+                         args.batch_size, args.rescrape, args.dry_run, args.status, uris))
 
 
 if __name__ == "__main__":
