@@ -232,7 +232,7 @@ class DeepAnalyzer:
                 SELECT uri, title, summary, news_source, publication_date, category, url
                 FROM articles
                 WHERE uri IN ({placeholders})
-                ORDER BY publication_date DESC
+                ORDER BY publication_date DESC NULLS LAST
             """)
 
             result = conn.execute(stmt, params)

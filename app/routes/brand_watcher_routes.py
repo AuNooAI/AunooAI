@@ -1240,7 +1240,7 @@ async def source_comparison_domain_articles(
             FROM articles a
             WHERE topic=:t AND publication_date>=:s AND publication_date<=:e AND {op_clause}
               AND lower(replace(news_source,'www.','')) = :dom
-            ORDER BY publication_date DESC LIMIT :lim
+            ORDER BY publication_date DESC NULLS LAST LIMIT :lim
         """), {"t": topic, "s": start_date, "e": end_date, "dom": domain.lower().replace("www.", ""), "lim": limit}).fetchall()
         return {"brand": brand[0], "domain": domain, "dataset": dataset, "articles": [
             {"uri": r[0], "title": r[1], "publication_date": str(r[2]) if r[2] else None,
@@ -1546,7 +1546,7 @@ async def get_social_posts(
               {topic_clause}
               {rel_clause}
               {fp_clause}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
 
@@ -3563,7 +3563,7 @@ async def get_brand_alerts(
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
                 AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
                 AND bac.category IN ({ph})
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
             """), art_params).fetchall()
             by_cat: Dict[str, list] = {}
             for cat, uri, title, pubdate, sentiment, source in art_rows:
@@ -3629,7 +3629,7 @@ async def export_brand_data(
             LEFT JOIN bw_finding_reviews fr ON fr.article_uri = a.uri AND fr.brand_id = bac.brand_id
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
         """), {"bid": brand_id, "start": sd, "end": ed})
 
         rows = result.fetchall()
@@ -3781,7 +3781,7 @@ async def get_articles(
         total_count = conn.execute(text(count_q), params).scalar() or 0
         total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
 
-        order = "ORDER BY cat_count DESC, publication_date DESC" if sort_by == "category_count" else "ORDER BY publication_date DESC"
+        order = "ORDER BY cat_count DESC, publication_date DESC NULLS LAST" if sort_by == "category_count" else "ORDER BY publication_date DESC NULLS LAST"
         arts_q = base + f" SELECT * FROM art {order} LIMIT :per_page OFFSET :offset"
         result = conn.execute(text(arts_q), params)
 
@@ -4000,7 +4000,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
                                         'concerned', 'critical', 'alarming')
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 20
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         neg_articles = neg_articles_result.fetchall()
@@ -4027,7 +4027,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 20
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         pos_articles = pos_articles_result.fetchall()
@@ -4126,7 +4126,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             WHERE a.topic = :stopic
               AND a.publication_date >= :start AND a.publication_date <= :end
               AND {_ssrc}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
         """), _sparams).fetchall()
 
         social_signal = "No social (Reddit/Bluesky) posts were collected for this brand in the period."
@@ -4181,7 +4181,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             WHERE r.brand_id = :bid
               AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                     a.publication_date DESC
+                     a.publication_date DESC NULLS LAST
         """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
         _issue_status = {i["id"]: "active issue" for i in active_issues}
         for i in (assessment.get("resolved_issues") or []):
@@ -4518,7 +4518,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
-            ORDER BY a.publication_date DESC LIMIT 10
+            ORDER BY a.publication_date DESC NULLS LAST LIMIT 10
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         sample_titles = "\n".join([f"- {row[0]}" for row in sample_result.fetchall()])
 
@@ -5244,7 +5244,7 @@ async def get_story_siblings(group_id: str = Query(...), brand_id: Optional[int]
             FROM bw_article_stories st
             JOIN articles a ON a.uri = st.article_uri
             WHERE st.story_group_id = :g {bclause}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 25
         """), params).fetchall()
         return {"articles": [{
@@ -5538,7 +5538,7 @@ async def incident_attach_search(q: str = Query(..., min_length=2),
                    a.topic_alignment_score, a.social_meta
             FROM articles a
             WHERE a.uri = :q OR ({' AND '.join(clauses)})
-            ORDER BY (a.uri = :q) DESC, a.publication_date DESC
+            ORDER BY (a.uri = :q) DESC, a.publication_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
         out = []
@@ -6702,7 +6702,7 @@ async def get_employee_risk(
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
             WHERE a.news_source = 'Glassdoor'
               AND a.publication_date >= :sd AND a.publication_date <= :ed
-            ORDER BY a.publication_date DESC LIMIT 100
+            ORDER BY a.publication_date DESC NULLS LAST LIMIT 100
         """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
         pos = neu = neg = 0
         reviews = []
@@ -6728,7 +6728,7 @@ async def get_employee_risk(
                 ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
             WHERE r.brand_id = :b AND r.risk_type = 'workforce_labor'
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                     a.publication_date DESC
+                     a.publication_date DESC NULLS LAST
             LIMIT 50
         """), {"b": brand_id}).fetchall()
         workforce_risks = [
@@ -6861,7 +6861,7 @@ async def get_risk_summary(
                     ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
                 WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
                 ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                         a.publication_date DESC
+                         a.publication_date DESC NULLS LAST
                 LIMIT 10
             """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
         ]

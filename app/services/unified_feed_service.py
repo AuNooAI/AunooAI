@@ -882,11 +882,11 @@ class UnifiedFeedService:
                         (CAST(json_extract(fi.engagement_metrics, '$.likes') AS INTEGER) + 
                          CAST(json_extract(fi.engagement_metrics, '$.reposts') AS INTEGER) + 
                          CAST(json_extract(fi.engagement_metrics, '$.replies') AS INTEGER)) DESC,
-                        fi.publication_date DESC"""
+                        fi.publication_date DESC NULLS LAST"""
                 elif sort == "created_at":
-                    order_clause = "ORDER BY fi.created_at DESC, fi.publication_date DESC"
+                    order_clause = "ORDER BY fi.created_at DESC, fi.publication_date DESC NULLS LAST"
                 else:  # default to publication_date
-                    order_clause = "ORDER BY fi.publication_date DESC, fi.created_at DESC"
+                    order_clause = "ORDER BY fi.publication_date DESC NULLS LAST, fi.created_at DESC"
                 
                 # Main query
                 query = f"""

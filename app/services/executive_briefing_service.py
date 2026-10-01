@@ -388,6 +388,7 @@ class ExecutiveBriefingService:
                     "persona": config.persona,
                     "articles_analyzed": len(state.analyzed_articles),
                     "articles_total": len(state.raw_articles),
+                    "selection_mismatches": getattr(state, "selection_mismatches", 0),
                     "generated_at": datetime.now().isoformat(),
                     "config": {
                         "article_count": config.article_count,
@@ -420,10 +421,19 @@ class ExecutiveBriefingService:
                 "partial_results": state.to_dict()
             }
 
+    #: How many candidates the selection prompt shows. The model's
+    #: ``article_index`` must fall inside this window.
+    SELECTION_CANDIDATE_LIMIT = 30
+
     def _extract_article_context(self, articles: List[Dict], include_full: bool = False) -> str:
-        """Extract relevant context from articles for prompts."""
+        """Extract relevant context from articles for prompts.
+
+        ``index`` is the one stable identifier: the position in
+        ``state.raw_articles``. The title and url are shown for reading and
+        are checked against the index when the model echoes them back.
+        """
         context_parts = []
-        limit = 30 if not include_full else len(articles)
+        limit = self.SELECTION_CANDIDATE_LIMIT if not include_full else len(articles)
 
         for i, article in enumerate(articles[:limit]):
             enrichment = article.get('enrichment', {})
@@ -457,6 +467,64 @@ class ExecutiveBriefingService:
             context_parts.append(article_ctx)
 
         return json.dumps(context_parts, indent=2)
+
+    @staticmethod
+    def _normalise_echo(text: str) -> str:
+        return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+    def _validate_selection(self, picks: List[Dict], raw_articles: List[Dict],
+                            exclude: Optional[set] = None) -> tuple:
+        """Keep the picks whose ``article_index`` names a real candidate and
+        whose echoed url and title, when present, belong to that candidate.
+
+        Returns ``(valid, mismatched)``. A pick with no usable index is
+        dropped (``invalid_index``); a pick whose url or title names another
+        candidate is a ``selection_mismatch``. Nothing is ever resolved from
+        a title or url alone.
+        """
+        valid: List[Dict] = []
+        mismatched: List[Dict] = []
+        seen: set = set(exclude or ())
+        limit = min(len(raw_articles), self.SELECTION_CANDIDATE_LIMIT)
+        for pick in picks or []:
+            if not isinstance(pick, dict):
+                continue
+            idx = pick.get("article_index")
+            try:
+                idx = int(idx)
+            except (TypeError, ValueError):
+                logger.info("Selection dropped: article_index %r is not an integer", idx)
+                pick["_rejected"] = "invalid_index"
+                continue
+            if idx < 0 or idx >= limit:
+                logger.info("Selection dropped: article_index %d is outside the %d candidates", idx, limit)
+                pick["_rejected"] = "invalid_index"
+                continue
+            candidate = raw_articles[idx]
+            cand_url = str(candidate.get("uri") or candidate.get("url") or "")
+            cand_title = self._normalise_echo(str(candidate.get("title") or "")[:200])
+            echoed_url = str(pick.get("url") or "").strip()
+            echoed_title = self._normalise_echo(str(pick.get("title") or "")[:200])
+            if echoed_url and cand_url and echoed_url.split("?")[0] != cand_url.split("?")[0]:
+                logger.info("Selection rejected: article_index %d names %s but url names %s",
+                            idx, cand_url, echoed_url)
+                pick["_rejected"] = "selection_mismatch"
+                mismatched.append(pick)
+                continue
+            if echoed_title and cand_title and not (
+                    echoed_title.startswith(cand_title[:40]) or cand_title.startswith(echoed_title[:40])):
+                logger.info("Selection rejected: article_index %d names %r but title names %r",
+                            idx, candidate.get("title"), pick.get("title"))
+                pick["_rejected"] = "selection_mismatch"
+                mismatched.append(pick)
+                continue
+            if idx in seen:
+                logger.info("Selection dropped: article_index %d picked twice", idx)
+                continue
+            seen.add(idx)
+            pick["article_index"] = idx
+            valid.append(pick)
+        return valid, mismatched
 
     async def _run_selection(self, state: EBState, config: EBConfig):
         """
@@ -537,7 +605,45 @@ Select the articles that will best inform executive decision-making."""
             )
 
             result = extract_json_response(response.choices[0].message.content)
-            state.selected_articles = result.get("selected_articles", [])
+            state.selected_articles, mismatches = self._validate_selection(
+                result.get("selected_articles", []), state.raw_articles)
+            # Work package 31: a pick whose index and echoed url or title
+            # disagree is asked for once more, then skipped and counted.
+            if mismatches:
+                shortfall = max(0, config.article_count - len(state.selected_articles))
+                if shortfall:
+                    taken = sorted(int(a["article_index"]) for a in state.selected_articles)
+                    retry_prompt = (
+                        f"{len(mismatches)} of your picks named one candidate by article_index and a "
+                        f"different one by url or title, so they were rejected. Return {shortfall} "
+                        f"replacement pick(s) in the same JSON shape. Identify each by article_index "
+                        f"only, copied from the CANDIDATE ARTICLES list; the url and title must belong "
+                        f"to that same index. Do not pick indices {taken}."
+                    )
+                    try:
+                        retry = await litellm.acompletion(
+                            **resolve_litellm_call_params(model),
+                            messages=[
+                                {"role": "system", "content": agent_prompt or "You are an executive news curator."},
+                                {"role": "user", "content": prompt},
+                                {"role": "assistant", "content": response.choices[0].message.content},
+                                {"role": "user", "content": retry_prompt},
+                            ],
+                            temperature=min(temperature, 0.1),
+                            max_tokens=3000,
+                            response_format={"type": "json_object"},
+                        )
+                        retry_result = extract_json_response(retry.choices[0].message.content)
+                        retry_ok, retry_bad = self._validate_selection(
+                            retry_result.get("selected_articles", []), state.raw_articles,
+                            exclude=set(taken))
+                        state.selected_articles.extend(retry_ok[:shortfall])
+                        mismatches.extend(retry_bad)
+                    except Exception as retry_exc:
+                        logger.warning(f"Selection retry failed: {retry_exc}")
+            state.selection_mismatches = len(mismatches)
+            if mismatches:
+                logger.info("selection_mismatch: %d pick(s) rejected for %s", len(mismatches), state.topic)
 
         except Exception as e:
             logger.error(f"Selection stage failed: {e}")
@@ -580,7 +686,13 @@ Select the articles that will best inform executive decision-making."""
 
         for idx, selected in enumerate(state.selected_articles):
             article_index = selected.get("article_index", idx)
-            if article_index >= len(state.raw_articles):
+            try:
+                article_index = int(article_index)
+            except (TypeError, ValueError):
+                logger.info("Analysis skipped: article_index %r is not an integer", article_index)
+                continue
+            if article_index < 0 or article_index >= len(state.raw_articles):
+                logger.info("Analysis skipped: article_index %d is outside the corpus", article_index)
                 continue
 
             article = state.raw_articles[article_index]

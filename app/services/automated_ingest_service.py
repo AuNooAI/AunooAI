@@ -42,8 +42,10 @@ def _merge_matched_keyword_tags(article_data, tags):
     return ','.join(tags_list) if tags_list else None
 from app.services.enrichment_service import get_enrichment_service
 from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
-from app.analyzers.article_analyzer import ArticleAnalyzer
+from app.analyzers.article_analyzer import ArticleAnalyzer, ConfigurationFault
 from app.ai_models import LiteLLMModel, get_available_models
+from app.services import rejected_candidates as _rejected
+from app.collectors.url_identity import is_redirect_wrapper, unwrap_redirect, canonical_url
 import asyncio
 import nest_asyncio
 import concurrent.futures
@@ -51,6 +53,60 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from app.config.config import load_config, get_topic_description
 import time
+
+
+#: The topic lists the analyzer refuses to run without, in the order the
+#: analyzer checks them. Keys are config.json keys.
+REQUIRED_TOPIC_LISTS = (
+    ("categories", "categories"),
+    ("future_signals", "future_signals"),
+    ("sentiment", "sentiment"),
+    ("time_to_impact", "time_to_impact"),
+    ("driver_types", "driver_types"),
+)
+
+
+def configuration_block_reason(topic_config) -> Optional[str]:
+    """Why enrichment cannot run for this topic, or None when it can.
+
+    An empty list in the topic configuration is a configuration fault, not
+    an article fault: the analyzer would raise before any model call and the
+    article used to be marked enrichment_failed for it (wileytest: 592 such
+    failures in seven days for one topic with no future-signals list). The
+    caller stores the article as quarantined_config with this reason and the
+    retry sweep re-enriches it once the list is filled (work package 22).
+    """
+    if not isinstance(topic_config, dict):
+        return "topic configuration missing"
+    name = topic_config.get("name") or "?"
+    if topic_config.get("enrichment_disabled"):
+        return f"topic '{name}': enrichment disabled in configuration"
+    for key, label in REQUIRED_TOPIC_LISTS:
+        values = topic_config.get(key)
+        if not values or not any(str(v).strip() for v in values if v is not None):
+            return f"topic '{name}': {label} list is empty"
+    return None
+
+
+#: Per-URL full-text extraction outcomes (work package 27). Written to
+#: articles.extraction_status so a provider that rejects many URLs is visible.
+EXTRACTION_OK = "ok"
+EXTRACTION_REJECTED = "rejected_by_provider"
+EXTRACTION_NO_CONTENT = "no_content"
+EXTRACTION_TIMEOUT = "timeout"
+EXTRACTION_ERROR = "error"
+EXTRACTION_FALLBACK = "fallback"
+EXTRACTION_CACHED = "cached"
+
+
+def _looks_like_rss_batch(articles: List[Dict[str, Any]]) -> bool:
+    """The RSS monitor's batches carry ``url`` and ``published_date``; the
+    keyword monitor's carry ``publication_date`` and no ``url``. Used only
+    when the caller did not say which route it is."""
+    for a in articles or []:
+        if isinstance(a, dict) and "url" in a and "published_date" in a:
+            return True
+    return False
 
 # Allow nested event loops (needed when called from FastAPI routes that
 # invoke the sync analyze_article_content -> asyncio.run path).
@@ -90,6 +146,10 @@ class AutomatedIngestService:
 
         # Cached Research instances keyed by model_name
         self._research_cache = {}
+
+        # Per-URL outcome of the last full-text extraction batch
+        # (work package 27): uri -> EXTRACTION_* constant.
+        self._last_extraction_outcomes: Dict[str, str] = {}
 
         # Configure logging
         self.logger = logger
@@ -886,16 +946,28 @@ class AutomatedIngestService:
         article: Dict[str, Any],
         topic: str,
         keywords: List[str],
-        relevance_threshold_override: Optional[float] = None
+        relevance_threshold_override: Optional[float] = None,
+        ledger_hit=None,
+        ledger_ctx: Optional[Dict[str, Any]] = None,
+        config_block_reasons: Optional[Dict[str, Optional[str]]] = None,
     ) -> Dict[str, Any]:
         """Process a single article asynchronously with optimized database operations.
 
         relevance_threshold_override: per-group relevance threshold (e.g. a Brand
         Watch group's min_relevance_threshold). When provided it takes precedence
         over the global threshold so per-group tuning is honored.
+
+        ledger_hit: the rejected-candidate ledger's stored outcome for this URL
+        under the current gate version, when the keyword route already rejected
+        it. A hit skips the embedding call (work package 19).
+        ledger_ctx: {"ledger", "group_id", "version"} for the keyword route; None
+        for RSS, manual and retry routes, which never consult the ledger.
+        config_block_reasons: topic -> block reason, computed once per batch so
+        the warning is logged once per topic, not once per article.
         """
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
+        loop = asyncio.get_event_loop()
 
         # CRITICAL: Preserve original data from API throughout processing
         original_title = article.get('title', '')
@@ -953,6 +1025,38 @@ class AutomatedIngestService:
                     "topic": topic,
                 }
 
+            # Step 0a: CONFIGURATION GUARD (work package 22). An empty list in
+            # the topic configuration is the topic's fault, not the article's.
+            # Store the article as quarantined_config, make no model call, and
+            # let the retry sweep pick it up once the list is filled.
+            if config_block_reasons is not None and topic in config_block_reasons:
+                block_reason = config_block_reasons.get(topic)
+            else:
+                block_reason = configuration_block_reason(research.topic_configs.get(topic))
+            if block_reason:
+                article.update({
+                    "topic": topic,
+                    "ingest_status": "quarantined_config",
+                    "enrichment_block_reason": block_reason,
+                    "keyword_relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "confidence_score": 0.0,
+                    "overall_match_explanation": f"Enrichment deferred: {block_reason}",
+                })
+                try:
+                    await self.async_db.save_below_threshold_article(article)
+                except Exception as save_err:
+                    self.logger.warning(
+                        f"Failed to persist quarantined_config for {article_uri}: {save_err}"
+                    )
+                return {
+                    "status": "quarantined",
+                    "uri": article_uri,
+                    "reason": "configuration_blocked",
+                    "block_reason": block_reason,
+                    "topic": topic,
+                }
+
             # Step 0b: NO-TEXT GUARD. Enrichment reads only the collector's
             # summary/content (scraped text is stored raw, never analysed), so
             # an article with a title and nothing else can only end in
@@ -969,6 +1073,7 @@ class AutomatedIngestService:
                 article.update({
                     "topic": topic,
                     "ingest_status": "enrichment_failed",
+                    "_enrichment_attempt": 1,
                     "keyword_relevance_score": 0.0,
                     "topic_alignment_score": 0.0,
                     "confidence_score": 0.0,
@@ -988,6 +1093,24 @@ class AutomatedIngestService:
                     "uri": article_uri,
                     "reason": "no_text",
                     "topic": topic,
+                }
+
+            # Step 0c: REJECTED-CANDIDATE LEDGER (work package 19). The keyword
+            # route already scored this URL under the same terms, threshold
+            # and gate version and rejected it. Its filtered_relevance row is
+            # still there from that first rejection; do not embed it again.
+            if ledger_hit is not None:
+                self.logger.debug(
+                    f"Article {article_uri} already rejected by group "
+                    f"{(ledger_ctx or {}).get('group_id')} (score {ledger_hit.score}, "
+                    f"threshold {ledger_hit.threshold}); skipping relevance scoring"
+                )
+                return {
+                    "status": "filtered",
+                    "uri": article_uri,
+                    "reason": "already_rejected",
+                    "relevance_score": ledger_hit.score,
+                    "threshold": ledger_hit.threshold,
                 }
 
             # Step 1: QUICK relevance check FIRST (before expensive operations)
@@ -1028,6 +1151,20 @@ class AutomatedIngestService:
                             "filtered_relevance")
                     except Exception as e:
                         self.logger.warning(f"Failed to save below-threshold article: {e}")
+
+                    # Remember the rejection so the next poll of this group
+                    # does not embed the same URL again (work package 19).
+                    if ledger_ctx is not None:
+                        try:
+                            await loop.run_in_executor(
+                                None,
+                                lambda: ledger_ctx["ledger"].record(
+                                    article_uri, ledger_ctx["group_id"], ledger_ctx["version"],
+                                    score=quick_relevance_score, threshold=relevance_threshold,
+                                ),
+                            )
+                        except Exception as ledger_err:
+                            self.logger.debug(f"rejected-candidate record skipped for {article_uri}: {ledger_err}")
 
                     return {
                         "status": "filtered",
@@ -1185,6 +1322,30 @@ class AutomatedIngestService:
                 if quality_result.get("approved", False):
                     # CRITICAL: Validate enrichment succeeded before approving
                     if not enriched_article.get("analyzed", False):
+                        config_fault = enriched_article.get("_configuration_fault")
+                        if config_fault:
+                            # The analyzer refused for the topic's sake, not the
+                            # article's: quarantine instead of counting a failure.
+                            block_reason = f"topic '{topic}': {config_fault}"
+                            try:
+                                enriched_article.update({
+                                    "topic": topic,
+                                    "ingest_status": "quarantined_config",
+                                    "enrichment_block_reason": block_reason,
+                                    "overall_match_explanation": f"Enrichment deferred: {block_reason}",
+                                })
+                                await self.async_db.save_below_threshold_article(enriched_article)
+                            except Exception as mark_err:
+                                self.logger.error(
+                                    f"Could not mark {article_uri} quarantined_config: {mark_err}"
+                                )
+                            return {
+                                "status": "quarantined",
+                                "uri": article_uri,
+                                "reason": "configuration_blocked",
+                                "block_reason": block_reason,
+                                "topic": topic,
+                            }
                         self.logger.error(
                             f"❌ Enrichment validation failed for {article_uri}: "
                             f"Article passed quality check but 'analyzed' flag is False. "
@@ -1200,9 +1361,11 @@ class AutomatedIngestService:
                             enriched_article.update({
                                 "topic": topic,
                                 "ingest_status": "enrichment_failed",
+                                "_enrichment_attempt": 1,
                                 "overall_match_explanation": (
-                                    "Enrichment failed: analysis produced no "
-                                    "result (usually no usable article text)"
+                                    "Enrichment failed: "
+                                    + (enriched_article.get("analysis_error")
+                                       or "analysis produced no result (usually no usable article text)")
                                 ),
                             })
                             await self.async_db.save_below_threshold_article(enriched_article)
@@ -1229,6 +1392,14 @@ class AutomatedIngestService:
                             await self.async_db.record_group_relevance(
                                 article_uri, topic, enriched_article.get("topic_alignment_score"),
                                 "approved")
+                            # Another route (RSS, manual, retry) accepted it: a
+                            # stale keyword rejection must not shadow it later.
+                            if ledger_ctx is None and _rejected.enabled():
+                                try:
+                                    await loop.run_in_executor(
+                                        None, lambda: _rejected.RejectedCandidateLedger(self.db).forget(article_uri))
+                                except Exception as ledger_err:
+                                    self.logger.debug(f"rejected-candidate forget skipped for {article_uri}: {ledger_err}")
                             # Step 7: Vector database upsert (kept async but with timeout)
                             try:
                                 await asyncio.wait_for(
@@ -1406,8 +1577,14 @@ class AutomatedIngestService:
             
             return article_data
             
+        except ConfigurationFault as e:
+            # The topic's lists, not the article, stopped the analysis.
+            self.logger.warning(f"Configuration fault for topic '{topic}' on {article_data.get('uri')}: {e}")
+            article_data["_configuration_fault"] = str(e)
+            return article_data
         except Exception as e:
             self.logger.error(f"Error in async article analysis: {e}")
+            article_data["analysis_error"] = str(e)
             return article_data
 
     async def _score_article_relevance_async(
@@ -1448,7 +1625,7 @@ class AutomatedIngestService:
             self.logger.error(f"Vector database upsert failed: {e}")
             raise
 
-    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False, relevance_threshold_override: float = None) -> Dict[str, Any]:
+    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False, relevance_threshold_override: float = None, group_id: Optional[int] = None, route: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a batch of articles through the enrichment pipeline
         
@@ -1457,6 +1634,13 @@ class AutomatedIngestService:
             topic: Topic name for context
             keywords: List of keywords for relevance scoring
             dry_run: If True, skip database operations
+            group_id: keyword group the batch was collected for. Turns on the
+                rejected-candidate ledger (work package 19). When absent and
+                ``route`` is "keyword" (or unset and the batch does not look
+                like an RSS batch) the group is resolved from the topic.
+            route: "keyword", "rss", "manual" or "enrichment_retry". Only the
+                keyword route consults the ledger; the others never do, and an
+                article they accept drops any stale keyword rejection.
             
         Returns:
             Processing results summary
@@ -1468,10 +1652,56 @@ class AutomatedIngestService:
             "quality_passed": 0,
             "saved": 0,
             "vector_indexed": 0,
+            "already_rejected": 0,
+            "configuration_blocked": 0,
+            "extraction": {},
             "errors": []
         }
         
         try:
+            loop = asyncio.get_event_loop()
+
+            # Configuration guard, once per topic in the batch (work package 22).
+            config_block_reasons = self._configuration_block_reasons(
+                {(topic or a.get("topic")) for a in articles if isinstance(a, dict)} - {None, ""}
+            )
+
+            # Rejected-candidate ledger, keyword route only (work package 19).
+            ledger_ctx = None
+            ledger_hits: Dict[str, Any] = {}
+            if _rejected.enabled() and topic and route not in ("rss", "manual", "enrichment_retry"):
+                resolved_group = group_id
+                if resolved_group is None and (route == "keyword" or (route is None and not _looks_like_rss_batch(articles))):
+                    resolved_group = await loop.run_in_executor(None, self._resolve_group_id_for_topic, topic)
+                if resolved_group is not None:
+                    threshold = (relevance_threshold_override if relevance_threshold_override is not None
+                                 else self.get_relevance_threshold(topic))
+                    version = _rejected.gate_version(keywords or [], threshold)
+                    ledger = _rejected.RejectedCandidateLedger(self.db)
+                    urls = [a.get("uri") for a in articles if isinstance(a, dict) and a.get("uri")]
+                    try:
+                        ledger_hits = await loop.run_in_executor(None, ledger.lookup, urls, resolved_group, version)
+                    except Exception as ledger_err:
+                        self.logger.warning(f"rejected-candidate lookup skipped: {ledger_err}")
+                        ledger_hits = {}
+                    ledger_ctx = {"ledger": ledger, "group_id": resolved_group, "version": version}
+                    if ledger_hits:
+                        self.logger.info(
+                            f"Rejected-candidate ledger: {len(ledger_hits)}/{len(urls)} URLs already "
+                            f"rejected by group {resolved_group}; skipping their relevance scoring"
+                        )
+
+            # Articles the ledger answers need no full text either.
+            already_rejected_uris = set()
+            for a in articles:
+                u = a.get("uri") if isinstance(a, dict) else None
+                if u and ledger_hits and canonical_url(u) in ledger_hits:
+                    already_rejected_uris.add(u)
+            blocked_uris = {
+                a.get("uri") for a in articles
+                if isinstance(a, dict) and config_block_reasons.get(topic or a.get("topic"))
+            }
+
             # QUICK FIX: Use concurrent async processing instead of sequential loop
             # This prevents blocking the event loop during auto-ingest
 
@@ -1483,6 +1713,8 @@ class AutomatedIngestService:
             for article in articles:
                 article_uri = article.get('uri')
                 if not article_uri:
+                    continue
+                if article_uri in already_rejected_uris or article_uri in blocked_uris:
                     continue
                 existing_content = article.get('content')
                 if existing_content and len(existing_content) > 200:
@@ -1511,12 +1743,24 @@ class AutomatedIngestService:
             self.logger.info(f"🔄 Processing {len(articles)} articles concurrently (max {MAX_CONCURRENT} at a time)...")
 
             # Create tasks for all articles
+            extraction_outcomes = dict(self._last_extraction_outcomes) if articles_needing_scrape else {}
             all_article_data = []
             for article in articles:
                 # Attach pre-scraped content to article for processing
                 article_uri = article.get('uri', 'unknown')
                 article['_scraped_content'] = all_content.get(article_uri)
+                # Per-URL extraction outcome, persisted by the enrichment update
+                # (work package 27). Collector content is not an extraction.
+                if article_uri in scraped_content:
+                    outcome = extraction_outcomes.get(article_uri) or (
+                        EXTRACTION_OK if scraped_content.get(article_uri) else EXTRACTION_NO_CONTENT)
+                    article['extraction_status'] = outcome
+                    if scraped_content.get(article_uri):
+                        article['content_kind'] = 'full_text'
                 all_article_data.append(article)
+            for outcome in (extraction_outcomes.get(u) for u in articles_needing_scrape):
+                if outcome:
+                    results["extraction"][outcome] = results["extraction"].get(outcome, 0) + 1
 
             # Process in batches to prevent connection pool exhaustion
             for batch_idx in range(0, len(all_article_data), MAX_CONCURRENT):
@@ -1529,10 +1773,16 @@ class AutomatedIngestService:
                 # Create tasks for this batch
                 tasks = []
                 for article in batch:
+                    hit = None
+                    if ledger_hits:
+                        hit = ledger_hits.get(canonical_url(article.get("uri") or ""))
                     task = asyncio.create_task(
                         self._process_single_article_async(
                             article, topic, keywords,
-                            relevance_threshold_override=relevance_threshold_override
+                            relevance_threshold_override=relevance_threshold_override,
+                            ledger_hit=hit,
+                            ledger_ctx=ledger_ctx,
+                            config_block_reasons=config_block_reasons,
                         )
                     )
                     tasks.append(task)
@@ -1559,12 +1809,18 @@ class AutomatedIngestService:
                                 results["relevant"] += 1
                                 results["enriched"] += 1
                             elif result.get("status") == "filtered":
+                                if result.get("reason") == "already_rejected":
+                                    # Answered by the ledger: neither scored nor enriched.
+                                    results["already_rejected"] += 1
+                                    continue
                                 results["enriched"] += 1
                                 # Article was filtered out by relevance or quality
                                 if result.get("reason") == "relevance_threshold":
                                     pass  # Count as processed but not relevant
                                 elif result.get("reason") == "quality_check_failed":
                                     results["relevant"] += 1  # Was relevant but failed quality
+                            elif result.get("status") == "quarantined":
+                                results["configuration_blocked"] += 1
                             elif result.get("status") == "error":
                                 results["errors"].append(result.get("error", "Unknown error"))
 
@@ -1581,7 +1837,9 @@ class AutomatedIngestService:
                     results["errors"].append(error_msg)
 
             self.logger.info(f"🏁 All batches completed: {results['processed']} processed, "
-                           f"{results['saved']} saved, {len(results['errors'])} errors")
+                           f"{results['saved']} saved, {results['already_rejected']} already rejected, "
+                           f"{results['configuration_blocked']} configuration blocked, "
+                           f"{len(results['errors'])} errors")
 
             return results
 
@@ -1589,6 +1847,56 @@ class AutomatedIngestService:
             self.logger.error(f"❌ Error in batch processing: {e}")
             results["errors"].append(f"Batch processing error: {str(e)}")
             return results
+
+    def _configuration_block_reasons(self, topics) -> Dict[str, Optional[str]]:
+        """topic -> block reason (or None) for the topics in a batch, with one
+        warning per blocked topic. Topics missing from the configuration are
+        left out so the unknown-topic guard handles them."""
+        reasons: Dict[str, Optional[str]] = {}
+        if not topics:
+            return reasons
+        try:
+            research = self._get_research(self.get_llm_client())
+        except Exception as research_err:  # noqa: BLE001
+            self.logger.debug(f"Configuration guard skipped (no research instance): {research_err}")
+            return reasons
+        configs = getattr(research, "topic_configs", None) or {}
+        for t in topics:
+            if t not in configs:
+                continue
+            reason = configuration_block_reason(configs.get(t))
+            reasons[t] = reason
+            if reason:
+                self.logger.warning(
+                    f"Enrichment blocked by configuration: {reason}. Articles for this topic are "
+                    f"stored as quarantined_config and retried by the sweep once the list is filled."
+                )
+        return reasons
+
+    def _resolve_group_id_for_topic(self, topic: str) -> Optional[int]:
+        """The keyword group a topic's batch belongs to, when the caller did
+        not pass one. The keyword monitor scores a batch with the topic's
+        combined keyword list, so when several groups share a topic the
+        lowest id stands for all of them; the gate version still carries the
+        threshold, so groups with different thresholds never share entries."""
+        if not topic:
+            return None
+        conn = None
+        try:
+            from sqlalchemy import text as _sql
+            conn = self.db._temp_get_connection()
+            row = conn.execute(_sql("SELECT id FROM keyword_groups WHERE topic = :t ORDER BY id LIMIT 1"),
+                               {"t": topic}).fetchone()
+            return int(row[0]) if row else None
+        except Exception as exc:  # noqa: BLE001
+            self.logger.debug(f"keyword group lookup for topic '{topic}' failed: {exc}")
+            return None
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def save_approved_articles(self, articles: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -1823,47 +2131,75 @@ class AutomatedIngestService:
     async def scrape_articles_batch(self, uris: List[str], topic: str = None) -> Dict[str, Optional[str]]:
         """
         Scrape multiple articles using Firecrawl's batch API
-        
+
         Args:
             uris: List of article URIs to scrape
-            
+
         Returns:
-            Dictionary mapping URIs to scraped content (or None if failed)
+            Dictionary mapping URIs to scraped content (or None if failed).
+            ``self._last_extraction_outcomes`` holds the per-URL outcome
+            (EXTRACTION_* constants) for the same URIs.
         """
         if not uris:
             return {}
-            
-        results = {}
-        
+
+        results: Dict[str, Optional[str]] = {}
+        outcomes: Dict[str, str] = {}
+
         try:
             self.logger.info(f"Starting batch scraping for {len(uris)} articles")
-            
+
             # Check for existing articles first
             existing_articles = {}
             for uri in uris:
                 existing_raw = await self.async_db.get_raw_article_async(uri)
                 if existing_raw and existing_raw.get('raw_markdown'):
                     existing_articles[uri] = existing_raw['raw_markdown']
+                    outcomes[uri] = EXTRACTION_CACHED
                     self.logger.debug(f"Found existing content for {uri}")
-            
+
             # Filter out articles we already have
             uris_to_scrape = [uri for uri in uris if uri not in existing_articles]
-            
+
             if not uris_to_scrape:
                 self.logger.info("All articles already scraped, returning existing content")
+                self._last_extraction_outcomes = outcomes
                 return existing_articles
-            
+
             # Use cached Research instance for Firecrawl access
             research = self._get_research()
 
             if not research.firecrawl_app:
                 self.logger.warning("Firecrawl not available, falling back to individual scraping")
-                return await self._fallback_individual_scraping(uris)
+                fallback = await self._fallback_individual_scraping(uris_to_scrape)
+                for uri, content in fallback.items():
+                    outcomes[uri] = EXTRACTION_FALLBACK if content else EXTRACTION_NO_CONTENT
+                results.update(existing_articles)
+                results.update(fallback)
+                self._last_extraction_outcomes = outcomes
+                return results
 
             self.logger.info(f"Sending {len(uris_to_scrape)} URLs to Firecrawl ({len(existing_articles)} already cached)")
 
-            # Use Firecrawl batch API
+            # Use Firecrawl batch API. Every URL comes back as a key, with
+            # its outcome beside it (work package 27).
             batch_result = await self._firecrawl_batch_scrape(research.firecrawl_app, uris_to_scrape)
+            batch_outcomes = dict(self._last_extraction_outcomes)
+
+            # Per-URL fallback for what the batch did not deliver. A URL the
+            # provider rejected outright is not retried: it would be rejected
+            # again one at a time.
+            retry = [u for u in uris_to_scrape
+                     if not batch_result.get(u) and batch_outcomes.get(u) != EXTRACTION_REJECTED]
+            fallback_ok = 0
+            if retry:
+                self.logger.info(f"Per-URL fallback for {len(retry)} URL(s) the batch did not deliver")
+                fallback = await self._fallback_individual_scraping(retry)
+                for uri, content in fallback.items():
+                    if content:
+                        batch_result[uri] = content
+                        batch_outcomes[uri] = EXTRACTION_FALLBACK
+                        fallback_ok += 1
 
             # Cache newly scraped content to raw_articles immediately so subsequent
             # keywords in the same group check get cache hits instead of re-scraping
@@ -1882,15 +2218,169 @@ class AutomatedIngestService:
             # Combine existing and newly scraped content
             results.update(existing_articles)
             results.update(batch_result)
+            outcomes.update(batch_outcomes)
+            self._last_extraction_outcomes = outcomes
 
-            self.logger.info(f"Batch scraping completed: {len(results)} articles processed")
+            tally = {}
+            for v in batch_outcomes.values():
+                tally[v] = tally.get(v, 0) + 1
+            self.logger.info(
+                f"Batch scraping completed: {tally.get(EXTRACTION_OK, 0)} ok, "
+                f"{tally.get(EXTRACTION_REJECTED, 0)} rejected_by_provider, "
+                f"{tally.get(EXTRACTION_NO_CONTENT, 0)} no_content, "
+                f"{tally.get(EXTRACTION_TIMEOUT, 0)} timeout, {tally.get(EXTRACTION_ERROR, 0)} error, "
+                f"{fallback_ok} fallback ({len(retry)} tried), {len(existing_articles)} cached"
+            )
             return results
-            
+
         except Exception as e:
             self.logger.error(f"Error in batch scraping: {e}")
             # Fallback to individual scraping on batch failure
-            return await self._fallback_individual_scraping(uris)
-    
+            fallback = await self._fallback_individual_scraping(uris)
+            for uri, content in fallback.items():
+                outcomes[uri] = EXTRACTION_FALLBACK if content else EXTRACTION_NO_CONTENT
+            self._last_extraction_outcomes = outcomes
+            return fallback
+
+    async def _resolve_redirect_wrapper(self, url: str) -> str:
+        """The page a redirect wrapper (Google News RSS link, google.com/url)
+        points at. Firecrawl rejects the wrappers as invalid, so they are
+        resolved first. Falls back to the original URL when resolution fails."""
+        direct = unwrap_redirect(url)
+        if direct:
+            return direct
+        try:
+            import httpx
+            async with httpx.AsyncClient(follow_redirects=True, timeout=10.0,
+                                         headers={"User-Agent": "Mozilla/5.0 (AunooAI collector)"}) as client:
+                try:
+                    resp = await client.head(url)
+                    final = str(resp.url)
+                    if resp.status_code < 400 and final and final != url:
+                        return final
+                except Exception:  # noqa: BLE001
+                    pass
+                resp = await client.get(url)
+                final = str(resp.url)
+                if final and final != url:
+                    return final
+        except Exception as exc:  # noqa: BLE001
+            self.logger.debug(f"redirect wrapper not resolved for {url}: {exc}")
+        return url
+
+    async def _firecrawl_submit(self, firecrawl_app, urls: List[str]) -> Dict[str, Optional[str]]:
+        """One Firecrawl batch call. Returns ``{source_url: markdown|None}`` for
+        the documents it returned. Raises on rejection, timeout or a batch
+        that did not complete; the caller turns those into per-URL outcomes."""
+        loop = asyncio.get_event_loop()
+        # Use Firecrawl SDK's built-in polling method instead of manual polling
+        # Documentation: https://docs.firecrawl.dev/features/batch-scrape
+        # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
+        # wait_timeout only bounds the SDK's polling loop; its individual HTTP
+        # requests have no socket timeout and can block the executor thread
+        # forever (seen 2026-07-11: result-page GET hung 2 days and froze the
+        # keyword monitor). asyncio.wait_for puts a hard ceiling on the await.
+        batch_job = await asyncio.wait_for(
+            loop.run_in_executor(
+                self._blocking_executor,
+                lambda: firecrawl_app.batch_scrape(
+                    urls,
+                    formats=['markdown'],
+                    poll_interval=5,
+                    wait_timeout=300
+                )
+            ),
+            timeout=360
+        )
+        if not batch_job:
+            raise RuntimeError("Batch scrape returned None")
+        status = getattr(batch_job, 'status', None)
+        data = getattr(batch_job, 'data', []) or []
+        if status != 'completed':
+            raise RuntimeError(f"Batch scrape status is '{status}', not 'completed'")
+
+        processed: Dict[str, Optional[str]] = {}
+        for idx, item in enumerate(data):
+            metadata = getattr(item, 'metadata', None) or (item.get('metadata') if isinstance(item, dict) else None)
+            url = None
+            if metadata:
+                if isinstance(metadata, dict):
+                    url = metadata.get('sourceURL') or metadata.get('source_url') or metadata.get('url')
+                else:
+                    url = (getattr(metadata, 'sourceURL', None) or getattr(metadata, 'source_url', None)
+                           or getattr(metadata, 'url', None))
+            markdown = getattr(item, 'markdown', None) or (item.get('markdown') if isinstance(item, dict) else None)
+            if not url:
+                self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
+                continue
+            if markdown:
+                truncated = ArticleAnalyzer.truncate_text(None, markdown, max_chars=65000)
+                if len(markdown) > len(truncated):
+                    self.logger.info(f"Truncated content for {url}: {len(markdown)} -> {len(truncated)} chars")
+                processed[url] = truncated
+            else:
+                processed[url] = None
+                self.logger.warning(f"❌ No markdown content for {url}")
+        return processed
+
+    @staticmethod
+    def _url_key(url: str) -> str:
+        """Loose match between the URL we sent and the sourceURL Firecrawl
+        reports: scheme and a trailing slash may differ."""
+        u = (url or "").strip().rstrip("/")
+        if u.startswith("http://"):
+            u = u[7:]
+        elif u.startswith("https://"):
+            u = u[8:]
+        return u.lower()
+
+    async def _firecrawl_scrape_isolating(self, firecrawl_app, originals: List[str],
+                                          send_map: Dict[str, str],
+                                          results: Dict[str, Optional[str]],
+                                          outcomes: Dict[str, str]) -> None:
+        """Scrape ``originals`` through Firecrawl, writing content into
+        ``results`` and an EXTRACTION_* outcome into ``outcomes`` for every
+        one of them. On "No valid URLs provided" the batch is split in halves
+        and retried until the rejecting URL(s) stand alone; those are marked
+        rejected_by_provider and the rest are fetched."""
+        if not originals:
+            return
+        send_urls = [send_map[o] for o in originals]
+        try:
+            fetched = await self._firecrawl_submit(firecrawl_app, send_urls)
+        except asyncio.TimeoutError:
+            self.logger.error(f"❌ Firecrawl batch scrape timed out for {len(originals)} URL(s)")
+            for o in originals:
+                outcomes[o] = EXTRACTION_TIMEOUT
+            return
+        except Exception as e:
+            if "No valid URLs" in str(e):
+                if len(originals) == 1:
+                    self.logger.warning(f"Firecrawl rejected {originals[0]} as unscrapable")
+                    outcomes[originals[0]] = EXTRACTION_REJECTED
+                    return
+                mid = len(originals) // 2
+                self.logger.info(
+                    f"Firecrawl rejected a batch of {len(originals)}; splitting to isolate the rejected URL(s)")
+                await self._firecrawl_scrape_isolating(firecrawl_app, originals[:mid], send_map, results, outcomes)
+                await self._firecrawl_scrape_isolating(firecrawl_app, originals[mid:], send_map, results, outcomes)
+                return
+            self.logger.error(f"❌ Error in Firecrawl batch scraping: {e}")
+            for o in originals:
+                outcomes[o] = EXTRACTION_ERROR
+            return
+
+        by_key = {self._url_key(k): v for k, v in fetched.items()}
+        for o in originals:
+            sent = send_map[o]
+            content = fetched.get(sent)
+            if content is None:
+                content = by_key.get(self._url_key(sent))
+            if content is None and sent != o:
+                content = fetched.get(o) or by_key.get(self._url_key(o))
+            results[o] = content or None
+            outcomes[o] = EXTRACTION_OK if content else EXTRACTION_NO_CONTENT
+
     async def _firecrawl_batch_scrape(self, firecrawl_app, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Use Firecrawl's batch API to scrape multiple URLs
@@ -1900,115 +2390,49 @@ class AutomatedIngestService:
             uris: List of URIs to scrape
 
         Returns:
-            Dictionary mapping URIs to scraped content
+            Dictionary with every input URI as a key: content string or None.
+            ``self._last_extraction_outcomes`` carries the per-URL outcome.
+            A rejected batch never comes back as a bare empty mapping
+            (work package 27).
         """
-        try:
-            # Guard: Firecrawl 400s ("No valid URLs provided") when handed an
-            # empty or all-invalid list (e.g. non-http scheme). Filter first and
-            # skip the call entirely when nothing valid remains.
-            valid_uris = [u for u in (uris or []) if isinstance(u, str) and u.startswith(("http://", "https://"))]
-            if not valid_uris:
-                self.logger.info(f"Skipping Firecrawl batch scrape: no valid http(s) URLs among {len(uris or [])}")
-                return {}
-            uris = valid_uris
+        start_time = time.time()
+        results: Dict[str, Optional[str]] = {u: None for u in (uris or [])}
+        outcomes: Dict[str, str] = {}
 
-            self.logger.info(f"Starting Firecrawl batch scrape for {len(uris)} URLs")
-            start_time = time.time()
+        valid: List[str] = []
+        for u in (uris or []):
+            if isinstance(u, str) and u.startswith(("http://", "https://")):
+                valid.append(u)
+            else:
+                outcomes[u] = EXTRACTION_ERROR
+        if not valid:
+            self.logger.info(f"Skipping Firecrawl batch scrape: no valid http(s) URLs among {len(uris or [])}")
+            self._last_extraction_outcomes = outcomes
+            return results
 
-            # Use Firecrawl SDK's built-in polling method instead of manual polling
-            # Documentation: https://docs.firecrawl.dev/features/batch-scrape
-            # batch_scrape() handles submission + polling automatically
-            # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
-            # PERFORMANCE FIX: Use dedicated executor instead of default (None) to prevent blocking other operations
-            loop = asyncio.get_event_loop()
+        # Resolve redirect wrappers (Google News RSS links) before the provider
+        # sees them; they are the documented cause of batch rejection.
+        send_map: Dict[str, str] = {}
+        for u in valid:
+            send_map[u] = await self._resolve_redirect_wrapper(u) if is_redirect_wrapper(u) else u
+        resolved_count = sum(1 for u in valid if send_map[u] != u)
 
-            self.logger.info(f"Submitting to dedicated blocking I/O executor (poll_interval=5, wait_timeout=300)")
-            # wait_timeout only bounds the SDK's polling loop; its individual HTTP
-            # requests have no socket timeout and can block the executor thread
-            # forever (seen 2026-07-11: result-page GET hung 2 days and froze the
-            # keyword monitor). asyncio.wait_for puts a hard ceiling on the await.
-            batch_job = await asyncio.wait_for(
-                loop.run_in_executor(
-                    self._blocking_executor,  # Use dedicated executor instead of None
-                    lambda: firecrawl_app.batch_scrape(
-                        uris,
-                        formats=['markdown'],
-                        poll_interval=5,  # Check every 5 seconds
-                        wait_timeout=300  # Wait up to 5 minutes
-                    )
-                ),
-                timeout=360  # hard ceiling above the SDK's 300s wait_timeout
-            )
+        self.logger.info(f"Starting Firecrawl batch scrape for {len(valid)} URLs ({resolved_count} redirect wrappers resolved)")
+        await self._firecrawl_scrape_isolating(firecrawl_app, valid, send_map, results, outcomes)
 
-            if not batch_job:
-                self.logger.error(f"Batch scrape returned None")
-                return {}
+        self._last_extraction_outcomes = outcomes
+        duration = time.time() - start_time
+        tally = {}
+        for v in outcomes.values():
+            tally[v] = tally.get(v, 0) + 1
+        self.logger.info(
+            f"✅ Firecrawl batch scrape finished in {duration:.1f}s: {tally.get(EXTRACTION_OK, 0)} ok, "
+            f"{tally.get(EXTRACTION_REJECTED, 0)} rejected_by_provider, "
+            f"{tally.get(EXTRACTION_NO_CONTENT, 0)} no_content, {tally.get(EXTRACTION_TIMEOUT, 0)} timeout, "
+            f"{tally.get(EXTRACTION_ERROR, 0)} error"
+        )
+        return results
 
-            # Check status
-            status = getattr(batch_job, 'status', None)
-            data = getattr(batch_job, 'data', [])
-
-            self.logger.info(f"✅ Batch scrape completed with status: {status}, {len(data)} results")
-
-            if status != 'completed':
-                self.logger.warning(f"Batch scrape status is '{status}', not 'completed'")
-                return {}
-
-            # Process results
-            processed_results = {}
-            for idx, item in enumerate(data):
-                # Get URL from metadata
-                metadata = getattr(item, 'metadata', None) or (item.get('metadata') if isinstance(item, dict) else None)
-                url = None
-                if metadata:
-                    if isinstance(metadata, dict):
-                        url = metadata.get('sourceURL') or metadata.get('source_url')
-                    else:
-                        url = getattr(metadata, 'sourceURL', None) or getattr(metadata, 'source_url', None)
-
-                # Get markdown content
-                markdown = getattr(item, 'markdown', None) or (item.get('markdown') if isinstance(item, dict) else None)
-
-                if url and markdown:
-                    # Apply token limiting
-                    from app.analyzers.article_analyzer import ArticleAnalyzer
-                    truncated_content = ArticleAnalyzer.truncate_text(None, markdown, max_chars=65000)
-
-                    if len(markdown) > len(truncated_content):
-                        self.logger.info(f"Truncated content for {url}: {len(markdown)} -> {len(truncated_content)} chars")
-
-                    processed_results[url] = truncated_content
-                    self.logger.debug(f"✅ Successfully scraped {url} ({len(truncated_content)} chars)")
-                else:
-                    if url:
-                        processed_results[url] = None
-                        self.logger.warning(f"❌ No markdown content for {url}")
-                    else:
-                        self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
-
-            duration = time.time() - start_time
-            successful_count = len([r for r in processed_results.values() if r])
-            self.logger.info(f"✅ Firecrawl batch scrape completed: {successful_count}/{len(processed_results)} successful in {duration:.1f}s ({duration/60:.1f} min)")
-            return processed_results
-
-        except asyncio.TimeoutError:
-            duration = time.time() - start_time
-            self.logger.error(f"❌ Firecrawl batch scrape timed out after {duration:.1f}s")
-            return {}
-        except Exception as e:
-            duration = time.time() - start_time
-            # Firecrawl rejects some URLs it can't scrape (e.g. Google-News RSS
-            # redirects) with "No valid URLs provided". That's an expected,
-            # non-fatal rejection — log quietly at WARNING and skip, rather than
-            # emitting an ERROR + traceback for every such batch.
-            if "No valid URLs" in str(e):
-                self.logger.warning(f"Firecrawl rejected {len(uris)} URL(s) as unscrapable; skipping batch.")
-                return {}
-            self.logger.error(f"❌ Error in Firecrawl batch scraping after {duration:.1f}s: {e}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return {}
-    
     async def _poll_batch_completion(self, firecrawl_app, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
         """
         Poll Firecrawl batch API for completion

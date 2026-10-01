@@ -65,25 +65,47 @@ except ImportError:
 #: a wider window starts merging a story with its own follow-ups.
 SAME_STORY_WINDOW_DAYS = 3
 
-#: Query parameters that never identify the article, on top of the campaign
-#: tags ``normalize_uri`` already strips. Seeking Alpha appends
-#: ``feed_item_type`` and Zacks ``cid``; both put one story into the PowerCo
-#: topic twice on 1 October 2026.
-_EXTRA_TRACKING = re.compile(
-    r"(^|&)(feed_item_type|cid|ito|itm_[^=&]*|ocid|taid)=[^&]*",
-    re.IGNORECASE,
-)
-
 PRESS_RELEASE = "press_release"
 NEWS = "news"
 
 
+def _strip_registry_params(host: str, query: str) -> str:
+    """Drop the query parameters the tracking registry names for this host.
+
+    The registry in ``app.collectors.url_identity`` is the one list of
+    parameters that never identify a page: the global ad and email click
+    ids, plus per-publisher additions (Seeking Alpha ``feed_item_type``,
+    BBC ``at_*``, Zacks ``cid``). Anything else is kept, so two
+    streamingmedia pages that differ only in ``ArticleID`` stay two keys.
+
+    The pairs are filtered as written rather than re-encoded, because
+    ``url_key`` is stored and compared as text: re-encoding ``%20`` as ``+``
+    would make a new key miss the row written before this change.
+    """
+    from app.collectors.url_identity import load_registry
+    reg = load_registry()
+    kept = []
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        name = pair.split("=", 1)[0]
+        if not reg.is_tracking(host, name):
+            kept.append(pair)
+    return "&".join(kept)
+
+
 def story_url_key(uri: Any) -> str:
-    """The URL with everything that does not identify the article removed."""
+    """The URL with everything that does not identify the article removed.
+
+    Scheme, ``www.``, fragment and trailing slash go in ``normalize_uri``;
+    tracking parameters go by the per-host registry. Other code stores and
+    compares this key, so the shape must stay the same.
+    """
     key = normalize_uri(uri)
     if "?" in key:
         path, _, query = key.partition("?")
-        query = _EXTRA_TRACKING.sub("", query).lstrip("&")
+        host = path.split("/", 1)[0]
+        query = _strip_registry_params(host, query)
         key = f"{path}?{query}" if query else path
     return key
 

@@ -165,8 +165,8 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
                                      AND mb.market_id = :m
             WHERE ma.market_id = :m AND ma.review_verdict = 'signal'
               AND a.publication_date >= :d0 AND a.publication_date <= :d1
-            ORDER BY a.uri, a.publication_date DESC
-        ) x ORDER BY x.publication_date DESC
+            ORDER BY a.uri, a.publication_date DESC NULLS LAST
+        ) x ORDER BY x.publication_date DESC NULLS LAST
     """), bounds).mappings().all()]
 
     # Third-party coverage: everything matched that is not a vendor's own post.
@@ -179,7 +179,7 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
         WHERE ma.market_id = :m
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND a.publication_date >= :d0 AND a.publication_date <= :d1
-        ORDER BY a.uri, a.publication_date DESC
+        ORDER BY a.uri, a.publication_date DESC NULLS LAST
     """), bounds).mappings().all()]
 
     brief = mp.build_brief(conn, market, days=max(

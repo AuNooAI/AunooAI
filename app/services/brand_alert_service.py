@@ -87,7 +87,7 @@ def fetch_negative_social_posts(conn, topic: str, hours: int, author: Optional[s
                           WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')
           AND {not_own_account_sql(conn)}
           {extra}
-        ORDER BY eng DESC NULLS LAST, publication_date DESC
+        ORDER BY eng DESC NULLS LAST, publication_date DESC NULLS LAST
         LIMIT :lim
     """), params).fetchall()
     return [{"title": r[0] or "", "url": r[1], "source": r[2] or "", "text": r[3] or "",

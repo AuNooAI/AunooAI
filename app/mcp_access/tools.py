@@ -473,7 +473,7 @@ def _social_posts_sync(brand: str | None, topic: str | None, days_back: int, min
                   AND a.topic_alignment_score >= :rel
                   {topic_clause}
                   AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews r WHERE r.article_uri = a.uri AND r.status = 'false_positive')
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT :lim
             """), params).fetchall()
             posts = []

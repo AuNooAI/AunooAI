@@ -984,7 +984,7 @@ def cluster_articles_by_similarity(
             FROM articles
             WHERE uri IN ({placeholders})
             AND embedding IS NOT NULL
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
         """)
 
         result = conn.execute(stmt, params)

@@ -2473,7 +2473,7 @@ async def get_triage_articles(
                        category, topic, sentiment, tags, keyword_relevance_score
                 FROM articles
                 WHERE {where_sql}
-                ORDER BY publication_date DESC
+                ORDER BY publication_date DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),
             params,

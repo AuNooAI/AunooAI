@@ -44,7 +44,7 @@ async def get_feed_items_for_clustering(
                     AND fi.source_type = ?
                     AND fi.created_at >= ?
                     AND fi.is_hidden = 0
-                    ORDER BY fi.publication_date DESC, fi.created_at DESC
+                    ORDER BY fi.publication_date DESC NULLS LAST, fi.created_at DESC
                     LIMIT ?
                 """
                 params = [feed_group_id, source_type, date_threshold.isoformat(), items_per_source]
@@ -57,7 +57,7 @@ async def get_feed_items_for_clustering(
                     WHERE fi.source_type = ?
                     AND fi.created_at >= ?
                     AND fi.is_hidden = 0
-                    ORDER BY fi.publication_date DESC, fi.created_at DESC
+                    ORDER BY fi.publication_date DESC NULLS LAST, fi.created_at DESC
                     LIMIT ?
                 """
                 params = [source_type, date_threshold.isoformat(), items_per_source]

@@ -360,7 +360,7 @@ def _compose_digest(conn, period_days: int):
                 JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                 WHERE bac.category IN ({cat_in})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
-                ORDER BY a.publication_date DESC LIMIT 8
+                ORDER BY a.publication_date DESC NULLS LAST LIMIT 8
             """), {"b": bid, **cat_keys}).fetchall():
                 if row[1] not in seen_uris:
                     seen_uris.add(row[1])
@@ -373,7 +373,7 @@ def _compose_digest(conn, period_days: int):
                 WHERE ({_NEG})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
                   AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-                ORDER BY a.publication_date DESC LIMIT 8
+                ORDER BY a.publication_date DESC NULLS LAST LIMIT 8
             """), {"b": bid}).fetchall():
                 if row[1] not in seen_uris:
                     seen_uris.add(row[1])

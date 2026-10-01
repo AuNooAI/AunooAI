@@ -1984,7 +1984,7 @@ async def analyze_incidents(
                     topic_pattern = f"%{topic}%"
                     params.extend([topic_pattern, topic_pattern])
 
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         # Use test articles if provided, otherwise query database
@@ -3854,7 +3854,7 @@ async def analyze_real_time_signals(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
         
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         articles = db.fetch_all(query, params)
@@ -4065,7 +4065,7 @@ async def debug_articles(
             FROM articles 
             WHERE (topic = ? OR topic LIKE ? OR title LIKE ? OR summary LIKE ?)
             AND category IS NOT NULL AND sentiment IS NOT NULL
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT 10
             """
             topic_pattern = f"%{topic}%"
@@ -4482,7 +4482,7 @@ async def run_signal_instructions(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
         
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         articles = db.fetch_all(query, params)
@@ -5405,7 +5405,7 @@ async def _run_signals_background(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
 
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
 
         articles = db.fetch_all(query, params)
@@ -5625,7 +5625,7 @@ async def _run_signal_instruction_internal(
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
-                    ORDER BY publication_date DESC LIMIT ?
+                    ORDER BY publication_date DESC NULLS LAST LIMIT ?
                     """
                     entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
                     entity_articles = db.fetch_all(entity_query, entity_params)
@@ -5699,7 +5699,7 @@ async def _run_signal_instruction_internal(
                 params.extend([topic, topic_pattern, topic_pattern])
                 params.extend(market_params)
 
-            query += " ORDER BY publication_date DESC LIMIT ?"
+            query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
             params.append(_SIGNAL_CANDIDATE_CEILING)
 
             articles = db.fetch_all(query, params)

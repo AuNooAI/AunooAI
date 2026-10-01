@@ -497,7 +497,8 @@ async def run_auto_ingest_task(progress_callback=None, username=None):
         results = await service.process_articles_batch(
             articles=formatted_articles,
             topic=None,  # Each article has its own topic
-            keywords=[]
+            keywords=[],
+            route="manual"
         )
 
         if progress_callback:

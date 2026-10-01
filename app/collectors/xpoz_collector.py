@@ -10,6 +10,16 @@ Platforms: ``XPOZ_PLATFORMS`` env, comma-separated (default: all four).
 The SDK client is synchronous, so the whole per-search workload runs in a worker
 thread via ``asyncio.to_thread`` to keep the collector's ``async`` contract.
 Xpoz serves a rolling ~60-day window; older ``start_date`` values are best-effort.
+
+Quota (work package 20): every platform search reserves a unit in the
+host-wide ledger first and reports the answer afterwards. The SDK raises
+``OperationFailedError`` with "Usage limit exceeded" when the key is spent;
+that pauses the key for every site on the host and the run reports
+``quota_exhausted`` instead of an empty success.
+
+Identity (work package 5): a post without a public permalink keeps its
+platform and external id and gets the internal identity
+``xpoz://<platform>/<external_id>`` as its ``url``; see ``_row``.
 """
 import os
 import re
@@ -20,11 +30,24 @@ import threading
 import time
 import unicodedata
 from typing import Dict, List, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 
-from .base_collector import ArticleCollector
+from .base_collector import ArticleCollector, CONTENT_SOCIAL_POST
+from app.collectors.contracts import (
+    CollectionResult, STATUS_FAILED, STATUS_PARTIAL, STATUS_SUCCESS, describe_exception,
+)
+from app.collectors.dates import parse_date
+from app.services.provider_quota import QuotaGuard
 
 logger = logging.getLogger(__name__)
+
+_USAGE_LIMIT_TEXT = "usage limit exceeded"
+
+
+def _is_usage_limit(exc: BaseException) -> bool:
+    """The SDK's exhaustion signal: OperationFailedError carrying
+    "Usage limit exceeded" (2,100 of them across seven sites in a week)."""
+    return _USAGE_LIMIT_TEXT in str(exc).lower()
 
 _ALL_PLATFORMS = ("twitter", "reddit", "instagram", "tiktok")
 
@@ -83,21 +106,17 @@ def _to_date_str(value) -> Optional[str]:
         return s[:10] if len(s) >= 10 else None
 
 
-def _pub_iso(post) -> str:
-    """Best-effort ISO timestamp from a post's created_at / created_at_date."""
+def _pub_iso(post) -> Optional[str]:
+    """ISO timestamp from a post's created_at (unix seconds or ISO text) or
+    its created_at_date. Missing or unparseable stays None: nothing
+    substitutes the current time (work package 7)."""
     ca = getattr(post, "created_at", None)
-    if isinstance(ca, (int, float)) and ca:
-        try:
-            return datetime.fromtimestamp(ca, tz=timezone.utc).isoformat()
-        except (OverflowError, OSError, ValueError):
-            pass
-    if isinstance(ca, str) and ca.strip():
-        try:
-            return datetime.fromisoformat(ca.replace("Z", "+00:00")).isoformat()
-        except ValueError:
-            return ca
+    parsed = parse_date(ca) if ca not in (None, "", 0) else None
+    if parsed is not None and parsed.known:
+        return parsed.iso()
     cad = getattr(post, "created_at_date", None)
-    return str(cad) if cad else ""
+    parsed = parse_date(cad) if cad else None
+    return parsed.iso() if parsed is not None and parsed.known else None
 
 
 def _clean_url(value: Optional[str]) -> Optional[str]:
@@ -271,6 +290,8 @@ def _post_matches_terms(row: Dict, tokens: List[str]) -> bool:
 class XpozCollector(ArticleCollector):
     """Collector for social posts via the xpoz.ai SDK (one search per platform)."""
 
+    provider_name = "xpoz"
+
     def __init__(self, platforms: Optional[List[str]] = None):
         self.api_key = _api_key()
         if not self.api_key:
@@ -310,28 +331,64 @@ class XpozCollector(ArticleCollector):
 
         ``max_results`` is applied per platform, so up to ``max_results * len(platforms)``
         posts may be returned per cycle — appropriate for high-volume brand monitoring.
+        Failures log and return what was found; use ``collect`` to see why.
         """
+        result = await self.collect(query, topic, interval_start=start_date, interval_end=end_date,
+                                    max_results=max_results)
+        if result.failed:
+            logger.error("Xpoz search failed: %s", result.error_message)
+        return result.items
+
+    async def collect(
+        self,
+        query: str,
+        topic: Optional[str] = None,
+        *,
+        interval_start: Optional[datetime] = None,
+        interval_end: Optional[datetime] = None,
+        max_results: int = 10,
+        continuation: Optional[Dict] = None,
+        **kw,
+    ) -> CollectionResult:
+        """One search per platform, folded into one result. A platform that
+        was out of quota, timed out or errored makes the whole run partial;
+        all platforms out of quota makes it ``quota_exhausted``."""
+        res = self.new_result(query, interval_start, interval_end)
         term = (query or "").strip()
         if not term:
-            return []
+            res.diagnostics["note"] = "empty query; no request sent"
+            return self.finish(res)
         per_platform = min(max(1, int(max_results or 10)), _max_per_platform())
         try:
-            return await asyncio.to_thread(
+            outcomes = await asyncio.to_thread(
                 self._search_sync,
                 term,
                 topic,
                 per_platform,
-                _to_date_str(start_date),
-                _to_date_str(end_date),
+                _to_date_str(interval_start),
+                _to_date_str(interval_end),
             )
         except Exception as e:  # noqa: BLE001 - best-effort collector
             logger.error("Xpoz search failed: %s: %s", type(e).__name__, e)
-            return []
+            out = CollectionResult.from_exception(e, host="xpoz.ai")
+            out.started_at = res.started_at
+            return self.finish(out, query, interval_start, interval_end)
+        order = {STATUS_SUCCESS: 0, STATUS_PARTIAL: 1, STATUS_FAILED: 2}
+        for outcome in sorted(outcomes, key=lambda r: order.get(r.status, 3)):
+            res.merge(outcome)
+        if outcomes and all(o.failed for o in outcomes):
+            # merge() keeps the first route's status only when it has items;
+            # with every platform failed the combination is failed.
+            res.status = STATUS_FAILED
+            res.coverage_complete = False
+        res.diagnostics["platforms"] = list(self.platforms)
+        return self.finish(res)
 
-    def _search_sync(self, term, topic, per_platform, start_date, end_date) -> List[Dict]:
+    def _search_sync(self, term, topic, per_platform, start_date, end_date) -> List[CollectionResult]:
+        """One ``CollectionResult`` per platform. Runs in a worker thread."""
         from xpoz import XpozClient
 
-        out: List[Dict] = []
+        outcomes: List[CollectionResult] = []
         tokens = _term_tokens(term) if _strict_terms_enabled() else []
         client = XpozClient(self.api_key, check_update=False)
         # Cap each platform's blocking SDK call so one slow/hung platform can't
@@ -342,9 +399,16 @@ class XpozCollector(ArticleCollector):
         try:
             for plat in self.platforms:
                 plat_timeout = _platform_timeout(plat)
+                outcome = CollectionResult.ok([], provider=self.provider_name, scope=plat).mark_started()
+                guard = QuotaGuard(self.provider_name, self.api_key, scope=f"{plat}:{term[:60]}")
                 try:
                     ns = getattr(client, plat, None)
                     if ns is None:
+                        continue
+                    blocked = guard.check()
+                    if blocked is not None:
+                        blocked.scope = plat
+                        outcomes.append(blocked.mark_finished())
                         continue
 
                     def _submit():
@@ -371,30 +435,55 @@ class XpozCollector(ArticleCollector):
                             result = fut.result(timeout=plat_timeout)
                     except concurrent.futures.TimeoutError:
                         fut.cancel()
+                        guard.error("platform timeout")
                         logger.warning(
                             "Xpoz %s exceeded %.0fs for '%s' — skipping this platform, "
                             "keeping other platforms' posts",
                             plat, plat_timeout, term[:60],
                         )
+                        fail = CollectionResult.from_exception(
+                            concurrent.futures.TimeoutError(f"xpoz {plat} exceeded {plat_timeout:.0f}s"),
+                            host="xpoz.ai", scope=plat)
+                        fail.started_at = outcome.started_at
+                        outcomes.append(fail.mark_finished())
                         continue
+                    guard.ok()
                     posts = getattr(result, "data", None) or []
                     mapper = getattr(self, f"_map_{plat}")
                     dropped = 0
+                    outcome.counts.received = len(posts)
                     for post in posts[:per_platform]:
                         row = mapper(post, topic)
                         if not row:
+                            outcome.counts.invalid += 1
                             continue
                         if tokens and not _post_matches_terms(row, tokens):
                             dropped += 1
                             continue
-                        out.append(row)
+                        outcome.items.append(row)
+                    outcome.counts.filtered = dropped
+                    if len(posts) >= per_platform:
+                        # A full page from a provider that does not page for
+                        # us has no proven end.
+                        outcome.coverage_complete = False
+                        outcome.truncated_reason = "provider_limit"
                     logger.info(
                         "Xpoz %s returned %d posts for '%s'%s",
                         plat, len(posts), term[:60],
                         f" ({dropped} dropped: missing query terms)" if dropped else "",
                     )
+                    outcomes.append(outcome.mark_finished())
                 except Exception as e:  # noqa: BLE001 - one platform failing shouldn't kill the rest
                     logger.warning("Xpoz %s search error: %s: %s", plat, type(e).__name__, e)
+                    if _is_usage_limit(e):
+                        until = guard.exhausted(detail=describe_exception(e))
+                        fail = guard.result_for_exhaustion(until, f"xpoz {plat}: {e}")
+                        fail.scope = plat
+                    else:
+                        guard.error(describe_exception(e))
+                        fail = CollectionResult.from_exception(e, host="xpoz.ai", scope=plat)
+                    fail.started_at = outcome.started_at
+                    outcomes.append(fail.mark_finished())
         finally:
             # Don't block on a hung search_posts thread; it dies with the process.
             pool.shutdown(wait=False, cancel_futures=True)
@@ -404,32 +493,51 @@ class XpozCollector(ArticleCollector):
             # never wait on so _search_sync returns as soon as the loop is done.
             threading.Thread(target=_safe_close, args=(client,), daemon=True).start()
         self.requests_today += len(self.platforms)
-        return out
+        return outcomes
 
     # -- per-platform mappers -> standardized article dict --------------------
 
     def _row(self, *, title, body, author, pub, url, platform, external_id, topic, meta):
-        if not url or not external_id:
+        """One standardized row for a social post.
+
+        A post with no public permalink is still a post. The ingest path
+        keys articles by URI, so such a row gets the internal identity
+        ``xpoz://<platform>/<external_id>`` as its ``url``: two posts stay
+        two rows, the scheme is not http(s) so nothing ever tries to fetch
+        it, and ``social_meta["permalink"]`` is None until a later
+        observation supplies the real link (work package 5). A row with no
+        external id at all cannot be identified and is dropped.
+        """
+        if not external_id:
             return None
+        external_id = str(external_id)
         # social_meta carries what the ingest pipeline would otherwise discard:
         # normalized engagement (likes/reposts/comments/plays) + a thumbnail URL.
-        social_meta = {"platform": platform, "external_id": str(external_id)}
+        social_meta = {"platform": platform, "external_id": external_id}
         if author:
             social_meta["author"] = author
         for k, v in (meta or {}).items():
             if v is not None and v != "":
                 social_meta[k] = v
+        raw = {"platform": platform, "external_id": external_id, "provider": "xpoz"}
+        if url:
+            social_meta["permalink"] = url
+        else:
+            url = f"xpoz://{platform}/{external_id}"
+            social_meta["permalink"] = None
+            raw["permalink_missing"] = True
         return {
             "title": _clean(title, 300) or (body[:120] if body else platform),
             "summary": body,
             "content": body,
+            "content_kind": CONTENT_SOCIAL_POST,
             "authors": [author] if author else [],
             "published_date": pub,
             "url": url,
             "source": f"xpoz:{platform}",
             "topic": topic,
             "social_meta": social_meta,
-            "raw_data": {"platform": platform, "external_id": str(external_id), "provider": "xpoz"},
+            "raw_data": raw,
         }
 
     def _map_twitter(self, p, topic):
@@ -487,10 +595,15 @@ class XpozCollector(ArticleCollector):
         )
 
     def _map_instagram(self, p, topic):
+        """An Instagram post. The profile URL is never used as the post URL:
+        it stands for every post by that account, and using it collapsed
+        distinct posts into one record at dedup (work package 5). Without
+        ``code_url`` the row keeps the account URL beside the post id and
+        gets the internal identity from ``_row``."""
         caption = _clean(getattr(p, "caption", None))
         username = getattr(p, "username", None)
-        url = getattr(p, "code_url", None) or (
-            f"https://www.instagram.com/{username}/" if username else None)
+        url = _clean_url(getattr(p, "code_url", None))
+        account_url = f"https://www.instagram.com/{username}/" if username else None
         return self._row(
             title=caption,
             body=caption,
@@ -501,6 +614,7 @@ class XpozCollector(ArticleCollector):
             external_id=getattr(p, "id", None),
             topic=topic,
             meta={
+                "account_url": account_url,
                 "likes": getattr(p, "like_count", None),
                 "comments": getattr(p, "comment_count", None),
                 "media_type": getattr(p, "media_type", None),

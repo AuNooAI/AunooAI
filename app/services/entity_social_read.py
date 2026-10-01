@@ -169,7 +169,7 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
          ORDER BY m.article_uri, m.brand_id,
                   (m.mention_type = 'explicit_name') DESC, m.id
         ) one
-         ORDER BY one.publication_date DESC
+         ORDER BY one.publication_date DESC NULLS LAST
          LIMIT :lim
     """), params).mappings().all()
 

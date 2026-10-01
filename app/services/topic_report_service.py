@@ -646,7 +646,7 @@ async def _rerun_future_horizons_for_topic(
               AND analyzed = TRUE
               AND topic_alignment_score IS NOT NULL
               AND topic_alignment_score > 0.7
-            ORDER BY topic_alignment_score DESC, publication_date DESC, uri ASC
+            ORDER BY topic_alignment_score DESC, publication_date DESC NULLS LAST, uri ASC
             LIMIT {int(sample_size)}
         """)
         rows = db.facade._execute_with_rollback(sql, {"topics": eval_topics}).fetchall()

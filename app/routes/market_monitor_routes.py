@@ -3933,7 +3933,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     WHERE bac.brand_id = :b
                       AND a.bias_source = 'vendor:linkedin'
                       AND {_OWN_VOICE}
-                    ORDER BY a.uri, a.publication_date DESC
+                    ORDER BY a.uri, a.publication_date DESC NULLS LAST
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 10
             """), {"b": brand_id}).mappings().all()]
@@ -3951,7 +3951,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     JOIN bw_market_articles ma ON ma.article_uri = a.uri
                     WHERE bac.brand_id = :b
                       AND ma.review_verdict = 'signal'
-                    ORDER BY a.uri, a.publication_date DESC
+                    ORDER BY a.uri, a.publication_date DESC NULLS LAST
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 25
             """), {"b": brand_id}).mappings().all()]
@@ -3977,7 +3977,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                 JOIN articles a ON a.uri = bac.article_uri
                 WHERE bac.brand_id = :b
                   AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
-                ORDER BY a.uri, a.publication_date DESC LIMIT 10
+                ORDER BY a.uri, a.publication_date DESC NULLS LAST LIMIT 10
             """), {"b": brand_id}).mappings().all()]
 
             vendor["review_tasks"] = [dict(r) for r in conn.execute(text("""

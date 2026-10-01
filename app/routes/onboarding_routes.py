@@ -1030,6 +1030,24 @@ async def save_topic(
             "driver_types": topic_data.get("driver_types", standard_topic["driver_types"]),
             "keywords": keywords
         }
+
+        # Enrichment refuses to run on a topic with an empty categories or
+        # future-signals list; every article routed to it would be stored
+        # unanalysed (spec work package 22). Refuse the save unless the
+        # caller says, in so many words, that this is what they want.
+        enrichment_disabled = bool(topic_data.get("enrichment_disabled"))
+        empty_lists = [key for key in ("categories", "future_signals") if not formatted_topic.get(key)]
+        if empty_lists and not enrichment_disabled:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Topic '{formatted_topic['name']}' has an empty {' and '.join(empty_lists)} list. "
+                    "Articles for a topic without these lists are stored but never analysed. "
+                    "Fill the list, or send enrichment_disabled: true to save it that way on purpose."
+                ),
+            )
+        if enrichment_disabled:
+            formatted_topic["enrichment_disabled"] = True
         logger.info(f"Formatted topic: {json.dumps(formatted_topic, indent=2)}")
 
         # Check if topic exists in config
@@ -1136,11 +1154,19 @@ async def save_topic(
             # Continue despite keyword group error - config.json update is the priority
 
         logger.info("Topic saved successfully")
-        return JSONResponse(content={
+        response = {
             "status": "success",
             "message": "Topic saved successfully"
-        })
+        }
+        if enrichment_disabled:
+            response["enrichment_disabled"] = True
+            response["consequence"] = "articles for this topic will be stored but not analysed"
+            response["message"] = "Topic saved with enrichment disabled: " + response["consequence"]
+        return JSONResponse(content=response)
 
+    except HTTPException:
+        # A refusal (400) must reach the caller as a refusal, not a 500.
+        raise
     except Exception as e:
         logger.error(f"Error saving topic: {str(e)}")
         raise HTTPException(

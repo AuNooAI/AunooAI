@@ -1552,7 +1552,7 @@ async def get_category_articles(
             AND summary NOT LIKE '%phone%number%'
             AND news_source NOT LIKE '%medium.com/@%'
             AND {story_sql()}
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT {per_page} OFFSET {offset}
         """
 

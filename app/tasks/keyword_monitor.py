@@ -13,7 +13,9 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
+from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, ERR_QUOTA
 from app.database import Database
+from app.services.collection_runs import claim_interval, commit_interval, record_run
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,41 @@ def _strip_entity_prefix(keyword: str) -> str:
         if keyword.startswith(prefix):
             return keyword[len(prefix):].strip()
     return keyword
+
+
+def summarize_outcomes(keyword_text: str, outcomes: Dict[str, CollectionResult]
+                       ) -> "tuple[List[Dict], List[tuple[str, str]]]":
+    """Fold per-provider results into one article list and the log lines
+    that describe what happened.
+
+    One warning used to cover both "nothing new" and "the provider refused
+    us", so a quota failure read like a quiet day. Now a failed provider
+    gets its own line with the classified reason, and "No new articles" is
+    said only when that is what happened. Returns ``(articles, messages)``
+    where each message is ``(level, text)``.
+    """
+    articles: List[Dict] = []
+    messages: List["tuple[str, str]"] = []
+    failed = 0
+    for provider, result in outcomes.items():
+        if result is None:
+            continue
+        articles.extend(result.items)
+        if result.failed:
+            failed += 1
+            level = "warning" if result.error_code == ERR_QUOTA else "error"
+            messages.append((level, f"{provider} failed: {result.error_message or result.error_code}"
+                             + (" (quota exhausted; the key is paused for every site)"
+                                if result.error_code == ERR_QUOTA else "")))
+        elif result.status == "partial":
+            messages.append(("info", f"{provider} partial: {result.truncated_reason or 'budget'}; "
+                                     f"continuation kept for keyword '{keyword_text}'"))
+    if not articles:
+        if failed and failed == len([r for r in outcomes.values() if r is not None]):
+            messages.append(("warning", f"Every provider failed for keyword: {keyword_text}"))
+        else:
+            messages.append(("info", f"No new articles for keyword: {keyword_text}"))
+    return articles, messages
 
 
 # Global variable to track task status
@@ -368,66 +405,75 @@ class KeywordMonitor:
         collector,
         keyword_text: str,
         topic: str,
-        start_date: datetime
-    ) -> List[Dict]:
-        """Search with individual collector, handling errors gracefully"""
-        try:
-            search_term = _strip_entity_prefix(keyword_text)
-            if search_term != keyword_text:
-                logger.info(f"Searching with {provider} for keyword: '{keyword_text}' (stripped to '{search_term}')...")
-            else:
-                logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
+        start_date: datetime,
+        end_date: Optional[datetime] = None,
+        continuation: Optional[Dict] = None,
+    ) -> CollectionResult:
+        """Run one provider over the fixed interval and return its outcome.
 
-            # Pass the group's country filter under whichever name the collector
-            # takes: NewsData calls it ``country``, TheNewsAPI and the firehose
-            # call it ``locale``. Matching on ``country`` alone meant only
-            # NewsData ever got it.
-            #
-            # MEASURED 21 Sep 2026, and the honest answer is that this does not
-            # give us a country filter. TheNewsAPI IGNORES ``locale`` on the
-            # /v1/news/all endpoint this collector uses: searching "gum disease"
-            # returned the same 190 articles and the same sources for locale=gb,
-            # locale=us, locale=in and no locale at all. It does work on
-            # /v1/news/top (992,762 unfiltered vs 35,195 for gb, 5,807 for fr,
-            # with correctly national sources), but that endpoint serves top
-            # stories only and would starve a niche query. The firehose accepts
-            # ``locale`` and ignores it by design (see its docstring).
-            #
-            # So every market group is still filtering by LANGUAGE alone, and a
-            # "France" topic collects Belgian, Swiss and BBC Afrique press. The
-            # parameter is passed anyway because it costs nothing and is correct
-            # for NewsData. Do NOT "fix" the market topics by re-adding a locale
-            # argument here — it has been tried. The real options are a per-market
-            # ``domains`` allow-list (works: 21 results narrowed to 2) or naming
-            # the topics after languages rather than countries.
-            # Sunstar's "France" topic was really francophone press, and carried
-            # Belgian, Swiss and BBC Afrique stories; only 8 of its 35 articles
-            # were on a French domain. Social collectors take neither name and
-            # would raise TypeError, so the signature check still guards the call.
-            extra = {}
-            if self.country:
-                try:
-                    sig = inspect.signature(collector.search_articles).parameters
-                    for _param in ('country', 'locale'):
-                        if _param in sig:
-                            extra[_param] = self.country
-                            break
-                except (TypeError, ValueError):
-                    pass
-            # A social provider returns the N most recent posts per platform, so the
-            # tenant page size (10 on most tenants, sized for the news APIs) is the
-            # daily cap on social coverage: 10 per platform per keyword per run,
-            # and a provider outage is never backfilled. Social gets its own floor,
-            # still bounded per platform by XPOZ_MAX_RESULTS (oviva, 14 Sep 2026).
-            max_results = self.page_size
-            if provider in ('reddit', 'bluesky', 'xpoz', 'telegram'):
-                max_results = max(max_results, _social_page_size())
-            articles = await asyncio.wait_for(
-                collector.search_articles(
-                    query=search_term,
-                    topic=topic,
+        Never raises: a timeout, a provider error or an exhausted quota comes
+        back as a failed ``CollectionResult`` with a classified error code,
+        and the keyword carries on with the other providers.
+        """
+        search_term = _strip_entity_prefix(keyword_text)
+        if search_term != keyword_text:
+            logger.info(f"Searching with {provider} for keyword: '{keyword_text}' (stripped to '{search_term}')...")
+        else:
+            logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
+
+        # Pass the group's country filter under whichever name the collector
+        # takes: NewsData calls it ``country``, TheNewsAPI and the firehose
+        # call it ``locale``. Matching on ``country`` alone meant only
+        # NewsData ever got it.
+        #
+        # MEASURED 21 Sep 2026, and the honest answer is that this does not
+        # give us a country filter. TheNewsAPI IGNORES ``locale`` on the
+        # /v1/news/all endpoint this collector uses: searching "gum disease"
+        # returned the same 190 articles and the same sources for locale=gb,
+        # locale=us, locale=in and no locale at all. It does work on
+        # /v1/news/top (992,762 unfiltered vs 35,195 for gb, 5,807 for fr,
+        # with correctly national sources), but that endpoint serves top
+        # stories only and would starve a niche query. The firehose accepts
+        # ``locale`` and ignores it by design (see its docstring).
+        #
+        # So every market group is still filtering by LANGUAGE alone, and a
+        # "France" topic collects Belgian, Swiss and BBC Afrique press. The
+        # parameter is passed anyway because it costs nothing and is correct
+        # for NewsData. Do NOT "fix" the market topics by re-adding a locale
+        # argument here — it has been tried. The real options are a per-market
+        # ``domains`` allow-list (works: 21 results narrowed to 2) or naming
+        # the topics after languages rather than countries.
+        # Sunstar's "France" topic was really francophone press, and carried
+        # Belgian, Swiss and BBC Afrique stories; only 8 of its 35 articles
+        # were on a French domain. Social collectors take neither name and
+        # would raise TypeError, so the signature check still guards the call.
+        extra = {}
+        if self.country:
+            try:
+                sig = inspect.signature(collector.search_articles).parameters
+                for _param in ('country', 'locale'):
+                    if _param in sig:
+                        extra[_param] = self.country
+                        break
+            except (TypeError, ValueError):
+                pass
+        # A social provider returns the N most recent posts per platform, so the
+        # tenant page size (10 on most tenants, sized for the news APIs) is the
+        # daily cap on social coverage: 10 per platform per keyword per run,
+        # and a provider outage is never backfilled. Social gets its own floor,
+        # still bounded per platform by XPOZ_MAX_RESULTS (oviva, 14 Sep 2026).
+        max_results = self.page_size
+        if provider in ('reddit', 'bluesky', 'xpoz', 'telegram'):
+            max_results = max(max_results, _social_page_size())
+        try:
+            result = await asyncio.wait_for(
+                collector.collect(
+                    search_term,
+                    topic,
+                    interval_start=start_date,
+                    interval_end=end_date,
                     max_results=max_results,
-                    start_date=start_date,
+                    continuation=continuation,
                     search_fields=self.search_fields,
                     language=self.language,
                     sort_by=self.sort_by,
@@ -435,26 +481,39 @@ class KeywordMonitor:
                 ),
                 timeout=SEARCH_TIMEOUT_SECONDS
             )
-
-            # Tag articles with provider source and the keyword that found them —
-            # ingest stamps it into tags so body-only brand mentions stay findable.
-            matched_tag = search_term.strip().strip('"').strip()
-            for article in articles:
-                article['collector_source'] = provider
-                article['_matched_keywords'] = [matched_tag] if matched_tag else []
-
-            logger.info(f"{provider}: Found {len(articles)} articles")
-            return articles
-
         except asyncio.TimeoutError:
             logger.error(
                 f"{provider} search timed out after {SEARCH_TIMEOUT_SECONDS}s "
                 f"for keyword '{keyword_text}' — skipping"
             )
-            return []
-        except Exception as e:
-            logger.error(f"{provider} search failed: {e}")
-            return []
+            result = CollectionResult.failure(
+                ERR_TIMEOUT, f"timeout: {provider} search exceeded {SEARCH_TIMEOUT_SECONDS}s",
+                retryable=True, continuation=continuation)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"{provider} search failed: {type(e).__name__}: {e}")
+            result = CollectionResult.from_exception(e, continuation=continuation)
+        if not isinstance(result, CollectionResult):
+            # A collector that still returns a bare list.
+            result = CollectionResult.ok(list(result or []))
+        result.provider = result.provider or provider
+        result.scope = result.scope or search_term
+        if result.interval_start is None:
+            result.interval_start = start_date
+        if result.interval_end is None:
+            result.interval_end = end_date
+
+        # Tag articles with provider source and the keyword that found them —
+        # ingest stamps it into tags so body-only brand mentions stay findable.
+        matched_tag = search_term.strip().strip('"').strip()
+        for article in result.items:
+            article['collector_source'] = provider
+            article['_matched_keywords'] = [matched_tag] if matched_tag else []
+
+        if result.failed:
+            logger.error(f"{provider} failed: {result.error_message}")
+        else:
+            logger.info(f"{provider}: Found {len(result.items)} articles ({result.status})")
+        return result
 
     def check_and_reset_counter(self):
         """Check if the API usage counter needs to be reset for a new day"""
@@ -648,42 +707,72 @@ class KeywordMonitor:
                 )
 
                 try:
-                    # Calculate start_date based on search_date_range instead of last_checked
-                    start_date = datetime.now() - timedelta(days=self.search_date_range)
-
-                    logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
+                    # Each provider works a fixed interval it claims from its
+                    # checkpoint: the proven coverage (or search_date_range
+                    # back on first contact) up to now, or the unfinished
+                    # interval a previous run left behind with its
+                    # continuation. The interval is fixed before the request
+                    # so a partial run can resume the same window.
+                    lookback = timedelta(days=self.search_date_range)
+                    claims = {}
+                    for provider in self.collectors:
+                        cp = await asyncio.to_thread(
+                            claim_interval, self.db, provider, f"kw:{keyword_id}", lookback=lookback)
+                        if cp is None:
+                            logger.info(f"{provider}: interval for keyword {keyword_id} is leased elsewhere; skipping")
+                            continue
+                        claims[provider] = cp
 
                     # MULTI-COLLECTOR: Search across all active collectors in parallel
-                    search_tasks = []
-                    for provider, collector in self.collectors.items():
-                        task = self._search_with_collector(
+                    providers_in_order = list(claims.keys())
+                    search_tasks = [
+                        self._search_with_collector(
                             provider=provider,
-                            collector=collector,
+                            collector=self.collectors[provider],
                             keyword_text=keyword_text,
                             topic=topic,
-                            start_date=start_date
+                            start_date=claims[provider].interval_start,
+                            end_date=claims[provider].interval_end,
+                            continuation=claims[provider].continuation,
                         )
-                        search_tasks.append(task)
-
-                    # Execute all searches in parallel
+                        for provider in providers_in_order
+                    ]
                     results = await asyncio.gather(*search_tasks, return_exceptions=True)
 
-                    # Combine results from all collectors
-                    all_articles = []
-                    for i, result in enumerate(results):
-                        provider = list(self.collectors.keys())[i]
+                    outcomes = {}
+                    for provider, result in zip(providers_in_order, results):
+                        if isinstance(result, BaseException):
+                            result = CollectionResult.from_exception(result)
+                            result.provider = provider
+                        outcomes[provider] = result
 
-                        if isinstance(result, Exception):
-                            logger.error(f"{provider} search failed: {result}")
-                            continue
+                    def _finish_runs():
+                        """Commit each provider's checkpoint and write its run
+                        record. Only a complete success moves coverage; a
+                        partial or retryable failure keeps the interval and
+                        its continuation for the next cycle."""
+                        for provider, result in outcomes.items():
+                            cp = claims.get(provider)
+                            if cp is None:
+                                continue
+                            try:
+                                commit_interval(self.db, cp, result)
+                                record_run(
+                                    self.db, result, scope_kind="keyword", scope_id=str(keyword_id),
+                                    checkpoint_before=cp.coverage_through,
+                                    checkpoint_after=cp.interval_end if result.may_advance_checkpoint else cp.coverage_through)
+                            except Exception as run_err:  # noqa: BLE001
+                                logger.warning(f"{provider}: run bookkeeping failed for keyword {keyword_id}: {run_err}")
 
-                        all_articles.extend(result)
+                    all_articles, messages = summarize_outcomes(keyword_text, outcomes)
+                    for level, message in messages:
+                        getattr(logger, level, logger.info)(message)
 
                     # Deduplicate articles across providers
                     articles = self._deduplicate_articles(all_articles)
 
                     if not articles:
-                        logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
+                        await asyncio.to_thread(_finish_runs)
                         continue
 
                     # A group that declares a country wants that country's PRESS.
@@ -693,6 +782,7 @@ class KeywordMonitor:
                     # enriched, which is also where the saving is.
                     articles = self._filter_by_source_country(articles, keyword_text)
                     if not articles:
+                        await asyncio.to_thread(_finish_runs)
                         continue
 
                     logger.info(f"Found {len(articles)} unique articles for keyword: {keyword_text} (from {len(all_articles)} total across collectors)")
@@ -730,6 +820,9 @@ class KeywordMonitor:
                     new_articles_count += await loop.run_in_executor(
                         None, _save_articles_batch, articles, topic, keyword_id
                     )
+                    # The items are persisted; now the checkpoints may move
+                    # and the run records say what each provider did.
+                    await loop.run_in_executor(None, _finish_runs)
 
                     # SECOND: Now run auto-ingest pipeline on the saved articles.
                     # Social-only groups (reddit/bluesky) SKIP the heavy news pipeline
@@ -765,7 +858,8 @@ class KeywordMonitor:
 
                             # Pass suppress_notifications=True to prevent per-keyword notifications
                             auto_ingest_results = await self.auto_ingest_pipeline(
-                                articles, topic, topic_keywords, suppress_notifications=True
+                                articles, topic, topic_keywords, suppress_notifications=True,
+                                group_id=group_id if group_id is not None else keyword.get('group_id'),
                             )
                             logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
 
@@ -1150,7 +1244,7 @@ class KeywordMonitor:
         seen.update(r["uri"] for r in kept)
         return kept
 
-    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False) -> Dict[str, any]:
+    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False, group_id: Optional[int] = None) -> Dict[str, any]:
         """
         Run the auto-ingest pipeline on a batch of articles
 
@@ -1209,9 +1303,13 @@ class KeywordMonitor:
             # Process articles through the automated pipeline
             # Pass per-group relevance threshold if set (e.g. Brand Watch groups use 0.1)
             threshold_override = getattr(self, '_group_relevance_threshold', None)
+            # The keyword group identifies the rejected-candidate ledger
+            # (work package 19); without it the service resolves the group
+            # from the topic with one query.
             results = await self.auto_ingest_service.process_articles_batch(
                 formatted_articles, topic, keywords,
-                relevance_threshold_override=threshold_override
+                relevance_threshold_override=threshold_override,
+                group_id=group_id, route="keyword",
             )
 
             # Update job status

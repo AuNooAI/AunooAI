@@ -428,21 +428,31 @@ class AsyncDatabase:
             # It's a datetime object, convert to ISO string
             publication_date = publication_date.isoformat()
 
+        # Work package 22: a configuration fault stores its reason; an article
+        # fault counts an attempt so the retry sweep can stop after the cap.
+        # first_seen_at is set on insert only and never moved by a replay.
+        block_reason = article_data.get("enrichment_block_reason")
+        attempt = int(article_data.get("_enrichment_attempt") or 0)
+
         if self.db_type == 'postgresql':
             # PostgreSQL syntax with ON CONFLICT
             query = """
                 INSERT INTO articles (
                     uri, title, summary, news_source, publication_date, topic,
                     topic_alignment_score, keyword_relevance_score, confidence_score,
-                    overall_match_explanation, analyzed, ingest_status
+                    overall_match_explanation, analyzed, ingest_status,
+                    enrichment_block_reason, enrichment_attempts, first_seen_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
                 ON CONFLICT (uri) DO UPDATE SET
                     topic_alignment_score = $7,
                     keyword_relevance_score = $8,
                     confidence_score = $9,
                     overall_match_explanation = $10,
-                    ingest_status = $12
+                    ingest_status = $12,
+                    enrichment_block_reason = $13,
+                    enrichment_attempts = COALESCE(articles.enrichment_attempts, 0) + $14,
+                    first_seen_at = COALESCE(articles.first_seen_at, NOW())
                 WHERE articles.topic = EXCLUDED.topic
                    OR articles.ingest_status IS DISTINCT FROM 'approved'
             """
@@ -478,6 +488,8 @@ class AsyncDatabase:
             # to overwrite all of them with filtered_relevance (found 2026-09-08).
             article_data.get("ingest_status") or "filtered_relevance"
         )
+        if self.db_type == 'postgresql':
+            params = params + (block_reason, attempt)
 
         try:
             rows_affected = await self.execute_single_update(query, params)
@@ -623,6 +635,13 @@ def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
     plain("original_summary", article_data.get("original_summary"), "COALESCE(?, original_summary)")
     sets.append("auto_ingested = TRUE")
     plain("ingest_status", article_data.get("ingest_status"))
+    # A row that reaches this update was analysed, so any configuration
+    # block from an earlier pass is over; the reason is cleared unless the
+    # caller set a new one.
+    plain("enrichment_block_reason", article_data.get("enrichment_block_reason"))
+    # Full-text provenance (work packages 8 and 27); kept when not supplied.
+    plain("extraction_status", article_data.get("extraction_status"), "COALESCE(?, extraction_status)")
+    plain("content_kind", article_data.get("content_kind"), "COALESCE(?, content_kind)")
     for col in ("quality_score", "quality_issues", "bias",
                 "factual_reporting", "mbfc_credibility_rating", "bias_source", "bias_country",
                 "press_freedom", "media_type", "popularity"):

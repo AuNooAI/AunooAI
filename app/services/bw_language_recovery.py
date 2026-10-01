@@ -82,7 +82,7 @@ async def recover_foreign_articles(db, limit: int = 20) -> dict:
               -- Scope to Brand Watcher-relevant topics: an unscoped sweep over the
               -- whole firehose (>100k low-scored rows/30d) never converges.
               AND (topic LIKE 'Brand Monitoring %' OR topic ILIKE '%watch list%')
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT 600
         """)).fetchall()
         summary["scanned"] = len(rows)

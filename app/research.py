@@ -39,6 +39,33 @@ def normalize_topic_name(name):
     return re.sub(r'\s+', ' ', str(name).strip())
 
 
+def resolve_publication_date(provider_date, content, analyzer):
+    """(publication_date, provenance) for freshly fetched content.
+
+    A provider date (Bluesky createdAt, a feed field) wins and costs nothing.
+    The model is asked only when there is none, and only when there is text
+    to read. Nothing here ever returns the current time: an unknown date is
+    None with provenance "unknown" (spec work package 7).
+    """
+    if provider_date:
+        if hasattr(provider_date, "isoformat"):
+            return provider_date.isoformat(), "provider"
+        return provider_date, "provider"
+    if content and analyzer is not None:
+        try:
+            if hasattr(analyzer, "extract_publication_date_result"):
+                result = analyzer.extract_publication_date_result(content)
+                if result.known:
+                    return result.iso(), result.provenance
+            else:
+                value = analyzer.extract_publication_date(content)
+                if value:
+                    return value, "model_extracted"
+        except Exception as date_error:  # noqa: BLE001
+            logger.error(f"Error extracting publication date: {str(date_error)}")
+    return None, "unknown"
+
+
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
@@ -321,6 +348,23 @@ class Research:
                 return False
             return False
 
+    def stored_publication_date(self, uri: str):
+        """(publication_date, provenance) from the article row, for content we
+        already hold. Returns (None, "unknown") when the row has none. The
+        raw_articles submission_date is when we fetched it, not when it was
+        published, so it is never used here."""
+        try:
+            row = (DatabaseQueryFacade(self.db, logger)).get_article_by_uri(uri)
+        except Exception as lookup_error:  # noqa: BLE001
+            logger.debug(f"Stored publication date lookup failed for {uri}: {lookup_error}")
+            row = None
+        if row:
+            value = row.get("publication_date") if hasattr(row, "get") else None
+            if value:
+                provenance = (row.get("date_provenance") if hasattr(row, "get") else None) or "stored"
+                return value, provenance
+        return None, "unknown"
+
     def is_bluesky_url(self, uri: str) -> bool:
         """Check if a URL is from the Bluesky platform."""
         parsed_uri = urlparse(uri)
@@ -360,13 +404,12 @@ class Research:
             existing_article = self.db.get_raw_article(uri)
             if existing_article:
                 logger.info(f"Found existing article content for URI: {uri}")
+                stored_date, stored_provenance = self.stored_publication_date(uri)
                 return {
                     "content": existing_article.get('raw_markdown', ""),
                     "source": self.extract_source(uri),
-                    "publication_date": existing_article.get(
-                        'submission_date', 
-                        datetime.now(timezone.utc).date().isoformat()
-                    ),
+                    "publication_date": stored_date,
+                    "publication_date_provenance": stored_provenance,
                     "exists": True
                 }
             
@@ -384,10 +427,9 @@ class Research:
                         # Format the result to match expected structure
                         content = content_result.get('content', '')
                         
-                        # Extract publication date or use the one from result
-                        publication_date = content_result.get(
-                            'published_date', 
-                            self.article_analyzer.extract_publication_date(content)
+                        # Provider date first; the model only when there is none.
+                        publication_date, _ = resolve_publication_date(
+                            content_result.get('published_date'), content, self.article_analyzer
                         )
                         
                         # Save to database if requested and content was successfully extracted
@@ -463,8 +505,8 @@ class Research:
                 if isinstance(scrape_data, dict) and 'markdown' in scrape_data:
                     content = scrape_data['markdown']
                     
-                    # Extract publication date using ArticleAnalyzer
-                    publication_date = self.article_analyzer.extract_publication_date(content)
+                    # Firecrawl gives no publication date here, so the model reads it.
+                    publication_date, _ = resolve_publication_date(None, content, self.article_analyzer)
                     
                     # Only save with topic if explicitly requested
                     if save_with_topic:
@@ -560,14 +602,11 @@ class Research:
                 content = scrape_data['markdown']
                 logger.debug(f"Content length: {len(content) if content else 0} chars")
                 
-                # Extract publication date using ArticleAnalyzer if available
-                publication_date = datetime.now(timezone.utc).date().isoformat()
-                if hasattr(self, 'article_analyzer') and self.article_analyzer:
-                    try:
-                        publication_date = self.article_analyzer.extract_publication_date(content)
-                        logger.debug(f"Extracted publication date: {publication_date}")
-                    except Exception as date_error:
-                        logger.error(f"Error extracting publication date: {str(date_error)}")
+                # The model reads the date when it can; unknown stays None.
+                publication_date, _ = resolve_publication_date(
+                    None, content, getattr(self, 'article_analyzer', None)
+                )
+                logger.debug(f"Extracted publication date: {publication_date}")
                 
                 return {
                     "content": content,
@@ -599,8 +638,9 @@ class Research:
             if raw_article:
                 content = raw_article['raw_markdown']
                 source = self.extract_source(uri)
-                publication_date = raw_article['submission_date']
-                return {"content": content, "source": source, "publication_date": publication_date}
+                publication_date, provenance = self.stored_publication_date(uri)
+                return {"content": content, "source": source, "publication_date": publication_date,
+                        "publication_date_provenance": provenance}
             else:
                 raise ValueError("Article not found in the database.")
         except Exception as e:
@@ -647,7 +687,7 @@ class Research:
         else:
             logger.debug(f"Using provided article text, length: {len(article_text)}")
             source = self.extract_source(uri)
-            publication_date = self.article_analyzer.extract_publication_date(article_text)
+            publication_date, _ = resolve_publication_date(None, article_text, self.article_analyzer)
 
         # Truncate article text
         original_length = len(article_text)
@@ -991,10 +1031,9 @@ class Research:
                         content = content_result.get('content', '')
                         title = content_result.get('title', '')
                         
-                        # Extract publication date or use the one from result
-                        publication_date = content_result.get(
-                            'published_date',
-                            self.article_analyzer.extract_publication_date(content)
+                        # Provider date first; the model only when there is none.
+                        publication_date, _ = resolve_publication_date(
+                            content_result.get('published_date'), content, self.article_analyzer
                         )
                         
                         # Try to save the article but don't fail if it can't be saved
@@ -1106,13 +1145,11 @@ class Research:
                     logger.error(f"Current topic: {self.current_topic}")
                     # Continue even if saving fails - we still want to return the content
                 
-                try:
-                    # Extract the date using ArticleAnalyzer
-                    publication_date = self.article_analyzer.extract_publication_date(content)
-                    logger.debug(f"Publication date extracted: {publication_date}")
-                except Exception as date_error:
-                    logger.error(f"Error extracting publication date: {str(date_error)}")
-                    publication_date = datetime.now(timezone.utc).date().isoformat()
+                # Firecrawl metadata may carry a date; otherwise the model reads it.
+                publication_date, _ = resolve_publication_date(
+                    scrape_data.get('published_date'), content, self.article_analyzer
+                )
+                logger.debug(f"Publication date extracted: {publication_date}")
 
                 source = self.extract_source(uri)
                 logger.info(f"Article processing complete. Source: {source}, Publication date: {publication_date}")

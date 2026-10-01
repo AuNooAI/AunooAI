@@ -7,6 +7,10 @@ from .prompt_templates import PromptTemplates, PromptTemplateError
 from .cache import AnalysisCache, CacheError
 from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
 from app.utils.title_translation import english_title
+from app.collectors.dates import (
+    ParsedDate, parse_date, unknown as unknown_date,
+    PROV_MODEL, PREC_DAY, STATUS_INVALID, STATUS_MISSING,
+)
 import json
 import traceback
 import re
@@ -65,6 +69,14 @@ def _normalize_field_value(value: str) -> str:
 class ArticleAnalyzerError(Exception):
     pass
 
+
+class ConfigurationFault(ArticleAnalyzerError):
+    """The topic configuration, not the article, is broken: a list the
+    analysis needs (categories, future signals, sentiment, time to impact,
+    driver types) is empty. Callers quarantine the article instead of
+    counting an enrichment failure against it (spec work package 22)."""
+    pass
+
 class ArticleAnalyzer:
     DATE_FORMATS = [
         '%Y-%m-%d',           # 2024-03-14
@@ -94,7 +106,7 @@ class ArticleAnalyzer:
 
     DATE_EXTRACTION_TEMPLATE = """
 Extract the publication date from the following article text. 
-Return ONLY the date in YYYY-MM-DD format. If no date is found, return today's date.
+Return ONLY the date in YYYY-MM-DD format. If no publication date can be determined from the text, respond with NONE. Never guess and never use today's date.
 
 Article text:
 {content}
@@ -154,16 +166,17 @@ Article text:
             raise ArticleAnalyzerError("Source cannot be empty")
         if not uri:
             raise ArticleAnalyzerError("URI cannot be empty")
+        # Empty lists are a configuration fault, not an article fault.
         if not categories:
-            raise ArticleAnalyzerError("Categories list cannot be empty")
+            raise ConfigurationFault("Categories list cannot be empty")
         if not future_signals:
-            raise ArticleAnalyzerError("Future signals list cannot be empty")
+            raise ConfigurationFault("Future signals list cannot be empty")
         if not sentiment_options:
-            raise ArticleAnalyzerError("Sentiment options list cannot be empty")
+            raise ConfigurationFault("Sentiment options list cannot be empty")
         if not time_to_impact_options:
-            raise ArticleAnalyzerError("Time to impact options list cannot be empty")
+            raise ConfigurationFault("Time to impact options list cannot be empty")
         if not driver_types:
-            raise ArticleAnalyzerError("Driver types list cannot be empty")
+            raise ConfigurationFault("Driver types list cannot be empty")
 
         try:
             # Get template hash for cache validation
@@ -600,28 +613,42 @@ Article text:
     def get_template_hash(self) -> str:
         return self.prompt_templates.get_template_hash() 
 
-    def extract_publication_date(self, content: str) -> str:
-        try:
-            # Use managed prompt template for date extraction
-            prompts = self.prompt_templates.format_date_extraction_prompt(content)
-            ai_extracted_date = self.ai_model.generate_response(prompts)
-            
-            if ai_extracted_date:
-                logger.debug(f"AI extracted date: {ai_extracted_date}")
-                try:
-                    parsed_date = datetime.strptime(ai_extracted_date.strip(), '%Y-%m-%d')
-                    # Return with time component to match submission_date format
-                    return parsed_date.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                except ValueError:
-                    pass
+    _MODEL_DAY_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-            # If AI extraction fails, return current date with time
-            logger.debug(f"Using current date and time")
-            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')
-            
+    def extract_publication_date_result(self, content: str) -> ParsedDate:
+        """Ask the model for the publication date and return a typed result.
+
+        The result carries provenance ``model_extracted`` and day precision,
+        because the prompt asks for YYYY-MM-DD and a model reading a page
+        cannot be trusted to the second. Empty, unparseable or failed output
+        is ``unknown``: this never substitutes the current time, which used to
+        make every undated page look like today's news (work package 7).
+        """
+        try:
+            prompts = self.prompt_templates.format_date_extraction_prompt(content)
+            raw = self.ai_model.generate_response(prompts)
         except Exception as e:
             logger.warning(f"Error extracting publication date: {str(e)}")
-            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') 
+            return unknown_date(None, provenance=PROV_MODEL, status=STATUS_INVALID)
+
+        text = (raw or "").strip() if isinstance(raw, str) else ""
+        if not text:
+            return unknown_date(None, provenance=PROV_MODEL, status=STATUS_MISSING)
+        logger.debug(f"AI extracted date: {text}")
+
+        # The model sometimes wraps the date in words; take the YYYY-MM-DD
+        # inside it when there is one, otherwise let the parser try the text.
+        m = self._MODEL_DAY_RE.search(text)
+        parsed = parse_date(m.group(1) if m else text, provenance=PROV_MODEL)
+        if not parsed.known:
+            return ParsedDate(None, text[:200], None, PROV_MODEL, STATUS_INVALID)
+        day = parsed.value.replace(hour=0, minute=0, second=0, microsecond=0)
+        return ParsedDate(day, text[:200], PREC_DAY, PROV_MODEL, parsed.status)
+
+    def extract_publication_date(self, content: str) -> Optional[str]:
+        """Compatibility wrapper: the ISO date string, or None when unknown.
+        Never the current time."""
+        return self.extract_publication_date_result(content).iso()
 
     def get_cached_analysis(self, uri, model_name):
         """

@@ -116,7 +116,7 @@ def assign_story_groups(conn, brand_id: int, cfg: Optional[dict] = None) -> int:
               SELECT 1 FROM bw_article_stories s
               WHERE s.brand_id = :bid AND s.article_uri = bac.article_uri
           )
-        ORDER BY a.publication_date DESC
+        ORDER BY a.publication_date DESC NULLS LAST
         LIMIT :cap
     """), {"bid": brand_id, "cap": MAX_ARTICLES_PER_CALL}).fetchall()
 

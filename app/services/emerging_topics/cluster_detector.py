@@ -119,7 +119,7 @@ class ClusterDetector:
                     FROM articles
                     WHERE uri IN ({placeholders})
                     AND embedding IS NOT NULL
-                    ORDER BY publication_date DESC
+                    ORDER BY publication_date DESC NULLS LAST
                 """)
             else:
                 # Fetch recent articles
@@ -138,7 +138,7 @@ class ClusterDetector:
                     SELECT uri, embedding
                     FROM articles
                     {filter_clause}
-                    ORDER BY publication_date DESC
+                    ORDER BY publication_date DESC NULLS LAST
                     LIMIT 5000
                 """)
 

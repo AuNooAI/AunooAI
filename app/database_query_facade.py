@@ -440,10 +440,41 @@ class DatabaseQueryFacade:
         return article_exists
 
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
+        """Insert a collected article, or attach a repeat to the row we hold.
+
+        The row is found by identity, not only by exact URL
+        (``app.services.article_identity``): a tracking variant of a known
+        URL, a social post seen under a second URL, or a second provider's
+        copy of a known story all land on the existing row. A repeat may
+        fill empty columns and replace an excerpt with a full text; it never
+        empties a column or touches the analysis. Every sighting is written
+        to ``article_observations`` and ``article_url_aliases``.
+
+        Returns ``(inserted_new_article, False, match_updated)`` as before.
+        The fuller outcome is in ``self.last_create_outcome``:
+        ``{"outcome": "inserted" | "existing" | "merged", "uri", "method",
+        "matched_by"}``. The one caller (keyword_monitor) reads the tuple.
+        """
         # Don't call begin() - transaction is auto-started by PostgreSQL on first execute
         try:
+            from app.services.article_identity import (
+                column_updates, content_kind_of, merge_fields, provider_of,
+                record_observation, record_type_of, resolve_identity,
+            )
             inserted_new_article = False
             labels = {}
+            resolution = None
+            outcome = "existing"
+            try:
+                resolution = resolve_identity(self, dict(article, url=article_url, topic=topic))
+            except Exception as _ie:
+                self.logger.warning(f"Identity resolution skipped for {article_url}: {_ie}")
+            if resolution and resolution.existing and resolution.uri:
+                if resolution.uri != article_url:
+                    self.logger.info(
+                        f"Same article as {resolution.uri} (by {resolution.matched_by}): {article_url}")
+                    article_url = resolution.uri
+                article_exists = True
             if not article_exists:
                 # Is this a copy of a row we already hold? The same URL with
                 # different tracking parameters is that row; the same story on
@@ -471,6 +502,8 @@ class DatabaseQueryFacade:
                     english_fields(article)
                 except Exception as _te:
                     self.logger.warning(f"Translation skipped for {article_url}: {_te}")
+                from datetime import timezone as _tz
+                now = datetime.now(_tz.utc)
                 # Save new article
                 self._execute_with_rollback(insert(articles).values(
                     uri=article_url,
@@ -490,10 +523,49 @@ class DatabaseQueryFacade:
                     url_key=labels.get('url_key'),
                     source_type=labels.get('source_type'),
                     duplicate_of=labels.get('duplicate_of'),
+                    # Collector data quality (cdq_001): how the row is identified,
+                    # what kind of text it holds, when we first and last saw it.
+                    canonical_url=(resolution.canonical_url if resolution else None) or None,
+                    identity_method=(resolution.method if resolution else None),
+                    record_type=(resolution.record_type if resolution else record_type_of(article)),
+                    content_kind=content_kind_of(article),
+                    first_seen_at=now,
+                    last_seen_at=now,
+                    published_at_raw=(str(article['published_at_raw'])[:200]
+                                      if article.get('published_at_raw') else None),
+                    publication_date_precision=article.get('publication_date_precision'),
+                    date_provenance=article.get('date_provenance'),
                 ))
 
                 inserted_new_article = True
+                outcome = "inserted"
                 self.logger.info(f"Inserted new article: {article_url}")
+            else:
+                # A repeat: fill what the stored row lacks, never empty anything.
+                try:
+                    existing_row = self._fetchone_with_rollback(
+                        select(articles.c.title, articles.c.news_source, articles.c.summary,
+                               articles.c.publication_date, articles.c.content_kind,
+                               articles.c.social_meta, articles.c.original_title,
+                               articles.c.original_summary
+                               ).where(articles.c.uri == article_url), mappings=True)
+                    updates = merge_fields(dict(existing_row) if existing_row else {}, article)
+                    writes = column_updates(updates)
+                    if existing_row and writes:
+                        self._execute_with_rollback(
+                            update(articles).where(articles.c.uri == article_url).values(**writes))
+                        if set(writes) - {'last_seen_at'}:
+                            outcome = "merged"
+                            self.logger.info(
+                                f"Merged {sorted(set(writes) - {'last_seen_at'})} into {article_url}")
+                except Exception as _me:
+                    self.logger.warning(f"Merge skipped for {article_url}: {_me}")
+
+            try:
+                record_observation(self, article_url, dict(article, url=article.get('url') or article_url),
+                                   provider_of(article), resolution=resolution)
+            except Exception as _oe:
+                self.logger.warning(f"Observation skipped for {article_url}: {_oe}")
 
             # Get the group_id for this keyword
             group_id = self._scalar_with_rollback(
@@ -530,6 +602,12 @@ class DatabaseQueryFacade:
 
             self.connection.commit()
 
+            self.last_create_outcome = {
+                "outcome": outcome,
+                "uri": article_url,
+                "method": resolution.method if resolution else None,
+                "matched_by": resolution.matched_by if resolution else None,
+            }
             # For backward compatibility, return the same structure but alert_inserted is always False now
             return inserted_new_article, False, match_updated
 
@@ -730,9 +808,9 @@ class DatabaseQueryFacade:
             )
         ).where(and_(*conditions, story_clause(articles)))
         if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
-            statement = statement.order_by(articles.c.publication_date.desc(), articles.c.title.asc())
+            statement = statement.order_by(articles.c.publication_date.desc().nullslast(), articles.c.title.asc())
         else:
-            statement = statement.order_by(articles.c.publication_date.desc())
+            statement = statement.order_by(articles.c.publication_date.desc().nullslast())
 
         statement = statement.limit(optimal_sample_size * fetch_multiplier)
 
@@ -1179,7 +1257,7 @@ class DatabaseQueryFacade:
                 articles.c.analyzed == True  # Use True for boolean column
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(50)
         return self._fetchall_with_rollback(statement, mappings=True)
 
@@ -1208,7 +1286,7 @@ class DatabaseQueryFacade:
                 articles.c.summary != ''
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(optimal_sample_size)
         return self._fetchall_with_rollback(statement, mappings=True)
 
@@ -1249,7 +1327,7 @@ class DatabaseQueryFacade:
                 readable_clause(articles)
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1289,7 +1367,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date >= cutoff_date_str
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1335,7 +1413,7 @@ class DatabaseQueryFacade:
             )
         ).order_by(
             desc(articles.c.topic_alignment_score),
-            desc(articles.c.publication_date),
+            articles.c.publication_date.desc().nullslast(),
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1408,7 +1486,7 @@ class DatabaseQueryFacade:
             articles.c.user_preference,
         ).where(and_(*conditions)).order_by(
             desc(articles.c.topic_alignment_score),
-            desc(articles.c.publication_date),
+            articles.c.publication_date.desc().nullslast(),
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -2427,7 +2505,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date >= datetime.utcnow() - timedelta(days=params[2])
             )
         ).order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).limit(5)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -2501,7 +2579,7 @@ class DatabaseQueryFacade:
         if topic and topic != "__all__":
             statement = statement.where(articles.c.topic == topic)
 
-        statement = statement.order_by(articles.c.publication_date.desc())
+        statement = statement.order_by(articles.c.publication_date.desc().nullslast())
 
         if limit:
             statement = statement.limit(limit)
@@ -5083,7 +5161,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date <= end_date
             )
         statement = statement.order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -5990,7 +6068,7 @@ class DatabaseQueryFacade:
         ).order_by(
             # Sort by date first (newest day first), then by quality within each day
             # This ensures today's articles always appear before yesterday's
-            articles.c.publication_date.desc(),
+            articles.c.publication_date.desc().nullslast(),
             factual_reporting_order.desc(),
             news_source_order.desc()
         )
@@ -6234,7 +6312,7 @@ class DatabaseQueryFacade:
         ).where(
             and_(*where_conditions, story_clause(articles))
         ).order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).offset(offset).limit(limit)
 
         # Execute and return results

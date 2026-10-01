@@ -340,7 +340,7 @@ def _social_in_window(ctx: Dict) -> List[Dict]:
               AND a.publication_date >= :ws AND a.publication_date <= :we
               AND (a.topic_alignment_score IS NULL OR a.topic_alignment_score >= {MIN_ALIGNMENT})
               AND {brand_match}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 60
         """), params).fetchall()
     finally:

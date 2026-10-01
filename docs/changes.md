@@ -1,5 +1,386 @@
 # Changes
 
+## 2026-10-01 — Collector data quality: 31 work packages implemented in the monolith and the SaaS tree; bugfixing restarted on them
+
+### Goal
+Oliver asked for the 31-package collector data-quality spec (`docs/COLLECTOR_DATA_QUALITY_SPEC.md`)
+to be implemented. The spec came from a code review plus a seven-day log review: collectors
+returned an empty list for "nothing new", "provider refused us" and "quota spent" alike, so a
+failed interval was marked polled and never retried; a missing date became the current time;
+duplicates were dropped instead of merged; four sites shared one NewsAPI key while each counted
+its own requests. The per-package detail, schema decisions and the open list are in
+`docs/COLLECTOR_DATA_QUALITY_IMPLEMENTATION.md`; this entry is the session record.
+
+### Feature · Shared foundation, identical files in both trees
+**`app/collectors/contracts.py`**: `CollectionResult` (status success/partial/failed, fixed
+interval, coverage flag, continuation, counts, truncation reason) and `classify_exception`,
+which gives every failure a stable code and a message that names the exception class, HTTP
+status and host. httpx timeouts stringify to nothing; 210 of 293 SaaS feed failures in the week
+logged as "failed:" and nothing else.
+**`app/collectors/url_identity.py`**: canonical URL under a versioned tracking-parameter
+registry (global `utm_*`, `fbclid` and the like, plus per-host entries such as Seeking Alpha's
+`feed_item_type` and the BBC's `at_medium`), and identity choice by record type (social by
+platform and post id, scholarly by DOI, calendar by occurrence key, news by canonical URL).
+**`app/collectors/dates.py`**: one parser with precision (day, month, year) and provenance;
+missing or invalid input stays None.
+**`app/services/shared_ledger.py`** and **`app/services/provider_quota.py`**: a host-wide SQLite
+quota ledger at `/home/orochford/tenants/_shared/collector_ledger.sqlite`, one row per provider
+key, reserve before sending, pause every site on the first 429. Per-host budget for
+`reddit.com`.
+**`app/services/collection_runs.py`**: run records (`collection_runs`) and interval checkpoints
+with lease and version (`collection_checkpoints`).
+`tests/test_collector_foundations.py`: 42 tests, the same file in both trees.
+
+### Ops · Schema (additive) and the ledger directory
+Monolith alembic `cdq_001` (after `si_001`) and SaaS `cdq_01` (after `mirror_page_events_01`,
+which the saasmvp database was also missing and got first). Applied to bugfixing (`test`) and
+saasmvp (`aunoo_saas`) only. New columns on `rss_feeds` and `articles`, new tables
+`collection_runs`, `collection_checkpoints`, `rejected_candidates`, `article_observations`,
+`article_url_aliases`, `pending_feed_entries` (monolith) plus `article_feed_memberships` and
+`websub_deliveries` (SaaS). Full column list in the implementation notes.
+Backfill on bugfixing only: `first_seen_at = submission_date` on 235,747 rows; 2,224 rows have a
+malformed `submission_date` and stay null.
+The ledger directory is `0777` without the sticky bit on purpose. The host has
+`fs.protected_regular=2`, and in a sticky world-writable directory SQLite could not open the
+other user's `-wal`/`-shm` files; root saw "attempt to write a readonly database".
+
+### Feature · Monolith collectors and the keyword monitor
+**`app/collectors/base_collector.py`** and every provider collector: `collect()` returns a
+`CollectionResult`; `search_articles` stays the list API. NewsAPI, TheNewsAPI, Semantic Scholar
+and NewsData page under a budget of five pages or 60 s with a frozen interval end and go through
+the quota guard; the per-tenant daily counters no longer decide whether to send.
+**`app/collectors/query_expression.py`**: phrases, AND, OR, NOT and brackets compiled per
+provider. NewsData no longer truncates a query to two words or substitutes "news".
+NewsData declares its dropped date clause (`provider_no_date_filter`) and filters locally unless
+`NEWSDATA_DATE_FILTER_SUPPORTED=1`. Bluesky sends `since`/`until`/`sort=latest` and stores the
+post's `createdAt`, not the index time. arXiv treats 406, 429, 503 and connection errors as
+transient with backoff and three-second spacing. Reddit runs its two routes with separate
+budgets; a failed route makes the run partial. Xpoz stores a post without a permalink as
+`xpoz://<platform>/<id>`, never the profile URL.
+**`app/tasks/keyword_monitor.py`**: a fixed interval per provider and keyword from
+`collection_checkpoints`, a run record per keyword, and "No new articles" logged apart from
+"<provider> failed: <reason>". Behaviour change: collection is incremental from proven coverage
+rather than always the last `search_date_range` days.
+
+### Feature · Monolith RSS path (`app/collectors/rss_collector.py`, `app/tasks/rss_feed_monitor.py`)
+BOM and leading whitespace stripped before parsing; a parse that recovers some entries is
+`parse_partial` and commits no ETag; a parse that yields nothing is a failure, a valid empty
+feed is a success. The 50-entry cap is gone and `since` is advisory. Backoff 1x, 2x, 4x, 8x on
+consecutive failures; `needs_attention` after 20 hard failures or 10 parse-partial polls; never
+deactivated. Storage returns inserted, existing or failed; failed entries are queued in
+`pending_feed_entries`; validators and `coverage_through` are written only when nothing failed.
+Every attempt writes a run record. Unknown dates are stored NULL with `first_seen_at`.
+Two additions made after watching the first live cycle:
+- **`_store_article` resolves identity** through `app/services/article_identity.py`, merges a
+  repeat sighting into the existing row, writes `canonical_url` and `identity_method`, and
+  records the observation and URL alias. Before this the RSS route bypassed the identity work.
+- **`RSS_NEW_ENTRIES_PER_POLL`** (default 100). The first poll after the cap removal found
+  1,287 entries in the UiPath feed and was about to scrape and enrich all of them. New entries
+  beyond the budget are queued with zero attempts and drained 100 per poll.
+
+### Feature · Monolith ingest, identity, briefing, health
+**`app/services/automated_ingest_service.py`**: the early relevance gate consults a
+rejected-candidate ledger (`app/services/rejected_candidates.py`, keyed by canonical URL, group
+and gate version) before embedding; an empty required topic list stores the article as
+`quarantined_config` with the reason and makes no model call; the Firecrawl batch helper
+returns an outcome per URL, splits a rejected batch to isolate the bad URL, and resolves Google
+News redirects first.
+**`app/tasks/enrichment_retry_sweep.py`** (new, started from `app_factory`): every 30 minutes,
+budget 50, retries configuration faults once the topic is fixed and article faults up to three
+times, with a run record.
+**`app/analyzers/article_analyzer.py`**, **`app/research.py`**: `extract_publication_date`
+returns a typed result with model provenance and day precision, never the current time; cached
+content returns its publication date, not its submission date. The date-extraction prompt
+defaults now say "respond with NONE"; the per-tenant live prompt store still says "return
+today's date".
+**`app/database_query_facade.py`** `create_article`, **`app/services/story_identity.py`**: identity
+resolution, field merging and observation records; `story_url_key` strips through the registry.
+**`app/services/news_feed_service.py`**, **`app/services/executive_briefing_service.py`**: the model
+returns only the candidate id; a pick whose id and uri disagree is rejected, retried once, then
+skipped and counted as `selection_mismatch`. No title-only resolution.
+**`app/routes/health_routes.py`**: `GET /api/health/collection` with run summary, quota status,
+failing feeds, configuration-blocked counts and computed alerts; `scripts/collector_health_check.sh`
+reads it per tenant.
+**`app/collectors/page_compare.py`**, **`vendor_web_collector.py`**: block comparison for website
+diffs so a reflow is not a change and a duplicated price row is; challenge and login pages keep
+the prior baseline.
+
+### Fix · NULLS LAST on every `ORDER BY publication_date DESC` in the monolith
+Undated rows are now stored NULL, and Postgres sorts NULL first on DESC, so an undated row would
+have headed every "newest" list. 88 sites in 31 files (75 SQL strings including the `feed_items`
+readers, 13 SQLAlchemy `.desc()` forms rewritten to `.desc().nullslast()`). The one reader that
+raised on a NULL (`news_feed_service.py`, `datetime.fromisoformat`) now falls back to the
+discovery date. About 300 `publication_date >= :since` comparisons still exclude undated rows
+from time-windowed views; not done.
+
+### Feature · SaaS tree (`saasmvp-app`)
+**`app/collectors/rss.py`**, **`pipeline.py`**, **`app/tasks/collector_task.py`**: the fetch never
+mutates the feed row; `CollectionPipeline.resolve_and_store` resolves identity, upserts topic
+ids, feed memberships, aliases and observations, merges fields, generates a display title for
+titleless items and flags short or uppercase titles instead of dropping them. Feed entries are
+identified as `feed:{id}|{guid}`. Grouping needs full-title equality within 72 h or a shared
+canonical URL and stores its evidence; the reader picks an in-scope representative per group.
+**`app/routes/websub.py`**, **`app/tasks/websub_delivery_task.py`** (new, registered in
+`pipeline_worker.py`): signed pushes are stored in `websub_deliveries` before the 200 and
+ingested with backoff; a storage failure returns 503. The old handler called a method that did
+not exist.
+**`app/collectors/arxiv.py`**, **`official_base.py`**, Crossref, OpenAlex, SEC, CourtListener,
+regulations.gov, **`newsapi.py`**: paging under a budget, fixed intervals through
+`collection_checkpoints`, 406 as transient, versions merged into the base arXiv id, no more
+fixed "very high / least biased" stamps on official records, future dates flagged not clamped.
+**`app/services/semantic_scholar.py`**, **`paper_enrichment_task.py`**: quota guard, stop the tick
+on the first 429, per-row `next_attempt_at`.
+**`app/collectors/xpoz.py`**, **`app/social/reach.py`**: one task owns each MCP session and runs
+every call and the timeout inside it. The 317 "exit cancel scope in a different task"
+tracebacks came from a failed handshake leaking the transport contexts, which Python's
+async-generator finaliser then closed from a garbage-collection task. Per-platform sweep
+outcomes; an incomplete sweep is not cached (`reach_store.py`).
+**`app/collectors/ical.py`**: RRULE, RDATE, EXDATE and detached overrides, cancellations kept,
+duration from the master, per-occurrence identity; the RSS collector parses the body it already
+fetched.
+
+### Ops · Feeds retired on bugfixing
+Eight `rss_feeds` rows set inactive with the reason on the row (not deleted): Simbian `/feed`,
+`/blog/rss.xml`, `/rss.xml` (duplicates of `/blog/feed`), Conifers `/news/feed/` and
+`/blog/feed/` (covered by `/feed/`), AISOC `/blog/feed/` and Secure.com `/news/feed` (never
+returned an article), and Blink (HTTP 403 on all 89 polls in the week). 52 feeds remain active.
+None of this was new behaviour; it was the first time the run records listed it.
+
+### Verification
+- Monolith: 268 tests across the new files plus 41 monitor and collector tests after the
+  RSS additions, all passing; SaaS: 275 passing. Both app factories import.
+- bugfixing restarted at 21:14 and again at 21:45 (after the budget change), health 200, no
+  tracebacks. `GET /api/health/collection` answers with every section; `rss` provider shows
+  1 partial, 3 empty successes, 0 failed, 0 alerts.
+- First live cycle: 31 run records, all success; feed rows carry `last_success_at`,
+  `coverage_through`, `next_poll_at` and validators. Anvilogic feed: 86 entries, 33 new, 26
+  kept after relevance. UiPath feed under the budget: 1,287 received, 100 stored, 56 duplicate,
+  1,131 queued, 100 scraped in 27.5 s, 54 kept. The run is `partial` because feedparser reported
+  an invalid token at line 655 while recovering all 1,287 entries, so no ETag was committed.
+- `article_url_aliases` and `article_observations`: 0 before the RSS identity fix, 198 after
+  one cycle.
+- Enrichment retry sweep tick at 22:17:21: 32 rows selected, 0 enriched, 32 failed again (no
+  usable text: the feed gave a title and no summary). All 31 have a full scrape in
+  `raw_articles` (7 to 20 KB) that the pipeline's no-text guard does not read.
+- Shared ledger written and read by both `orochford` and `root` after the directory mode fix.
+- `.env` note: the unit encrypts and deletes the plaintext `.env` on stop and decrypts it on
+  start; tests on a stopped tenant need `env_encryption.py decrypt` first.
+
+### Propagation
+Code is in the two canonical trees only and nothing is committed. bugfixing runs it. The SaaS
+units (saasmvp.aunoo.ai, saasmvp-classifier, saasmvp-skills-worker, saas-worker on
+saas.aunoo.ai) have not been restarted and still run the old code. No other monolith tenant has
+the migration or the files. Before copying to wileytest: each feed's first poll drains its
+archive at 100 new entries per hour through scraping and enrichment, which is bounded but not
+free; the wileytest interalogistics topic still has an empty future-signals list (597
+enrichment_failed rows in 14 days); no Semantic Scholar key exists anywhere.
+
+### Lessons
+- NEVER remove a per-poll cap without a bounded replacement: one feed exposed 1,287 entries and
+  the first poll tried to scrape and enrich all of them.
+- A shared SQLite file for several unix users must live in a directory WITHOUT the sticky bit
+  when `fs.protected_regular` is set.
+- `systemctl stop` on a monolith tenant removes the plaintext `.env` by design; decrypt before
+  running tests on a stopped tenant, never restore from an `.env.bak-*`.
+- The ingest pipeline's no-text guard reads the collector's summary only; a row can have a full
+  scrape in `raw_articles` and still be terminal. A retry sweep cannot fix that class.
+
+## 2026-10-01 — bugfixing: each Market Monitor vendor drawn in its own brand colour
+
+### Goal
+Oliver asked for colours for the vendors on Brand Watcher and Market Monitor on bugfixing: each
+vendor's own brand colour, for the 49 enabled vendors, in every Market Monitor view.
+
+### Ops · Brand colours for the 49 enabled vendors (DB, bugfixing only)
+None of the 110 rows in `bw_brands` had a `color`. Brand Watcher therefore drew every vendor in
+the same grey (`#6b7280`), and its Perception chart cycled a fallback list by position, so a
+vendor's colour changed when the list did.
+
+We took each colour from the vendor's homepage. We screenshotted the top of the page with
+playwright, sampled the strong colours in the logo area, and checked contact sheets by eye.
+Where the logo is black and white (Method, 7AI, Torq, Mate, Zaun, Spectrum), we used the site's
+accent colour. BlinkOps blocks automated browsers, and Radiant and Kenzo did not load, so for
+those three we used the colours in their site icons, fetched through Google's favicon service.
+
+17 colours were too pale or too dark to read on one of the two chart backgrounds. For those we
+kept the hue and moved the lightness (OKLCH L) into 0.48 to 0.70. Twine's lime `#d8fc00` became
+`#93ac05`, and 7AI's black became `#5d5d61`.
+
+`bw_brands.color` holds the chart colour. `bw_brands.config.brand_colour` holds the true brand
+colour, where it came from, and whether we adjusted it. We backed up all 110 rows first; every
+`color` was empty.
+
+### Feature · Market Monitor reads the brand colour (`ecd85a13`)
+No Market Monitor view or endpoint read `bw_brands.color` before.
+
+- **`app/routes/market_monitor_routes.py`**: `GET /markets/{id}/vendors` and
+  `/vendors/{brand_id}` now return `color`.
+- **`ui/src/components/newsfeed/vendorColours.tsx`** (new): `useVendorColours(marketId)` loads
+  the vendor list once per market through a module-level cache, and `VendorSwatch` draws an 8px
+  dot.
+- **Charts**: these now colour each vendor's mark: the loudest-vendor bars, share-of-voice bars
+  and pie, the "who shouts loudest" and growth-vs-heat scatters, the staff line on a vendor's
+  page, and the "this vendor" benchmark marker.
+- **Tables, chips, lists and group headers**: these get a dot beside the vendor's name. Text
+  keeps its normal colour.
+- **`app/services/market_report_html.py`**: the public report colours the v2 vendor bars and
+  byline chips, and the activity-index and share-of-voice bar charts.
+- **Fallback**: a vendor with no colour renders exactly as before.
+
+**Left alone on purpose**, because colour already means something there: Maturity Map dots
+(stage) and rings, coverage timeline dots (article type), signal/noise and channel-mix bars,
+headcount movers (up or down), and the geography map (one marker per country).
+
+### Verification
+- `npm run typecheck`: no new errors, the same summary line before and after the change.
+  `py_compile` passes on both edited Python files.
+- DB: 49 of 49 enabled vendors have a colour, and 17 are marked as adjusted.
+- We built with `ui/deploy-react-ui.sh`, restarted bugfixing (back in 12 s), and found no
+  tracebacks.
+- Headless browser with a minted session: Analysis shows coloured share-of-voice bars and
+  scatter dots, the "Most active vendors" table shows dots (Torq, 7AI, Qevlar), and the vendor
+  chips on posts carry dots. The Vendors tab and the Maturity Map rendered. We did not check
+  dark mode.
+- `GET /api/market-monitor/markets/2/report.html` returned 200 (498,588 bytes) with
+  vendor-coloured fills such as `#309ddf` (Anvilogic) and `#00a6c1` (Torq).
+
+### Propagation
+bugfixing only. The other sites did not ask for this. The colours live in bugfixing's database
+and are not in git. The commit holds the source only, because the built assets under
+`static/trend-convergence` were not committed. The build is live on bugfixing.
+
+### Limits
+- **Some vendors share a colour.** Twine and Bricklayer use the same lime, Huntbase and Wirespeed
+  the same purple, and Simbian and Secure.com the same blue. The name always sits beside the
+  colour, so you can still tell them apart.
+- **The share-of-voice pie** used three hues chosen to stay distinguishable for colour-blind
+  readers. Brand colours replace them where set, so that guarantee no longer holds.
+- **System Two Security's domain** now redirects to detections.ai. We used detections.ai's
+  colour, and the rebrand may be worth checking.
+
+## 2026-10-01 — Topic feeds hide duplicate stories and press releases; the analysis prompt knows today's date
+
+### Goal
+Oliver needed a demo topic on bugfixing for a PowerCo call at 10:00 BST. A review of that topic's
+feed found the same story listed up to three times, two market-research press releases, wrong
+time-to-impact calls ("2027 is about three years away"), a cut-off summary and a placeholder row.
+He asked for the date fix and an explanation of why bad data got in, then a spec and a build for
+the duplicates and press releases, rolled out to wiley and wileytest.
+
+### Ops · "European Battery Industry" demo topic on bugfixing
+We added the topic to `app/config/config.json` with its own category, signal, sentiment,
+time-to-impact and driver lists (backup `config.json.bak-powerco-*`), and keyword group 33
+(newsfirehose + TheNewsAPI, English, 15 keywords: PowerCo, Gotion, CATL Europe, LFP battery and
+so on). The first run collected 164 articles and the AI analysis step kept 26. Before the call we
+hid five rows by hand by moving them to a topic called "European Battery Industry (excluded)".
+We also deleted the "Topic Created" placeholder that `db.create_topic()` inserts, finished the
+gurufocus summary that ended "including divesting.", and corrected three time-to-impact
+explanations. Backups of every touched row are in the session scratchpad. The hand-hiding was
+undone later in the day, because the duplicate labelling below now hides the same rows by rule.
+`config.json` is live UI state and is not committed.
+
+### Fix · The analysis prompt did not know today's date (`480fec3f`)
+The `content_analysis` prompt never told the model the date, so it guessed the year from its
+training and measured time to impact from 2023 or 2025. **`app/analyzers/prompt_templates.py`**:
+`format_analysis_prompt` now passes `current_date`. The new `time_to_impact_windows()` turns
+labels such as "Short-term (6-18 months)" into calendar dates ("from April 2027 up to April
+2028"), because the date alone was not enough: kimi still said 2027 was "approximately 27
+months" away. Labels without a month range get no windows. The live prompt is version 1.0.8
+(`data/prompts/content_analysis/1f4a950e2fc1447b.json`); 1.0.7 added the date only.
+
+The deploy order matters: restart on the new code first, then switch the prompt, because the old
+code does not pass the new variables and the prompt file is read on every call. We briefly set
+1.0.7 live before the restart, saw the risk, and put 1.0.6 back within minutes. No errors were
+logged.
+
+### Feature · Duplicate stories and press releases are labelled at ingest and hidden (`ea752164`, `2f5fff3b`, `fa4ce3c7`)
+Root cause: the only duplicate check at insert was an exact URL match (`article_exists`), and the
+only filter between collection and the feed was the topic relevance score, which a market report
+about batteries passes. On bugfixing, 7% of readable articles over 30 days repeated a title in the
+same topic; on wileytest 11%, and 6.7% came from a press-release wire.
+
+- **Migration `si_001`** adds `articles.url_key`, `duplicate_of` and `source_type`, plus three
+  indexes. Nothing is deleted.
+- **`app/services/story_identity.py`** (new) labels a row. A URL that differs only by tracking
+  parameters is the same row. The same story on another outlet in the same topic, published
+  within 3 days, is marked as a copy of the first one we saw. A wire host (the list in
+  `report_corpus.py`) makes the row a press release. The title rule is the briefing composer's
+  `title_similarity`, tightened after three 50-link samples checked by eye: equal titles need 3+
+  significant words, near matches need 6+ and the same numbers, press releases link only on equal
+  titles from different sites, near matches on titles under 8 words need every word, and social
+  posts link on URL only. `--recheck` clears links a tightened rule no longer makes.
+- **`app/database_query_facade.py`**: `create_article` and `upsert_article` label at insert.
+  **`app/tasks/keyword_monitor.py`** runs `label_unlabelled()` after each group check, for the
+  dozen raw INSERT paths elsewhere.
+- **`app/services/article_visibility.py`**: `readable_clause`/`readable_sql` hide copies and
+  press releases (search, Auspex, MCP). The news feed, category lists and the Explore sample never
+  used the readable rule, so they get `story_clause`/`story_sql`, which hides only copies and
+  press releases and adds no relevance floor. Gather is left unfiltered. A copy is hidden only
+  when its original is readable, so a rejected first copy cannot make a story disappear.
+- **Press releases per topic**: a topic sets `"include_press_releases"` in `config.json`. Without
+  it, Market Monitoring topics show them and others hide them, unless the site sets
+  `STORY_PR_DEFAULT=show`.
+- **`scripts/backfill_story_identity.py`** labels existing rows oldest first on one connection,
+  with `--sample N` to print links for checking. Spec and as-built notes:
+  `docs/INGEST_DUPLICATES_AND_PRESS_RELEASES_SPEC.md`.
+
+### Verification
+- `tests/test_story_identity.py`: 13 passed; with the briefing tests, 123 passed.
+- bugfixing backfill: 237,632 rows, 14,799 copies, 8,392 press releases.
+- Link samples by eye: the first had 3 wrong of 50, and the second had 3 more of a different
+  kind. The third (seed 23) had 0 of 50. wiley (seed 41) had 0 clear errors and 1 borderline
+  match, two different articles about the same wedding. wileytest (seed 59) had 2 wrong (two
+  Surrey course pages, and a weekly "share buyback" title on one wire), which led to `fa4ce3c7`.
+  The recheck cleared 1,378 links on bugfixing, 1,113 on wiley and 7,307 on wileytest, and the
+  next wileytest sample (seed 83) had 0 of 50.
+- European Battery Industry after the rule (with the hand-hidden rows moved back): the topic
+  reader returns 19 rows, and the news feed and Explore sample return 21, each with one copy per
+  story and no press releases. Each query took 0.2 s or less.
+- Search took 0.13 to 0.56 s. "Iran strikes" returns poor results, but the old rule gives 19 of
+  the same 20, so that was already the case.
+- wiley after restart: M&A Updates and Patent Cliffs show 0 press releases, AI and Machine
+  Learning keeps 326 readable ones, and the M&A news feed loads in 0.29 s.
+- wileytest after restart: M&A Updates and Patent Cliffs show 0 of their 1,072 and 381 press
+  releases, AI and Machine Learning keeps 1,718 readable ones, and the M&A news feed loads in
+  0.91 s (slower than wiley's 0.29 s; not investigated).
+- Date fix: in two kimi runs with the date only, both counted the months wrong. With the windows,
+  2 of 3 runs chose the right option.
+
+### Propagation
+- **bugfixing**: all committed and live. Restarted 11:30.
+- **wiley**: date fix live (prompt 1.0.8). Duplicate labelling live: migration `si_001` (revises
+  `vp_001`), facade/routes/models/keyword-monitor patched (backups `*.bak-storyid`), backfill done
+  (286,894 rows, 14,508 copies, 2,076 press releases). `STORY_PR_DEFAULT=show` is in `.env` and
+  re-encrypted. `config.json` has `include_press_releases: false` on M&A Updates and Patent Cliffs.
+  Restarted.
+- **wileytest**: date fix live (prompt 1.0.8). Duplicate labelling is live: same patch (two
+  hunks applied by hand, because its facade has its own `social_meta` lines), migration applied,
+  backfill done on four per-topic workers (875,280 rows, 92,486 copies before the recheck, 36,165
+  press releases), and the same `.env` (re-encrypted) and `config.json` settings. Restarted.
+- All three sites were restarted again after `fa4ce3c7` so the insert path uses the tighter rule.
+- wiley and wileytest are deploy copies and are never committed. Their changes exist only in
+  those trees.
+
+### Not done
+The "also in N outlets" count on feed cards (needs a UI change). Letting copies reuse the
+original's analysis. The Auspex brand-name fallback and the MCP social-posts query still read
+without these filters. The gurufocus summary truncation was fixed by hand, and its cause was not
+found.
+
+### Lessons
+- `.env` on wiley/wileytest is rebuilt from `.env.encrypted` on every start
+  (`env_encryption.py decrypt` in `ExecStartPre`). After editing `.env`, run
+  `env_encryption.py encrypt <site>` before restarting, or the restart throws the edit away.
+  Encrypting deletes the plain file, so run anything that reads it first.
+- The news feed, Explore and category lists do not use `article_visibility`. A rule added there
+  does not reach the feeds.
+- Title containment at 0.85 is not enough on its own. Formulaic press-release titles ("Reports
+  Second Quarter 2026 Financial Results") and recurring headlines need the extra limits above.
+  Always check a sample of 50 by eye before switching a site on.
+- Backfills over the facade run at ~15 rows/s, because every statement opens a connection and
+  commits. One connection per batch plus cached title keys gives ~130 rows/s. Topics can be
+  labelled in parallel, since copies only match within a topic.
+
 ## 2026-10-01 — Oviva: press that names the brand is kept; same-name and recipe-site rows out; relevance sweep audits brand data
 
 ### Goal

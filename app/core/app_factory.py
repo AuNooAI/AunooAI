@@ -146,6 +146,11 @@ async def lifespan(app: FastAPI):
             ("app.tasks.forecast_tracker_monitor", "run_forecast_tracker_monitor", 30, "forecast tracker monitor"),
             ("app.tasks.wiley_candidate_scheduler", "run_wiley_candidate_scheduler", 45, "Wiley candidate scheduler"),
         ]
+        # Retry sweep for quarantined_config / enrichment_failed articles
+        # (spec work package 22). Off only when the flag is "0".
+        if (os.getenv("ENRICHMENT_RETRY_SWEEP_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
+            _BACKGROUND_TASKS.append(
+                ("app.tasks.enrichment_retry_sweep", "run_enrichment_retry_sweep", 60, "enrichment retry sweep"))
         for _mod, _func, _delay, _label in _BACKGROUND_TASKS:
             _schedule_background_task(_mod, _func, _delay, _label)
 

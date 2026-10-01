@@ -1150,9 +1150,9 @@ async def get_policy_articles(
 
         # Determine sort order
         if sort_by == "category_count":
-            order_clause = "ORDER BY category_count DESC, publication_date DESC"
+            order_clause = "ORDER BY category_count DESC, publication_date DESC NULLS LAST"
         else:  # date
-            order_clause = "ORDER BY publication_date DESC"
+            order_clause = "ORDER BY publication_date DESC NULLS LAST"
 
         # Get paginated articles
         articles_query = base_query + f"""
@@ -2785,7 +2785,7 @@ async def run_semantic_batch_classification(
                 WHERE topic = :topic
                 AND publication_date >= :start_date
                 AND publication_date <= :end_date
-                ORDER BY publication_date DESC
+                ORDER BY publication_date DESC NULLS LAST
                 LIMIT :limit
             """), {"topic": topic, "start_date": start_date, "end_date": end_date, "limit": limit})
         else:
@@ -2800,7 +2800,7 @@ async def run_semantic_batch_classification(
                 AND a.publication_date >= :start_date
                 AND a.publication_date <= :end_date
                 AND pac.id IS NULL
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT :limit
             """), {"topic": topic, "start_date": start_date, "end_date": end_date, "limit": limit})
 
@@ -3168,7 +3168,7 @@ async def generate_category_insight(
             AND pac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 10
         """), {"category": request.category, "topic": request.topic, "start_date": start_date, "end_date": end_date})
 

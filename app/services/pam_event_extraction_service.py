@@ -237,7 +237,7 @@ class PAMEventExtractionService:
             AND publication_date IS NOT NULL
             AND publication_date != ''
             AND publication_date::date >= CURRENT_DATE - INTERVAL '{days_back} days'
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT {max_articles}
         """
 
@@ -432,7 +432,7 @@ Example output:
             AND publication_date IS NOT NULL
             AND publication_date != ''
             AND publication_date::date >= CURRENT_DATE - INTERVAL '{days_back} days'
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT {max_articles}
         """
 

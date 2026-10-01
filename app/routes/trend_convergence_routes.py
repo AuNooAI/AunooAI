@@ -3859,7 +3859,7 @@ async def download_horizons_html(
                   AND analyzed = TRUE
                   AND topic_alignment_score IS NOT NULL
                   AND topic_alignment_score > 0.7
-                ORDER BY topic_alignment_score DESC, publication_date DESC
+                ORDER BY topic_alignment_score DESC, publication_date DESC NULLS LAST
                 LIMIT {int(sample_size)}
             """)
             rows = facade._execute_with_rollback(sql, {"topic": topic}).fetchall()

@@ -87,7 +87,7 @@ class PromptTemplates:
 Article text:
 {content}
 
-Respond with only the date in YYYY-MM-DD format, nothing else."""
+Respond with only the date in YYYY-MM-DD format, nothing else. If no publication date can be determined from the text, respond with NONE. Never guess and never use today's date."""
         },
         "relevance_analysis": {
             "version": "1.0.0",

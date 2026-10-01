@@ -411,7 +411,7 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
                AND m.relevance >= :min_rel
                AND a.publication_date >= :sd AND a.publication_date <= :ed
                AND {fp}
-             ORDER BY a.publication_date DESC
+             ORDER BY a.publication_date DESC NULLS LAST
         """), {"b": brand_id, "min_rel": min_relevance, "sd": sd, "ed": ed}
         ).mappings().all()
     else:
@@ -431,7 +431,7 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
                AND a.topic_alignment_score >= :min_rel
                AND a.publication_date >= :sd AND a.publication_date <= :ed
                AND {fp}
-             ORDER BY a.publication_date DESC
+             ORDER BY a.publication_date DESC NULLS LAST
         """), params).mappings().all()
 
     out: List[Dict[str, Any]] = []

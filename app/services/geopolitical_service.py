@@ -596,7 +596,7 @@ class GeopoliticalService:
                 FROM hotspot_articles ha
                 JOIN articles a ON ha.article_uri = a.uri
                 WHERE ha.hotspot_id = ?
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT ? OFFSET ?
             """, [hotspot_id, page_size, offset])
 
@@ -1346,7 +1346,7 @@ class GeopoliticalService:
                     WHERE a.topic = ?
                     AND a.category IS NOT NULL
                     AND a.sentiment IS NOT NULL
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """, [topic, limit])
             else:
@@ -1360,7 +1360,7 @@ class GeopoliticalService:
                     AND a.category IS NOT NULL
                     AND a.sentiment IS NOT NULL
                     AND ha.article_uri IS NULL
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """, [topic, limit])
 

@@ -1,12 +1,42 @@
-import os
+"""Bluesky collector.
+
+``collect`` sends the collection interval to ``app.bsky.feed.searchPosts``
+as ``since`` and ``until``, sorts by ``latest``, and pages with the API
+cursor until the interval is covered or the page budget is spent (work
+package 25). Before this the collector accepted a ``start_date`` and never
+sent it, so a monitoring run returned posts from 2023.
+
+Dates (work package 7): ``published_date`` is the post record's
+``createdAt`` with provenance ``provider``; ``indexedAt`` is kept separately
+as ``source_indexed_at``. A record without ``createdAt`` has no publication
+date; nothing substitutes the indexing time or the current time.
+
+API facts this file relies on (AT Protocol lexicon
+``app.bsky.feed.searchPosts``, checked 2026-10-01): ``q``, ``sort``
+(``top`` or ``latest``), ``since`` and ``until`` (ISO 8601 datetimes, or a
+``YYYY-MM-DD`` date; applied to the post's ``sortAt``, which may differ from
+``createdAt``), ``limit`` 1 to 100, ``cursor``; the response carries
+``posts`` and an optional ``cursor``.
+
+Spec: docs/COLLECTOR_DATA_QUALITY_SPEC.md, work packages 7 and 25.
+"""
+from __future__ import annotations
+
+import asyncio
 import logging
-from typing import Dict, List, Optional, Any
+import os
 from datetime import datetime
-import json
-from .base_collector import ArticleCollector
+from typing import Any, Dict, List, Optional
+
 from atproto import Client
 from atproto.exceptions import AtProtocolError
 
+from app.collectors.base_collector import (
+    ArticleCollector, CONTENT_SOCIAL_POST, PageClock, coerce_datetime, in_interval,
+    page_budget, provider_max_pages,
+)
+from app.collectors.contracts import CollectionResult
+from app.collectors.dates import PROV_INDEXED, PROV_PROVIDER, parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +95,7 @@ def serialize_bluesky_data(obj: Any) -> Any:
         # Convert any object with to_dict method
         return obj.to_dict()
     elif hasattr(obj, '__dict__'):
-        # Convert any object with __dict__ attribute 
+        # Convert any object with __dict__ attribute
         return obj.__dict__
     elif hasattr(obj, 'cid') and hasattr(obj, 'json'):
         # Handle IPLD Link objects which have cid and json methods
@@ -81,8 +111,15 @@ def serialize_bluesky_data(obj: Any) -> Any:
         return obj
 
 
+def _iso_z(value: Optional[datetime]) -> Optional[str]:
+    dt = coerce_datetime(value)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
+
+
 class BlueskyCollector(ArticleCollector):
     """Collector for Bluesky social network posts."""
+
+    provider_name = "bluesky"
 
     def __init__(self):
         self.username = os.getenv('PROVIDER_BLUESKY_USERNAME')
@@ -90,7 +127,7 @@ class BlueskyCollector(ArticleCollector):
         if not self.username or not self.password:
             logger.error("Bluesky credentials not found in environment")
             raise ValueError("Bluesky credentials not configured")
-        
+
         self.client = Client()
         self.requests_today = 0  # rate-counter expected by keyword_monitor logging
         self._auth()
@@ -105,6 +142,182 @@ class BlueskyCollector(ArticleCollector):
         except Exception as e:
             logger.error(f"Failed to authenticate to Bluesky: {str(e)}")
             raise ValueError(f"Bluesky authentication failed: {str(e)}")
+
+    # -- the one API call ------------------------------------------------------
+
+    def search_posts(self, query: str, *, limit: int = 25, since: Optional[str] = None,
+                     until: Optional[str] = None, cursor: Optional[str] = None,
+                     sort: Optional[str] = None, followers_of: Optional[str] = None):
+        """One ``searchPosts`` call. ``since`` and ``until`` are ISO 8601
+        strings. Returns the SDK response (``posts``, ``cursor``)."""
+        params: Dict[str, Any] = {"q": query, "limit": max(1, min(int(limit or 25), 100))}
+        if sort:
+            params["sort"] = sort
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        if cursor:
+            params["cursor"] = cursor
+        if followers_of:
+            params["followersOf"] = followers_of
+        logger.debug(f"Searching Bluesky with params: {params}")
+        self.requests_today += 1
+        return self.client.app.bsky.feed.search_posts(params=params)
+
+    # -- mapping ---------------------------------------------------------------
+
+    def _map_post(self, post, topic: Optional[str]) -> Dict[str, Any]:
+        record = getattr(post, "record", None)
+        text = getattr(record, "text", "") if record is not None else ""
+        text = text or ""
+        handle = post.author.handle
+        created = parse_date(getattr(record, "created_at", None) if record is not None else None,
+                             provenance=PROV_PROVIDER)
+        indexed = parse_date(getattr(post, "indexed_at", None), provenance=PROV_INDEXED)
+        article = {
+            'title': _post_title(handle, text),
+            'summary': text,
+            'content': text,
+            'content_kind': CONTENT_SOCIAL_POST,
+            'authors': [post.author.display_name or handle],
+            'published_date': created.iso(),
+            'published_at_raw': created.raw,
+            'date_provenance': created.provenance if created.known else None,
+            'source_indexed_at': indexed.iso(),
+            'url': (
+                f"https://bsky.app/profile/{handle}/"
+                f"post/{str(post.uri).split('/')[-1]}"
+            ),
+            'source': 'bluesky',
+            'topic': topic,
+            # social_meta is what the ingest pipeline actually keeps.
+            'social_meta': {
+                'platform': 'bluesky',
+                'external_id': str(post.uri),
+                'author': handle,
+                'author_name': post.author.display_name or None,
+                'author_did': post.author.did,
+                'likes': getattr(post, 'like_count', 0),
+                'reposts': getattr(post, 'repost_count', 0),
+                'comments': getattr(post, 'reply_count', 0),
+            },
+            'raw_data': {
+                'uri': str(post.uri),
+                'cid': str(post.cid),
+                'author_did': post.author.did,
+                'author_handle': handle,
+                'created_at': created.raw,
+                'indexed_at': indexed.raw,
+                'images': [],
+                'likes': getattr(post, 'like_count', 0),
+                'reposts': getattr(post, 'repost_count', 0),
+            }
+        }
+        embed = getattr(record, 'embed', None) if record is not None else None
+        if embed is not None and hasattr(embed, 'images'):
+            images = embed.images or []
+            article['raw_data']['images'] = [
+                {
+                    'alt': img.alt if hasattr(img, 'alt') else '',
+                    'url': str(img.image.ref) if hasattr(getattr(img, 'image', None), 'ref') else ''
+                }
+                for img in images
+            ]
+            thumb = _image_url(post.author.did, images[0]) if images else None
+            if thumb:
+                article['social_meta']['thumbnail'] = thumb
+        return article
+
+    # -- structured collection ------------------------------------------------
+
+    async def collect(
+        self,
+        query: str,
+        topic: Optional[str] = None,
+        *,
+        interval_start: Optional[datetime] = None,
+        interval_end: Optional[datetime] = None,
+        max_results: int = 10,
+        continuation: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        limit_to_followed: bool = False,
+        max_pages: Optional[int] = None,
+        **kw: Any,
+    ) -> CollectionResult:
+        res = self.new_result(query, interval_start, interval_end)
+        if not (query or "").strip():
+            res.diagnostics["note"] = "empty query; no request sent"
+            return self.finish(res)
+        limit = max(1, min(int(max_results or 10), 100))
+        since = _iso_z(res.interval_start)
+        until = _iso_z(res.interval_end)
+        sort = "latest"
+        if sort_by and sort_by.lower() in ("top", "trending", "relevant", "relevancy"):
+            sort = "top"
+        cursor = (continuation or {}).get("cursor")
+        res.diagnostics.update({"since": since, "until": until, "sort": sort, "limit": limit})
+        pages, seconds = page_budget()
+        clock = PageClock(max_pages or provider_max_pages("BLUESKY_MAX_PAGES", pages), seconds)
+        seen = set()
+
+        def _carry(out: CollectionResult, cont: Optional[Dict[str, Any]]) -> CollectionResult:
+            out.items, out.counts, out.started_at = res.items, res.counts, res.started_at
+            out.continuation = cont
+            out.diagnostics.update(res.diagnostics)
+            return self.finish(out, query, interval_start, interval_end)
+
+        try:
+            if not hasattr(self.client, 'me') or not self.client.me:
+                self._auth()
+            followers_of = self.client.me.did if limit_to_followed else None
+            while True:
+                response = await asyncio.to_thread(
+                    self.search_posts, query, limit=limit, since=since, until=until,
+                    cursor=cursor, sort=sort, followers_of=followers_of)
+                clock.tick()
+                posts = list(getattr(response, "posts", None) or [])
+                res.counts.received += len(posts)
+                oldest: Optional[datetime] = None
+                for post in posts:
+                    try:
+                        item = self._map_post(post, topic)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error(f"Error processing Bluesky post: {exc}")
+                        res.counts.invalid += 1
+                        continue
+                    when = coerce_datetime(item['published_date'])
+                    if when and (oldest is None or when < oldest):
+                        oldest = when
+                    if when is not None and not in_interval(when, res.interval_start, res.interval_end):
+                        res.counts.filtered += 1
+                        continue
+                    key = item['social_meta']['external_id']
+                    if key in seen:
+                        res.counts.duplicate += 1
+                        continue
+                    seen.add(key)
+                    res.items.append(item)
+                next_cursor = getattr(response, "cursor", None)
+                if not next_cursor or len(posts) < limit:
+                    return self.finish(res)
+                if sort == "latest" and res.interval_start and oldest is not None and oldest < res.interval_start:
+                    res.diagnostics["stopped_at"] = "page older than interval start"
+                    return self.finish(res)
+                cursor = str(next_cursor)
+                if clock.exhausted:
+                    out = CollectionResult.partial(res.items, truncated_reason=clock.reason,
+                                                   continuation={"cursor": cursor})
+                    return _carry(out, {"cursor": cursor})
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, AtProtocolError):
+                logger.error(f"Bluesky API error: {type(exc).__name__}: {exc}")
+            else:
+                logger.error(f"Error searching Bluesky: {type(exc).__name__}: {exc}")
+            out = CollectionResult.from_exception(exc, host="bsky.social")
+            return _carry(out, {"cursor": cursor} if cursor else None)
+
+    # -- compatibility list API --------------------------------------------
 
     async def search_articles(
         self,
@@ -121,182 +334,38 @@ class BlueskyCollector(ArticleCollector):
         exclude_domains: Optional[List[str]] = None,
         **kwargs
     ) -> List[Dict]:
-        """
-        Search for Bluesky posts based on query and topic.
-        
-        Args:
-            query: Search query string
-            topic: Topic name from the application's topics
-            max_results: Maximum number of results to return
-            start_date: Optional start date for filtering
-            end_date: Optional end date for filtering
-            language: Optional language filter (not used in Bluesky API)
-            sort_by: Optional sorting method
-            limit_to_followed: Only show posts from followed accounts
-            search_fields: Optional fields to search in (not used in Bluesky API)
-            domains: Optional domains to include (not used in Bluesky API)
-            exclude_domains: Optional domains to exclude (not used in Bluesky API)
-            **kwargs: Additional parameters (ignored)
-            
-        Returns:
-            List of standardized article dictionaries
-        """
-        try:
-            logger.info(f"Searching Bluesky for '{query}' on topic '{topic}'")
-            
-            # Check if authentication is valid, reauth if needed
-            if not hasattr(self.client, 'me') or not self.client.me:
-                self._auth()
-            
-            # Search posts using the Bluesky API
-            params = {
-                "q": query,
-                "limit": max_results
-            }
-            
-            # Add sort_by if specified (latest, trending, relevant)
-            if sort_by:
-                # Map sort options to what Bluesky API expects
-                sort_mapping = {
-                    "latest": "latest",
-                    "trending": "trending", 
-                    "relevant": "relevance",
-                    "relevancy": "relevance"
-                }
-                if sort_by.lower() in sort_mapping:
-                    params["sort"] = sort_mapping[sort_by.lower()]
-            
-            # Set limit_to_followed if specified
-            if limit_to_followed:
-                params["followersOf"] = self.client.me.did
-                
-            # Log the search parameters
-            logger.debug(f"Searching Bluesky with params: {params}")
-            
-            response = self.client.app.bsky.feed.search_posts(params=params)
-            self.requests_today += 1
-            
-            if not response or not hasattr(response, 'posts'):
-                logger.warning(f"No posts found for query '{query}'")
-                return []
-                
-            posts = response.posts
-            logger.info(
-                f"Found {len(posts)} Bluesky posts for query '{query}'"
-            )
-            
-            articles = []
-            for post in posts:
-                # Extract post data
-                try:
-                    # Use serialize_bluesky_data to ensure JSON-serializable output
-                    serialized_post = serialize_bluesky_data(post)
-                    
-                    # Now work with the serialized post data
-                    # Parse Bluesky post into our standard format
-                    article = {
-                        'title': _post_title(
-                            post.author.handle,
-                            post.record.text
-                            if hasattr(post.record, 'text') else ""),
-                        'summary': (
-                            post.record.text 
-                            if hasattr(post.record, 'text') else ""
-                        ),
-                        'authors': [
-                            post.author.display_name or post.author.handle
-                        ],
-                        'published_date': post.indexed_at,
-                        'url': (
-                            f"https://bsky.app/profile/{post.author.handle}/"
-                            f"post/{post.uri.split('/')[-1]}"
-                        ),
-                        'source': 'bluesky',
-                        'topic': topic,
-                        # social_meta is what the ingest pipeline actually
-                        # keeps; raw_data is not read by anything downstream.
-                        # All of this was already being collected and put
-                        # somewhere nothing looked at, so every Bluesky post in
-                        # the database showed no author and no engagement.
-                        'social_meta': {
-                            'platform': 'bluesky',
-                            'external_id': str(post.uri),
-                            'author': post.author.handle,
-                            'author_name': post.author.display_name or None,
-                            'author_did': post.author.did,
-                            'likes': getattr(post, 'like_count', 0),
-                            'reposts': getattr(post, 'repost_count', 0),
-                            'comments': getattr(post, 'reply_count', 0),
-                        },
-                        'raw_data': {
-                            'uri': str(post.uri),
-                            'cid': str(post.cid),
-                            'author_did': post.author.did,
-                            'author_handle': post.author.handle,
-                            'images': [],
-                            'likes': getattr(post, 'like_count', 0),
-                            'reposts': getattr(post, 'repost_count', 0),
-                        }
-                    }
-                    
-                    # Extract images if present
-                    if (hasattr(post.record, 'embed') and 
-                            hasattr(post.record.embed, 'images')):
-                        article['raw_data']['images'] = [
-                            {
-                                'alt': img.alt if hasattr(img, 'alt') else '',
-                                'url': str(img.image.ref) if hasattr(img.image, 'ref') else ''
-                            }
-                            for img in post.record.embed.images
-                        ]
-                        # An image embed can carry an empty images list;
-                        # indexing it dropped the whole post.
-                        images = post.record.embed.images or []
-                        thumb = _image_url(post.author.did, images[0]) if images else None
-                        if thumb:
-                            article['social_meta']['thumbnail'] = thumb
-                    
-                    articles.append(article)
-                except Exception as e:
-                    logger.error(f"Error processing Bluesky post: {str(e)}")
-                    continue
-                    
-            return articles
-                
-        except AtProtocolError as e:
-            logger.error(f"Bluesky API error: {str(e)}")
-            return []
-        except Exception as e:
-            logger.error(f"Error searching Bluesky: {str(e)}")
-            return []
+        """One page, as a list. Failures log and return an empty list."""
+        result = await self.collect(query, topic, interval_start=start_date, interval_end=end_date,
+                                    max_results=max_results, sort_by=sort_by,
+                                    limit_to_followed=limit_to_followed, max_pages=1)
+        if result.failed:
+            logger.error(f"Bluesky search failed: {result.error_message}")
+        return result.items[:max_results]
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """
         Fetch full content of a Bluesky post.
-        
+
         Args:
             url: Bluesky post URL
-            
+
         Returns:
             Dictionary containing post content and metadata
         """
         try:
-            # Extract post URI from URL
-            # URL format: 
+            # URL format:
             # https://bsky.app/profile/username.bsky.social/post/3kl5gveb2pa2r
             parts = url.split('/')
             if len(parts) < 6:
                 logger.error(f"Invalid Bluesky URL format: {url}")
                 return None
-                
+
             handle = parts[-3]
             post_id = parts[-1]
-            
-            # Resolve the DID for the handle
+
             try:
-                params = {"handle": handle}
                 did_response = self.client.com.atproto.identity.resolve_handle(
-                    params=params
+                    params={"handle": handle}
                 )
                 did = did_response.did
             except Exception as e:
@@ -304,52 +373,33 @@ class BlueskyCollector(ArticleCollector):
                     f"Could not resolve DID for handle {handle}: {str(e)}"
                 )
                 return None
-            
-            # Get the post
+
             post_uri = f"at://{did}/app.bsky.feed.post/{post_id}"
-            thread_params = {"uri": post_uri}
             thread = self.client.app.bsky.feed.get_post_thread(
-                params=thread_params
+                params={"uri": post_uri}
             )
-            
-            if (not thread or not hasattr(thread, 'thread') or 
+
+            if (not thread or not hasattr(thread, 'thread') or
                     not hasattr(thread.thread, 'post')):
                 logger.error(f"Could not fetch post: {url}")
                 return None
-                
+
             post = thread.thread.post
-            
-            # Serialize the response to ensure it's JSON compatible
-            serialized_post = serialize_bluesky_data(post)
-            serialized_thread = serialize_bluesky_data(thread)
-            
-            return {
-                'title': _post_title(
-                    post.author.handle,
-                    post.record.text if hasattr(post.record, 'text') else ""),
-                'content': (
-                    post.record.text 
-                    if hasattr(post.record, 'text') else ""
-                ),
-                'authors': [post.author.display_name or post.author.handle],
-                'published_date': post.indexed_at,
-                'url': url,
-                'source': 'bluesky',
-                'raw_data': {
-                    'uri': str(post.uri),
-                    'cid': str(post.cid),
-                    'thread': [
-                        {
-                            'text': reply.post.record.text if hasattr(reply.post.record, 'text') else "",
-                            'author': reply.post.author.handle,
-                            'indexed_at': reply.post.indexed_at
-                        }
-                        for reply in thread.thread.replies 
-                        if hasattr(reply, 'post')
-                    ] if hasattr(thread.thread, 'replies') else []
+            item = self._map_post(post, None)
+            # A thread fetched for context is an observation of the parent
+            # post; the replies' dates are not a new collection.
+            item['url'] = url
+            item['raw_data']['thread'] = [
+                {
+                    'text': reply.post.record.text if hasattr(reply.post.record, 'text') else "",
+                    'author': reply.post.author.handle,
+                    'indexed_at': reply.post.indexed_at
                 }
-            }
-            
+                for reply in thread.thread.replies
+                if hasattr(reply, 'post')
+            ] if hasattr(thread.thread, 'replies') and thread.thread.replies else []
+            return item
+
         except Exception as e:
             logger.error(f"Error fetching Bluesky post content: {str(e)}")
-            return None 
+            return None

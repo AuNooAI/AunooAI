@@ -1,5 +1,4 @@
 import asyncio
-import calendar
 import os
 import re
 from urllib.parse import urlsplit
@@ -9,6 +8,11 @@ import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Callable, Dict, List, Optional
 from .base_collector import ArticleCollector
+from app.collectors import dates
+from app.collectors.contracts import (
+    CollectionResult, ERR_PARSE, STATUS_PARTIAL, TRUNC_PARSE_PARTIAL,
+    describe_exception, host_of,
+)
 import logging
 from email.utils import parsedate_to_datetime
 
@@ -178,6 +182,9 @@ async def bound_restamped_dates(
                 raw["date_source"] = "wayback_first_capture"
                 raw["date_precision"] = "no_later_than"
                 article["published_date"] = capture.isoformat()
+                # The stored row says where the date came from (work
+                # package 7); the feed's own value stays in raw_data.
+                article["date_provenance"] = dates.PROV_WAYBACK
                 replaced += 1
                 logger.info("re-stamped feed date corrected for %s: feed said %s, "
                             "first captured %s", url, feed_date.date(), capture.date())
@@ -200,6 +207,29 @@ def _to_datetime(value) -> Optional[datetime]:
         except (TypeError, ValueError):
             return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+#: Characters a publisher may leave in front of the XML declaration: the
+#: UTF-8 byte-order mark (as a code point, and as it looks when the bytes
+#: were decoded as Latin-1) and plain whitespace. feedparser rejects the
+#: whole document as "XML or text declaration not at start of entity"
+#: when any of these precede ``<?xml``; 47 such warnings in seven days.
+_LEADING_JUNK = "\ufeff\xef\xbb\xbf\xa0 \t\r\n"
+_DECLARATION_NOT_AT_START = "not at start of entity"
+
+
+def clean_feed_text(text: str) -> str:
+    """The feed body with a byte-order mark and leading whitespace removed."""
+    if not text:
+        return text or ""
+    return text.lstrip(_LEADING_JUNK)
+
+
+def _bozo_message(feed) -> str:
+    exc = feed.get("bozo_exception") if hasattr(feed, "get") else None
+    if exc is None:
+        return "feed parser reported an error without a message"
+    return describe_exception(exc)
 
 
 class RSSCollector(ArticleCollector):
@@ -246,75 +276,208 @@ class RSSCollector(ArticleCollector):
         self,
         feed_url: str,
         topic: str = "",
-        max_results: int = 50,
+        max_results: Optional[int] = None,
         since: Optional[datetime] = None
     ) -> List[Dict]:
-        """
-        Fetch and parse an RSS/Atom feed.
+        """Compatibility wrapper around :meth:`fetch_feed_result`.
 
-        Args:
-            feed_url: URL of the RSS/Atom feed
-            topic: Topic to assign to fetched articles
-            max_results: Maximum number of articles to return
-            since: Only return articles published after this date
-
-        Returns:
-            List of article dictionaries in standardized format
+        Returns the items as a plain list, the way the manual fetch route
+        and ``search_articles`` expect. A failed fetch raises ``ValueError``
+        as before. ``max_results`` is honoured only when a caller passes
+        one; the collection layer itself no longer stops at 50 entries
+        (work package 2). Entries older than ``since`` are returned too,
+        marked ``_older_than_since``, because the feed monitor dedups by
+        URL and an old-dated entry can still be one we have never seen.
         """
+        result = await self.fetch_feed_result(
+            feed_url, topic=topic, since=since, max_entries=max_results)
+        if result.failed:
+            raise ValueError(f"Failed to fetch feed: {result.error_message}")
+        return list(result.items)
+
+    async def fetch_feed_result(
+        self,
+        feed_url: str,
+        topic: str = "",
+        since: Optional[datetime] = None,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        max_entries: Optional[int] = None,
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> CollectionResult:
+        """Fetch and parse one feed and say what happened.
+
+        The result separates the outcomes a list could not: a 304 and a
+        valid empty feed are successes with no items; a document that
+        yields no feed structure is a parse failure; a document the parser
+        only partly recovered returns its entries with ``parse_partial``
+        set and no cache validators, so the next poll fetches the whole
+        response again (work package 29).
+
+        Nothing here writes feed state. ``proposed_validators`` carries the
+        ETag and Last-Modified the caller may commit once every item is
+        persisted or durably queued (work package 16).
+        """
+        host = host_of(feed_url)
+        started = datetime.now(timezone.utc)
+        result = CollectionResult.ok([], provider="rss", scope=feed_url)
+        result.started_at = started
+        result.interval_start = since
+        # Fixed at run start: this is what coverage_through becomes when the
+        # caller decides the run was complete.
+        result.interval_end = started
+
+        headers = {
+            'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
+            'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+        }
+        if etag:
+            headers['If-None-Match'] = etag
+        if last_modified:
+            headers['If-Modified-Since'] = last_modified
+
+        own_client = client is None
+        client = client or httpx.AsyncClient(timeout=self.timeout)
         try:
-            # Fetch the feed content
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(
-                    feed_url,
-                    headers={
-                        'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
-                        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml'
-                    },
-                    follow_redirects=True
-                )
-                response.raise_for_status()
-                content = response.text
+            try:
+                response = await client.get(feed_url, headers=headers, follow_redirects=True)
+            except Exception as exc:                                   # noqa: BLE001
+                logger.error("feed fetch failed for %s: %s", feed_url, describe_exception(exc, host=host))
+                failed = CollectionResult.from_exception(exc, host=host, provider="rss", scope=feed_url)
+                return self._finish(failed, started, since)
+        finally:
+            if own_client:
+                await client.aclose()
 
-            # Parse the feed
-            feed = feedparser.parse(content)
+        status = int(getattr(response, "status_code", 0) or 0)
+        result.diagnostics["http_status"] = status
+        retry_after = response.headers.get("Retry-After") if getattr(response, "headers", None) else None
+        if retry_after:
+            result.diagnostics["retry_after"] = retry_after
 
-            if feed.bozo and feed.bozo_exception:
-                # A malformed feed with entries still yields them; one with
-                # none is broken, and must say so in rss_feeds.last_error.
-                # Logged as a warning only, socjedi.ai/rss.xml (an empty XML
-                # document) failed 72 times in 3 days with last_error NULL.
-                if not feed.entries:
-                    raise ValueError(
-                        f"Feed could not be parsed: {feed.bozo_exception}")
-                logger.warning(f"Feed parsing warning for {feed_url}: {feed.bozo_exception}")
+        if status == 304:
+            # Nothing changed since the validators we sent. A success with
+            # no items; the caller keeps its checkpoint where it is.
+            result.diagnostics["not_modified"] = True
+            result.proposed_validators = self._validators_of(response, etag, last_modified)
+            logger.info("feed not modified: %s", feed_url)
+            return self._finish(result, started, since)
 
-            articles = []
-            for entry in feed.entries:
-                try:
-                    article = self._parse_entry(entry, feed, topic)
-                    if article:
-                        # Filter by date if since is provided
-                        if since and article.get('published_date'):
-                            pub_date = self._parse_date(article['published_date'])
-                            if pub_date and pub_date < since:
-                                continue
-                        articles.append(article)
+        try:
+            response.raise_for_status()
+        except Exception as exc:                                       # noqa: BLE001
+            logger.error("feed fetch failed for %s: %s", feed_url, describe_exception(exc, host=host))
+            failed = CollectionResult.from_exception(exc, host=host, provider="rss", scope=feed_url)
+            failed.diagnostics.update(result.diagnostics)
+            return self._finish(failed, started, since)
 
-                        if len(articles) >= max_results:
-                            break
-                except Exception as e:
-                    logger.warning(f"Error parsing feed entry: {e}")
-                    continue
+        text = clean_feed_text(response.text or "")
+        feed = feedparser.parse(text)
+        if feed.bozo and _DECLARATION_NOT_AT_START in str(feed.get("bozo_exception") or ""):
+            # Something other than whitespace sat before the declaration
+            # (a stray byte, a comment). Cut to the first tag and try once
+            # more; the retry is recorded so a feed that needs it is visible.
+            start = text.find("<?xml")
+            if start > 0:
+                feed = feedparser.parse(text[start:])
+                result.diagnostics["hygiene_retry"] = True
 
-            logger.info(f"Fetched {len(articles)} articles from {feed_url}")
-            return articles
+        entries = list(feed.entries or [])
+        since_utc = _to_datetime(since) if since is not None else None
+        items: List[Dict] = []
+        invalid = 0
+        older = 0
+        for entry in entries:
+            try:
+                article = self._parse_entry(entry, feed, topic)
+            except Exception as exc:                                   # noqa: BLE001
+                logger.warning("Error parsing feed entry: %s", describe_exception(exc))
+                article = None
+            if not article:
+                invalid += 1
+                continue
+            if since_utc is not None:
+                pub = _to_datetime(article.get("published_date"))
+                if pub is not None and pub < since_utc:
+                    # Advisory only. An entry dated before the cutoff can
+                    # still be one we never stored; the caller dedups by URL.
+                    article["_older_than_since"] = True
+                    older += 1
+            items.append(article)
+            if max_entries is not None and len(items) >= max_entries:
+                result.diagnostics["max_entries_reached"] = max_entries
+                break
 
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error fetching feed {feed_url}: {e}")
-            raise ValueError(f"Failed to fetch feed: {e}")
-        except Exception as e:
-            logger.error(f"Error processing feed {feed_url}: {e}")
-            raise ValueError(f"Failed to process feed: {e}")
+        if feed.bozo and not items:
+            # The parser choked and nothing usable came out: an error, not
+            # an empty feed. A truncated document can leave one entry with
+            # no title or link; that is still nothing usable.
+            message = _bozo_message(feed)
+            logger.error("feed could not be parsed: %s: %s", feed_url, message)
+            failed = CollectionResult.failure(
+                ERR_PARSE, f"{message} host={host}" if host and "host=" not in message else message,
+                retryable=False, provider="rss", scope=feed_url)
+            failed.diagnostics.update(result.diagnostics)
+            failed.diagnostics["bozo"] = message
+            failed.counts.add(received=len(entries), invalid=invalid)
+            return self._finish(failed, started, since)
+        if not items and not feed.get("version") and not feed.feed.get("title"):
+            # Not an error the parser noticed, but not a feed either: an
+            # empty document, an HTML page, a JSON blob. socjedi.ai/rss.xml
+            # served an empty document 72 times with last_error NULL.
+            message = f"parse: no feed structure in response ({len(text)} chars)"
+            logger.error("feed could not be parsed: %s: %s", feed_url, message)
+            failed = CollectionResult.failure(
+                ERR_PARSE, f"{message} host={host}" if host else message,
+                retryable=False, provider="rss", scope=feed_url)
+            failed.diagnostics.update(result.diagnostics)
+            return self._finish(failed, started, since)
+
+        if feed.bozo:
+            # The parser recovered some entries and lost an unknown number.
+            # Say so, and offer no validators: the next poll must see the
+            # whole response again rather than a 304.
+            message = _bozo_message(feed)
+            logger.warning("feed parsed partially: %s: %s (%d entries recovered)",
+                           feed_url, message, len(items))
+            result.status = STATUS_PARTIAL
+            result.coverage_complete = False
+            result.parse_partial = True
+            result.retryable = True
+            result.truncated_reason = TRUNC_PARSE_PARTIAL
+            result.diagnostics["bozo"] = message
+            result.diagnostics["entries_recovered"] = len(items)
+        else:
+            result.proposed_validators = self._validators_of(response, None, None)
+
+        result.items = items
+        result.counts.add(received=len(entries), invalid=invalid)
+        result.diagnostics["older_than_since"] = older
+        logger.info("Fetched %d articles from %s", len(items), feed_url)
+        return self._finish(result, started, since)
+
+    @staticmethod
+    def _finish(result: CollectionResult, started: datetime, since: Optional[datetime]) -> CollectionResult:
+        result.started_at = result.started_at or started
+        result.interval_start = result.interval_start or since
+        result.interval_end = result.interval_end or started
+        if result.provider is None:
+            result.provider = "rss"
+        return result.mark_finished()
+
+    @staticmethod
+    def _validators_of(response, etag: Optional[str], last_modified: Optional[str]) -> Dict[str, Optional[str]]:
+        """The validators the caller may commit: the response's own, or the
+        ones we sent when the response (a 304) did not repeat them."""
+        headers = getattr(response, "headers", None) or {}
+        out: Dict[str, Optional[str]] = {}
+        new_etag = headers.get("ETag") or headers.get("etag") or etag
+        new_lm = headers.get("Last-Modified") or headers.get("last-modified") or last_modified
+        if new_etag:
+            out["etag"] = str(new_etag)[:500]
+        if new_lm:
+            out["last_modified"] = str(new_lm)[:200]
+        return out
 
     def _parse_entry(self, entry, feed, topic: str) -> Optional[Dict]:
         """Parse a single feed entry into standardized article format."""
@@ -349,35 +512,32 @@ class RSSCollector(ArticleCollector):
         # Clean HTML from summary (basic cleanup)
         summary = self._strip_html(summary)[:1000]  # Limit length
 
-        # Get published date - normalize to ISO format for consistent database queries
-        published_date = None
+        # Publication date, with precision and provenance (work package 7).
+        # feedparser's *_parsed struct_time is already UTC and is preferred;
+        # the raw string is kept beside it. A missing or unparseable date
+        # stays None: the monitor stamps first_seen_at instead, and nothing
+        # substitutes the current time.
+        parsed = dates.unknown(provenance=dates.PROV_FEED)
+        raw_text = None
         for date_field in ['published', 'updated', 'created']:
-            # First try the parsed struct_time (preferred - already normalized)
-            if entry.get(f'{date_field}_parsed'):
-                try:
-                    parsed = entry.get(f'{date_field}_parsed')
-                    # feedparser's *_parsed is already UTC. mktime() reads a
-                    # struct_time as local time, so on a CEST server every
-                    # feed date landed one or two hours early.
-                    published_date = datetime.fromtimestamp(
-                        calendar.timegm(parsed), tz=timezone.utc).isoformat()
-                    break
-                except:
-                    pass
-            # Fallback to raw string and normalize it
-            if entry.get(date_field):
-                raw_date = entry.get(date_field)
-                # Try to parse and normalize the date
-                parsed_dt = self._parse_date(raw_date)
-                if parsed_dt:
-                    published_date = parsed_dt.isoformat()
-                else:
-                    # Keep raw string as last resort (shouldn't happen often)
-                    published_date = raw_date
+            raw_value = entry.get(date_field)
+            struct = entry.get(f'{date_field}_parsed')
+            candidate = dates.parse_date(struct, provenance=dates.PROV_FEED) if struct else None
+            if candidate is None or not candidate.known:
+                if raw_value:
+                    candidate = dates.parse_date(raw_value, provenance=dates.PROV_FEED)
+            if candidate is None:
+                continue
+            if candidate.known:
+                parsed = candidate
+                raw_text = str(raw_value)[:200] if raw_value else candidate.raw
                 break
-
-        if not published_date:
-            published_date = datetime.now(timezone.utc).isoformat()
+            if raw_value and raw_text is None:
+                # Remember the first unparseable value so the row says what
+                # the feed actually sent.
+                parsed = candidate
+                raw_text = str(raw_value)[:200]
+        published_date = parsed.iso()
 
         # Get authors
         authors = []
@@ -406,6 +566,9 @@ class RSSCollector(ArticleCollector):
             'summary': summary,
             'authors': authors,
             'published_date': published_date,
+            'published_at_raw': raw_text,
+            'publication_date_precision': parsed.precision if parsed.known else None,
+            'date_provenance': parsed.provenance if parsed.known else dates.PROV_UNKNOWN,
             'url': url,
             'source': source,
             'topic': topic,
@@ -414,7 +577,8 @@ class RSSCollector(ArticleCollector):
                 'feed_title': feed.feed.get('title', ''),
                 'entry_id': entry.get('id', url),
                 'tags': tags,
-                'source_name': source
+                'source_name': source,
+                'date_parse_status': parsed.status,
             }
         }
 

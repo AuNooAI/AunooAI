@@ -879,7 +879,7 @@ class ThreatIntelligenceService:
                 FROM threat_articles ta
                 JOIN articles a ON ta.article_uri = a.uri
                 WHERE ta.threat_id = ?
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT ? OFFSET ?
             """, [threat_id, page_size, offset])
 
@@ -1127,7 +1127,7 @@ class ThreatIntelligenceService:
                 JOIN articles a ON ta.article_uri = a.uri
                 WHERE t.threat_actor_id = ?
                 AND a.summary IS NOT NULL
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT 10
             """, [actor_id])
 
@@ -1814,7 +1814,7 @@ Write a factual description (2-3 sentences):"""
                     AND a.category IS NOT NULL
                     AND a.sentiment IS NOT NULL
                     {date_filter}
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """
                 cursor.execute(query, [topic, limit])
@@ -1829,7 +1829,7 @@ Write a factual description (2-3 sentences):"""
                     AND a.sentiment IS NOT NULL
                     AND ta.article_uri IS NULL
                     {date_filter}
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """
                 cursor.execute(query, [topic, limit])
