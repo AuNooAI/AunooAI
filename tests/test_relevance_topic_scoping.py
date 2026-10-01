@@ -38,11 +38,26 @@ class TestEnrichmentUpdate:
             assert "articles.topic = ?" in cond
             assert "COALESCE(articles.topic_alignment_score, 0)" in cond
 
-    def test_enrichment_fields_are_always_written(self):
+    def test_topic_independent_fields_are_always_written(self):
         q, _ = adb.build_enrichment_update(_sample())
-        for col in ("category", "sentiment", "summary", "analyzed", "ingest_status"):
+        for col in ("summary", "analyzed", "ingest_status", "bias", "media_type"):
             assert re.search(rf"\b{col} = (\?|COALESCE\(\?, {col}\))", q), col
             assert f"{col} = CASE" not in q
+
+    def test_the_topics_labels_move_with_the_verdict(self):
+        # Labels come from the topic's own lists, so a topic that does not
+        # claim the row must not leave them behind (wileytest, Sep 2026).
+        q, p = adb.build_enrichment_update(_sample(topic="X", topic_alignment_score=0.7,
+                                                   category="Military Activity",
+                                                   future_signal="Escalation"))
+        for col in ("category", "sentiment", "future_signal", "future_signal_explanation",
+                    "sentiment_explanation", "time_to_impact", "time_to_impact_explanation",
+                    "driver_type", "driver_type_explanation", "tags"):
+            assert re.search(rf"\b{col} = CASE WHEN \(.*?\) THEN \? ELSE articles\.{col} END", q), col
+            assert not re.search(rf"\b{col} = \?", q), col
+        i = q.index("category = CASE")
+        n_before = q[:i].count("?")
+        assert p[n_before:n_before + 3] == ("X", 0.7, "Military Activity")
 
     def test_verdict_params_carry_topic_score_value_in_that_order(self):
         q, p = adb.build_enrichment_update(_sample(topic="X", topic_alignment_score=0.7))

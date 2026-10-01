@@ -564,13 +564,24 @@ async def close_async_db():
 #: The row's relevance verdict is replaced only when this pipeline's topic
 #: may claim the row: the row is not approved yet, it is already filed under
 #: this topic, or this topic scored it higher than the topic it is filed
-#: under. Otherwise the row keeps its topic AND its score, and only the
-#: topic-independent enrichment (summary, category, sentiment ...) is written.
+#: under. Otherwise the row keeps its topic, its score AND its labels, and
+#: only the topic-independent enrichment (summary, bias, source ...) is written.
 _REFILE = ("(articles.ingest_status IS DISTINCT FROM 'approved' OR articles.topic = ? "
            "OR ? > COALESCE(articles.topic_alignment_score, 0))")
 
 _VERDICT_COLUMNS = ("topic", "topic_alignment_score", "keyword_relevance_score",
                     "confidence_score", "overall_match_explanation")
+
+#: Picked from the topic's own lists in config.json (categories, future
+#: signals, sentiment, time to impact, driver types), so they belong to the
+#: topic as much as the score does. Until 1 Oct 2026 these were written
+#: unconditionally: a second topic that approved the article without
+#: outscoring the first left its labels on a row still filed under the first.
+#: On wileytest 190 of 9,035 approved articles from 16-30 Sep carried another
+#: topic's category, 158 of them traced to exactly this.
+_LABEL_COLUMNS = ("category", "sentiment", "future_signal", "future_signal_explanation",
+                  "sentiment_explanation", "time_to_impact", "time_to_impact_explanation",
+                  "driver_type", "driver_type_explanation", "tags")
 
 
 def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
@@ -580,7 +591,8 @@ def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
     unconditionally and never wrote the topic. An article matched by several
     groups is scored once per group, and the last group to approve it stamped
     its verdict on a row filed under the first group's topic. The verdict now
-    travels with the topic: either both move, or neither does.
+    travels with the topic: either both move, or neither does. The topic's
+    labels (``_LABEL_COLUMNS``) travel with them too.
     """
     topic = article_data.get("topic")
     score = article_data.get("topic_alignment_score")
@@ -601,9 +613,9 @@ def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
         sets.append(f"{col} = {expr}")
         params.append(value)
 
-    def verdict(col: str) -> None:
+    def verdict(col: str, value: Any) -> None:
         sets.append(f"{col} = CASE WHEN {_REFILE} THEN ? ELSE articles.{col} END")
-        params.extend([topic, score_num, verdict_values[col]])
+        params.extend([topic, score_num, value])
 
     plain("title", article_data.get("title"), "COALESCE(?, title)")
     plain("original_title", article_data.get("original_title"), "COALESCE(?, original_title)")
@@ -611,20 +623,18 @@ def build_enrichment_update(article_data: Dict[str, Any]) -> Tuple[str, Tuple]:
     plain("original_summary", article_data.get("original_summary"), "COALESCE(?, original_summary)")
     sets.append("auto_ingested = TRUE")
     plain("ingest_status", article_data.get("ingest_status"))
-    for col in ("quality_score", "quality_issues", "category", "sentiment", "bias",
+    for col in ("quality_score", "quality_issues", "bias",
                 "factual_reporting", "mbfc_credibility_rating", "bias_source", "bias_country",
                 "press_freedom", "media_type", "popularity"):
         plain(col, article_data.get(col))
-    verdict("topic")
-    verdict("topic_alignment_score")
-    verdict("keyword_relevance_score")
-    for col in ("future_signal", "future_signal_explanation", "sentiment_explanation",
-                "time_to_impact", "time_to_impact_explanation", "driver_type",
-                "driver_type_explanation", "tags"):
-        plain(col, article_data.get(col))
+    verdict("topic", verdict_values["topic"])
+    verdict("topic_alignment_score", verdict_values["topic_alignment_score"])
+    verdict("keyword_relevance_score", verdict_values["keyword_relevance_score"])
+    for col in _LABEL_COLUMNS:
+        verdict(col, article_data.get(col))
     plain("analyzed", article_data.get("analyzed", True))
-    verdict("confidence_score")
-    verdict("overall_match_explanation")
+    verdict("confidence_score", verdict_values["confidence_score"])
+    verdict("overall_match_explanation", verdict_values["overall_match_explanation"])
 
     query = "UPDATE articles SET " + ", ".join(sets) + " WHERE uri = ?"
     params.append(article_data.get("uri"))
