@@ -39,7 +39,26 @@ from app.services.daily_briefing_ranking import (
     normalize_title,
     normalize_uri,
 )
-from app.services.report_corpus import is_wire_host
+try:
+    from app.services.report_corpus import is_wire_host
+except ImportError:
+    # Sites whose report_corpus predates is_wire_host (wiley, wileytest as of
+    # October 2026): the same check over their wire list, plus menafn, which
+    # bugfixing's list carries, so every site labels the same way.
+    from app.services.report_corpus import wire_sources as _wire_sources
+
+    def is_wire_host(host: str) -> bool:
+        h = (host or "").strip().lower()
+        if h.startswith("www."):
+            h = h[4:]
+        if not h:
+            return False
+        for wire in set(_wire_sources()) | {"menafn.com"}:
+            if h == wire or h.endswith("." + wire):
+                return True
+            if "." not in h and h.replace(" ", "") == wire.split(".")[0]:
+                return True
+        return False
 
 #: Days either side of a new article's publication date searched for an
 #: earlier copy of the same story. Syndicated copies land within a day or two;
@@ -164,7 +183,8 @@ def press_release_topics() -> Set[str]:
 
     A topic opts in with ``"include_press_releases": true`` in config.json.
     Without the key, Market Monitoring topics show them (a vendor's own
-    releases are the point there) and every other topic does not. Read from
+    releases are the point there) and every other topic does not, unless the
+    site sets ``STORY_PR_DEFAULT=show``. Read from
     the file on change only, since every reader of ``articles`` asks.
     """
     try:
@@ -175,12 +195,17 @@ def press_release_topics() -> Set[str]:
         try:
             with open(_CONFIG_PATH) as f:
                 topics = json.load(f).get("topics", [])
+            # STORY_PR_DEFAULT=show keeps press releases in every topic that
+            # has not said otherwise. Set on wiley and wileytest, where M&A
+            # Updates and Patent Cliffs carry 11-19% wire releases that are
+            # often the primary source for the deal or filing.
+            show_all = os.getenv("STORY_PR_DEFAULT", "hide").strip().lower() == "show"
             names = set()
             for t in topics:
                 name = (t.get("name") or "").strip()
                 flag = t.get("include_press_releases")
                 if flag is None:
-                    flag = name.lower().startswith("market monitoring")
+                    flag = show_all or name.lower().startswith("market monitoring")
                 if name and flag:
                     names.add(name)
             _cache.update(mtime=mtime, topics=frozenset(names))

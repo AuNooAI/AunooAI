@@ -239,3 +239,17 @@ before switching it on.
 Migration `si_001` (down revision `mm_032` on bugfixing). Backfill:
 `scripts/backfill_story_identity.py`, with `--sample N` to print links for checking by eye.
 Tests: `tests/test_story_identity.py`.
+
+## wiley and wileytest (1 October 2026)
+
+- **Press releases stay visible there for now.** Both sites set `STORY_PR_DEFAULT=show`, so every
+  topic without its own `include_press_releases` key keeps showing press releases. On wileytest,
+  wire releases are 11% of readable M&A Updates articles over 90 days and 19% of Patent Cliffs,
+  and for a deal or a filing the release is often the primary source. Copies are hidden there as
+  on bugfixing. Which topics should hide press releases is the customer's call.
+- **`is_wire_host` is missing there.** Their `report_corpus.py` predates it, so
+  `story_identity.py` falls back to the same check over their wire list plus menafn.
+- **Migration `si_001` revises `vp_001`** on both sites, which are behind bugfixing's `mm_032`.
+- **`.env` is rebuilt at every start** from `.env.encrypted` by `env_encryption.py decrypt`. A
+  setting added to `.env` must be re-encrypted (`env_encryption.py encrypt <site>`, which deletes
+  the plain file) before the restart, or the restart wipes it.
