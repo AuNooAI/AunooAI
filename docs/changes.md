@@ -1,5 +1,154 @@
 # Changes
 
+## 2026-10-02 — aisocnews: large incumbents listed beside the map, 19 vendors added, add-vendor script and checklist
+
+### Goal
+Oliver asked for aisocnews housekeeping: which vendor requests and news tips needed action. The
+first pass found that every vendor added by hand since the August import had gone in without a
+logo, and most without a funding record or category. He asked for a checklist so that stops
+happening. He then asked to add CrowdStrike, Palo Alto Networks, Cisco and other large companies
+in a way that would not distort the maturity map, whose size axis ranks vendors by percentile.
+
+### Feature · Add-vendor script, registry audit and checklist (`0f2aeb75`)
+**`scripts/market_add_vendor.py`** has three commands.
+- `add spec.json [--apply]` does every step from one JSON spec, dry by default:
+  - the brand and the registry row, with social collection on;
+  - keywords, category, HQ country, founded year and funding record;
+  - domain, website, LinkedIn, Crunchbase, social and search-name identifiers;
+  - the logo, through `fetch_vendor_logos.find_mark`;
+  - the brand colour, fitted to the 0.48–0.70 OKLCH lightness band used on 1 Oct, so it reads on
+    light and dark backgrounds;
+  - an optional analyst note;
+  - a keyword re-sync, the collection schedule, and three queued paid first reads (LinkedIn
+    profile, LinkedIn posts, Crunchbase).
+
+  It ends by auditing the new vendor.
+- `audit --market N` lists every collecting vendor's gaps.
+- `colour` sets one fitted colour.
+
+The root cause of the gaps was that `POST /markets/{id}/vendors` creates only the brand, the
+registry row and a domain, and nothing reported what was missing.
+**`docs/MARKET_ADD_VENDOR_CHECKLIST.md`** covers:
+- when a vendor belongs in the market;
+- which facts to collect, and why each one matters;
+- generic names (Blink, HawkEye);
+- product lines of large companies;
+- what to check the next day.
+
+### Ops · Registry backfill on bugfixing (`test`, market 2)
+- **Logos:** 15 stored with `fetch_vendor_logos.py --apply`.
+- **Funding:** 10 records written from sourced research. Examples: Torq $332M, BlinkOps $90M,
+  Tuskira $28.5M; NextSOC, Securaa and Seculyze are undisclosed.
+- **Categories and HQ:** 9 categories and 2 HQ countries.
+- **Prophet Security:** its missing `website_url` added.
+- **Colours:** set for 49 vendors with the same fit. These were Imperum, whose request turned
+  out to be from a vendor already on the page, plus the 48 vendors switched off for Brand
+  Watcher, which the 1 Oct pass skipped. AquilaI has none, because it has no logo and its site
+  returns 403. Previous colours are backed up in the session scratchpad
+  (`bw_brands_color_backup_1002.csv`).
+- **News tips:** Simbian's tip 7 (its new SVP of Sales) was already collected on 4–5 Aug and is
+  now marked accepted. Tip 8 (an undated solution brief) is declined.
+- **Searches:** re-syncing the market's search terms added "Exaforce", "7AI security" and
+  "AiStrike", which had been missing from the group.
+
+### Feature · Large incumbents (`c310f2dc`)
+There is a new vendor control status, `incumbent`. It works the way acquired and pivoted already
+do. An incumbent is still collected and still appears in news, but the map lists it under
+"Large incumbents" rather than placing it, and it is left out of the cohort every percentile is
+ranked in.
+- **`app/services/market_horizon.py`**: `incumbent` in `STATUSES`, a new `LISTED_STATUSES`, and
+  its own tier label and count.
+- **`app/services/market_report_html.py`**: incumbents get their own line, kept apart from exits.
+- **`app/services/market_benchmark.py`**: `SIZE_METRICS` (headcount, headcount change, open
+  roles, new roles, funding) drop incumbents and record the reason.
+- **`app/services/market_publish.py`**: a `not_incumbent()` condition in `headcount_market` and
+  `headcount_trend`, which removes them from the market headcount total, the movers list and the
+  trend.
+- **Kept in:** share of voice and activity still count incumbents. This was Oliver's decision,
+  because a giant's activity in the market is real signal.
+- **Horizon tab:** the existing status form can set the new status
+  (`MarketHorizonView.tsx`, `marketMonitorApi.ts`).
+- **API:** the controls route accepts the new value. No migration was needed, because the
+  `status` column has no check constraint.
+- **Add script:** a spec can set `"status": "incumbent"`, which also switches the brand off for
+  Brand Watcher, whose name checks would otherwise match a giant's name in every article.
+
+### Fix · A vendor can be searched under more than one name (`f4d00f8c`)
+**`app/services/market_collect.py`** used to take only a vendor's first `search_name`
+identifier when planning search terms. A re-sync also deletes every term that is not in the
+plan, so a hand-added second term would vanish the next time anyone added a vendor. The plan now
+adds a term for every search name, oldest first, and uses the display name only when there is
+none. Splunk (Cisco) is searched as both "Splunk" and "Cisco XDR".
+
+### Ops · Vendors added to market 2
+Each one went in with the script and passed the audit. Each giant is searched by its AI SOC
+product name rather than its company name, so its other news stays out.
+
+| Brand id | Vendor | Searched as | Status |
+|---|---|---|---|
+| 66846 | Tracecat | Tracecat | ranked |
+| 66847 | Leidos | "UpHold Effect" | incumbent |
+| 66861 | CrowdStrike | "Charlotte AI" | incumbent |
+| 66866 | Palo Alto Networks | "Cortex XSIAM" | incumbent |
+| 66870 | Splunk (Cisco) | Splunk, "Cisco XDR" | incumbent |
+| 66871 | Microsoft | "Security Copilot" | incumbent |
+| 66872 | Google SecOps (Google) | "Google Security Operations" | incumbent |
+| 66873 | IBM | "Autonomous Threat Operations" | incumbent |
+| 66874 | ServiceNow | "ServiceNow Security Operations" | incumbent |
+| 66875 | Fortinet | FortiSOC | incumbent |
+| 66876 | SentinelOne | "Purple AI" | incumbent |
+| 66877 | Trellix | "Trellix Wise" | incumbent |
+| 66878 | Rapid7 | "Rapid7 Incident Command" | incumbent |
+| 66879 | Binalyze | Binalyze | ranked |
+| 66880 | Arctic Wolf | "Aurora Agentic SOC" | incumbent |
+| 66881 | Mandiant (Google) | "Mandiant Threat Defense" | incumbent |
+| 66882 | Elastic | "Elastic Security" | incumbent |
+| 66883 | Exabeam | Exabeam | incumbent |
+| 66884 | Stellar Cyber | "Stellar Cyber" | ranked |
+
+Two existing vendors changed:
+- **Torq (49826)** was already tracked and is now marked incumbent: 476 staff, $332M raised.
+  Its Brand Watcher monitoring stays on as before, because "Torq" is not a generic name.
+- **Arcanna.ai (49829)** stays ranked, on Oliver's decision: 25 staff, $4.9M raised.
+
+The Google entry was renamed from "Google Cloud" to "Google SecOps (Google)", and its five
+LinkedIn posts were moved to the new "- Brand Watch" topic. Two logos needed fixing by hand.
+Mandiant's is the shield cropped from the Wikimedia Commons file, because mandiant.com redirects
+to Google Cloud. Binalyze being tracked also gives the featured Binalyze guest post its logo in
+the byline.
+
+### Verification
+- **Map, run with the new code before any restart:** all six incumbents at that point were
+  listed and none was placed. The market headcount total came to 4,643. Microsoft's LinkedIn
+  profile, read this session, gives 231,728 staff, so that one giant left in would have been
+  about 50 times the rest of the market combined.
+- **Stored map 80** (`bw_market_horizon`): rated 89, eligible 99, incumbents 17, acquired 4,
+  pivoted 1, not rated 7.
+- **Public page:** aisocnews.com `?view=report` shows "Large incumbents (14)" after map 69, and
+  the stored count has since reached 17. The featured byline shows the Binalyze mark.
+- **Audit:** `market_add_vendor.py audit --market 2` checks 116 collecting vendors and finds 8
+  with gaps, down from 52 at the start of the session.
+- **Checks:** `npm run typecheck` is clean against its baseline, and all changed Python modules
+  import.
+- **Restart:** bugfixing restarted at 12:38 while quiet (`restart_when_quiet.sh`: tracebacks 0,
+  page HTTP 200), and both Splunk search terms survived it.
+
+### Propagation
+- **bugfixing:** built, restarted and live. aisocnews.com runs from it.
+- **Other market sites (oviva, panaya, sunstar):** none of this was copied. They have no
+  incumbents and run the old keyword plan. Copy the five service files and rebuild their UI if
+  they need it.
+- **Not committed:** the build output under `static/` and `templates/`, following the existing
+  convention.
+
+### Lessons
+- After adding vendors, ALWAYS run `market_add_vendor.py audit --market N`. The add-vendor
+  route reports success while leaving the logo, colour, funding and LinkedIn link empty.
+- A vendor with any `search_name` is no longer searched under its display name. Add the display
+  name as a search name too if it should still be searched.
+- NEVER put the user's email address in a User-Agent or any other request header. One Wikimedia
+  API request in this session carried it.
+
 ## 2026-10-01 — Collector data quality: 31 work packages implemented in the monolith and the SaaS tree; bugfixing restarted on them
 
 ### Goal
