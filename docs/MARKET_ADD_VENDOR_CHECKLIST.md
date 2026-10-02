@@ -14,12 +14,22 @@ still waiting on its first LinkedIn read.
 
 - **Does it sell an AI SOC product?** The registry tracks companies whose product does AI
   security operations work (triage, investigation, response, detection). Platforms next to the
-  market (SIEMs, network sensors, sandboxes) and service providers whose AI is a feature of a
-  managed service (MDRs) stay out unless Oliver decides otherwise.
-- **Is it a product line of a large company?** Add it under the company's name, but search
-  for the product (see `search_name` below) and write an analyst note (`control_note`). The
-  maturity map ranks size by percentile, so a 47,000-person company lands in the top tier on
-  headcount alone. Leidos (UpHold Effect) and HawkEye (DTS Solution) are the examples.
+  market (network sensors, sandboxes) and service providers whose AI is a feature of a
+  managed service (MDRs) stay out unless Oliver decides otherwise. A large platform company
+  with its own AI SOC product (Splunk, Microsoft) goes in as an incumbent (below).
+- **Is it a large incumbent?** CrowdStrike, Palo Alto Networks, Splunk (Cisco), Microsoft,
+  Google Cloud and Leidos belong in the market, but their headcount and followers are a whole
+  company's, tens of times any startup's. Set `"status": "incumbent"` in the spec. The vendor
+  is then collected and shown in news like any other, but it is listed beside the maturity
+  map under "Large incumbents" rather than placed on it. It is also left out of every size
+  figure (headcount, open roles, funding, the market headcount total and trend, and the
+  vendor-page benchmarks). It still counts in share of voice and activity. Search for the
+  product, not the company (`search_name`: "Charlotte AI", "Cortex XSIAM", "Security
+  Copilot"), because a bare "Microsoft" search brings in all of Microsoft's news. To mark an
+  existing vendor, use the Horizon tab's "Mark a vendor … incumbent" form.
+- **Is it a product line of a smaller company?** Add it under the product's name with the
+  parent's LinkedIn page, and write an analyst note (`control_note`). HawkEye (DTS Solution)
+  is the example.
 - **Is it already tracked?** Requests often come from vendors that are already on the page.
   Run the audit for the market and search the output for the name.
 
@@ -89,7 +99,8 @@ On `--apply` the script:
 3. adds the domain, website, LinkedIn, Crunchbase, social and search-name identifiers;
 4. fetches the logo from the site and sets the colour, fitted so it reads on light and dark
    backgrounds;
-5. writes the analyst note, when there is one;
+5. writes the map status and analyst note, when there are any; an incumbent is also switched
+   off for Brand Watcher, whose name checks would match a giant's name in every article;
 6. re-syncs the market's search terms, so the vendor is searched for from the next cycle;
 7. creates the collection schedule (8 sources; 7 are eligible at first, because job listings
    wait for the careers-page discovery);

@@ -2843,7 +2843,7 @@ async def market_topics_compute(
 class HorizonControls(BaseModel):
     multipliers: Dict[str, float] = Field(default_factory=dict)
     note: Optional[str] = Field(None, max_length=4000)
-    status: str = Field("active", pattern="^(active|acquired|closed|pivoted)$")
+    status: str = Field("active", pattern="^(active|acquired|closed|pivoted|incumbent)$")
     acquired_by: Optional[str] = Field(None, max_length=200)
     status_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 

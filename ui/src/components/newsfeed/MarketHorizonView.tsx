@@ -416,7 +416,9 @@ function HorizonGrid({ rated, onVendor, largeShift = 10, cuts, stageNames, bandN
 }
 
 /**
- * Acquired, closed and pivoted vendors: listed under the map, never placed on it.
+ * Acquired, closed, pivoted and large incumbent vendors: listed under the map,
+ * never placed on it. An incumbent (CrowdStrike, Microsoft) is still in the
+ * market; it is listed because its size cannot be compared with the rest.
  * The form here writes the same per-vendor status the vendor page's
  * controls do, then recomputes, so a sale recorded here shows at once.
  */
@@ -427,7 +429,7 @@ function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [open, setOpen] = useState(false);
   const [brandId, setBrandId] = useState<number | ''>('');
-  const [status, setStatus] = useState<'acquired' | 'closed' | 'pivoted'>('acquired');
+  const [status, setStatus] = useState<'acquired' | 'closed' | 'pivoted' | 'incumbent'>('acquired');
   const [by, setBy] = useState('');
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
@@ -445,7 +447,7 @@ function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
 
   // Keep the analyst's multipliers and note when only the status changes.
   const setStatusFor = async (bid: number, next: {
-    status: 'active' | 'acquired' | 'closed' | 'pivoted'; acquired_by?: string | null;
+    status: 'active' | 'acquired' | 'closed' | 'pivoted' | 'incumbent'; acquired_by?: string | null;
     status_date?: string | null; note?: string | null;
   }) => {
     const cur = (await getHorizonControls(marketId, bid)).controls;
@@ -492,13 +494,13 @@ function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
     <div className="mt-4 border rounded-md p-3 dark:border-gray-700">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
-          Acquired, closed and pivoted ({horizon.acquired.length})
+          Acquired, closed, pivoted and large incumbents ({horizon.acquired.length})
         </span>
         <span className="text-xs text-slate-500 dark:text-gray-400">— listed, not placed</span>
         <button onClick={() => setOpen(o => !o)}
                 className="ml-auto text-xs px-2 py-1 rounded border bg-white hover:bg-slate-50
                            dark:bg-gray-800 dark:hover:bg-gray-700 dark:border-gray-600 dark:text-gray-200">
-          {open ? 'Cancel' : 'Mark a vendor acquired, closed or pivoted'}
+          {open ? 'Cancel' : 'Mark a vendor acquired, closed, pivoted or incumbent'}
         </button>
       </div>
       {horizon.acquired.length === 0 && !open && (
@@ -513,7 +515,7 @@ function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
                         className="text-sky-700 dark:text-sky-400 hover:underline">{a.vendor}</button>
               ) : a.vendor}
               <span className="text-xs text-slate-500 dark:text-gray-400">
-                — {a.status === 'closed' ? 'closed' : a.status === 'pivoted' ? (a.note ? `pivoted: ${a.note}` : 'pivoted') : a.acquired_by ? `acquired by ${a.acquired_by}` : 'acquired'}
+                — {a.status === 'incumbent' ? 'large incumbent, not placed' : a.status === 'closed' ? 'closed' : a.status === 'pivoted' ? (a.note ? `pivoted: ${a.note}` : 'pivoted') : a.acquired_by ? `acquired by ${a.acquired_by}` : 'acquired'}
                 {a.status_date ? `, ${a.status_date}` : ''}
                 {a.note ? ` · ${a.note}` : ''}
               </span>
@@ -541,10 +543,11 @@ function AcquiredPanel({ marketId, horizon, onVendor, onChanged }: {
           </label>
           <label className="text-xs text-slate-600 dark:text-gray-300">Status
             <select className={`${input} block mt-0.5`} value={status}
-                    onChange={e => setStatus(e.target.value as 'acquired' | 'closed' | 'pivoted')}>
+                    onChange={e => setStatus(e.target.value as 'acquired' | 'closed' | 'pivoted' | 'incumbent')}>
               <option value="acquired">acquired</option>
               <option value="closed">closed (dead)</option>
               <option value="pivoted">pivoted (left this market; say where in the note)</option>
+              <option value="incumbent">large incumbent (in the market, too big to place)</option>
             </select>
           </label>
           <label className="text-xs text-slate-600 dark:text-gray-300">Acquired by

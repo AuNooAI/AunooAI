@@ -30,7 +30,13 @@ Spec file (JSON):
                  "notes": "...", "sources": ["..."]},
      "colour": {"hex": "#181818", "source": "logo (black)"},
      "control_note": null,
+     "status": "active",
      "provenance": {"source": "top_voices", "request_id": 33}}
+
+"status": "incumbent" marks a large company (CrowdStrike, Microsoft, Leidos):
+collected like any vendor, but listed beside the maturity map instead of
+placed on it, and left out of every size figure. It is also kept out of Brand
+Watcher, whose name checks would match a giant's name in every article.
 """
 import argparse
 import json
@@ -282,13 +288,19 @@ def add(spec: dict, apply: bool) -> int:
             chart = _set_colour(conn, brand_id, spec["colour"]["hex"], spec["colour"]["source"])
             print(f"colour: {spec['colour']['hex']} -> chart {chart}")
 
-        # 5. Analyst note on the maturity map, when the vendor needs explaining.
-        if spec.get("control_note"):
+        # 5. Map status and analyst note, when the vendor needs either.
+        status = spec.get("status") or "active"
+        if status not in ("active", "incumbent"):
+            raise SystemExit("status must be active or incumbent for a new vendor")
+        if spec.get("control_note") or status != "active":
             conn.execute(text("""
                 INSERT INTO bw_market_vendor_controls
                     (market_id, brand_id, multipliers, note, status, updated_by, updated_at)
-                VALUES (:m, :b, '{}'::jsonb, :n, 'active', 'market_add_vendor.py', NOW())
-            """), {"m": market_id, "b": brand_id, "n": spec["control_note"]})
+                VALUES (:m, :b, '{}'::jsonb, :n, :s, 'market_add_vendor.py', NOW())
+            """), {"m": market_id, "b": brand_id, "n": spec.get("control_note"), "s": status})
+        if status == "incumbent":
+            conn.execute(text("UPDATE bw_brands SET enabled = FALSE WHERE id = :b"),
+                         {"b": brand_id})
 
         if not apply:
             conn.rollback()

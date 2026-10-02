@@ -52,6 +52,18 @@ EXACT_HEADCOUNT = ("s.data->>\'employee_count\' ~ \'^[0-9]+$\' "
                    "AND (s.data->>\'employee_count\')::numeric > 0")
 
 
+def not_incumbent(mb: str = "mb") -> str:
+    """SQL: the registry row ``mb`` is not marked a large incumbent.
+
+    An incumbent's headcount is a whole company's (Microsoft, CrowdStrike), so
+    every size figure leaves it out: one of them would outweigh the rest of
+    the market's staff together. It still counts for coverage and posts.
+    """
+    return (f"NOT EXISTS (SELECT 1 FROM bw_market_vendor_controls vc"
+            f" WHERE vc.market_id = {mb}.market_id AND vc.brand_id = {mb}.brand_id"
+            f" AND vc.status = 'incumbent')")
+
+
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
     """Registry size split by role and collection state.
 
@@ -858,6 +870,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
               FROM bw_vendor_snapshots s
               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                    AND mb.market_id = :m AND mb.role <> 'excluded'
+                   AND {not_incumbent("mb")}
              WHERE s.snapshot_type = 'profile'
                -- Exact integers only. A band, a range or any other text is
                -- not a count and must not reach the arithmetic below.
@@ -881,6 +894,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
           JOIN bw_brands b ON b.id = mb.brand_id
           LEFT JOIN ranked r ON r.brand_id = b.id AND r.rn <= 2
          WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND {not_incumbent("mb")}
          GROUP BY b.id, b.display_name, mb.baseline
          ORDER BY b.display_name
     """), {"m": market_id}).mappings().all()]
@@ -1014,7 +1028,7 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
     # — reading as a single stranded dot instead of one real point on a
     # 1-week line. Clipping the window to the market's own age fixes that.
     market_created = market.get("created_at") or "1970-01-01"
-    rows = conn.execute(text("""
+    rows = conn.execute(text(f"""
         WITH weeks AS (
             SELECT generate_series(
                 GREATEST(date_trunc('week', now() - (:weeks || ' weeks')::interval),
@@ -1028,6 +1042,7 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
             FROM bw_market_brands mb
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.role <> 'excluded'
+              AND {not_incumbent("mb")}
         ),
         asof AS (
             SELECT w.week_start, v.brand_id, v.baseline_count, s.employee_count

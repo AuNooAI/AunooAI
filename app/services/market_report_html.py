@@ -1611,9 +1611,12 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
     # different facts about a name that has gone from the map.
     listed = horizon.get("acquired") or []
     pivoted = [a for a in listed if a.get("status") == "pivoted"]
+    # Incumbents are in the market, not gone from it: their own line, so a
+    # reader never takes CrowdStrike for an exit.
+    incumbents = [a for a in listed if a.get("status") == "incumbent"]
     # Oldest acquisition first, so the earliest exit in the market reads at the
     # front of the line (user, 15 Sep 2026). Undated entries go last.
-    acquired = sorted((a for a in listed if a.get("status") != "pivoted"),
+    acquired = sorted((a for a in listed if a.get("status") not in ("pivoted", "incumbent")),
                       key=lambda a: (a.get("status_date") is None, a.get("status_date") or ""))
     innovating = [r for r in rated if r.get("innovating")]
 
@@ -1741,6 +1744,11 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
             esc(a["vendor"]) + (f' — {esc(a["note"])}' if a.get("note") else "")
             + (f' ({esc(a["status_date"])})' if a.get("status_date") else "")
             for a in pivoted if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
+    if incumbents:
+        tiers_html.append(f'<h3>Large incumbents <span class="mm-src">({len(incumbents)}) — in this market, but too large to compare on size; listed, not on the map</span></h3>')
+        tiers_html.append('<p>' + "; ".join(
+            esc(a["vendor"])
+            for a in incumbents if names_allowed is None or a["vendor"] in names_allowed) + '</p>')
     tier_summary = ", ".join(
         f'{(horizon.get("tiers") or {}).get(t, {}).get("label", t)} {sum(1 for r in rated if r["tier"] == t)}'
         for t in _TIER_ORDER)
@@ -1757,12 +1765,13 @@ def _horizon_section(horizon: Dict[str, Any], allowed: Optional[set], *,
                     + (f", raised in the last year {len(funded)}" if funded else "")
                     + (f", moved {len(moves)}" if moves else "")
                     + (f", acquired {len(acquired)}" if acquired else "")
-                    + (f", pivoted {len(pivoted)}" if pivoted else ""),
+                    + (f", pivoted {len(pivoted)}" if pivoted else "")
+                    + (f", large incumbents {len(incumbents)}" if incumbents else ""),
                     marks_key + "".join(tiers_html)))
 
     if full_view:
         noted = [r for r in rated if r.get("analyst_note") or r.get("multipliers")]
-        noted += [a for a in acquired + pivoted if a.get("note")]
+        noted += [a for a in acquired + pivoted + incumbents if a.get("note")]
         if noted:
             lines = []
             for r in noted:

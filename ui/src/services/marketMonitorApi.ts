@@ -2033,13 +2033,13 @@ export interface HorizonMarkers {
   funded_days: number;
 }
 export interface HorizonAcquired {
-  brand_id: number; vendor: string; status: 'acquired' | 'closed' | 'pivoted';
+  brand_id: number; vendor: string; status: 'acquired' | 'closed' | 'pivoted' | 'incumbent';
   acquired_by: string | null; status_date: string | null; note: string | null;
 }
 export interface HorizonControls {
   multipliers: Record<string, number>;
   note: string | null;
-  status: 'active' | 'acquired' | 'closed' | 'pivoted';
+  status: 'active' | 'acquired' | 'closed' | 'pivoted' | 'incumbent';
   acquired_by: string | null;
   status_date: string | null;
   updated_by?: string | null;

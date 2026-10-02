@@ -148,6 +148,18 @@ def _eligible(conn, market_id: int) -> Dict[int, str]:
     """), {"m": market_id}).fetchall()}
 
 
+# Metrics that measure a company's size. Activity (posts, mentions, the
+# blended index) is not size, and a giant's activity in the market is real.
+SIZE_METRICS = frozenset({"headcount", "headcount_pct", "jobs_open", "jobs_new", "funding"})
+
+
+def _incumbents(conn, market_id: int) -> set:
+    return {int(r[0]) for r in conn.execute(text("""
+        SELECT brand_id FROM bw_market_vendor_controls
+         WHERE market_id = :m AND status = 'incumbent'
+    """), {"m": market_id}).fetchall()}
+
+
 def _headcount_values(conn, market_id: int, days: int, pct: bool
                       ) -> Tuple[Dict[int, float], Dict[int, str], Optional[str]]:
     """Latest fresh headcount, or its change across the period.
@@ -397,9 +409,17 @@ def metric_values(conn, market: Dict[str, Any], metric_key: str, days: int
     if degraded:
         as_of = last_success
 
+    if metric_key in SIZE_METRICS:
+        # A large incumbent's size is a whole company's; ranked among startups
+        # it would set every percentile and move every median.
+        incumbents = _incumbents(conn, market_id)
+        eligible = {b: n for b, n in eligible.items() if b not in incumbents}
+        for bid in incumbents:
+            unmeasured[bid] = ("a large incumbent; its size is not compared "
+                               "with the rest of the market")
     values = {b: v for b, v in values.items() if b in eligible}
     unmeasured = {b: r for b, r in unmeasured.items()
-                  if b in eligible and b not in values}
+                  if b not in values and (b in eligible or r.startswith("a large incumbent"))}
     return {"values": values, "unmeasured": unmeasured, "eligible": eligible,
             "collection": collection, "as_of": as_of, "spec": spec,
             "degraded": degraded}
