@@ -664,3 +664,19 @@ def test_default_collect_wraps_a_list_collector():
     assert full.succeeded and not full.coverage_complete and full.truncated_reason == c.TRUNC_PROVIDER_LIMIT
     bad = run(Plain().collect("boom", "t", interval_start=START, interval_end=NOW))
     assert bad.failed and bad.error_code == c.ERR_TIMEOUT and bad.retryable
+
+
+def test_newsfirehose_accepts_aware_interval_bounds():
+    """The keyword monitor hands over timezone-aware bounds; the firehose
+    collector compares against the naive local clock. Mixing the two raised
+    TypeError on every poll for eight hours after the 1 Oct restart."""
+    from datetime import datetime, timedelta, timezone
+    from app.collectors.newsfirehose_collector import _naive_local
+    aware = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    out = _naive_local(aware)
+    assert out.tzinfo is None
+    # Same instant on the local clock, so arithmetic with datetime.now() works.
+    assert abs((out - aware.astimezone().replace(tzinfo=None)).total_seconds()) < 1
+    assert (datetime.now() - out) > timedelta(0)
+    naive = datetime(2026, 10, 1, 12, 0)
+    assert _naive_local(naive) is naive and _naive_local(None) is None and _naive_local("2026-10-01") == "2026-10-01"
