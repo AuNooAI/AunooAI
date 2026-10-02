@@ -1661,6 +1661,24 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, fetchSocial, socialMinRel, socialInclUneval]);
 
+  // The selected brand's "{Brand} - Social" group, so an empty feed can tell
+  // "not monitored" (offer setup) from "monitored, nothing in this window".
+  // undefined = still loading, null = no group (or the lookup failed).
+  const [socialGroupInfo, setSocialGroupInfo] = useState<{ lastChecked: string | null } | null | undefined>(undefined);
+  useEffect(() => {
+    if (enablingSocial) return;
+    const brandName = brands.find(b => b.id === primarySelectedId)?.display_name;
+    if (!brandName) { setSocialGroupInfo(null); return; }
+    let cancelled = false;
+    setSocialGroupInfo(undefined);
+    getKeywordGroups().then(groups => {
+      if (cancelled) return;
+      const match = groups.find(g => g.name === `${brandName} - Social`);
+      setSocialGroupInfo(match ? { lastChecked: match.last_checked_at || null } : null);
+    }).catch(() => { if (!cancelled) setSocialGroupInfo(null); });
+    return () => { cancelled = true; };
+  }, [primarySelectedId, brands, enablingSocial]);
+
   // --- Suggest Keywords via LLM (+ Wikidata verification) ---
   const handleSuggestKeywords = useCallback(async (qidOverride?: string) => {
     const name = brandForm.display_name?.trim();
@@ -4499,7 +4517,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
       {activeTab === 'social' && (
         <div className="space-y-6">
-          {!(social && social.total > 0) && !socialIntroDismissed && (
+          {social && social.total === 0 && socialGroupInfo && (
+          <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-300">
+            No posts about {brands.find(b => b.id === primarySelectedId)?.display_name || 'this brand'} in the last {social.window_days} days match the current filters. Social monitoring is on
+            {socialGroupInfo.lastChecked ? `; the last collection ran ${new Date(socialGroupInfo.lastChecked).toLocaleString()}` : ''}.
+          </div>
+          )}
+          {!(social && social.total > 0) && socialGroupInfo === null && !socialIntroDismissed && (
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2">
