@@ -146,6 +146,38 @@ Eight `rss_feeds` rows set inactive with the reason on the row (not deleted): Si
 returned an article), and Blink (HTTP 403 on all 89 polls in the week). 52 feeds remain active.
 None of this was new behaviour; it was the first time the run records listed it.
 
+### Incident · the first night on the new code (2 October, both trees)
+Three faults showed up in the journals overnight, none of them in a test:
+
+- **Monolith, `app/collectors/newsfirehose_collector.py`** (`a509ee22`): the keyword
+  monitor now takes its interval from the checkpoint table, so the bounds are
+  timezone-aware, and the firehose collector subtracted them from the naive local
+  clock. "can't subtract offset-naive and offset-aware datetimes" on 103 polls from
+  the 21:45 restart to 05:35; the firehose collected nothing on bugfixing for eight
+  hours. Fixed by bringing the bounds onto the local clock on entry; bugfixing
+  restarted 07:45.
+- **SaaS, `app/collectors/rss.py`** (`20b61f41`): with the time cutoff gone, the
+  collector fetched full text for every entry of every feed on every cycle. 2,848
+  fetch timeouts in two minutes at 00:28 and 33 "Too many open files" errors against
+  the worker's 1,024-descriptor limit. Entries the articles table already holds are
+  now skipped before the fetch and the rest run under `RSS_FULLTEXT_CONCURRENCY`
+  (default 8).
+- **SaaS, `app/collectors/social_base.py`, `bluesky.py`** (`20b61f41`): the
+  official-source poll calls `fetch_result(keywords, interval_start=..., ...)` on
+  every brand source; Bluesky's took `since`/`until` and Reddit had none, so both
+  failed on every tick (425 and 68 tracebacks). `SocialCollector` gained a default
+  `fetch_result` that wraps `fetch`; Bluesky accepts both spellings.
+- Also seen, not fixed: 23 `anyio.BrokenResourceError` logged by the MCP client when
+  an Xpoz call hit the 180 s hard timeout and its stream was closed mid-message. The
+  error stays inside the owner task; it is log noise from the library, not an
+  escaping cancellation. Three `ux_geohotspots_processing_runs_singleton_running`
+  unique violations and two DeBERTa-encoder-unreachable errors are pre-existing.
+
+Prod deploy of the fixes: 07:48 (worker and web). The SaaS collector's first cycle
+after the first deploy showed 18 feed run records with inserted 0 and duplicate 0
+while 28 articles were stored; `StoreOutcome` now carries a per-feed breakdown
+(`9ddf60ab`), deployed 23:12.
+
 ### Verification
 - Monolith: 268 tests across the new files plus 41 monitor and collector tests after the
   RSS additions, all passing; SaaS: 275 passing. Both app factories import.
