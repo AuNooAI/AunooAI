@@ -1356,7 +1356,10 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             (r["handle_canonical"], r["platform"]): dict(r)
             for r in conn.execute(text("""
                 SELECT platform, handle_canonical, id AS account_id, handle,
-                       display_name, followers_count, summary, watchlisted,
+                       display_name, followers_count, summary,
+                       EXISTS (SELECT 1 FROM market_follows mf
+                                WHERE mf.market_id = :m
+                                  AND mf.account_id = social_accounts.id) AS watchlisted,
                        tags, bio, profile_url, topics, verified, brand_context,
                        avatar_url, posts_count, last_profiled_at,
                        metadata->>'market_role' AS role,
@@ -1367,7 +1370,8 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                      SELECT lower(p), lower(h) FROM UNNEST(:plats, :handles)
                           AS t(p, h))
             """), {"plats": [p for _, p in pairs],
-                   "handles": [a for a, _ in pairs]}).mappings().all()
+                   "handles": [a for a, _ in pairs],
+                   "m": market_id}).mappings().all()
         }
         for v in voices:
             hit = accounts.get((str(v["author"]).lower(),

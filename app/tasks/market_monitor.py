@@ -776,7 +776,7 @@ async def _collect_followed(conn, market: Dict[str, Any], now: datetime) -> int:
         return 0
     from app.services import market_follow as mf
 
-    if not mf.followed(conn, limit=1):
+    if not mf.followed(conn, market_id, limit=1):
         return 0
     run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_FOLLOW,
                          provider="xpoz")

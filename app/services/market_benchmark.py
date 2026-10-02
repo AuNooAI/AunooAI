@@ -178,6 +178,7 @@ def _headcount_values(conn, market_id: int, days: int, pct: bool
               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                    AND mb.market_id = :m AND mb.role <> 'excluded'
              WHERE s.snapshot_type = 'profile'
+               AND s.source <> 'analyst'
                AND {mpub.EXACT_HEADCOUNT}
                {"AND s.observed_at >= NOW() - (:d || ' days')::interval"
                 if pct else ""}
@@ -219,6 +220,37 @@ def _headcount_values(conn, market_id: int, days: int, pct: bool
             continue
         was = float(r["earliest"])
         values[bid] = round((float(r["latest"]) - was) / was * 100, 1)
+
+    if not pct:
+        # An analyst's headcount from an annual report, set on the registry row
+        # as baseline.headcount_override = {"employees", "as_of", "source_url"}.
+        # It stands in for size only. LinkedIn counts the people who list the
+        # company, which for CATL was 6,422 of 131,988 employees, so a market of
+        # large Asian groups compares LinkedIn presence, not size, unless every
+        # vendor is overridden. Change over time keeps reading LinkedIn, which
+        # compares like with like; mixing the two would read as 2,000% growth.
+        for bid, ov in conn.execute(text("""
+            SELECT brand_id, baseline->'headcount_override'
+              FROM bw_market_brands
+             WHERE market_id = :m AND role <> 'excluded'
+               AND baseline ? 'headcount_override'
+        """), {"m": market_id}).fetchall():
+            ov = ov if isinstance(ov, dict) else {}
+            if ov.get("unmeasured"):
+                # No acceptable figure for the part of the company the market
+                # tracks (BYD's battery business does not report a headcount),
+                # and the LinkedIn count is the whole group's. Better unmeasured
+                # than measured as something else.
+                values.pop(int(bid), None)
+                unmeasured[int(bid)] = str(ov["unmeasured"])
+                continue
+            try:
+                employees = float(ov.get("employees") or 0)
+            except (TypeError, ValueError):
+                continue
+            if employees > 0:
+                values[int(bid)] = employees
+                unmeasured.pop(int(bid), None)
 
     return values, unmeasured, as_of
 

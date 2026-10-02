@@ -2535,7 +2535,7 @@ async def market_follow_list(market_id: int, session=Depends(verify_session_api)
         conn = _conn()
         try:
             _load_market(conn, market_id)
-            return {"accounts": mf.followed(conn)}
+            return {"accounts": mf.followed(conn, market_id)}
         finally:
             conn.close()
 
@@ -2556,7 +2556,7 @@ async def market_follow_add(market_id: int, body: FollowRequest,
         conn.close()
     try:
         row = await mf.follow(get_database_instance(), body.platform, body.handle,
-                              market["name"])
+                              market["name"], market_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
@@ -2573,7 +2573,7 @@ async def market_follow_remove(market_id: int, body: FollowRequest,
     from app.services import market_follow as mf
 
     if not await asyncio.to_thread(mf.unfollow, get_database_instance(),
-                                   body.platform, body.handle):
+                                   body.platform, body.handle, market_id):
         raise HTTPException(status_code=404, detail="Not on the list")
     return {"ok": True}
 

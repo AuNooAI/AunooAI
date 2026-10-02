@@ -4421,21 +4421,36 @@ _V2_VOICES_SHOWN = 10
 _V2_VOICES_MORE = 10
 
 
-def _v2_tracked_voices(conn, limit: int = _V2_VOICES_SHOWN + _V2_VOICES_MORE) -> List[Dict[str, Any]]:
-    """The people we track for this market: the accounts we follow first,
-    then profiled practitioners and analysts, by reach. From the profiles,
-    not from who happened to post this period, so the list is stable."""
+def _v2_tracked_voices(conn, market_id: int,
+                       limit: int = _V2_VOICES_SHOWN + _V2_VOICES_MORE) -> List[Dict[str, Any]]:
+    """The people we track for this market: the accounts this market follows
+    first, then profiled practitioners and analysts who have posted in this
+    market, by reach. From the profiles, not from who happened to post this
+    period, so the list is stable.
+
+    Scoped to the market since October 2026: the profiles and the follow flag
+    were site-wide, so a second market's report listed the first market's
+    SOC analysts.
+    """
     from sqlalchemy import text as _sql
 
     return [dict(r) for r in conn.execute(_sql("""
-        SELECT id, platform, handle, display_name, followers_count, profile_url,
-               watchlisted, metadata->>'market_role' AS role
-          FROM social_accounts
-         WHERE last_profiled_at IS NOT NULL
-           AND (watchlisted OR metadata->>'market_role' = ANY(:roles))
-         ORDER BY watchlisted DESC, followers_count DESC NULLS LAST, handle
+        SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.followers_count,
+               sa.profile_url, sa.metadata->>'market_role' AS role,
+               EXISTS (SELECT 1 FROM market_follows mf
+                        WHERE mf.market_id = :m AND mf.account_id = sa.id) AS watchlisted
+          FROM social_accounts sa
+         WHERE sa.last_profiled_at IS NOT NULL
+           AND (EXISTS (SELECT 1 FROM market_follows mf
+                         WHERE mf.market_id = :m AND mf.account_id = sa.id)
+                OR (sa.metadata->>'market_role' = ANY(:roles)
+                    AND EXISTS (SELECT 1 FROM bw_market_articles ma
+                                  JOIN articles a ON a.uri = ma.article_uri
+                                 WHERE ma.market_id = :m
+                                   AND lower(a.social_meta->>'author') = sa.handle_canonical)))
+         ORDER BY watchlisted DESC, sa.followers_count DESC NULLS LAST, sa.handle
          LIMIT :lim
-    """), {"roles": list(_VOICE_ROLES), "lim": limit}).mappings().all()]
+    """), {"m": market_id, "roles": list(_VOICE_ROLES), "lim": limit}).mappings().all()]
 
 
 def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
@@ -5283,7 +5298,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         motion = _v2_motion(sov_rows, logos, prev=sov_prev)
         if motion:
             body.append('<div class="v2-card"><h2>Who got attention</h2>' + motion + "</div>")
-        tracked = _safe_list(_v2_tracked_voices, conn)
+        tracked = _safe_list(_v2_tracked_voices, conn, market["id"])
         voices_card = _v2_voices_card(tracked, top_voices, teaser=teaser)
         if voices_card:
             body.append('<div class="v2-card"><h2>Influence and Influencers</h2>' + voices_card + "</div>")
