@@ -27,6 +27,10 @@ still waiting on its first LinkedIn read.
   product, not the company (`search_name`: "Charlotte AI", "Cortex XSIAM", "Security
   Copilot"), because a bare "Microsoft" search brings in all of Microsoft's news. To mark an
   existing vendor, use the Horizon tab's "Mark a vendor … incumbent" form.
+- **Does it sell under two names?** A vendor can carry several `search_name` identifiers,
+  and each becomes a search term. Splunk (Cisco) is searched as both "Splunk" and
+  "Cisco XDR". Once a vendor has any search name, its display name is no longer searched,
+  so add that too if it should be.
 - **Is it a product line of a smaller company?** Add it under the product's name with the
   parent's LinkedIn page, and write an analyst note (`control_note`). HawkEye (DTS Solution)
   is the example.

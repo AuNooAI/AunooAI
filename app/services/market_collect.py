@@ -842,11 +842,13 @@ def plan_market_keywords(conn, market_id: int,
         SELECT b.display_name,
                mb.baseline->'funding_baseline'->>'status' AS funding_status,
                (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS raised,
-               (SELECT i.display_value
-                  FROM bw_vendor_identifiers i
-                 WHERE i.brand_id = b.id AND i.kind = :search_kind
-                   AND i.valid_to IS NULL
-                 ORDER BY i.id LIMIT 1) AS search_name
+               -- Every search name, oldest first: one vendor can sell under
+               -- two names (Splunk and Cisco XDR are one Cisco SOC offer).
+               ARRAY(SELECT i.display_value
+                       FROM bw_vendor_identifiers i
+                      WHERE i.brand_id = b.id AND i.kind = :search_kind
+                        AND i.valid_to IS NULL
+                      ORDER BY i.id) AS search_names
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.collection_enabled
@@ -855,17 +857,17 @@ def plan_market_keywords(conn, market_id: int,
     """), {"m": market_id, "search_kind": SEARCH_NAME_KIND}).fetchall()
 
     if vendor_names != "none":
-        for display_name, funding_status, raised, search_name in rows:
+        for display_name, funding_status, raised, search_names in rows:
             if vendor_names == "funded" and (funding_status or "") != "Disclosed":
                 continue
-            kw, was_qualified = keyword_for_vendor(search_name or display_name,
-                                                   qualifier)
-            if not kw or kw in keywords:
-                continue
-            keywords.append(kw)
-            vendor_keywords.append(kw)
-            if was_qualified:
-                qualified.append(kw)
+            for name in ([n for n in (search_names or []) if n] or [display_name]):
+                kw, was_qualified = keyword_for_vendor(name, qualifier)
+                if not kw or kw in keywords:
+                    continue
+                keywords.append(kw)
+                vendor_keywords.append(kw)
+                if was_qualified:
+                    qualified.append(kw)
 
     # Surface truncation rather than letting a term quietly broaden.
     truncated = [
