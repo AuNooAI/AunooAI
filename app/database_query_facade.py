@@ -7,7 +7,7 @@ import json
 
 # TODO SQLAlchemy: Replace all references to sqlite.
 # TODO SQLAlchemy:
-from app.services.article_visibility import story_clause
+from app.services.article_visibility import readable_clause, story_clause
 from sqlalchemy import (select,
                         insert,
                         update,
@@ -5955,7 +5955,9 @@ class DatabaseQueryFacade:
         where_conditions.extend([
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Add bias filter if specified
@@ -6143,7 +6145,9 @@ class DatabaseQueryFacade:
         where_conditions.extend([
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Add spam/promotional content filters
@@ -6250,7 +6254,9 @@ class DatabaseQueryFacade:
             articles.c.publication_date.isnot(None),
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Spam/promotional content filters
@@ -6359,7 +6365,9 @@ class DatabaseQueryFacade:
             articles.c.publication_date.isnot(None),
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         where_conditions.extend([
