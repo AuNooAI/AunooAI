@@ -30,6 +30,8 @@ class ToolSpec:
     timeout: float = config.TOOL_TIMEOUT_SECONDS
     max_bytes: int = config.MAX_RESPONSE_BYTES
     needs_google: bool = False
+    # Calls the saas Skills API; listed only when SAAS_SKILLS_URL/KEY are set.
+    needs_saas: bool = False
     # Which Auspex method to call; None means a local handler in this module.
     method: str | None = field(default=None)
 
@@ -328,9 +330,16 @@ TOOLS: dict[str, ToolSpec] = {
 }
 
 
+def _offered(spec: ToolSpec) -> bool:
+    if spec.needs_google and not config.google_search_configured():
+        return False
+    if spec.needs_saas and not config.saas_skills_configured():
+        return False
+    return True
+
+
 def available_tools() -> list[ToolSpec]:
-    google = config.google_search_configured()
-    return [t for t in TOOLS.values() if google or not t.needs_google]
+    return [t for t in TOOLS.values() if _offered(t)]
 
 
 def input_schema(spec: ToolSpec) -> dict[str, Any]:
@@ -343,7 +352,7 @@ def input_schema(spec: ToolSpec) -> dict[str, Any]:
 
 def get_spec(name: str) -> ToolSpec:
     spec = TOOLS.get(name)
-    if spec is None or (spec.needs_google and not config.google_search_configured()):
+    if spec is None or not _offered(spec):
         raise ToolError(f"unknown tool: {name!r}")
     return spec
 
@@ -565,3 +574,9 @@ from . import timeline_tools as _timeline_tools  # noqa: E402
 
 TOOLS.update(_timeline_tools.SPECS)
 _LOCAL_HANDLERS.update(_timeline_tools.HANDLERS)
+
+# ── Trust Signals, rated by the saas Skills API ─────────────────────────────
+from . import trust_tools as _trust_tools  # noqa: E402
+
+TOOLS.update(_trust_tools.SPECS)
+_LOCAL_HANDLERS.update(_trust_tools.HANDLERS)
