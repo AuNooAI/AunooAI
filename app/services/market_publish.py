@@ -21,6 +21,7 @@ import statistics
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Any, Dict, List, Optional, Sequence
+from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 from sqlalchemy import text
@@ -49,6 +50,18 @@ MIN_VENDORS_FOR_HEADCOUNT_AVERAGE = 5
 #: benchmark and the market total permanently out of step.
 EXACT_HEADCOUNT = ("s.data->>\'employee_count\' ~ \'^[0-9]+$\' "
                    "AND (s.data->>\'employee_count\')::numeric > 0")
+
+
+def not_incumbent(mb: str = "mb") -> str:
+    """SQL: the registry row ``mb`` is not marked a large incumbent.
+
+    An incumbent's headcount is a whole company's (Microsoft, CrowdStrike), so
+    every size figure leaves it out: one of them would outweigh the rest of
+    the market's staff together. It still counts for coverage and posts.
+    """
+    return (f"NOT EXISTS (SELECT 1 FROM bw_market_vendor_controls vc"
+            f" WHERE vc.market_id = {mb}.market_id AND vc.brand_id = {mb}.brand_id"
+            f" AND vc.status = 'incumbent')")
 
 
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
@@ -248,11 +261,48 @@ def _parse_stamp(value) -> Optional[datetime]:
     return None
 
 
+class _FeedLinks:
+    """Where a feed's own links point. Built from the app's base URL by
+    default: the front page is the report route, the timeline is /explore.
+    On a public host (aisocnews.com serves market 2 at ``/``, its feeds at
+    /feed.xml and /feed.json) everything points there instead, because a
+    subscriber who follows an item to the app host lands on a login page.
+    The RSS logo stays on the app host, where /static is served."""
+
+    def __init__(self, site: str, market_id: int, public_base: Optional[str] = None):
+        self.site = site.rstrip("/")
+        self.market_id = market_id
+        self.public = (public_base or "").rstrip("/") or None
+        self.report = f"{self.site}/api/market-monitor/markets/{market_id}/report.html"
+
+    def home(self) -> str:
+        return f"{self.public}/" if self.public else f"{self.site}/explore"
+
+    def page(self, **params: Any) -> str:
+        """The front page with a query: a briefing, a section, the analyst view."""
+        if self.public:
+            return f"{self.public}/?{urlencode(params)}"
+        return f"{self.report}?{urlencode(params)}"
+
+    def event(self, event_id: int) -> str:
+        # The public site has no timeline page with event anchors; the
+        # analyst view is where the developments and their evidence live.
+        if self.public:
+            return self.page(days=30, view="report")
+        return f"{self.site}/explore#market-event-{event_id}"
+
+    def feed(self, name: str) -> str:
+        if self.public:
+            return f"{self.public}/{name}"
+        return f"{self.site}/api/market-monitor/markets/{self.market_id}/{name}"
+
+
 def feed_items(conn, market: Dict[str, Any], *, base_url: str,
                limit: int = 50, kind: str = "all",
                classes: Optional[Sequence[str]] = None,
                days: Optional[int] = None,
-               allowed_brand_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+               allowed_brand_ids: Optional[List[int]] = None,
+               public_base: Optional[str] = None) -> List[Dict[str, Any]]:
     """The items both feeds are built from: the matched articles, the
     timeline's events and the approved briefings, newest first, cut to
     ``limit``, and — for a shared subscriber — with every item that names a
@@ -266,6 +316,7 @@ def feed_items(conn, market: Dict[str, Any], *, base_url: str,
 
     site = base_url.rstrip("/")
     market_id = market["id"]
+    links = _FeedLinks(site, market_id, public_base)
     wanted = tuple(classes) if classes else DEFAULT_FEED_CLASSES
     items: List[Dict[str, Any]] = []
 
@@ -311,7 +362,7 @@ def feed_items(conn, market: Dict[str, Any], *, base_url: str,
                 "title": e["title"],
                 # An event has no source URL of its own, so it links to the
                 # market's own page rather than to somebody else's article.
-                "link": f"{site}/explore#market-event-{e['id']}",
+                "link": links.event(int(e["id"])),
                 "guid": f"market-event-{e['id']}",
                 "permalink": False,
                 "description": e["description"] or e["title"],
@@ -333,8 +384,7 @@ def feed_items(conn, market: Dict[str, Any], *, base_url: str,
                 "stamp": stamp or datetime.now(timezone.utc),
                 "dated": stamp is not None,
                 "title": b.get("title") or f"{market['name']} — {b.get('period_label', '')}",
-                "link": (f"{site}/api/market-monitor/markets/{market_id}"
-                         f"/report.html?view=briefing&id={b['id']}"),
+                "link": links.page(view="briefing", id=b["id"]),
                 "guid": f"market-briefing-{b['id']}",
                 "permalink": False,
                 "description": mbr.feed_summary(full.get("report_content") or "")
@@ -389,7 +439,8 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
                limit: int = 50, kind: str = "all",
                classes: Optional[Sequence[str]] = None,
                days: Optional[int] = None,
-               allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+               allowed_brand_ids: Optional[List[int]] = None,
+               public_base: Optional[str] = None) -> bytes:
     """The market as a subscribable feed: its articles and its events.
 
     An aggregator, not a change log. Items are the articles that matched the
@@ -405,20 +456,21 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
     dependency for eighty lines of XML.
     """
     items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
-                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids,
+                       public_base=public_base)
     site = base_url.rstrip("/")
     market_id = market["id"]
+    links = _FeedLinks(site, market_id, public_base)
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         ('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" '
          'xmlns:dc="http://purl.org/dc/elements/1.1/">'),
         "<channel>",
         f"<title>{_esc(market['name'])} — Market Monitor</title>",
-        f"<link>{_esc(site)}/explore</link>",
+        f"<link>{_esc(links.home())}</link>",
         f"<description>{_esc(market.get('question') or market['name'])}</description>",
         "<language>en</language>",
-        f'<atom:link href="{_esc(site)}/api/market-monitor/markets/'
-        f'{market_id}/feed.xml" rel="self" type="application/rss+xml" />',
+        f'<atom:link href="{_esc(links.feed("feed.xml"))}" rel="self" type="application/rss+xml" />',
         f"<lastBuildDate>{format_datetime(datetime.now(timezone.utc))}</lastBuildDate>",
         # The current Aunoo mark, as used by saas.aunoo.ai — not the older
         # static/aunoo_logo.png the monolith carries elsewhere. RSS 2.0 caps
@@ -430,7 +482,7 @@ def build_feed(conn, market: Dict[str, Any], *, base_url: str,
         "<image>",
         f"<url>{_esc(site)}/static/aunoo-feed-logo.png</url>",
         f"<title>{_esc(market['name'])} — Market Monitor</title>",
-        f"<link>{_esc(site)}/explore</link>",
+        f"<link>{_esc(links.home())}</link>",
         "<width>144</width>",
         "<height>83</height>",
         "</image>",
@@ -484,7 +536,8 @@ def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
                     limit: int = 50, kind: str = "all",
                     classes: Optional[Sequence[str]] = None,
                     days: Optional[int] = None,
-                    allowed_brand_ids: Optional[List[int]] = None) -> bytes:
+                    allowed_brand_ids: Optional[List[int]] = None,
+               public_base: Optional[str] = None) -> bytes:
     """The same items as the RSS feed, as JSON Feed 1.1
     (https://jsonfeed.org/version/1.1) — for assistants and scripts, which
     read JSON without a parser library. Each item carries the kind (news,
@@ -492,9 +545,11 @@ def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
     there is one, and the matched phrases as ``tags``; the publication is
     the ``authors`` name; ``_aunoo`` holds the same in named fields."""
     items = feed_items(conn, market, base_url=base_url, limit=limit, kind=kind,
-                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids)
+                       classes=classes, days=days, allowed_brand_ids=allowed_brand_ids,
+                       public_base=public_base)
     site = base_url.rstrip("/")
     market_id = market["id"]
+    links = _FeedLinks(site, market_id, public_base)
     out_items = []
     for it in items:
         cats = [str(c) for c in it["categories"] if c]
@@ -515,8 +570,8 @@ def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
     doc = {
         "version": "https://jsonfeed.org/version/1.1",
         "title": f"{market['name']} — Market Monitor",
-        "home_page_url": f"{site}/explore",
-        "feed_url": f"{site}/api/market-monitor/markets/{market_id}/feed.json",
+        "home_page_url": links.home(),
+        "feed_url": links.feed("feed.json"),
         "description": market.get("question") or market["name"],
         "language": "en",
         "authors": [{"name": "Cyberfuturists", "url": "https://cyberfuturists.com/"}],
@@ -524,7 +579,7 @@ def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
                                                      "event", "briefing"],
                    "ai_disclosure": "Contains AI-generated content produced by AunooAI. "
                                     "Verify against cited sources before external use.",
-                   "rss": f"{site}/api/market-monitor/markets/{market_id}/feed.xml"},
+                   "rss": links.feed("feed.xml")},
         "items": out_items,
     }
     return json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8")
@@ -815,6 +870,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
               FROM bw_vendor_snapshots s
               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                    AND mb.market_id = :m AND mb.role <> 'excluded'
+                   AND {not_incumbent("mb")}
              WHERE s.snapshot_type = 'profile'
                -- Exact integers only. A band, a range or any other text is
                -- not a count and must not reach the arithmetic below.
@@ -838,6 +894,7 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
           JOIN bw_brands b ON b.id = mb.brand_id
           LEFT JOIN ranked r ON r.brand_id = b.id AND r.rn <= 2
          WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND {not_incumbent("mb")}
          GROUP BY b.id, b.display_name, mb.baseline
          ORDER BY b.display_name
     """), {"m": market_id}).mappings().all()]
@@ -971,7 +1028,7 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
     # — reading as a single stranded dot instead of one real point on a
     # 1-week line. Clipping the window to the market's own age fixes that.
     market_created = market.get("created_at") or "1970-01-01"
-    rows = conn.execute(text("""
+    rows = conn.execute(text(f"""
         WITH weeks AS (
             SELECT generate_series(
                 GREATEST(date_trunc('week', now() - (:weeks || ' weeks')::interval),
@@ -985,6 +1042,7 @@ def headcount_trend(conn, market: Dict[str, Any], *, weeks: int = 26) -> Dict[st
             FROM bw_market_brands mb
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.role <> 'excluded'
+              AND {not_incumbent("mb")}
         ),
         asof AS (
             SELECT w.week_start, v.brand_id, v.baseline_count, s.employee_count

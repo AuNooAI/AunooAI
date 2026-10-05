@@ -17,8 +17,8 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import text
 from app.utils.timestamps import submission_stamp
@@ -250,12 +250,62 @@ def land_article(conn, *, uri: str, title: str, summary: str, news_source: str,
            "ns": news_source, "pub": published_at or now_iso, "sub": submission_stamp(now_iso),
            "topic": topic, "cat": category, "bsrc": bias_source,
            "meta": payload}).fetchone()
+    if row:
+        _translate_landed(conn, uri, title, summary)
     if not row and payload:
         conn.execute(text("""
             UPDATE articles SET social_meta = CAST(:meta AS JSONB)
             WHERE uri = :uri
         """), {"uri": uri, "meta": payload})
     return bool(row)
+
+
+def _translate_landed(conn, uri: str, title: str, summary: str) -> None:
+    """Put a newly landed non-English post into English, keeping the original.
+
+    Every other collector translates at insert through the facade
+    (``database_query_facade.create_article``); this path inserts directly and
+    skipped it, so SOCNova's Turkish posts reached the report untranslated.
+    Only a new row is translated, and ``english_fields`` calls the model only
+    for text that does not already read as English, so a re-read of the same
+    post costs nothing.
+    """
+    import re
+
+    from app.utils.title_translation import english_fields, looks_english_text
+
+    title = (title or "")[:500]
+    body = summary or ""
+    # A vendor post's title is "Vendor: first line of the post". The body
+    # decides the language, and the "Vendor: " part is kept out of the model
+    # call, which otherwise drops it ("Torq: #FalCon2026, done." came back as
+    # "#FalCon2026, done.").
+    prefix, head = "", title
+    m = re.match(r"^([^:\n]{1,80}:\s+)(.*)$", title, flags=re.S)
+    if m and body.startswith(m.group(2).rstrip(" ….")[:40]):
+        prefix, head = m.group(1), m.group(2)
+    if looks_english_text(body or head):
+        return
+    record = {"title": head, "summary": body}
+    try:
+        if not english_fields(record):
+            return
+    except Exception as exc:                                    # noqa: BLE001
+        logger.warning("translation failed for %s: %s", uri, exc)
+        return
+    record["title"] = prefix + (record["title"] or "")
+    if record.get("original_title"):
+        record["original_title"] = title
+    conn.execute(text("""
+        UPDATE articles
+           SET title = :title, summary = :summary,
+               original_title = COALESCE(:otitle, original_title),
+               original_summary = COALESCE(:osummary, original_summary)
+         WHERE uri = :uri
+    """), {"uri": uri, "title": (record["title"] or "")[:500],
+           "summary": record["summary"],
+           "otitle": record.get("original_title"),
+           "osummary": record.get("original_summary")})
 
 
 def attribute(conn, *, brand_id: int, uri: str, title: str, summary: str,
@@ -464,6 +514,15 @@ def _post_social_meta(mapped: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: v for k, v in meta.items() if v is not None and v != []}
 
 
+def posts_max_age_days() -> int:
+    """How far back an ingested company post may be dated. 0 disables it."""
+    import os
+    try:
+        return max(0, int(os.getenv("MARKET_POSTS_MAX_AGE_DAYS", "") or 90))
+    except ValueError:
+        return 90
+
+
 def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
                  url_to_brand: Dict[str, int],
                  brand_names: Dict[int, str]) -> Dict[str, int]:
@@ -472,12 +531,25 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
     Attribution is direct: we asked for this company's page, so a post from it
     is that company's. No term gate — unlike a full-text search against SEC or
     Crossref, a vendor's own post routinely never names the vendor.
+
+    **Old posts are dropped here.** The posts dataset cannot filter by date and
+    over-delivers against ``limit_per_input``, so a run returns a slice of a
+    company's history rather than its latest few. ``trigger_posts`` already
+    said recency was "enforced when the records are ingested"; it was not, and
+    the consequence showed on the oviva market: of 387 posts collected in a
+    month only 18 were published in that month, the rest reaching back a year.
+    Each one became an event dated when it was published, so a 30-day report
+    saw almost nothing while the review model was paid to read all of them.
+
+    A post with no date is kept — we cannot say it is old.
     """
+    max_age = posts_max_age_days()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age)) if max_age else None
     from app.services.brightdata_linkedin import (
         map_company_post, normalize_linkedin_key,
     )
 
-    stored = attributed = dropped = unmatched = 0
+    stored = attributed = dropped = unmatched = stale = 0
     for raw in records:
         if not isinstance(raw, dict):
             continue
@@ -495,6 +567,10 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
             continue
         display_name = brand_names.get(brand_id, "")
         published = mapped.get("published_at")
+        if (cutoff is not None and isinstance(published, datetime)
+                and published.astimezone(timezone.utc) < cutoff):
+            stale += 1
+            continue
         is_new = land_article(
             conn, uri=uri, title=mapped["title"], summary=mapped.get("summary"),
             news_source="linkedin", topic=f"{display_name} - Brand Watch",
@@ -512,7 +588,7 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
             summary=mapped.get("summary") or "", source=LINKEDIN_POST_SOURCE,
         ) else 0
     return {"stored": stored, "attributed": attributed,
-            "dropped": dropped, "unmatched": unmatched}
+            "dropped": dropped, "unmatched": unmatched, "stale": stale}
 
 
 # ---------------------------------------------------------------------------
@@ -538,15 +614,42 @@ def ingest_posts(conn, *, run: Dict[str, Any], records: List[dict],
 # market through ``bw_markets.config['collection_terms']``.
 DEFAULT_MARKET_TERMS: List[str] = []
 
-# Ordinary words that happen to be vendor names. Bare, each one is a noise
-# generator; the length check below also catches anything short.
+# Names that are not safe to search bare. Most are ordinary words that happen
+# to be vendor names, where the bare term is a noise generator; the length
+# check below also catches anything short.
+#
+# "uipath" is here for a different reason. It is distinctive, but the company
+# is a general automation platform tracked in the Enterprise Test Automation
+# market for its testing line only, so a bare search returns its whole RPA and
+# agentic-automation output. Qualified, the collector demands the market's
+# qualifier word alongside it, which is exactly the scope that market wants.
 _AMBIGUOUS_NAMES = {
     "nua", "joon", "mave", "zaun", "cantina", "mate", "beacon", "sevii",
     "crogl", "prophet", "radiant", "method", "variance", "intrinsic",
     "andesite", "almanax", "opnova", "cotool", "elezar",
+    "uipath",
 }
 
 # Appended to an ambiguous name so the collector requires both words.
+#: Identifier kind holding what a vendor should be *searched* as, when that
+#: differs from how the report should *name* it.
+#:
+#: The planner used to build a vendor's keyword from ``display_name`` alone,
+#: and a display name is written for a reader, not for a search engine.
+#: sunstar's oral-care market tracks "P&G Oral-B", which tells a reader who
+#: owns the brand and appears in its own corpus **zero** times against 380 for
+#: "Oral-B". The generated keyword was correct and matched nothing.
+#:
+#: Fixing that by hand in ``monitored_keywords`` does not hold: the next
+#: ``setup_market_collection`` syncs the group to the plan by difference, so a
+#: keyword the plan no longer contains is deleted. The override belongs in the
+#: registry, where the planner reads it and a re-run regenerates the same
+#: answer.
+#:
+#: Only the display name is replaced. Qualification, quoting and the
+#: ambiguous-name rules all still apply to whatever is set here.
+SEARCH_NAME_KIND = "search_name"
+
 DEFAULT_QUALIFIER = "security"
 
 # Below this, a single-word name is too short to stand alone whatever it says.
@@ -659,11 +762,68 @@ VENDOR_NAME_MODES = ("none", "funded", "all")
 DEFAULT_VENDOR_NAME_MODE = "funded"
 
 
+#: A corpus smaller than this cannot tell a dead keyword from a new market.
+#: On a tenant with 200 articles every term matches nothing and the warning is
+#: noise; on sunstar's 26,766 a zero means the term is wrong.
+MIN_CORPUS_FOR_ZERO_MATCH = 2000
+
+
+def zero_match_keywords(conn, keywords: Sequence[str]) -> List[Dict[str, Any]]:
+    """Planned keywords that match nothing in the articles we already hold.
+
+    A keyword that matches nothing fails silently and permanently. Nothing
+    errors, no alert fires, and a term returning no results looks exactly like
+    a company having a quiet month — sunstar's oral-care market searched for
+    the phrase "P&G Oral-B", which appears zero times in its own 26,766
+    articles against 380 for "Oral-B", and would have run daily forever
+    finding nothing.
+
+    Checked against our own corpus rather than the providers, because that is
+    free and already here. It is a **warning, not a verdict**: the collector
+    searches outside, so a term can be sound and still have no local history,
+    which is the normal case for a market whose subject we have never
+    collected. Below ``MIN_CORPUS_FOR_ZERO_MATCH`` articles the question
+    cannot be answered at all and nothing is reported.
+
+    Matching uses ``market_corpus``'s own regex so this agrees with what the
+    corpus scan would do, rather than inventing a second rule that could say
+    a keyword works when the scan disagrees.
+    """
+    from app.services.market_corpus import _term_regex
+
+    total = conn.execute(text(
+        "SELECT COUNT(*) FROM articles")).scalar() or 0
+    if total < MIN_CORPUS_FOR_ZERO_MATCH:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for kw in keywords or []:
+        # The quotes are the collector's phrase marker, not part of the text.
+        term = (kw or "").strip().strip('"')
+        rx = _term_regex(term)
+        if not rx:
+            continue
+        hit = conn.execute(text("""
+            SELECT 1 FROM articles
+             WHERE (COALESCE(title,'') || ' ' || COALESCE(summary,'')) ~* :rx
+             LIMIT 1
+        """), {"rx": rx}).scalar()
+        if not hit:
+            out.append({"term": kw, "searched_as": term})
+    return out
+
+
 def plan_market_keywords(conn, market_id: int,
                          qualifier: str = DEFAULT_QUALIFIER,
-                         vendor_names: str = DEFAULT_VENDOR_NAME_MODE
+                         vendor_names: str = DEFAULT_VENDOR_NAME_MODE,
+                         check_zero_match: bool = True,
                          ) -> Dict[str, Any]:
     """What a market's collection group would search for. Reads only.
+
+    ``check_zero_match=False`` skips the zero-match warning, which costs one
+    full regex scan of ``articles`` per term that matches nothing (14s on
+    bugfixing's 233k articles). The market page loads the plan on every visit
+    and never shows the warning, so it must not pay for it.
 
     The market's own language always. Vendor names by mode — funded by default,
     because a raise is the best available proxy for a vendor being active
@@ -681,25 +841,33 @@ def plan_market_keywords(conn, market_id: int,
     rows = conn.execute(text("""
         SELECT b.display_name,
                mb.baseline->'funding_baseline'->>'status' AS funding_status,
-               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS raised
+               (mb.baseline->'funding_baseline'->>'total_musd')::numeric AS raised,
+               -- Every search name, oldest first: one vendor can sell under
+               -- two names (Splunk and Cisco XDR are one Cisco SOC offer).
+               ARRAY(SELECT i.display_value
+                       FROM bw_vendor_identifiers i
+                      WHERE i.brand_id = b.id AND i.kind = :search_kind
+                        AND i.valid_to IS NULL
+                      ORDER BY i.id) AS search_names
         FROM bw_market_brands mb
         JOIN bw_brands b ON b.id = mb.brand_id
         WHERE mb.market_id = :m AND mb.collection_enabled
           AND mb.role <> 'excluded'
         ORDER BY mb.sort_order
-    """), {"m": market_id}).fetchall()
+    """), {"m": market_id, "search_kind": SEARCH_NAME_KIND}).fetchall()
 
     if vendor_names != "none":
-        for display_name, funding_status, raised in rows:
+        for display_name, funding_status, raised, search_names in rows:
             if vendor_names == "funded" and (funding_status or "") != "Disclosed":
                 continue
-            kw, was_qualified = keyword_for_vendor(display_name, qualifier)
-            if not kw or kw in keywords:
-                continue
-            keywords.append(kw)
-            vendor_keywords.append(kw)
-            if was_qualified:
-                qualified.append(kw)
+            for name in ([n for n in (search_names or []) if n] or [display_name]):
+                kw, was_qualified = keyword_for_vendor(name, qualifier)
+                if not kw or kw in keywords:
+                    continue
+                keywords.append(kw)
+                vendor_keywords.append(kw)
+                if was_qualified:
+                    qualified.append(kw)
 
     # Surface truncation rather than letting a term quietly broaden.
     truncated = [
@@ -707,27 +875,60 @@ def plan_market_keywords(conn, market_id: int,
         for term in keywords
         for shortened in [check_term(term)] if shortened
     ]
+    # And surface a term that matches nothing we hold, for the same reason:
+    # both fail without saying so. This one is checked at planning time
+    # because that is when it costs nothing to change the term.
+    try:
+        zero_match = (zero_match_keywords(conn, keywords)
+                      if check_zero_match else None)
+    except Exception as exc:                                       # noqa: BLE001
+        # A warning that cannot be computed must not stop a market being set
+        # up. Say it is unknown rather than implying every term is fine.
+        logger.warning("market %s: zero-match check failed: %s", market_id, exc)
+        zero_match = None
 
     return {
         "market_terms": terms,
         "truncated": truncated,
+        "zero_match": zero_match,
         "vendor_keywords": vendor_keywords,
         "keywords": keywords,
         "qualified": qualified,
         "vendors": len(rows),
-        "funded_vendors": sum(1 for _, s, _r in rows if (s or "") == "Disclosed"),
+        "funded_vendors": sum(1 for _n, st, _r, _sn in rows
+                              if (st or "") == "Disclosed"),
+        "search_name_overrides": {n: sn for n, _st, _r, sn in rows if sn},
         "qualifier": qualifier,
         "vendor_names": vendor_names,
     }
 
 
+#: Stands in for "&" while a keyword goes through ``normalize_keyword``.
+#: A letter run, so nothing else in the normalizer touches it: the boolean-word
+#: filter works on whole words, and the invalid-character class is punctuation.
+_AMP = "zzampzz"
+
+
 def normalize_plan_keywords(keywords: List[str]) -> List[str]:
-    """Normalize planned keywords while keeping a quoted phrase quoted.
+    """Normalize planned keywords, keeping a quoted phrase quoted and its
+    ampersand intact.
 
     ``normalize_keyword`` strips double quotes as invalid characters, which
     would silently turn the phrase search ``keyword_for_vendor`` asks for back
     into the bare AND-of-words form. Normalize the text inside the quotes and
     put them back.
+
+    It strips ``&`` from the same character class, and that is worse, because
+    nothing about the result looks wrong. Setting up sunstar's Oral Care market
+    wrote P&G's keyword as ``"PG Oral-B"`` — a phrase search for something no
+    publication has ever printed, which would have matched nothing silently and
+    indefinitely. Any vendor carrying an ampersand has the same problem:
+    Procter & Gamble, Johnson & Johnson, AT&T, H&M.
+
+    The ampersand is protected through the call rather than allowed in
+    ``normalize_keyword`` itself, which has nineteen call sites whose current
+    answers other things depend on. This is the one place that plans a market's
+    keywords, so it is the right place to be narrow.
     """
     from app.utils.keyword_normalizer import normalize_keyword
     out: List[str] = []
@@ -736,9 +937,11 @@ def normalize_plan_keywords(keywords: List[str]) -> List[str]:
             continue
         term = raw.strip()
         quoted = len(term) >= 2 and term[0] == '"' and term[-1] == '"'
-        inner = normalize_keyword(term[1:-1] if quoted else term)
+        inner = normalize_keyword(
+            (term[1:-1] if quoted else term).replace("&", _AMP))
         if not inner:
             continue
+        inner = inner.replace(_AMP, "&")
         kw = f'"{inner}"' if quoted else inner
         if kw not in out:
             out.append(kw)
@@ -765,6 +968,43 @@ def existing_collection_group(conn, market_id: int) -> Optional[Dict[str, Any]]:
         "SELECT id, name, topic FROM keyword_groups WHERE id = :g"),
         {"g": gid}).mappings().fetchone()
     return dict(row) if row else None
+
+
+def stored_collection_settings(conn, market_id: int) -> Dict[str, str]:
+    """The qualifier and vendor-name mode the market was last set up with.
+
+    A re-run that falls back to the defaults instead quietly narrows the
+    search: market 2 was set up as "funded", every vendor added after 26 Aug
+    was never re-synced, and 52 of 97 vendors went unsearched by name.
+    """
+    cfg = conn.execute(text(
+        "SELECT config->'collection' FROM bw_markets WHERE id = :m"),
+        {"m": market_id}).scalar()
+    cfg = cfg if isinstance(cfg, dict) else {}
+    mode = cfg.get("vendor_names")
+    return {
+        "qualifier": cfg.get("qualifier") or DEFAULT_QUALIFIER,
+        "vendor_names": mode if mode in VENDOR_NAME_MODES
+        else DEFAULT_VENDOR_NAME_MODE,
+    }
+
+
+def resync_market_keywords(conn, db, market_id: int, market_name: str
+                           ) -> Optional[Dict[str, Any]]:
+    """Re-sync an already set-up market's keyword group with its registry.
+
+    Called after a vendor is added, so a new vendor is searched for by name
+    from the next cycle. A market that was never set up is left alone: setting
+    collection up is a choice that spends quota, and adding a vendor is not
+    that choice.
+    """
+    if not existing_collection_group(conn, market_id):
+        return None
+    settings = stored_collection_settings(conn, market_id)
+    return setup_market_collection(conn, db, market_id, market_name,
+                                   qualifier=settings["qualifier"],
+                                   vendor_names=settings["vendor_names"],
+                                   dry_run=False)
 
 
 def setup_market_collection(conn, db, market_id: int, market_name: str, *,

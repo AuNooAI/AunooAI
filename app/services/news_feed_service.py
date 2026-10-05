@@ -555,8 +555,7 @@ class NewsFeedService:
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY)
-- uri (string - REQUIRED: the exact URI from the Article Corpus - COPY IT EXACTLY)
+- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY. The id alone identifies the article; do NOT return the URI)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
@@ -578,16 +577,14 @@ EXAMPLE - If the Article Corpus contains:
   URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
   Title: AI Startup Raises $100M Series B
 
-Then your response MUST include the EXACT ID and URI:
+Then your response MUST include the EXACT ID:
   {
     "id": "a7",
-    "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
     "title": "AI Startup Raises $100M Series B",
     ...
   }
 
-DO NOT create new IDs or URIs. DO NOT modify them. DO NOT summarize URIs. COPY THEM EXACTLY.
-Some URIs differ from each other by only one or two characters, so check every character you copy.
+DO NOT create new IDs. DO NOT modify them. The URI and title in the corpus are there for you to read; identify the article by its id only.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
 
@@ -641,14 +638,21 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
 
                 already_picked = {a.get('uri') for a in valid_articles}
                 shortfall = request.article_count - len(valid_articles)
+                mismatched = [a for a in invalid_articles
+                              if a.get('_unresolved_reason') == self.UNRESOLVED_MISMATCH]
+                mismatch_note = (
+                    f"; {len(mismatched)} named one article by id and a different one by uri or title "
+                    f"(ids: {', '.join(str(a.get('id')) for a in mismatched)})"
+                ) if mismatched else ""
                 retry_messages = [
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": response_text},
-                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus.
+                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus{mismatch_note}.
 
 Return {shortfall} replacement article(s) in the same JSON format. Copy the ID line
-(e.g. "a7") and the URI of each pick exactly as they appear in the Article Corpus.
+(e.g. "a7") of each pick exactly as it appears in the Article Corpus and return only
+the id field for identity; do not return a uri.
 
 Do NOT pick any of these, they are already in the briefing:
 {chr(10).join([f"- {uri}" for uri in already_picked]) or "- (none)"}
@@ -668,7 +672,9 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
 
                 retry_parsed = self._parse_six_articles_response(retry_text)
                 if retry_parsed:
-                    retry_valid, _ = self._resolve_selected_articles(retry_parsed, articles_data)
+                    retry_valid, retry_invalid = self._resolve_selected_articles(retry_parsed, articles_data)
+                    # A second mismatch skips the slot; it is counted below.
+                    invalid_articles = invalid_articles + retry_invalid
                     for article in retry_valid:
                         if article.get('uri') not in already_picked and len(valid_articles) < request.article_count:
                             valid_articles.append(article)
@@ -679,6 +685,11 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
 
                 # Reset retry flag
                 self._six_articles_retry_attempted = False
+
+            self.last_selection_mismatches = self._count_selection_mismatches(invalid_articles)
+            if self.last_selection_mismatches:
+                logger.info("selection_mismatch: %d pick(s) rejected in this briefing",
+                            self.last_selection_mismatches)
 
             articles_data_parsed = valid_articles
             if len(articles_data_parsed) < request.article_count:
@@ -774,7 +785,11 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
                 "returned_article_count": len(six_articles),
                 "source_article_count": len(articles_data),
                 "user_id": user_id,
-                "format_version": "ceo_daily_v5"
+                "format_version": "ceo_daily_v5",
+                # Picks the model mismatched (id against uri or title) and
+                # that were skipped after one retry; see
+                # _resolve_selected_articles (work package 31).
+                "selection_mismatches": getattr(self, 'last_selection_mismatches', 0),
             }
             
             success = db.save_article_analysis_cache(
@@ -890,8 +905,7 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY)
-- uri (string - REQUIRED: the exact URI from the Article Corpus - COPY IT EXACTLY)
+- id (string - REQUIRED: the ID line of the article you picked in the Article Corpus, e.g. "a7" - COPY IT EXACTLY. The id alone identifies the article; do NOT return the URI)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
@@ -913,16 +927,14 @@ EXAMPLE - If the Article Corpus contains:
   URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
   Title: AI Startup Raises $100M Series B
 
-Then your response MUST include the EXACT ID and URI:
+Then your response MUST include the EXACT ID:
   {
     "id": "a7",
-    "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
     "title": "AI Startup Raises $100M Series B",
     ...
   }
 
-DO NOT create new IDs or URIs. DO NOT modify them. DO NOT summarize URIs. COPY THEM EXACTLY.
-Some URIs differ from each other by only one or two characters, so check every character you copy.
+DO NOT create new IDs. DO NOT modify them. The URI and title in the corpus are there for you to read; identify the article by its id only.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             
@@ -969,14 +981,21 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
 
                 already_picked = {a.get('uri') for a in valid_articles}
                 shortfall = request.article_count - len(valid_articles)
+                mismatched = [a for a in invalid_articles
+                              if a.get('_unresolved_reason') == self.UNRESOLVED_MISMATCH]
+                mismatch_note = (
+                    f"; {len(mismatched)} named one article by id and a different one by uri or title "
+                    f"(ids: {', '.join(str(a.get('id')) for a in mismatched)})"
+                ) if mismatched else ""
                 retry_messages = [
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": content},
-                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus.
+                    {"role": "user", "content": f"""ERROR: {len(invalid_articles)} of your picks did not match any article in the Article Corpus{mismatch_note}.
 
 Return {shortfall} replacement article(s) in the same JSON format. Copy the ID line
-(e.g. "a7") and the URI of each pick exactly as they appear in the Article Corpus.
+(e.g. "a7") of each pick exactly as it appears in the Article Corpus and return only
+the id field for identity; do not return a uri.
 
 Do NOT pick any of these, they are already in the briefing:
 {chr(10).join([f"- {uri}" for uri in already_picked]) or "- (none)"}
@@ -996,7 +1015,9 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
 
                 retry_parsed = self._parse_six_articles_response(retry_content)
                 if retry_parsed:
-                    retry_valid, _ = self._resolve_selected_articles(retry_parsed, articles_data)
+                    retry_valid, retry_invalid = self._resolve_selected_articles(retry_parsed, articles_data)
+                    # A second mismatch skips the slot; it is counted below.
+                    invalid_articles = invalid_articles + retry_invalid
                     for article in retry_valid:
                         if article.get('uri') not in already_picked and len(valid_articles) < request.article_count:
                             valid_articles.append(article)
@@ -1006,6 +1027,11 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
                     logger.error("Enhanced retry parsing failed")
 
                 self._six_articles_cached_retry_attempted = False
+
+            self.last_selection_mismatches = self._count_selection_mismatches(invalid_articles)
+            if self.last_selection_mismatches:
+                logger.info("selection_mismatch: %d pick(s) rejected in this briefing",
+                            self.last_selection_mismatches)
 
             articles = valid_articles
             if len(articles) < request.article_count:
@@ -1150,7 +1176,7 @@ FULL ARTICLE CONTENT:
 Extract detailed strategic intelligence from this article."""
 
             response = await litellm.acompletion(
-                **resolve_litellm_call_params("gpt-5.4-mini"),  # Use faster model for per-article analysis
+                **resolve_litellm_call_params("bedrock-kimi-k2-5"),  # Use faster model for per-article analysis
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -1971,10 +1997,12 @@ Tags: {article.get('tags', '')}
     def _match_title_to_corpus(self, title: str, title_map: Dict[str, str]) -> Optional[str]:
         """Find the one corpus article a selected title names, or None.
 
-        The prompt asks for "headline (Source, date, author)", so the echoed
-        title is usually the corpus title plus a suffix. Try the whole title
-        first, then the shared prefix, and give up rather than guess when more
-        than one corpus article could be meant.
+        Used only to check a pick against its id: a title that names a
+        different corpus article than the id makes the pick a mismatch. It
+        never resolves a pick by itself. The echoed title is usually the
+        corpus title plus a "(Source, date, author)" suffix, so the whole
+        title is tried first, then the shared prefix; an ambiguous title
+        names nothing.
         """
         title_key = self._normalize_title_for_match(title)
         if not title_key:
@@ -1991,13 +2019,27 @@ Tags: {article.get('tags', '')}
         }
         return candidates.pop() if len(candidates) == 1 else None
 
+    #: Why a pick was not resolved. Stored on the pick under ``_unresolved_reason``.
+    UNRESOLVED_MISMATCH = "selection_mismatch"
+    UNRESOLVED_NO_MATCH = "no_match"
+    UNRESOLVED_DUPLICATE = "duplicate_pick"
+
     def _resolve_selected_articles(self, selected: List[Dict], articles_data: List[Dict],
                                    max_articles: int = 50) -> Tuple[List[Dict], List[Dict]]:
-        """Map each article the model selected back to a real article in the corpus.
+        """Map each pick the model returned to one corpus article, by its id.
 
-        The model copies the corpus ID and title reliably but garbles long URIs that
-        differ by a couple of characters, so try the ID first, then the URI, then the
-        title. Sets 'uri' on every resolved article and returns (resolved, unresolved).
+        The corpus is presented with one stable identifier per article
+        (``a0``, ``a1``, ...) and the model is asked to return only that. A
+        valid id is the pick. If the model also echoed a uri or a title and
+        that names a different corpus article, the pick is rejected as a
+        ``selection_mismatch`` rather than settled by guessing; the caller
+        asks once more and then skips the slot. With no valid id, only an
+        exact uri (with or without its query string) resolves. A title never
+        resolves a pick on its own: syndicated copy shares headlines, and a
+        title match once attached a write-up to the wrong outlet.
+
+        Sets ``uri`` on every resolved pick. Returns ``(resolved,
+        unresolved)``; each unresolved pick carries ``_unresolved_reason``.
         """
         corpus = articles_data[:max_articles]
 
@@ -2015,11 +2057,6 @@ Tags: {article.get('tags', '')}
             base_uri_map[uri.split('?')[0]] = uri
             title_key = self._normalize_title_for_match(article.get('title', ''))
             if title_key:
-                # Syndicated wire copy appears under several publishers with the
-                # same headline. Mapping such a title to whichever copy happened
-                # to come first would attach the analysis to a different outlet
-                # and URL than the model picked, so an ambiguous title is not
-                # usable as an identifier at all.
                 if title_key in title_map and title_map[title_key] != uri:
                     ambiguous_titles.add(title_key)
                 title_map.setdefault(title_key, uri)
@@ -2034,51 +2071,44 @@ Tags: {article.get('tags', '')}
             # The model sometimes returns 'url' instead of 'uri' - accept both
             if not article.get('uri') and article.get('url'):
                 article['uri'] = article.get('url')
-            article_uri = article.get('uri', '')
+            article_uri = str(article.get('uri', '') or '')
             article_id = str(article.get('id', '') or '').strip().lower()
+            article.pop('_unresolved_reason', None)
 
             matched_uri = None
             how = None
+            uri_says = uri_map.get(article_uri) or base_uri_map.get(article_uri.split('?')[0])
 
             if article_id and article_id in id_map:
                 matched_uri = id_map[article_id]
                 how = f"id {article_id}"
-                # An id is two characters, so "a7" for "a17" is exactly the kind
-                # of slip this resolver exists to catch. If the uri also names a
-                # real corpus article and the two disagree, the id alone is not
-                # enough — let the title decide, and drop the pick if it can't,
-                # rather than silently binding the analysis to another article.
-                uri_says = uri_map.get(article_uri) or base_uri_map.get(article_uri.split('?')[0])
+                title_says = self._match_title_to_corpus(article.get('title', ''), title_map)
                 if uri_says and uri_says != matched_uri:
-                    title_says = self._match_title_to_corpus(article.get('title', ''), title_map)
-                    logger.warning(
-                        "Selected article disagrees with itself: id %s -> %s but uri -> %s "
-                        "(title -> %s)", article_id, matched_uri, uri_says, title_says,
-                    )
-                    if title_says in (matched_uri, uri_says):
-                        matched_uri = title_says
-                        how = f"id/uri conflict resolved by title"
-                    else:
-                        matched_uri = None
-                        how = None
-            elif article_uri in uri_map:
-                matched_uri = article_uri
-            elif article_uri.split('?')[0] in base_uri_map:
-                matched_uri = base_uri_map[article_uri.split('?')[0]]
-                how = "URI without query params"
-            else:
-                matched_uri = self._match_title_to_corpus(article.get('title', ''), title_map)
-                if matched_uri:
-                    how = "title"
+                    logger.info("Selection rejected: id %s names %s but uri names %s",
+                                article_id, matched_uri, uri_says)
+                    article['_unresolved_reason'] = self.UNRESOLVED_MISMATCH
+                    matched_uri = None
+                elif title_says and title_says != matched_uri:
+                    logger.info("Selection rejected: id %s names %s but title names %s",
+                                article_id, matched_uri, title_says)
+                    article['_unresolved_reason'] = self.UNRESOLVED_MISMATCH
+                    matched_uri = None
+            elif uri_says:
+                matched_uri = uri_says
+                if matched_uri != article_uri:
+                    how = "URI without query params"
+                if article_id:
+                    logger.info("Selected article id %s is not in the corpus; resolved by uri %s",
+                                article_id, matched_uri)
 
             if matched_uri and matched_uri in claimed_uris:
-                # Two garbled picks can land on the same corpus article — one by
-                # id, one by title prefix. Keeping both would put the same story
-                # in the briefing twice under two different write-ups.
+                # Two picks landing on one corpus article would put the same
+                # story in the briefing twice under two different write-ups.
                 logger.warning(
                     "Two selected articles resolved to %s; dropping the later one "
                     "(title: %s)", matched_uri, article.get('title', 'Unknown'),
                 )
+                article['_unresolved_reason'] = self.UNRESOLVED_DUPLICATE
                 matched_uri = None
 
             if matched_uri:
@@ -2088,13 +2118,25 @@ Tags: {article.get('tags', '')}
                 claimed_uris.add(matched_uri)
                 resolved.append(article)
             else:
+                article.setdefault('_unresolved_reason', self.UNRESOLVED_NO_MATCH)
                 unresolved.append(article)
-                logger.warning(
-                    f"Could not match selected article to the corpus: id={article_id or 'none'} "
-                    f"uri={article_uri or 'none'} (title: {article.get('title', 'Unknown')})"
-                )
+                if article['_unresolved_reason'] == self.UNRESOLVED_NO_MATCH:
+                    logger.warning(
+                        f"Could not match selected article to the corpus: id={article_id or 'none'} "
+                        f"uri={article_uri or 'none'} (title: {article.get('title', 'Unknown')})"
+                    )
 
         return resolved, unresolved
+
+    @staticmethod
+    def _count_selection_mismatches(*unresolved_lists: List[Dict]) -> int:
+        """How many picks were rejected because their id and echoed uri or
+        title disagreed. Recorded on the service as
+        ``last_selection_mismatches`` for the report metadata."""
+        n = 0
+        for lst in unresolved_lists:
+            n += sum(1 for a in (lst or []) if a.get('_unresolved_reason') == NewsFeedService.UNRESOLVED_MISMATCH)
+        return n
 
     def _parse_overview_response(self, response_text: str) -> Dict[str, Any]:
         """Parse AI response for overview"""
@@ -2477,7 +2519,11 @@ Tags: {article.get('tags', '')}
                     title=article.get('title', 'Unknown Title'),
                     summary=article.get('summary', 'No summary available'),
                     url=article.get('uri', ''),
-                    publication_date=datetime.fromisoformat(article.get('publication_date', datetime.now().isoformat())),
+                    # A row whose publication date is unknown is stored NULL
+                    # now; the fallback view dates it by discovery instead.
+                    publication_date=datetime.fromisoformat(
+                        article.get('publication_date') or article.get('first_seen_at')
+                        or article.get('submission_date') or datetime.now().isoformat()),
                     source=ArticleSource(
                         name=article.get('news_source', 'Unknown Source'),
                         bias=self._map_bias(article.get('bias')),

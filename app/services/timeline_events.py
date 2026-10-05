@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 MAX_DAILY_EVENTS_PER_SCOPE = 12
 LLM_MAX_ARTICLES = 12
-LLM_MODEL = "gpt-5.4-mini"
+LLM_MODEL = "bedrock-kimi-k2-5"
 KNOWN_TITLE_LOOKBACK_DAYS = 14
 
 _NEG_SQL = ("(a.sentiment ILIKE '%negativ%' OR a.sentiment ILIKE '%concern%' OR a.sentiment ILIKE '%pessimis%'"
@@ -535,6 +535,19 @@ def _llm_extract_events(scope_name: str, day_articles: List[Dict],
                 "article_uris": [arts[i]["uri"] for i in idxs][:10],
                 "article_count": max(len(idxs), 1),
             })
+        # Shadow: check each event's title and description against the
+        # articles it cites (or the whole day when it cites none) with the
+        # TypeSafe Jev model. Own thread; the events above are untouched.
+        try:
+            from app.services import extraction_check_shadow as _xs
+            for ev in events:
+                cited = [a for a in arts if a.get("uri") in set(ev.get("article_uris") or [])] or arts
+                srcs = [{"label": f"Article {n}", "title": a.get("title") or "",
+                         "text": a.get("summary") or a.get("content") or ""} for n, a in enumerate(cited[:12], 1)]
+                claims = [("event.title", ev["title"])] + [("event.description", s) for s in _xs.sentences(ev.get("description") or "")]
+                _xs.schedule("timeline_event", f"{scope_name}|{ev['title'][:80]}", srcs, claims, pipe_model=LLM_MODEL)
+        except Exception as _xs_err:  # noqa: BLE001
+            logger.debug(f"extraction shadow not scheduled: {_xs_err}")
         return events
     except Exception as e:  # noqa: BLE001
         logger.warning(f"timeline LLM extraction failed for {scope_name}: {e}")

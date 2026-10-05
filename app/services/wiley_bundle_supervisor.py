@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from app.ai_models import AIModelFactory
+from app.model_tiers import default_model
 from app.services.tool_loader import get_tool_loader
 from app.services.report_style import find_severity_language
 
@@ -193,7 +194,7 @@ async def _call_agent(agent_name: str, payload: dict, *, reasoning_effort: str =
         return {}
 
     model_cfg = (agent.metadata or {}).get("model_config", {}) or {}
-    model_name = model_cfg.get("model", "gpt-5.4")
+    model_name = model_cfg.get("model", default_model("standard"))
     temperature = model_cfg.get("temperature", 0.3)
     max_tokens = model_cfg.get("max_tokens", 2000)
     cfg_reasoning = model_cfg.get("reasoning_effort")
@@ -1050,7 +1051,7 @@ async def _golden_gate(letter: str) -> dict:
             '"critique": "<what to fix, candidate quotes only>"}'
         )
         usr = f"EXEMPLAR:\n{exemplar}\n\nCANDIDATE:\n{letter}"
-        model = AIModelFactory.get_model("gpt-5.4")
+        model = AIModelFactory.get_model(default_model("standard"))
         raw = await model.agenerate_response(
             [{"role": "system", "content": sys_prompt},
              {"role": "user", "content": usr}],
@@ -1580,7 +1581,7 @@ async def run_pipeline(
         # config so the audit row reflects what really ran (not a hard-coded label).
         reviewer_agent_cfg = (get_tool_loader().get_agent("wiley_reviewer_agent") or None)
         reviewer_model = ((reviewer_agent_cfg.metadata or {}).get("model_config", {}).get("model")
-                           if reviewer_agent_cfg else None) or "gpt-5.4"
+                           if reviewer_agent_cfg else None) or default_model("standard")
         db.facade.upsert_forecast_bundle_review(
             cadence, period_label,
             status=verdict,

@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -120,9 +121,9 @@ class AnalyzerConfig:
     search_days_back: int = 7
 
     # Model settings
-    analysis_model: str = "gpt-5.4"
+    analysis_model: str = default_model("standard")
     analysis_temperature: float = 0.3
-    extraction_model: str = "gpt-5.4-mini"
+    extraction_model: str = "bedrock-kimi-k2-5"
     extraction_temperature: float = 0.2
 
     # Timeouts

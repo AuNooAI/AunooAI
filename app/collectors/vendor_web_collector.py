@@ -17,17 +17,26 @@ Two rules keep page monitoring from generating noise:
 - Extract the article text before hashing. A raw-HTML hash changes on every
   rotating testimonial, CSRF token, build id and cookie banner, so it reports
   a change on every fetch and means nothing.
-- Compare on normalized lines. A reflowed paragraph is not news; a new
-  enterprise tier on the pricing page is.
+- Compare on content blocks (``app.collectors.page_compare``). A reflowed
+  paragraph is not news; a new enterprise tier on the pricing page is, and
+  so is a duplicated price row.
+- Validate before trusting. A Cloudflare challenge or a login wall arrives
+  with HTTP 200 too. ``fetch_page`` reports it as ``validation != "ok"`` with
+  ``changed=False`` and an ``error``, so the caller keeps the prior baseline.
 
 Conditional requests (``ETag`` / ``If-Modified-Since``) are used wherever the
 server supports them, so an unchanged page usually costs a 304 and no body.
+The validators come back on every fetch, material or not, so the caller can
+refresh its HTTP cache state without writing a timeline event.
+
+``NORMALIZER_VERSION`` is re-exported here. A baseline stored under an older
+version must be reseeded, not diffed, or a normalizer upgrade would read as a
+vendor announcement.
 """
 
 from __future__ import annotations
 
 import asyncio
-import difflib
 import hashlib
 import logging
 import re
@@ -37,6 +46,11 @@ from typing import Any, Iterable, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
+
+from app.collectors.page_compare import (
+    NORMALIZER_VERSION, V_OK, compare_blocks, extract_blocks, semantic_digest,
+    validate_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +111,15 @@ class PageFetch:
         default_factory=lambda: datetime.now(timezone.utc)
     )
     error: Optional[str] = None
+    # Outcome of page_compare.validate_content. Anything but "ok" means the
+    # text must not become the new baseline; changed is False and error says
+    # why. The validators (etag / last_modified) are still filled in.
+    validation: str = V_OK
+    normalizer_version: str = NORMALIZER_VERSION
+    # Digest of the content blocks. Stable across whitespace and line wrapping,
+    # unlike content_hash, which is the older line-based digest kept for
+    # callers that still store it.
+    blocks_hash: Optional[str] = None
 
 
 def _client() -> httpx.AsyncClient:
@@ -285,11 +308,37 @@ def hash_text(text: str | None) -> str:
     return hashlib.sha256("\n".join(normalize_lines(text)).encode()).hexdigest()
 
 
+def _is_furniture(line: str) -> bool:
+    return bool(_BOILERPLATE.match(line))
+
+
+def page_blocks(text: str | None) -> list:
+    """Content blocks of a page with the furniture lines dropped."""
+    return extract_blocks(text, ignore_line=_is_furniture)
+
+
+def hash_blocks(text: str | None) -> str:
+    """Semantic digest: the same page re-wrapped hashes the same."""
+    return semantic_digest(page_blocks(text))
+
+
 async def fetch_page(
     url: str, *, etag: str | None = None, last_modified: str | None = None,
-    prior_hash: str | None = None,
+    prior_hash: str | None = None, prior_text: str | None = None,
 ) -> PageFetch:
-    """Conditionally fetch a page and report whether its content changed."""
+    """Conditionally fetch a page and report whether its content changed.
+
+    ``prior_hash`` may be either the older line digest (``content_hash``) or
+    the block digest (``blocks_hash``); a match on either means unchanged.
+    ``prior_text`` is the baseline text, used only to notice a suspicious
+    drop in size. Without it that check cannot run.
+
+    When the fetched text fails validation (challenge page, login wall, empty
+    extraction, suspicious drop) the result has ``changed=False`` and
+    ``error`` set, so a caller that skips on error keeps its baseline. The
+    text, title, etag and last_modified are still returned so the caller can
+    log what it saw and refresh conditional-request state.
+    """
     headers: dict[str, str] = {}
     if etag:
         headers["If-None-Match"] = etag
@@ -312,15 +361,23 @@ async def fetch_page(
 
     title, text = extract_text(resp.text)
     digest = hash_text(text)
+    blocks_hash = hash_blocks(text)
+    validation, reason = validate_content(text, prior_text, resp.status_code)
+    changed = prior_hash is None or prior_hash not in (digest, blocks_hash)
+    if validation != V_OK:
+        changed = False
     return PageFetch(
         url=str(resp.url),
         status=resp.status_code,
-        changed=(prior_hash is None or digest != prior_hash),
+        changed=changed,
         content_hash=digest,
         text=text,
         title=title,
         etag=resp.headers.get("etag"),
         last_modified=resp.headers.get("last-modified"),
+        error=(f"{validation}: {reason}" if validation != V_OK else None),
+        validation=validation,
+        blocks_hash=blocks_hash,
     )
 
 
@@ -328,35 +385,21 @@ def diff_pages(old_text: str | None, new_text: str | None, *,
                max_lines: int = 40) -> dict[str, Any]:
     """What actually changed between two page states.
 
-    Returns added and removed lines with the counts, so an event can quote the
-    evidence rather than assert that "the pricing page changed". A diff whose
-    added and removed sets are both empty means the change was reflow, and the
-    caller should treat it as no change at all.
+    Returns added and removed blocks with the counts, so an event can quote
+    the evidence rather than assert that "the pricing page changed". Blocks
+    are compared as a multiset: a block that moved is not a change, a
+    paragraph that was only re-wrapped is not a change, and a price row that
+    now appears twice is one addition. ``material`` False means the caller
+    should treat the fetch as no change at all.
     """
-    old_lines = normalize_lines(old_text)
-    new_lines = normalize_lines(new_text)
-    added: list[str] = []
-    removed: list[str] = []
-    for line in difflib.unified_diff(old_lines, new_lines, n=0, lineterm=""):
-        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
-            continue
-        if line.startswith("+"):
-            added.append(line[1:].strip())
-        elif line.startswith("-"):
-            removed.append(line[1:].strip())
-
-    # A line that merely moved is not a change. Dropping the intersection is
-    # what keeps a re-ordered feature list from reading as a product launch.
-    added_set, removed_set = set(added), set(removed)
-    moved = added_set & removed_set
-    added = [line for line in added if line not in moved]
-    removed = [line for line in removed if line not in moved]
-
+    cmp = compare_blocks(page_blocks(old_text), page_blocks(new_text))
     return {
-        "added": added[:max_lines],
-        "removed": removed[:max_lines],
-        "added_count": len(added),
-        "removed_count": len(removed),
-        "moved_count": len(moved),
-        "material": bool(added or removed),
+        "added": cmp["added"][:max_lines],
+        "removed": cmp["removed"][:max_lines],
+        "added_count": cmp["added_count"],
+        "removed_count": cmp["removed_count"],
+        "moved_count": cmp["moved_count"],
+        "reflowed_count": cmp["reflowed_count"],
+        "material": cmp["material"],
+        "normalizer_version": NORMALIZER_VERSION,
     }

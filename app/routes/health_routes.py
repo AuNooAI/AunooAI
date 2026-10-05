@@ -745,3 +745,235 @@ async def health_dashboard(request: Request, session=Depends(verify_session)):
                 "timestamp": datetime.now().isoformat()
             }
         })
+
+
+# ---------------------------------------------------------------------------
+# Collection health (collector data quality spec, package 14)
+# ---------------------------------------------------------------------------
+#
+# One JSON view of whether collection is actually happening: run records per
+# provider, shared quota ledger, rejected-candidate ledger, feeds that need
+# attention, and articles held back by configuration or enrichment. The
+# alerts list is what scripts/collector_health_check.sh mails out.
+#
+# Unauthenticated like /api/health, so the cron probe can read it. It returns
+# ids, provider names and feed names only; no feed URLs, no credentials.
+
+import asyncio
+import json
+from datetime import timedelta, timezone
+
+# Minutes between expected successful runs. Everything not listed here is a
+# keyword provider polled a few times a day.
+DEFAULT_EXPECTED_INTERVALS_MIN: Dict[str, int] = {"rss": 60}
+DEFAULT_KEYWORD_INTERVAL_MIN = 12 * 60
+FEED_FAILING_ALERT_HOURS = 24
+
+
+def expected_intervals() -> Dict[str, int]:
+    """Per-provider expected interval in minutes. COLLECTION_EXPECTED_INTERVALS
+    may hold a JSON object such as {"rss": 30, "newsapi": 360} to override."""
+    out = dict(DEFAULT_EXPECTED_INTERVALS_MIN)
+    raw = os.getenv("COLLECTION_EXPECTED_INTERVALS", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                for key, val in parsed.items():
+                    out[str(key)] = int(val)
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
+def _interval_for(provider: str, intervals: Dict[str, int]) -> timedelta:
+    minutes = intervals.get(provider or "", DEFAULT_KEYWORD_INTERVAL_MIN)
+    return timedelta(minutes=max(1, int(minutes)))
+
+
+def _parse_ts(value) -> "datetime | None":
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _hours(delta: timedelta) -> int:
+    return int(delta.total_seconds() // 3600)
+
+
+def build_collection_alerts(
+    runs: Dict[str, Any],
+    feeds: list,
+    configuration_blocked: list,
+    *,
+    now: "datetime | None" = None,
+    intervals: "Dict[str, int] | None" = None,
+) -> list:
+    """Alert strings from the summaries. A provider whose runs succeed with
+    zero items is healthy and does not alert; only the absence of a success
+    for two expected intervals does."""
+    now = now or datetime.now(timezone.utc)
+    intervals = intervals if intervals is not None else expected_intervals()
+    alerts: list = []
+
+    for p in runs.get("providers", []) or []:
+        provider = p.get("provider") or "?"
+        limit = 2 * _interval_for(provider, intervals)
+        last_success = _parse_ts(p.get("last_success_at"))
+        last_run = _parse_ts(p.get("last_run_at"))
+        if last_success is not None:
+            age = now - last_success
+            if age > limit:
+                alerts.append(f"no successful run for {provider} in {_hours(age)}h")
+        elif last_run is not None and now - last_run > limit:
+            alerts.append(
+                f"no successful run for {provider} in {_hours(now - last_run)}h (never succeeded)"
+            )
+
+    for pi in runs.get("pending_intervals", []) or []:
+        provider = pi.get("provider") or "?"
+        updated = _parse_ts(pi.get("updated_at"))
+        if updated is None:
+            continue
+        age = now - updated
+        if age > 2 * _interval_for(provider, intervals):
+            alerts.append(
+                f"pending continuation for {provider} {pi.get('scope_key') or ''} "
+                f"older than 2 intervals ({_hours(age)}h)".replace("  ", " ")
+            )
+
+    for f in feeds or []:
+        if (f.get("polling_status") or "ok") == "ok":
+            continue
+        since = _parse_ts(f.get("first_failed_at"))
+        if since is not None and now - since > timedelta(hours=FEED_FAILING_ALERT_HOURS):
+            alerts.append(f"feed {f.get('id')} failing for >{FEED_FAILING_ALERT_HOURS}h")
+
+    for row in configuration_blocked or []:
+        n = int(row.get("count") or 0)
+        if n > 0:
+            alerts.append(f"{n} configuration-blocked articles in topic {row.get('topic')}")
+
+    return alerts
+
+
+def _collection_db():
+    """The tenant Database; a seam so tests can hand in a stub."""
+    from app.database import Database
+    return Database()
+
+
+def _rows(db, sql: str, params: "Dict[str, Any] | None" = None) -> list:
+    from sqlalchemy import text
+    conn = db._temp_get_connection()
+    try:
+        return list(conn.execute(text(sql), params or {}).fetchall())
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _iso(value) -> "str | None":
+    return value.isoformat() if isinstance(value, datetime) else (str(value) if value else None)
+
+
+def _feed_health_rows(db) -> list:
+    """Feeds that are not polling cleanly. Names only, never URLs."""
+    rows = _rows(db, """
+        SELECT id, name, polling_status, consecutive_error_count, first_failed_at,
+               last_failed_at, last_error, parse_partial_count, needs_attention_reason,
+               last_success_at, last_attempt_at
+          FROM rss_feeds
+         WHERE polling_status IS DISTINCT FROM 'ok'
+            OR COALESCE(parse_partial_count, 0) >= 10
+            OR (last_success_at IS NULL AND last_attempt_at IS NOT NULL)
+         ORDER BY id
+         LIMIT 200
+    """)
+    return [
+        {
+            "id": r[0], "name": r[1], "polling_status": r[2] or "ok",
+            "consecutive_error_count": int(r[3] or 0),
+            "first_failed_at": _iso(r[4]), "last_failed_at": _iso(r[5]),
+            "last_error": (r[6] or "")[:200] or None,
+            "parse_partial_count": int(r[7] or 0),
+            "needs_attention_reason": r[8],
+            "last_success_at": _iso(r[9]), "last_attempt_at": _iso(r[10]),
+        }
+        for r in rows
+    ]
+
+
+def _count_by_topic(db, ingest_status: str) -> list:
+    rows = _rows(db, """
+        SELECT COALESCE(topic, ''), COUNT(*) FROM articles
+         WHERE ingest_status = :s GROUP BY topic ORDER BY 2 DESC LIMIT 100
+    """, {"s": ingest_status})
+    return [{"topic": r[0], "count": int(r[1])} for r in rows]
+
+
+def _runs_summary(db) -> Dict[str, Any]:
+    from app.services.collection_runs import health_summary
+    return health_summary(db, since_hours=24)
+
+
+def _quota_status() -> Dict[str, Any]:
+    from app.services.shared_ledger import get_ledger
+    out = dict(get_ledger().status())
+    out.pop("ledger_path", None)  # a filesystem path has no place in an open endpoint
+    return out
+
+
+def _rejected_stats(db) -> Dict[str, Any]:
+    from app.services.rejected_candidates import RejectedCandidateLedger
+    return RejectedCandidateLedger(db).stats()
+
+
+def _collect_collection_health() -> Dict[str, Any]:
+    """Gather every section, each guarded so one broken source still leaves
+    the rest readable."""
+    out: Dict[str, Any] = {"timestamp": datetime.now(timezone.utc).isoformat(), "errors": {}}
+    try:
+        db = _collection_db()
+    except Exception as exc:  # noqa: BLE001
+        out["errors"]["database"] = str(exc)
+        db = None
+
+    def section(name, fn):
+        try:
+            out[name] = fn()
+        except Exception as exc:  # noqa: BLE001
+            out[name] = None
+            out["errors"][name] = str(exc)
+
+    section("runs", lambda: _runs_summary(db) if db else {"providers": [], "errors": [], "pending_intervals": []})
+    section("quota", _quota_status)
+    section("rejected_candidates", lambda: _rejected_stats(db) if db else {})
+    section("feeds", lambda: _feed_health_rows(db) if db else [])
+    section("configuration_blocked", lambda: _count_by_topic(db, "quarantined_config") if db else [])
+    section("enrichment_failed", lambda: _count_by_topic(db, "enrichment_failed") if db else [])
+    out["alerts"] = build_collection_alerts(
+        out.get("runs") or {}, out.get("feeds") or [], out.get("configuration_blocked") or [],
+    )
+    if not out["errors"]:
+        out.pop("errors")
+    return out
+
+
+@router.get("/api/health/collection", tags=["Health"])
+async def collection_health():
+    """Collection health: runs, quota, rejected candidates, feeds, blocked
+    articles and the alerts derived from them. The queries are short but
+    synchronous, so they run off the event loop."""
+    return await asyncio.to_thread(_collect_collection_health)

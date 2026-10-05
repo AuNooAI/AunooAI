@@ -19,6 +19,7 @@ import litellm
 import numpy as np
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
@@ -162,10 +163,10 @@ class SIOConfig:
     max_clusters: int = 50
 
     # Model settings
-    discovery_model: str = "gpt-5.4-mini"
-    triage_model: str = "gpt-5.4-mini"
-    analysis_model: str = "gpt-5.4"
-    synthesis_model: str = "gpt-5.4"
+    discovery_model: str = "bedrock-kimi-k2-5"
+    triage_model: str = "bedrock-kimi-k2-5"
+    analysis_model: str = default_model("standard")
+    synthesis_model: str = default_model("standard")
 
     # Timeouts (seconds)
     discovery_timeout: int = 120

@@ -6,7 +6,7 @@ category: "research"
 description: "Synthesizes research findings from multiple sources into coherent analysis"
 
 model_config:
-  model: "gpt-4o"
+  model: claude-sonnet-4-5
   temperature: 0.4
   max_tokens: 4000
 

@@ -5,6 +5,10 @@
 #      90 minutes (catches the 2026-07-11 class of failure where the monitor
 #      loop hangs on a stuck HTTP call and everything else keeps running)
 #   2. volume: at least FLOOR articles saved to the DB in the last 12 hours
+#   3. collection health: GET /api/health/collection on the tenant's own port
+#      and relay its "alerts" list (overdue providers, stale continuations,
+#      feeds failing >24h, configuration-blocked articles). Tenants without
+#      the endpoint (non-200) are skipped.
 # Alerts by email via Resend (key read from wileytest's .env) and logs to
 # /var/log/aunoo-collector-health.log. Repeat alerts for the same condition
 # are suppressed for 6 hours; a recovery clears the suppression.
@@ -85,6 +89,30 @@ Log:     $LOG
 This check runs every 30 min from root's crontab (collector_health_check.sh)."
 }
 
+# Collection-health alerts from the tenant's own endpoint, one per line.
+# Prints nothing on non-200 (older tenants do not have the endpoint) or on
+# unparseable JSON; the caller treats "nothing" as "no alerts".
+collection_alerts() {
+    local port="$1" body code
+    body=$(mktemp)
+    code=$(curl -s -m 30 -o "$body" -w '%{http_code}' \
+        -H 'X-Forwarded-Proto: https' \
+        "http://127.0.0.1:${port}/api/health/collection" 2>>"$LOG")
+    if [ "$code" = "200" ]; then
+        python3 - "$body" <<'PYEOF' 2>>"$LOG"
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for line in data.get("alerts") or []:
+    print(str(line).replace("\n", " "))
+PYEOF
+    fi
+    rm -f "$body"
+    [ "$code" = "200" ]
+}
+
 recover() {
     local tenant="$1" check="$2"
     local state="$STATE_DIR/${tenant}_${check}"
@@ -146,6 +174,27 @@ Collectors may be failing upstream (API quotas, auth) even though the
 keyword monitor loop is alive — check journalctl -u $svc."
     else
         recover "$t" "low_article_volume"
+    fi
+
+    # Check 3: the app's own collection-health view (runs, feeds, quota)
+    PORT=$(grep '^PORT=' "$envfile" | cut -d= -f2)
+    PORT=${PORT:-10015}
+    if ch_alerts=$(collection_alerts "$PORT"); then
+        if [ -n "$ch_alerts" ]; then
+            alert "$t" "collection_health" \
+"GET http://127.0.0.1:$PORT/api/health/collection reports:
+
+$ch_alerts
+
+Providers that only return zero items do not appear here; these are runs
+that have not succeeded for two expected intervals, continuations left
+pending, feeds failing for more than a day, and articles the ingest held
+back because the topic configuration blocks them."
+        else
+            recover "$t" "collection_health"
+        fi
+    else
+        echo "$(ts) [$t] collection_health endpoint not available on port $PORT (skipped)" >> "$LOG"
     fi
 
     echo "$(ts) [$t] OK: articles_12h=$count" >> "$LOG"

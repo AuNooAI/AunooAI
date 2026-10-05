@@ -21,6 +21,7 @@ import {
 import { MarketVendorHorizonControls } from './MarketVendorHorizonControls';
 import { MarketVendorBenchmark } from './MarketVendorBenchmark';
 import { MarketVendorProvenance } from './MarketVendorProvenance';
+import { VendorSwatch } from './vendorColours';
 
 /** Everything Bright Data can pull for one vendor on demand. A source with
  *  no matching identifier for this vendor (no LinkedIn URL, no Crunchbase
@@ -174,7 +175,8 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">{v.display_name}
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">
+            <VendorSwatch color={v.color} className="mr-2 w-2.5 h-2.5" />{v.display_name}
             <span className="ml-3 text-xs font-normal text-slate-500 dark:text-gray-400">Download{' '}
               {(['md', 'csv', 'pdf'] as const).map((f, i) => (
                 <span key={f}>{i > 0 && ' · '}<a className="underline hover:text-slate-800 dark:hover:text-gray-200"
@@ -249,7 +251,7 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
       {/* Where this vendor sits in its market. Below the resolved profile
           because it only means anything once the reader knows what the
           numbers being compared are. */}
-      <MarketVendorBenchmark marketId={marketId} brandId={brandId} />
+      <MarketVendorBenchmark marketId={marketId} brandId={brandId} color={v.color} />
 
       {/* The analyst's hand on the Market Horizon: per-input weights,
           status (acquired, closed) and a note, all printed beside the vendor
@@ -299,7 +301,7 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
                     label={{ value: `registry: ${baselineStaff}`, position: 'right',
                              fontSize: 10, fill: baselineLabel }} />
                 )}
-                <Line type="monotone" dataKey="staff" stroke="#d6409f"
+                <Line type="monotone" dataKey="staff" stroke={v.color || '#d6409f'}
                       strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>

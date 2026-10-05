@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Any, AsyncGenerator, Callable
 from sqlalchemy import text
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 from .novelty_scorer import NoveltyScorer, NoveltyConfig
 from .theme_proposer import ThemeProposer, ProposedTheme
 from .theme_validator import ThemeValidator
@@ -85,8 +86,8 @@ class EmergingTopicsConfig:
     theme_distance_threshold: float = 0.85  # Higher threshold needed - distances are typically 0.70-0.85
 
     # LLM settings
-    summarization_model: str = "gpt-5.4"
-    model: str = "gpt-5.4"  # Primary model selection (overrides summarization_model if set)
+    summarization_model: str = default_model("standard")
+    model: str = default_model("standard")  # Primary model selection (overrides summarization_model if set)
     max_articles_for_analysis: int = 15
 
 
@@ -383,7 +384,7 @@ class EmergingTopicsService:
                 "min_articles_for_theme": self.config.min_articles_for_theme,
                 "max_articles_per_theme": self.config.max_articles_per_theme,
             }
-            model_name = getattr(self.theme_proposer, 'default_model', 'gpt-5.4') if self.theme_proposer else 'gpt-5.4'
+            model_name = getattr(self.theme_proposer, 'default_model', default_model("standard")) if self.theme_proposer else default_model("standard")
             run_id = await asyncio.to_thread(
                 self._create_detection_run, topic_filter, run_config, model_name
             )

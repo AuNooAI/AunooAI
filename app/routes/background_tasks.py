@@ -13,6 +13,7 @@ from app.services.background_task_manager import (
     run_bulk_save_task
 )
 from app.security.session import verify_session_api
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/background-tasks", tags=["background-tasks"])
@@ -28,7 +29,7 @@ async def start_bulk_analysis(
         urls = request_data.get("urls", [])
         topic = request_data.get("topic", "")
         summary_type = request_data.get("summary_type", "curious_ai")
-        model_name = request_data.get("model_name", "gpt-5.4")
+        model_name = request_data.get("model_name", default_model("standard"))
         summary_length = request_data.get("summary_length", 50)
         summary_voice = request_data.get("summary_voice", "neutral")
 

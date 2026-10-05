@@ -5,6 +5,14 @@ import logging
 import aiohttp
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
+
+
+def _naive_local(value):
+    """A datetime on the naive local clock this module compares against,
+    or the value unchanged when it is not an aware datetime."""
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone().replace(tzinfo=None)
+    return value
 from .base_collector import ArticleCollector
 from urllib.parse import urlparse
 
@@ -217,6 +225,11 @@ class NewsFirehoseCollector(ArticleCollector):
             # 90-day cap, so an unbounded query is no longer possible). We
             # send our real window explicitly so the server bound matches the
             # client-side filter below instead of silently narrowing to 14d.
+            # The keyword monitor now hands over timezone-aware interval
+            # bounds (work package 1); everything below compares against
+            # the naive local clock, so bring the bounds onto it.
+            start_date = _naive_local(start_date)
+            end_date = _naive_local(end_date)
             if start_date is not None:
                 from_dt = start_date
             elif timeframe:

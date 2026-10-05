@@ -293,6 +293,52 @@ def title_similarity(a: Any, b: Any) -> float:
     return len(shorter & longer) / len(shorter)
 
 
+#: Labels (incident names, emerging-topic labels) are 4-8 tokens, so the
+#: title threshold of 0.85 would need near-identical wording. Two labels for
+#: the same development share the actors and the noun ("Anthropic AI Extinction
+#: Warning and Congressional Response" / "Anthropic AI Extinction Warnings and
+#: Regulatory Push") and differ in the framing words.
+LABEL_SIMILARITY_THRESHOLD = 0.6
+MIN_SHARED_LABEL_TOKENS = 3
+
+
+def _stem(token: str) -> str:
+    """Just enough stemming to make 'warnings' meet 'warning'."""
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 4 and token.endswith("es") and not token.endswith("ses"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
+def label_tokens(label: Any) -> frozenset:
+    return frozenset(_stem(t) for t in _title_tokens(label))
+
+
+def label_similarity(a: Any, b: Any) -> float:
+    """Containment of the shorter label's stemmed tokens in the longer, 0..1.
+
+    Returns 0.0 unless at least ``MIN_SHARED_LABEL_TOKENS`` tokens are shared,
+    so two short labels cannot match on a brand name and "AI" alone.
+    """
+    ta, tb = label_tokens(a), label_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    shared = ta & tb
+    if len(shared) < MIN_SHARED_LABEL_TOKENS:
+        return 0.0
+    return len(shared) / min(len(ta), len(tb))
+
+
+def labels_match(a: Any, b: Any, threshold: float = LABEL_SIMILARITY_THRESHOLD) -> bool:
+    na, nb = normalize_title(a), normalize_title(b)
+    if not na or not nb:
+        return False
+    return na == nb or label_similarity(a, b) >= threshold
+
+
 # --------------------------------------------------------------------------
 # Scoring
 # --------------------------------------------------------------------------
@@ -515,6 +561,7 @@ def build_shortlist(
     limit: int,
     topic_order: Optional[Sequence[str]] = None,
     max_per_source: int = MAX_PER_SOURCE,
+    priority: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Fill ``limit`` shortlist slots fairly across topics. Returns (shortlist, stats).
 
@@ -523,6 +570,15 @@ def build_shortlist(
     global sort let one busy topic take every slot. A candidate that would
     breach the per-source cap is *deferred*, not dropped, and a later pass
     spends any unfilled capacity on the deferred candidates in rank order.
+
+    ``priority`` maps a topic to a number of slots it is given before the
+    round-robin starts. With eighteen topics and thirty slots the round-robin
+    gives each topic one or two, which is right for a watch-list topic and
+    wrong for the organization's own brand: the curator saw a Wiley journal
+    paper and a week-old earnings transcript and never the analyst downgrade.
+    The priority slots are still subject to the source cap and are counted in
+    ``per_topic``. A priority topic's slots are its whole share: it sits out
+    the round-robin, so the reservation cannot become reservation plus a turn.
     """
     topics = list(topic_order or ranked_by_topic.keys())
     cursors = {t: 0 for t in topics}
@@ -530,7 +586,8 @@ def build_shortlist(
     chosen_ids: set = set()
     per_source: Dict[str, int] = {}
     deferred: List[Dict[str, Any]] = []
-    stats = {"per_topic": {t: 0 for t in topics}, "deferred_for_source": 0, "second_pass": 0}
+    stats = {"per_topic": {t: 0 for t in topics}, "deferred_for_source": 0,
+             "second_pass": 0, "priority": {}}
 
     def identity(row: Dict[str, Any]) -> str:
         return row.get("_norm_uri") or str(row.get("uri") or id(row))
@@ -542,11 +599,31 @@ def build_shortlist(
         if topic:
             stats["per_topic"][topic] = stats["per_topic"].get(topic, 0) + 1
 
+    # Pass 0 — reserved slots for priority topics (the organization's own brand).
+    for topic, slots in (priority or {}).items():
+        if topic not in cursors:
+            continue
+        rows = ranked_by_topic.get(topic) or []
+        taken = 0
+        while taken < slots and len(chosen) < limit and cursors[topic] < len(rows):
+            row = rows[cursors[topic]]
+            cursors[topic] += 1
+            if identity(row) in chosen_ids:
+                continue
+            if per_source.get(_source_of(row), 0) >= max_per_source:
+                deferred.append(row)
+                stats["deferred_for_source"] += 1
+                continue
+            take(row, topic)
+            taken += 1
+        stats["priority"][topic] = taken
+
     # Pass 1 — one candidate per topic per round, respecting the source cap.
+    round_robin = [t for t in topics if t not in (priority or {})]
     progress = True
     while len(chosen) < limit and progress:
         progress = False
-        for topic in topics:
+        for topic in round_robin:
             if len(chosen) >= limit:
                 break
             rows = ranked_by_topic.get(topic) or []
@@ -578,6 +655,49 @@ def build_shortlist(
     return chosen, stats
 
 
+def balance_across_groups(
+    ranked_by_group: Dict[str, List[Any]],
+    *,
+    limit: int,
+    group_order: Optional[Sequence[str]] = None,
+) -> Tuple[List[Any], Dict[str, int]]:
+    """Round-robin ``limit`` items across groups, each group already ranked.
+
+    The plain per-item cap that preceded this took the first N items in group
+    order, so with fifteen slots and two busy groups at the front of the list
+    the other sixteen groups were never shown to the curator at all. Every
+    group with material gets its best item before any group gets a second.
+    Returns (items, per_group counts).
+    """
+    groups = list(group_order or ranked_by_group.keys())
+    for g in ranked_by_group:
+        if g not in groups:
+            groups.append(g)
+    cursors = {g: 0 for g in groups}
+    chosen: List[Any] = []
+    per_group = {g: 0 for g in groups}
+    progress = True
+    while len(chosen) < limit and progress:
+        progress = False
+        for g in groups:
+            if len(chosen) >= limit:
+                break
+            rows = ranked_by_group.get(g) or []
+            if cursors[g] < len(rows):
+                chosen.append(rows[cursors[g]])
+                cursors[g] += 1
+                per_group[g] += 1
+                progress = True
+    return chosen, per_group
+
+
+#: Backfill will not add a third article for a topic that already has two
+#: when any other topic still has a candidate. With eighteen topics the
+#: coverage pass does not run, and the plain "next best score" gave one
+#: briefing three quantum-computing articles out of eight.
+MAX_PER_TOPIC_BACKFILL = 2
+
+
 def backfill(
     selected: Sequence[Dict[str, Any]],
     pool: Sequence[Dict[str, Any]],
@@ -586,6 +706,7 @@ def backfill(
     topics: Optional[Sequence[str]] = None,
     max_per_source: int = MAX_PER_SOURCE,
     override_gap: float = SOURCE_CAP_OVERRIDE_GAP,
+    max_per_topic: int = MAX_PER_TOPIC_BACKFILL,
 ) -> List[Dict[str, Any]]:
     """Best remaining candidates to bring ``selected`` up to ``target``.
 
@@ -598,13 +719,29 @@ def backfill(
     under-cap candidate is worse than the best over-cap one by more than
     ``override_gap``, the cap yields. Diversity is there to stop one outlet
     dominating a briefing, not to justify swapping a strong story for a weak one.
+
+    Topic diversity is enforced the same way without an escape: a candidate
+    whose every topic already holds ``max_per_topic`` picks waits behind any
+    candidate from a less-covered topic, and is used only when nothing else
+    is left.
     """
     chosen_ids = {r.get("_norm_uri") or str(r.get("uri")) for r in selected}
     per_source: Dict[str, int] = {}
+    per_topic: Dict[str, int] = {}
     covered: set = set()
     for r in selected:
         per_source[_source_of(r)] = per_source.get(_source_of(r), 0) + 1
         covered.update(r.get("_topics") or [])
+        for t in (r.get("_topics") or []):
+            per_topic[t] = per_topic.get(t, 0) + 1
+
+    def saturated(r: Dict[str, Any]) -> bool:
+        ts = r.get("_topics") or []
+        return bool(ts) and all(per_topic.get(t, 0) >= max_per_topic for t in ts)
+
+    def count_topics(r: Dict[str, Any]) -> None:
+        for t in (r.get("_topics") or []):
+            per_topic[t] = per_topic.get(t, 0) + 1
 
     remaining = [r for r in rank(pool)
                  if (r.get("_norm_uri") or str(r.get("uri"))) not in chosen_ids]
@@ -621,17 +758,20 @@ def backfill(
             added.append(best)
             per_source[_source_of(best)] = per_source.get(_source_of(best), 0) + 1
             covered.update(best.get("_topics") or [])
+            count_topics(best)
 
     while len(selected) + len(added) < target and remaining:
-        under = next((r for r in remaining if per_source.get(_source_of(r), 0) < max_per_source), None)
-        over = remaining[0] if remaining[0] is not under else None
+        eligible = [r for r in remaining if not saturated(r)] or list(remaining)
+        under = next((r for r in eligible if per_source.get(_source_of(r), 0) < max_per_source), None)
+        over = eligible[0] if eligible[0] is not under else None
         pick = under
         if under is None:
-            pick = remaining[0]
+            pick = eligible[0]
         elif over is not None and float(over.get("_score") or 0.0) - float(under.get("_score") or 0.0) > override_gap:
             pick = over
         remaining.remove(pick)
         added.append(pick)
         per_source[_source_of(pick)] = per_source.get(_source_of(pick), 0) + 1
+        count_topics(pick)
 
     return added

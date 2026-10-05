@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from app.ai_models import model_caps
+from app.model_tiers import default_model
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session
@@ -551,7 +553,7 @@ async def get_ai_impact_timeline_analysis(
         logger.info(f"Generating AI impact timeline analysis for topic: {topic_name}")
         
         # Calculate optimal sample size
-        optimal_sample_size = _calculate_optimal_sample_size(model or 'gpt-5.4', sample_size_mode, custom_limit)
+        optimal_sample_size = _calculate_optimal_sample_size(model or default_model("standard"), sample_size_mode, custom_limit)
         logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
         
         # Get recent articles for the topic
@@ -718,7 +720,7 @@ Your response must be a properly formatted JSON that matches the template struct
                 'generated_at': datetime.now().isoformat(),
                 'articles_analyzed': len(articles),
                 'timeframe_days': timeframe_days,
-                'model_used': model or 'gpt-5.4'
+                'model_used': model or default_model("standard")
             })
             
             logger.info(f"Successfully generated timeline with {len(timeline_data.get('swimlanes', []))} categories")
@@ -741,24 +743,8 @@ def _calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', c
         return custom_limit
     
     # Context limits for different AI models
-    context_limits = {
-        'gpt-5.5': 1000000,
-        'gpt-5.4': 400000,
-        'gpt-5.4-mini': 400000,
-        'gpt-5.4-nano': 400000,
-        'gpt-3.5-turbo': 16385,
-        'gpt-4': 8192,
-        'gpt-4-turbo': 128000,
-        'gpt-4o': 128000,
-        'gpt-4o-mini': 128000,
-        'gpt-4.1': 1000000,
-        'claude-3-opus': 200000,
-        'claude-3-sonnet': 200000,
-        'claude-3.5-sonnet': 200000,
-        'default': 16385
-    }
-    
-    context_limit = context_limits.get(model, context_limits['default'])
+        
+    context_limit = model_caps(model).context
     is_mega_context = context_limit >= 1000000
     
     if sample_size_mode == 'focused':

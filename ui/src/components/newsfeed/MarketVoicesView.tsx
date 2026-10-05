@@ -22,6 +22,7 @@ import {
 import { DataTable } from './DataTable';
 import { CoverageLine, Panel } from './MarketAnalysisView';
 import type { DrilldownSpec } from './MarketDrilldownHost';
+import { useVendorColours, VendorSwatch } from './vendorColours';
 
 const PLATFORM_LABEL: Record<string, string> = {
   twitter: 'X', bluesky: 'Bluesky', reddit: 'Reddit', tiktok: 'TikTok',
@@ -38,7 +39,16 @@ function roleOf(v: Voice): string {
   if (v.vendor_tag) return v.vendor_tag.label;
   const r = v.account?.role;
   if (r) return ROLE_LABEL[r] ?? r;
+  // No profile: what the account's own posts say it is, when they agree.
+  if (v.audience?.source === 'account_posts') return v.audience.label.toLowerCase();
   return v.account?.profiled ? 'not read' : 'not profiled';
+}
+
+function roleTitle(v: Voice): string | undefined {
+  if (v.vendor_tag || v.account?.role) return undefined;
+  if (v.audience?.source === 'account_posts')
+    return `Read from ${v.audience.n ?? 'their'} classified post(s) by this account; profile it for a stronger reading.`;
+  return undefined;
 }
 
 /** A vendor's own account, or their staff, kept on the list and marked. */
@@ -79,6 +89,7 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
   days?: number;
   onRecords?: (spec: DrilldownSpec) => void;
 }) {
+  const colours = useVendorColours(marketId);
   const [voices, setVoices] = useState<TopVoices | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -387,7 +398,10 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                   { key: 'role', label: 'Role', groupable: true,
                     value: roleOf,
                     render: v => (
-                      <span className={v.vendor_tag ? 'text-amber-800 dark:text-amber-300' : 'text-slate-600 dark:text-gray-300'}>
+                      <span title={roleTitle(v)}
+                        className={v.vendor_tag ? 'text-amber-800 dark:text-amber-300'
+                          : (!v.account?.role && v.audience?.source === 'account_posts') ? 'text-slate-500 dark:text-gray-400 italic'
+                          : 'text-slate-600 dark:text-gray-300'}>
                         {roleOf(v)}
                       </span>
                     ) },
@@ -443,8 +457,9 @@ export function MarketVoicesView({ marketId, days, onRecords }: {
                           ))}
                           {vendors.map(x => (
                             <span key={x.vendor}
-                                  className="text-xs px-1 py-0.5 rounded border
+                                  className="text-xs px-1 py-0.5 rounded border inline-flex items-center gap-1
                                              bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                              <VendorSwatch color={colours.byName(x.vendor)} />
                               {x.vendor}
                             </span>
                           ))}

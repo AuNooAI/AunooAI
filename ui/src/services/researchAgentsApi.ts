@@ -278,7 +278,7 @@ export async function runResearchAgents(
       topic: request.topic || null,
       days_back: request.days_back || 7,
       max_articles: request.max_articles || 100,
-      model: request.model || 'gpt-4o-mini',
+      model: request.model || 'bedrock-kimi-k2-5',
       tag_flagged_articles: request.tag_flagged_articles !== false,
       generate_report: request.generate_report || false,
       report_prompt: request.report_prompt || null,

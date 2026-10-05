@@ -11,9 +11,21 @@ the same launch, the fingerprint matches, the evidence merges and the
 corroboration rises to ``single_source`` on its own — without replacing the
 original post, which remains the first place we saw it.
 
-Three kinds are not events. An award, a research write-up and "other" describe
-what a post *is* rather than something that happened to the company, and
-forcing them into an event type would fill the timeline with publications.
+An award and "other" are not events. They describe what a post *is* rather than
+something that happened to the company, and forcing them into an event type
+would fill the timeline with publications.
+
+Research used to sit with them, on the same reasoning, and the reasoning was
+sound for the market this was written against: 43 of the 93 developments in a
+recent 30-day AI-SOC window would have been vendor research posts, most of them
+a benchmark published as content marketing. It is wrong for a market where
+evidence *is* the news. On a health tenant "Weight Watchers Releases GLP-1
+Results Report Demonstrating 61% Greater Weight Loss" is the most consequential
+thing that vendor did that month, and it had nowhere to go.
+
+So research is an event now, and carries the lowest rank in the canonical set,
+which keeps it off the report's lead while letting it be recorded, corroborated
+and counted.
 """
 
 from __future__ import annotations
@@ -45,7 +57,13 @@ _KIND_MARKERS = {
     'funding': ('raise', 'raised', 'funding', 'series ', 'seed', 'led by',
                 'investment', 'backed by'),
     'acquisition': ('acquir', 'acquisition', 'has been acquired', 'merge'),
-    'hiring': ('hiring', 'join our team', 'we are looking for', 'open role',
+    # Arrival verbs first in intent, though order here does not decide the
+    # winner — the earliest matching sentence does. A post that announces a
+    # hire and closes with "P.S. We're hiring" used to title on the P.S.:
+    # "Kai Security: We're hiring: https://bit.ly/4vn6KtT" instead of
+    # "Thomas N. joins Kai as VP of Product Marketing".
+    'hiring': ('joins ', 'joined ', 'welcome ', 'welcoming ', 'is joining',
+               'hiring', 'join our team', 'we are looking for', 'open role',
                "we're growing", 'growing our team'),
 }
 
@@ -68,16 +86,37 @@ _DEFERRING_ANYWHERE = (
 _TITLE_CHARS = 200
 
 
+# An abbreviation that ends in a full stop but not a sentence. Splitting on
+# one decapitates the sentence, and the subject is the first casualty: the
+# post "Coalition, Inc. acquired us for our ability to stop cyber threats"
+# split after "Inc.", the extractor took the remainder as the news and
+# prefixed the vendor it belongs to, and the report read "Wirespeed: acquired
+# us…" — the opposite of what happened. A list is cheaper than a segmenter
+# and fixes the case that actually bit.
+_ABBREV_END = re.compile(
+    r'(?:\b(?:Inc|Ltd|Co|Corp|Corp|LLC|LLP|PLC|Plc|GmbH|AG|NV|BV|AB|Oy|SA|SAS|Pty|'
+    r'Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|Mt|Ave|Rd|No|Fig|vs|etc|al|approx)'
+    r'|\b[A-Z]|\b(?:e\.g|i\.e|U\.S|U\.K|a\.m|p\.m))\.$')
+
+
 def _sentences(text_blob: str) -> list:
-    """Split on sentence ends, keeping it dumb on purpose.
+    """Split on sentence ends, keeping it simple.
 
-    A real segmenter would handle "Inc." and "e.g." better, and would be a
-    dependency and a model's worth of latency for a headline.
+    A real segmenter would be a dependency and a model's worth of latency for
+    a headline. The one case worth handling without one is an abbreviation
+    before the subject's verb, because splitting there changes who did what.
     """
-    import re
-
     parts = re.split(r'(?<=[.!?])\s+|\n+', text_blob or '')
-    return [p.strip() for p in parts if p and p.strip()]
+    out: list = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if out and _ABBREV_END.search(out[-1]):
+            out[-1] = out[-1] + ' ' + part
+        else:
+            out.append(part)
+    return out
 
 
 def announcing_sentence(body: str, kind: str) -> Optional[str]:
@@ -100,6 +139,11 @@ def announcing_sentence(body: str, kind: str) -> Optional[str]:
                          '', sentence, flags=re.I).strip()
         if len(cleaned) < 30:
             continue
+        # A link is not a headline. "We're hiring: https://bit.ly/4vn6KtT"
+        # clears the length bar on the URL alone, and the URL is the half a
+        # reader cannot use.
+        if len(re.sub(r'https?://\S+', '', cleaned).strip()) < 30:
+            continue
         low_clean = cleaned.lower()
         if low_clean.startswith(_DEFERRING_OPENERS):
             continue
@@ -121,9 +165,13 @@ KIND_TO_EVENT = {
     'customer': 'customer_win',
     'funding': 'funding_round',
     'acquisition': 'acquisition',
+    'research': 'research_finding',
 }
 
-NOT_EVENTS = {'award', 'research', 'other', 'event', 'opinion'}
+NOT_EVENTS = {'award', 'other', 'event', 'opinion'}
+
+# Reviewer kinds a vendor's blog also uses for other companies' news.
+_THIRD_PARTY_KINDS = {'acquisition', 'funding', 'partnership', 'customer'}
 
 
 def _parsed(value: Optional[str]) -> Optional[datetime]:
@@ -173,6 +221,7 @@ def run(conn, *, brand_id: Optional[int] = None,
 
     rows = conn.execute(text(f"""
         SELECT ma.article_uri, ma.review_kind, ma.review_reason,
+               ma.review_customer,
                l.brand_id, a.title, a.summary, a.publication_date,
                a.news_source, a.url, a.bias_source, b.display_name
           FROM bw_market_articles ma
@@ -194,6 +243,24 @@ def run(conn, *, brand_id: Optional[int] = None,
             if kind not in NOT_EVENTS:
                 unmapped[kind] = unmapped.get(kind, 0) + 1
             continue
+
+        # A blog post about another company's deal is the vendor's commentary.
+        # D3's "Cribl Just Acquired Radiant Security's AI SOC Technology" was
+        # reviewed as an acquisition, and would have become D3's.
+        if ((row['bias_source'] or '').startswith('owned:')
+                and kind in _THIRD_PARTY_KINDS):
+            from app.services.market_assessment import speaks_for_vendor
+            if not speaks_for_vendor(
+                    row['title'] or '',
+                    {'vendors': [{'vendor': row['display_name'],
+                                  'brand_id': row['brand_id']}]}):
+                skipped += 1
+                continue
+            # A blog story about a customer it does not name is not news
+            # (Nebulock, "When Your Insider Risk Program Is Put to the Test").
+            if kind == 'customer' and not (row['review_customer'] or {}).get('name'):
+                skipped += 1
+                continue
 
         published = _parsed(row['publication_date'])
         outcome = entity_events.record(

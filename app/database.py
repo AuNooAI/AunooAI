@@ -1821,7 +1821,8 @@ Remember to cite your sources and provide actionable insights where possible."""
         per_page: int = Query(10),
         date_type: str = 'publication',  # Add date_type parameter with default
         date_field: str = None,  # Add date_field parameter
-        require_category: bool = False # New parameter to filter for articles with a category
+        require_category: bool = False, # New parameter to filter for articles with a category
+        exclude_ingest_status: Optional[List[str]] = None,  # ingest_status values to leave out (facade has it; this wrapper did not)
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         # Use facade method which has proper SQLAlchemy implementation
@@ -1838,7 +1839,8 @@ Remember to cite your sources and provide actionable insights where possible."""
             per_page=per_page,
             date_type=date_type,
             date_field=date_field,
-            require_category=require_category
+            require_category=require_category,
+            exclude_ingest_status=exclude_ingest_status,
         )
 
     def save_report(self, content: str) -> int:

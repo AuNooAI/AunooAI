@@ -69,11 +69,11 @@ export function NewsFeedHeader({
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
   // Use local state for model to match working pattern from LLMConfigModal
-  const [localModel, setLocalModel] = useState(config.model || 'gpt-5.4-mini');
+  const [localModel, setLocalModel] = useState(config.model || 'bedrock-kimi-k2-5');
 
   // Sync local model with config when it changes externally
   useEffect(() => {
-    setLocalModel(config.model || 'gpt-5.4-mini');
+    setLocalModel(config.model || 'bedrock-kimi-k2-5');
   }, [config.model]);
 
   const selectedTopics = narrativeConfig.selectedTopics || [];
@@ -261,8 +261,8 @@ export function NewsFeedHeader({
                 </>
               ) : (
                 <>
-                  <SelectItem value="bedrock-claude-sonnet">Claude Sonnet 4.5</SelectItem>
-                  <SelectItem value="bedrock-claude-haiku">Claude Haiku 4.5</SelectItem>
+                  <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
+                  <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
                   <SelectItem value="nova-pro">Nova Pro</SelectItem>
                   <SelectItem value="nova-lite">Nova Lite</SelectItem>
                   <SelectItem value="bedrock-kimi-k2-5">Kimi K2.5</SelectItem>

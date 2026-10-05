@@ -274,6 +274,28 @@ model_list:
       thinking: {"type": "disabled"}
       additional_drop_params: ["reasoning_effort", "response_format"]
 
+  # Candidates for the market review loop, added 2026-09-27 for the drafter
+  # and corrector comparison. Neither accepts temperature, top_p or top_k.
+  - model_name: bedrock-kimi-k3
+    litellm_params:
+      model: bedrock/us.moonshotai.kimi-k3
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      additional_drop_params: ["reasoning_effort", "response_format", "thinking", "temperature", "top_p", "top_k"]
+  - model_name: claude-opus-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-opus-5
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-5
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "disabled"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 fallbacks:
   # nova-lite scores relevance on every collected article and had no fallback:
   # a 4-call Bedrock blip on 2026-09-08 opened the circuit breaker for 300 s and

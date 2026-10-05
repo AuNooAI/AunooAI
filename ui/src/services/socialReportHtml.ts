@@ -143,6 +143,7 @@ export function buildSocialReportHtml(d: SocialReportData): string {
         <span class="spacer"></span>${eng}
       </div>
       <div class="post-body">${esc(bodyOf(p))}</div>
+      ${p.original_summary ? `<div class="post-orig"><span class="post-orig-l">Original</span>${esc(p.original_summary)}</div>` : ''}
       ${kws ? `<div class="post-kws">${kws}</div>` : ''}
     </div>`;
   };
@@ -233,6 +234,8 @@ section>h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:va
 .sortbar select{font-size:12px;padding:3px 8px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text2)}
 .post-h{font-size:12px;font-weight:600}.date,.rel{font-size:11px;color:var(--muted)}
 .post-body{font-size:13px;color:var(--text2);white-space:pre-wrap;word-break:break-word}
+.post-orig{font-size:12px;color:var(--muted);white-space:pre-wrap;word-break:break-word;margin-top:4px;padding-left:8px;border-left:2px solid #e5e7eb}
+.post-orig-l{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:1px}
 .post-kws{margin-top:4px;display:flex;gap:5px;flex-wrap:wrap}
 .kw{font-size:10px;color:var(--muted);background:#f1f1f5;padding:1px 6px;border-radius:999px}
 .muted{color:var(--muted);font-size:12.5px;font-style:italic}

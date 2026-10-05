@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
+import re
 from pathlib import Path
 import os
 import urllib.parse
@@ -1323,7 +1324,7 @@ async def vector_summary(
     logger = logging.getLogger(__name__)
 
     # Use provided model or default to gpt-5.4-mini (lightweight)
-    model_name = req.model or "gpt-5.4-mini"
+    model_name = req.model or "bedrock-kimi-k2-5"
     
     logger.info(f"Vector summary requested with model: {model_name}")
 
@@ -1476,7 +1477,7 @@ async def vector_summary_raw(
     joined = "\n\n".join(blocks)
 
     # 2) Prompt selection
-    model_name = req.model or "gpt-5.4-mini"
+    model_name = req.model or "bedrock-kimi-k2-5"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1601,7 +1602,7 @@ async def article_insights(
     joined = "\n".join(lines)
 
     # 3) Prompt and LLM call
-    model_name = req.model or "gpt-5.4-mini"
+    model_name = req.model or "bedrock-kimi-k2-5"
     is_single_article = len(metas) == 1
 
     if is_single_article:
@@ -1767,7 +1768,7 @@ class _IncidentTrackingRequest(BaseModel):
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
-    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
+    model: str = Field("bedrock-kimi-k2-5", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
     cache_only: bool = Field(False, description="Serve the newest cached analysis (any window) and NEVER run the LLM — page-load path")
     domain: Optional[str] = Field(
@@ -1816,6 +1817,91 @@ class _IncidentTrackingRequest(BaseModel):
             return [self.topic]
         return []
 
+
+_MONTH_NAMES = ("January|February|March|April|May|June|July|August|September|October|November|December|"
+                "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec")
+_YEAR = re.compile(r"\b(19[5-9]\d|20\d\d)\b")
+_MONTH_YEAR = re.compile(r"\b(" + _MONTH_NAMES + r")\.?(\s+\d{1,2}(?:st|nd|rd|th)?,?)?\s+(19[5-9]\d|20\d\d)\b")
+
+
+_FULL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def date_incident_timeline(inc: Dict) -> None:
+    """Card date: a full date the articles state, else "reported <published>".
+
+    The model answers "2026-06" when an article says "in June", and the
+    card's formatter turns that into 01.06.2026, a day nobody stated
+    (wileytest, 28 Sep 2026: two OpenAI agent incidents reported on 27 Sep
+    showed 01.06.2026). A bare year or year-month stays on the item as
+    event_period; the description already says "in June", and the card
+    shows when the story was reported. Items in the old shape, with no
+    event_date or published field, are left alone.
+    """
+    if not isinstance(inc, dict) or not ("event_date" in inc or "published" in inc):
+        return
+    ev = inc.get("event_date")
+    ev = ev.strip()[:10] if isinstance(ev, str) else ""
+    if ev.lower() in ("null", "none", "unknown"):
+        ev = ""
+    published = inc.get("published")
+    published = published.strip()[:10] if isinstance(published, str) else ""
+    if ev and not _FULL_DATE.match(ev):
+        inc["event_period"] = ev
+        ev = ""
+    inc["event_date"] = ev or None
+    inc["published"] = published or None
+    inc["timeline"] = ev or (f"reported {published}" if published else "")
+
+
+def strip_unstated_incident_years(incidents: List[Dict], source_text_by_uri: Dict[str, str],
+                                  published_by_uri: Dict[str, str]) -> None:
+    """Remove event years that no cited article states.
+
+    The article summaries the detector reads are our own model output, and
+    they can carry an invented year: Techmeme's "gained unauthorized access
+    ... in June" became "in June 2023" in the summary and then the incident's
+    event date (wileytest briefing 165, 24 Sep 2026). So a year other than
+    the articles' own publication years must appear in a cited article's
+    title or raw text. When it does not, the incident loses its event date
+    and falls back to "reported <published>", and "June 2023" in the
+    description becomes "June". Incidents whose cited articles have no raw
+    text are left as they are, because a title alone is too thin to judge.
+    """
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        uris = [u for u in (inc.get("article_uris") or []) if isinstance(u, str)]
+        texts = [source_text_by_uri[u] for u in uris if source_text_by_uri.get(u)]
+        if not texts:
+            continue
+        allowed = set()
+        for u in uris:
+            allowed.update(_YEAR.findall(str(published_by_uri.get(u) or "")))
+        for t in texts:
+            allowed.update(_YEAR.findall(t))
+        unstated = set()
+        for field in ("event_date", "timeline", "description"):
+            v = inc.get(field)
+            if isinstance(v, str) and not v.startswith("reported "):
+                unstated.update(y for y in _YEAR.findall(v) if y not in allowed)
+        if not unstated:
+            continue
+        logger.info("Incident '%s': removed year(s) %s that no cited article states",
+                    (inc.get("name") or "")[:80], sorted(unstated))
+        ev = inc.get("event_date") or (inc.get("timeline") if isinstance(inc.get("timeline"), str) else "")
+        if ev and any(y in ev for y in unstated):
+            published = inc.get("published") or next(
+                (str(published_by_uri[u])[:10] for u in uris if published_by_uri.get(u)), "")
+            inc["event_date"] = None
+            inc["timeline"] = f"reported {published}" if published else ""
+        for field in ("description", "summary", "name", "title"):
+            v = inc.get(field)
+            if isinstance(v, str):
+                inc[field] = _MONTH_YEAR.sub(
+                    lambda m: m.group(0) if m.group(3) not in unstated else m.group(1) + (m.group(2) or "").rstrip(","),
+                    v)
+
 @router.post("/incident-tracking")
 async def analyze_incidents(
     req: _IncidentTrackingRequest,
@@ -1849,7 +1935,11 @@ async def analyze_incidents(
             if row and row[0]:
                 logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
                 import json
-                return json.loads(row[0])
+                cached = json.loads(row[0])
+                # Stored rows predate the partial-date rule; apply it on the way out.
+                for _inc in (cached.get("incidents") or []) if isinstance(cached, dict) else []:
+                    date_incident_timeline(_inc)
+                return cached
             return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
 
         # Get articles for analysis
@@ -1894,7 +1984,7 @@ async def analyze_incidents(
                     topic_pattern = f"%{topic}%"
                     params.extend([topic_pattern, topic_pattern])
 
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         # Use test articles if provided, otherwise query database
@@ -1937,7 +2027,7 @@ async def analyze_incidents(
                     f"Article {i+1}:\n"
                     f"Title: {a['title']}\n"
                     f"Source: {a['news_source']}\n"
-                    f"Date: {a['publication_date']}\n"
+                    f"Published: {a['publication_date']}\n"
                     f"Category: {a['category']} | Sentiment: {a['sentiment']}\n"
                     f"Credibility: factual_reporting={_norm(a.get('factual_reporting')) or 'unknown'}, "
                     f"mbfc={_norm(a.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(a.get('bias')) or 'unknown'}\n"
@@ -2195,12 +2285,12 @@ Required fields for each item:
 - name: concise, factual headline (what happened)
 - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
 - subtype: from the allowed list for the chosen type
-- description: FACTUAL summary of what happened/is happening - include who, what, when, where. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where. "When" is the event date the articles state; if they state none, write "reported on <Published date>". "Published" is the day the source ran the piece, not the day the event happened; a study, guideline or report is dated by its own release, which may be months or years earlier. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
 - article_uris
-- timeline
+- timeline: {{"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}}
 - significance: low | medium | high (reduce if credibility concerns exist)
 - investigation_leads
-- related_entities
+- related_entities: only names that appear in the cited articles; never add the organization this analysis is for, or its competitors, to an item that does not mention them
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low
 - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
@@ -2268,6 +2358,38 @@ Output a pure JSON array only."""
             except json_module.JSONDecodeError as je:
                 logger.error(f"Failed to parse incident tracking response: {je}")
                 return {"incidents": [], "error": "Failed to parse LLM response"}
+
+        # The prompt asks for timeline as {"event_date", "published"} so the model
+        # dates the event by what the articles say. Every reader of an incident
+        # (cards, saved incidents, briefings) expects timeline as a date string,
+        # so flatten it here: the event date when the articles state one, else
+        # "reported <published>". The two parts stay on the item as fields.
+        for inc in incidents:
+            if not isinstance(inc, dict):
+                continue
+            tl = inc.get("timeline")
+            if isinstance(tl, dict):
+                inc["event_date"] = tl.get("event_date") if isinstance(tl.get("event_date"), str) else None
+                inc["published"] = tl.get("published") if isinstance(tl.get("published"), str) else None
+                date_incident_timeline(inc)
+
+        try:
+            _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}
+                         for a in articles]
+            _cited = sorted({u for inc in incidents if isinstance(inc, dict)
+                             for u in (inc.get("article_uris") or []) if isinstance(u, str)})
+            _raw = {}
+            if _cited:
+                _ph = ",".join("?" for _ in _cited)
+                for r in db.fetch_all(f"SELECT uri, raw_markdown FROM raw_articles WHERE uri IN ({_ph})", _cited):
+                    _u, _md = (r["uri"], r["raw_markdown"]) if isinstance(r, dict) else (r[0], r[1])
+                    _raw[_u] = _md or ""
+            _text_by_uri = {a['uri']: ((a.get('title') or "") + "\n" + _raw[a['uri']])
+                            for a in _art_rows if _raw.get(a.get('uri'))}
+            strip_unstated_incident_years(
+                incidents, _text_by_uri, {a['uri']: a.get('publication_date') for a in _art_rows})
+        except Exception as _yr_err:
+            logger.warning(f"Incident year check skipped: {_yr_err}")
 
         # --- Credibility post-processing and safeguards ---
         # Build URI -> credibility map from fetched articles
@@ -3654,7 +3776,7 @@ class _RealTimeSignalsRequest(BaseModel):
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
     max_articles: int = Field(50, ge=10, le=200, description="Maximum articles to analyze")
     instruction_ids: Optional[List[int]] = Field(None, description="Specific signal instruction IDs to use")
-    model: str = Field("gpt-5.4-mini", description="AI model to use for analysis")
+    model: str = Field("bedrock-kimi-k2-5", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
 
     @field_validator('topic')
@@ -3732,7 +3854,7 @@ async def analyze_real_time_signals(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
         
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         articles = db.fetch_all(query, params)
@@ -3943,7 +4065,7 @@ async def debug_articles(
             FROM articles 
             WHERE (topic = ? OR topic LIKE ? OR title LIKE ? OR summary LIKE ?)
             AND category IS NOT NULL AND sentiment IS NOT NULL
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT 10
             """
             topic_pattern = f"%{topic}%"
@@ -4004,24 +4126,32 @@ _SIGNAL_REPORT_SYSTEM_BASE = (
 )
 
 
-def _org_persona_report_prefix(db) -> str:
-    """Persona framing for signal-report generation, from the tenant's default org profile.
+def _org_persona_report_prefix(db, profile_id=None) -> str:
+    """Persona framing for report generation, from a reader org profile.
 
     Returns a system-prompt suffix that names the reader organization so recommendations
     are scoped to that org's remit (e.g. a scientific publisher's editorial/portfolio moves).
-    Empty string if no profile is configured or on any error (report still generates, just
-    with the generic reader-scoping constraint from _SIGNAL_REPORT_SYSTEM_BASE).
+    ``profile_id`` names a specific profile — a market stores its choice in
+    ``config.foresight.profile_id`` — and it wins over the tenant default. Without it,
+    fall back to the tenant's default profile. Empty string if no profile is configured
+    or on any error (report still generates, just with the generic reader-scoping
+    constraint from _SIGNAL_REPORT_SYSTEM_BASE).
     """
     try:
         from app.database_query_facade import DatabaseQueryFacade
         import json as _json
         profiles = DatabaseQueryFacade(db, logger).get_organisational_profiles() or []
-        # NOTE: seed data flags several profiles is_default=true, so pick deterministically
-        # by lowest id (the tenant's primary/first-seeded profile) rather than trusting the
-        # ambiguous flag or the name-sorted facade order.
         by_id = sorted(profiles, key=lambda p: p.get('id') or 1_000_000)
-        defaults = [p for p in by_id if p.get('is_default')]
-        prof = (defaults or by_id or [None])[0]
+        prof = None
+        # An explicit choice wins over the default flag. On a cloned tenant the
+        # is_default profile is often a leftover from the source tenant (here,
+        # "Wiley Scientific Publisher"), which is how a cybersecurity market
+        # briefing ended up framed for an academic publisher.
+        if profile_id is not None:
+            prof = next((p for p in by_id if p.get('id') == profile_id), None)
+        if prof is None:
+            defaults = [p for p in by_id if p.get('is_default')]
+            prof = (defaults or by_id or [None])[0]
         if not prof:
             return ""
 
@@ -4167,7 +4297,7 @@ class _RunSignalRequest(BaseModel):
     topic: Optional[str] = Field(None, description="Topic filter for articles")
     days_back: int = Field(7, ge=1, le=30, description="Days back to analyze")
     max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
-    model: str = Field("gpt-5.4-mini", description="AI model to use")
+    model: str = Field("bedrock-kimi-k2-5", description="AI model to use")
     tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
     generate_report: bool = Field(False, description="Generate a report from matches")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
@@ -4352,7 +4482,7 @@ async def run_signal_instructions(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
         
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
         
         articles = db.fetch_all(query, params)
@@ -4553,6 +4683,13 @@ async def run_signal_instructions(
                             json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
                             if json_match:
                                 matches = json_module.loads(json_match.group())
+                                # Shadow referee (TypeSafe Jev): judges every article in this batch
+                                # against the signal, flagged or not, beside the matcher's verdict. Own thread.
+                                try:
+                                    from app.services import signal_referee_shadow
+                                    signal_referee_shadow.schedule(instruction, article_batch, matches, "inline")
+                                except Exception as shadow_err:  # noqa: BLE001
+                                    logger.debug(f"referee shadow not scheduled: {shadow_err}")
 
                                 # Process each match
                                 for match in matches:
@@ -4569,6 +4706,20 @@ async def run_signal_instructions(
                                         summary = match.get('summary', 'Signal detected')
                                         reasoning = match.get('reasoning', '')
 
+                                        # Referee decision (TYPESAFE_DECIDE_REFEREE): an alert
+                                        # whose article Jev scores under the match threshold is
+                                        # saved as held: listed for review, not emailed or tagged.
+                                        _held = False
+                                        try:
+                                            from app.services import signal_referee_shadow as _srs
+                                            if _srs.decide_enabled():
+                                                _art = next((a for a in article_batch
+                                                             if (a.get('uri') if hasattr(a, 'get') else getattr(a, 'uri', None)) == article_uri), None)
+                                                _held = await run_in_threadpool(_srs.hold, instruction, _art, match)
+                                        except Exception as hold_err:  # noqa: BLE001
+                                            logger.warning(f"referee hold failed, alert goes out: {hold_err}")
+                                            _held = False
+
                                         # Save alert to database
                                         alert_saved = db.facade.save_signal_alert(
                                             article_uri=article_uri,
@@ -4577,10 +4728,11 @@ async def run_signal_instructions(
                                             confidence=confidence,
                                             threat_level=threat_level,
                                             summary=summary,
-                                            reasoning=reasoning
+                                            reasoning=reasoning,
+                                            review_status='held' if _held else None,
                                         )
 
-                                        if alert_saved:
+                                        if alert_saved and not _held:
                                             alert_data = {
                                                 'article_uri': article_uri,
                                                 'instruction_name': instruction['name'],
@@ -5253,7 +5405,7 @@ async def _run_signals_background(
             topic_pattern = f"%{req.topic}%"
             params.extend([req.topic, topic_pattern, topic_pattern])
 
-        query += " ORDER BY publication_date DESC LIMIT ?"
+        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
         params.append(req.max_articles)
 
         articles = db.fetch_all(query, params)
@@ -5383,7 +5535,7 @@ async def _run_signal_instruction_internal(
         search_strategy = config.get('search_strategy', 'recent')
         # Honor the instruction's configured model (e.g. bedrock-kimi-k2-5);
         # the `model` arg only overrides when a caller passes one explicitly.
-        model = model or config.get('model') or "gpt-5.4-mini"
+        model = model or config.get('model') or "bedrock-kimi-k2-5"
 
         # Initialize LLM
         from app.ai_models import LiteLLMModel
@@ -5473,7 +5625,7 @@ async def _run_signal_instruction_internal(
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
-                    ORDER BY publication_date DESC LIMIT ?
+                    ORDER BY publication_date DESC NULLS LAST LIMIT ?
                     """
                     entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
                     entity_articles = db.fetch_all(entity_query, entity_params)
@@ -5547,7 +5699,7 @@ async def _run_signal_instruction_internal(
                 params.extend([topic, topic_pattern, topic_pattern])
                 params.extend(market_params)
 
-            query += " ORDER BY publication_date DESC LIMIT ?"
+            query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
             params.append(_SIGNAL_CANDIDATE_CEILING)
 
             articles = db.fetch_all(query, params)
@@ -5654,6 +5806,11 @@ If no articles match, return an empty array: []"""
                     json_match = re.search(r'\[[\s\S]*\]', content)
                     if json_match:
                         matches = json.loads(json_match.group())
+                        try:
+                            from app.services import signal_referee_shadow
+                            signal_referee_shadow.schedule(instruction, batch_articles, matches, "scheduled")
+                        except Exception as shadow_err:  # noqa: BLE001
+                            logger.debug(f"referee shadow not scheduled: {shadow_err}")
                         for match in matches:
                             if isinstance(match, dict) and match.get('signal_detected'):
                                 article_uri = norm_uri_lookup.get(
@@ -5670,6 +5827,19 @@ If no articles match, return an empty array: []"""
                                     summary = match.get('summary', '')
                                     reasoning = match.get('reasoning', '')
 
+                                    article = article_lookup.get(article_uri, {})
+                                    # Referee decision (TYPESAFE_DECIDE_REFEREE): held alerts are
+                                    # saved for the review list and left out of the email and
+                                    # the alert count that decides whether an email goes at all.
+                                    _held = False
+                                    try:
+                                        from app.services import signal_referee_shadow as _srs
+                                        if _srs.decide_enabled():
+                                            _held = await run_in_threadpool(_srs.hold, instruction, article, match)
+                                    except Exception as hold_err:  # noqa: BLE001
+                                        logger.warning(f"referee hold failed, alert goes out: {hold_err}")
+                                        _held = False
+
                                     db.facade.save_signal_alert(
                                         article_uri=article_uri,
                                         instruction_id=instruction_id,
@@ -5677,12 +5847,14 @@ If no articles match, return an empty array: []"""
                                         confidence=confidence,
                                         threat_level=threat_level,
                                         summary=summary,
-                                        reasoning=reasoning
+                                        reasoning=reasoning,
+                                        review_status='held' if _held else None,
                                     )
+                                    if _held:
+                                        continue
                                     alerts_created += 1
 
                                     # Track alert details for THIS instruction's notifications
-                                    article = article_lookup.get(article_uri, {})
                                     created_alert_details.append({
                                         'article_uri': article_uri,
                                         'instruction_id': instruction_id,
@@ -5858,6 +6030,7 @@ async def get_signal_alerts(
     instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
     acknowledged: Optional[str] = Query(None, description="Filter by acknowledgment status (true/false/null)"),
     limit: int = Query(100, ge=1, le=10000, description="Maximum alerts to return"),
+    review_status: Optional[str] = Query(None, description="'held' = alerts the referee kept out of the email; 'sent' = the rest; omit for all"),
     session=Depends(verify_session_optional),
 ):
     """Get signal alerts for the dashboard."""
@@ -5884,7 +6057,8 @@ async def get_signal_alerts(
             topic=topic,
             instruction_id=instruction_id,
             acknowledged=acknowledged_bool,
-            limit=limit
+            limit=limit,
+            review_status=review_status if review_status in ('held', 'sent') else None,
         )
         
         return {
@@ -6234,7 +6408,7 @@ async def article_deep_dive(
 
     article_block = "\n".join(context_header) + "\n\n" + _truncate(doc)
 
-    model_name = req.model or "gpt-5.4-mini"
+    model_name = req.model or "bedrock-kimi-k2-5"
     system_msg = (
         "You are Auspex – an expert strategic analyst. Follow the provided template strictly;"
         " ground every point in the article content. Do not invent data."
@@ -6711,10 +6885,10 @@ Required fields for each item:
 - subtype: from the allowed list for the chosen type
 - description
 - article_uris
-- timeline
+- timeline: {"event_date": "<when it happened as the articles state it, ISO date, or null when they do not say>", "published": "<earliest Published date among the cited articles>"}
 - significance: low | medium | high (reduce if credibility concerns exist)
 - investigation_leads
-- related_entities
+- related_entities: only names that appear in the cited articles; never add the organization this analysis is for, or its competitors, to an item that does not mention them
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low
 - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
@@ -6944,7 +7118,7 @@ Analyze the article and suggest appropriate classification. Return a single JSON
 - significance: low | medium | high
 - description: FACTUAL summary of what happened/is happening - include who, what, when, where
 - entities: array of named entities mentioned (companies, people, products)
-- timeline: string describing when this happened/is happening
+- timeline: when this happened as the article states it; if the article gives no event date, write "reported <publication date>" — the publication date is not the event date
 - plausibility: likely | questionable | implausible
 - source_quality: high | mixed | low (based on credibility indicators)
 - investigation_leads: array of suggested follow-up questions or areas to investigate

@@ -66,20 +66,44 @@ FOLLOW_MARKERS = ("SOC", "SOCs", "SIEM", "SecOps", "MDR", "XDR", "EDR", "SOAR",
                   "threat hunting", "incident response", "playbook", "playbooks", "runbook")
 
 
-def followed(conn, limit: int = 100) -> List[Dict[str, Any]]:
-    """The accounts on the follow list, most followed first."""
+def followed(conn, market_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+    """The market's follow list, most followed first.
+
+    Per market since October 2026 (``market_follows``). It was the site-wide
+    ``social_accounts.watchlisted`` flag, so a second market showed the first
+    market's analysts and read their timelines into its own coverage.
+    """
     return [dict(r) for r in conn.execute(text("""
-        SELECT id, platform, handle, display_name, followers_count, profile_url,
-               avatar_url, last_profiled_at,
-               metadata->>'market_role' AS role
-          FROM social_accounts
-         WHERE watchlisted AND platform = ANY(:p)
-         ORDER BY followers_count DESC NULLS LAST, handle
+        SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.followers_count,
+               sa.profile_url, sa.avatar_url, sa.last_profiled_at,
+               sa.metadata->>'market_role' AS role
+          FROM market_follows mf
+          JOIN social_accounts sa ON sa.id = mf.account_id
+         WHERE mf.market_id = :m AND sa.platform = ANY(:p)
+         ORDER BY sa.followers_count DESC NULLS LAST, sa.handle
          LIMIT :lim
-    """), {"p": list(FOLLOW_PLATFORMS), "lim": limit}).mappings().all()]
+    """), {"m": market_id, "p": list(FOLLOW_PLATFORMS), "lim": limit}).mappings().all()]
 
 
-async def follow(db, platform: str, handle: str, market_name: str) -> Optional[Dict[str, Any]]:
+def _set_follow(db, market_id: int, account_id: int, on: bool) -> None:
+    conn = db._temp_get_connection()
+    try:
+        if on:
+            conn.execute(text("""
+                INSERT INTO market_follows (market_id, account_id)
+                VALUES (:m, :a) ON CONFLICT DO NOTHING
+            """), {"m": market_id, "a": account_id})
+        else:
+            conn.execute(text(
+                "DELETE FROM market_follows WHERE market_id = :m AND account_id = :a"),
+                {"m": market_id, "a": account_id})
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def follow(db, platform: str, handle: str, market_name: str,
+                 market_id: int) -> Optional[Dict[str, Any]]:
     """Put an account on the follow list, profiling it first when it has no
     profile. None when the platform knows no such account."""
     from app.services import market_voice_profiles as mvp
@@ -95,17 +119,20 @@ async def follow(db, platform: str, handle: str, market_name: str) -> Optional[D
         row = await mvp.profile_one(db, platform, handle, market_name)
     if not row:
         return None
-    return svc.set_watchlist(db, int(row["id"]), True)
+    # The market's own list. Brand Watcher's account watchlist
+    # (social_accounts.watchlisted) is a separate choice and is left alone.
+    _set_follow(db, market_id, int(row["id"]), True)
+    return row
 
 
-def unfollow(db, platform: str, handle: str) -> bool:
+def unfollow(db, platform: str, handle: str, market_id: int) -> bool:
     from app.services.social_profile_service import SocialProfileService
 
     svc = SocialProfileService()
     row = svc.get_stored(db, (platform or "").lower(), (handle or "").lstrip("@"))
     if not row:
         return False
-    svc.set_watchlist(db, int(row["id"]), False)
+    _set_follow(db, market_id, int(row["id"]), False)
     return True
 
 
@@ -186,7 +213,7 @@ def collect_followed(conn, market: Dict[str, Any], *, days: int = WINDOW_DAYS,
     from app.services.market_collect import land_article
     from app.services.social_profile_service import SocialProfileService
 
-    accounts = followed(conn)
+    accounts = followed(conn, market["id"])
     if not accounts:
         return {"accounts": 0, "fetched": 0, "matched": 0, "stored": 0, "skipped": []}
     terms = _term_patterns(list(mcorp.corpus_terms(conn, market["id"]) or []))

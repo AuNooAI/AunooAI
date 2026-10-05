@@ -9,12 +9,14 @@ import {
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight, ChevronLeft,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
   Download, AlertTriangle, Eye, Star, Mail, Image, FileDown, Copy, Check, Printer, Search, Bell,
-  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle, Flag,
+  AtSign, UserCircle, Tag, BadgeCheck, Landmark, ShieldAlert, Lock, Briefcase, HelpCircle, Flag, MessagesSquare,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie, ReferenceLine, LineChart, Line } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
 import { BrandWatcherPerception } from './BrandWatcherPerception';
+import { BrandWatcherVoices } from './BrandWatcherVoices';
+import { useModules } from '../../hooks/useModules';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import { downloadBrandWatcherReport } from '../../services/brandReportHtml';
@@ -51,7 +53,7 @@ import {
   retrainClassifier, setupSocialMonitoring, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   searchWikidata, type SuggestionVerification,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
-  type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
+  type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWSentimentBucket, type BWSentimentTrendsResponse, collapseSentimentTrends, type BWAlert,
 } from '../../services/brandWatcherApi';
 
 // The brand/entity a social post belongs to, derived from its topic
@@ -196,8 +198,8 @@ interface BrandWatcherTabProps {
                     relatedArticles?: any[]) => void;
 }
 
-type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
-const BW_SUB_TABS: SubTab[] = ['dashboard', 'overview', 'analysis', 'perception', 'comparison', 'insights', 'articles', 'social', 'accounts', 'workforce', 'incidents', 'help'];
+type SubTab = 'dashboard' | 'overview' | 'analysis' | 'perception' | 'voices' | 'comparison' | 'insights' | 'articles' | 'social' | 'accounts' | 'workforce' | 'incidents' | 'help';
+const BW_SUB_TABS: SubTab[] = ['dashboard', 'overview', 'analysis', 'perception', 'voices', 'comparison', 'insights', 'articles', 'social', 'accounts', 'workforce', 'incidents', 'help'];
 
 export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const {
@@ -222,6 +224,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } catch { return 'dashboard'; }
   });
   useEffect(() => { try { localStorage.setItem('bw_active_tab', activeTab); } catch { /* ignore */ } }, [activeTab]);
+  // Per-site switch for the Voices sub-tab (BW_VOICES_ENABLED). Hidden on sites
+  // whose audience list does not fit yet; a remembered 'voices' tab snaps back.
+  const { features: siteFeatures } = useModules();
+  // Shown only once the site says Voices is on. Treating "not known yet" as
+  // on made the tab flash up and vanish on sites that hide it, and showed a
+  // tab that 404'd on sites whose backend has no Voices at all.
+  const voicesEnabled = siteFeatures?.bw_voices === true;
+  // Snap back only once the site has answered; before that a remembered
+  // Voices tab would be thrown away on every load of a site that has it on.
+  useEffect(() => { if (siteFeatures && !voicesEnabled && activeTab === 'voices') setActiveTab('dashboard'); }, [siteFeatures, voicesEnabled, activeTab]);
   const [socialMinRel, setSocialMinRel] = useState(0.4);  // default to evaluated, on-brand posts only
   const [socialInclUneval, setSocialInclUneval] = useState(false);  // include not-yet-scored posts (only matters at min rel = All)
   // Each social lane picks its own network + is filtered/sorted independently (lane A / lane B).
@@ -548,10 +560,25 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [categoryInsight, setCategoryInsight] = useState<BWCategoryInsightResponse | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
   const [sentimentTrends, setSentimentTrends] = useState<BWSentimentTrend[]>([]);
+  // Per-article buckets for everything that sums across categories (dashboard
+  // bar, weekly lines, breakdown card). The per-category rows in sentimentTrends
+  // count an article once per category, which showed 20 for 13 articles.
+  const [sentimentWeekly, setSentimentWeekly] = useState<BWSentimentBucket[]>([]);
+  const [sentimentTotals, setSentimentTotals] = useState<Record<string, number>>({});
+  const applySentimentTrends = useCallback((d: BWSentimentTrendsResponse) => {
+    const trends = d.trends || [];
+    const fallback = (d.weekly && d.totals) ? null : collapseSentimentTrends(trends);
+    setSentimentTrends(trends);
+    setSentimentWeekly(d.weekly ?? fallback!.weekly);
+    setSentimentTotals(d.totals ?? fallback!.totals);
+  }, []);
+  const clearSentimentTrends = useCallback(() => {
+    setSentimentTrends([]); setSentimentWeekly([]); setSentimentTotals({});
+  }, []);
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
   // Competitor brands' weekly news sentiment trends — feeds the benchmark-avg
   // line on the sentiment timeline (one cheap per-brand fetch, few brands).
-  const [compTrends, setCompTrends] = useState<BWSentimentTrend[][]>([]);
+  const [compTrends, setCompTrends] = useState<BWSentimentBucket[][]>([]);
   // Employee / workforce picture (Glassdoor aggregates + reviews + workforce risks).
   const [employeeRisk, setEmployeeRisk] = useState<BWEmployeeRisk | null>(null);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
@@ -600,6 +627,39 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     instagram: 'Instagram', tiktok: 'TikTok', social: 'Other',
   };
   const PLATFORM_ORDER = ['twitter', 'bluesky', 'reddit', 'instagram', 'tiktok', 'social'];
+  // Who wrote the post (articles.author_role). Same taxonomy as the Voices tab.
+  const ROLE_CHIP_LABEL: Record<string, string> = {
+    patient: 'patient', clinician: 'clinician', caregiver: 'caregiver', customer: 'customer',
+    academic: 'academic', professional: 'professional', employee: 'employee',
+    journalist: 'press', investor: 'investor', brand: 'brand voice',
+    dental_professional: 'dental professional', retailer: 'retailer', competitor: 'competitor',
+    // Publisher persona set (VOICES_PERSONAS=publisher)
+    author: 'author', editor_reviewer: 'editor / reviewer', journal_society: 'journal / society',
+    librarian: 'librarian', student: 'student', educator: 'educator', reader: 'reader',
+  };
+  const ROLE_CHIP_CLASS: Record<string, string> = {
+    patient: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    clinician: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    caregiver: 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300',
+    customer: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    academic: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300',
+    professional: 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300',
+    employee: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
+    journalist: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
+    investor: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
+    brand: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    dental_professional: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    retailer: 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300',
+    competitor: 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300',
+    author: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300',
+    editor_reviewer: 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300',
+    journal_society: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+    librarian: 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300',
+    student: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+    educator: 'bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-300',
+    reader: 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300',
+    other: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  };
   const platColor = (p: string) => PLATFORM_COLORS[p] || PLATFORM_COLORS.social;
   const platLabel = (p: string) => PLATFORM_LABELS[p] || p;
   const fmtCount = (n?: number | null) => n == null ? null : (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `${n}`);
@@ -991,6 +1051,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 );
               })()}
               {p.publication_date && <span className="text-xs text-gray-400 flex-shrink-0">{p.publication_date.slice(0, 10)}</span>}
+              {(p.repost_count || 1) >= 2 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                  title={`The same text was posted ${p.repost_count} times (reposts and mirrors folded into this entry)`}>×{p.repost_count} posts</span>
+              )}
+              {p.author_role && p.author_role !== 'unknown' && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${ROLE_CHIP_CLASS[p.author_role] || ROLE_CHIP_CLASS.other}`}
+                  title={p.author_role_reason ? `${ROLE_CHIP_LABEL[p.author_role] || p.author_role}: ${p.author_role_reason}` : (ROLE_CHIP_LABEL[p.author_role] || p.author_role)}>
+                  {ROLE_CHIP_LABEL[p.author_role] || p.author_role}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button onClick={() => { setIncAttach({ kind: 'article', ref: p.uri, label: cleanSocialText(socialBodyOf(p)).slice(0, 120) || p.uri, brandId: brands.find(b => b.display_name === socialBrandOf(p))?.id ?? null }); loadIncidents(); }}
@@ -1011,6 +1081,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 line-clamp-3 whitespace-pre-wrap break-words"
              title={cleanSocialText(socialBodyOf(p))}
              dangerouslySetInnerHTML={{ __html: socialBodyHtml(p) }} />
+          {p.original_summary && (
+            <details className="mt-1">
+              <summary className="text-[11px] text-gray-400 cursor-pointer select-none">Translated · show original</summary>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-wrap break-words border-l-2 border-gray-200 dark:border-gray-700 pl-2">{cleanSocialText(p.original_summary)}</p>
+            </details>
+          )}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {(() => { const bc = brandColorOf(socialBrandOf(p)); return (p.matched_keywords || []).map((k: string) => (
               <span key={k} title={`${socialBrandOf(p)} keyword "${k}"`}
@@ -1282,7 +1358,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     };
     const wk: Record<string, { nPos: number; nNeg: number; nTot: number; sPos: number; sNeg: number; sTot: number }> = {};
     const bucket = (w: string) => wk[w] || (wk[w] = { nPos: 0, nNeg: 0, nTot: 0, sPos: 0, sNeg: 0, sTot: 0 });
-    for (const t of sentimentTrends) {
+    for (const t of sentimentWeekly) {
       const w = (t.week || '').slice(0, 10);
       if (!w) continue;
       const b = bucket(w);
@@ -1394,7 +1470,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         </ResponsiveContainer>
       </div>
     );
-  }, [sentimentTrends, socialView, compTrends, benchPosts, selectedBrand]);
+  }, [sentimentWeekly, socialView, compTrends, benchPosts, selectedBrand]);
   const primarySelectedId = config.selectedBrandIds[0] || null;
 
   // --- Accounts: profile a handle, list saved, tags/notes, open-from-author ---
@@ -1585,6 +1661,24 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, fetchSocial, socialMinRel, socialInclUneval]);
 
+  // The selected brand's "{Brand} - Social" group, so an empty feed can tell
+  // "not monitored" (offer setup) from "monitored, nothing in this window".
+  // undefined = still loading, null = no group (or the lookup failed).
+  const [socialGroupInfo, setSocialGroupInfo] = useState<{ lastChecked: string | null } | null | undefined>(undefined);
+  useEffect(() => {
+    if (enablingSocial) return;
+    const brandName = brands.find(b => b.id === primarySelectedId)?.display_name;
+    if (!brandName) { setSocialGroupInfo(null); return; }
+    let cancelled = false;
+    setSocialGroupInfo(undefined);
+    getKeywordGroups().then(groups => {
+      if (cancelled) return;
+      const match = groups.find(g => g.name === `${brandName} - Social`);
+      setSocialGroupInfo(match ? { lastChecked: match.last_checked_at || null } : null);
+    }).catch(() => { if (!cancelled) setSocialGroupInfo(null); });
+    return () => { cancelled = true; };
+  }, [primarySelectedId, brands, enablingSocial]);
+
   // --- Suggest Keywords via LLM (+ Wikidata verification) ---
   const handleSuggestKeywords = useCallback(async (qidOverride?: string) => {
     const name = brandForm.display_name?.trim();
@@ -1655,7 +1749,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       fetchComparison();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
-          .then(d => setSentimentTrends(d.trends)).catch(console.error);
+          .then(applySentimentTrends).catch(console.error);
         getBrandAlerts(primarySelectedId)
           .then(d => setBrandAlerts(d.alerts)).catch(console.error);
       }
@@ -1677,7 +1771,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       loadIncidents();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
-          .then(d => setSentimentTrends(d.trends)).catch(console.error);
+          .then(applySentimentTrends).catch(console.error);
         getBrandAlerts(primarySelectedId)
           .then(d => setBrandAlerts(d.alerts)).catch(console.error);
       }
@@ -1698,7 +1792,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
     if (tab === 'analysis' && primarySelectedId) {
       getSentimentTrends(primarySelectedId, config.daysBack)
-        .then(d => setSentimentTrends(d.trends))
+        .then(applySentimentTrends)
         .catch(console.error);
       getBrandAlerts(primarySelectedId)
         .then(d => setBrandAlerts(d.alerts))
@@ -1712,7 +1806,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       // The reputation section's news-vs-social timeline needs social posts loaded.
       fetchSocial(socialMinRel, undefined, socialInclUneval, socialScope);
     }
-  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles, loadIncidents]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice, fetchSocial, socialMinRel, socialInclUneval, socialScope, loadDashArticles, loadIncidents, applySentimentTrends]);
 
   // Generated-insights sections, keyed by lowercase H2 heading — lets Brand Analysis
   // surface each section next to the data it interprets instead of a blind preview.
@@ -1801,21 +1895,23 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     fetchComparison();
     if (primarySelectedId) {
       getSentimentTrends(primarySelectedId, config.daysBack)
-        .then(d => setSentimentTrends(d.trends)).catch(console.error);
+        .then(applySentimentTrends).catch(console.error);
       getBrandAlerts(primarySelectedId)
         .then(d => setBrandAlerts(d.alerts)).catch(console.error);
     } else {
-      setSentimentTrends([]);
+      clearSentimentTrends();
       setBrandAlerts([]);
     }
-  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
+  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison, applySentimentTrends, clearSentimentTrends]);
 
   // --- Competitor weekly news trends for the benchmark-avg timeline line ---
   useEffect(() => {
     if (!primarySelectedId || (activeTab !== 'dashboard' && activeTab !== 'analysis')) return;
     const comps = brands.filter(b => b.enabled && b.id !== primarySelectedId);
     if (!comps.length) { setCompTrends([]); return; }
-    Promise.all(comps.map(b => getSentimentTrends(b.id, config.daysBack).then(r => r.trends).catch(() => [] as BWSentimentTrend[])))
+    Promise.all(comps.map(b => getSentimentTrends(b.id, config.daysBack)
+      .then(r => r.weekly ?? collapseSentimentTrends(r.trends).weekly)
+      .catch(() => [] as BWSentimentBucket[])))
       .then(setCompTrends);
   }, [activeTab, primarySelectedId, config.daysBack, brands]);
 
@@ -1946,7 +2042,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       if (primarySelectedId) {
         fetches.push(
           getSentimentTrends(primarySelectedId, config.daysBack)
-            .then(d => setSentimentTrends(d.trends)).catch(console.error),
+            .then(applySentimentTrends).catch(console.error),
           getBrandAlerts(primarySelectedId)
             .then(d => setBrandAlerts(d.alerts)).catch(console.error),
           getLatestNarrative(primarySelectedId)
@@ -1975,7 +2071,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } finally {
       setExportingReport(false);
     }
-  }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice]);
+  }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice, applySentimentTrends]);
 
   // --- Interactive HTML report (self-contained, downloadable) ---
   const handleExportHtmlReport = useCallback(async () => {
@@ -2111,6 +2207,20 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setGeneratingNarrative(false);
     }
   }, [primarySelectedId, config.daysBack, selectedBrand]);
+
+  // Load the saved report when the page opens on Insights/Analysis (the tab is
+  // remembered across reloads) or when the brand changes there. Tab clicks
+  // fetch it in handleTabChange, but a reload never goes through that path, so
+  // a persisted report showed as "Not generated yet" (sunstar, 15 Sep 2026).
+  useEffect(() => {
+    if (activeTab !== 'analysis' && activeTab !== 'insights') return;
+    if (!primarySelectedId || narrativeChecked === primarySelectedId) return;
+    setLoadingNarrative(true);
+    getLatestNarrative(primarySelectedId)
+      .then(n => { setNarrative(n); setNarrativeChecked(primarySelectedId); })
+      .catch(console.error)
+      .finally(() => setLoadingNarrative(false));
+  }, [activeTab, primarySelectedId, narrativeChecked]);
 
   // Brand Analysis / Insights must never be report-less: when the latest-
   // narrative fetch has resolved and the server truly has none for this brand,
@@ -2569,6 +2679,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'dashboard' as SubTab, label: 'Dashboard', icon: Sparkles },
           { id: 'analysis' as SubTab, label: 'Brand Analysis', icon: TrendingUp },
           { id: 'perception' as SubTab, label: 'Perception', icon: Eye },
+          { id: 'voices' as SubTab, label: 'Voices', icon: MessagesSquare },
           { id: 'comparison' as SubTab, label: 'Comparison', icon: Users },
           { id: 'insights' as SubTab, label: 'Insights', icon: FileText },
           { id: 'articles' as SubTab, label: 'Articles', icon: Target },
@@ -2577,7 +2688,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           { id: 'workforce' as SubTab, label: 'Workforce', icon: Briefcase },
           { id: 'incidents' as SubTab, label: 'Incidents', icon: ShieldAlert },
           { id: 'help' as SubTab, label: 'Help', icon: HelpCircle },
-        ]).map(tab => (
+        ]).filter(tab => tab.id !== 'voices' || voicesEnabled).map(tab => (
           <button
             key={tab.id}
             title={({
@@ -2635,15 +2746,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
       {/* ---- OVERVIEW TAB ---- */}
       {activeTab === 'dashboard' && (() => {
-        // ---- News side (from sentimentTrends aggregate + stats + alerts) ----
+        // ---- News side (per-article sentiment totals + stats + alerts) ----
         const newsSent = { pos: 0, neu: 0, neg: 0 };
-        for (const t of sentimentTrends) {
-          for (const [sK, cnt] of Object.entries(t.sentiments || {})) {
-            const lo = sK.toLowerCase();
-            if (lo.includes('pos') || lo.includes('optimis')) newsSent.pos += cnt as number;
-            else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) newsSent.neg += cnt as number;
-            else newsSent.neu += cnt as number;
-          }
+        for (const [sK, cnt] of Object.entries(sentimentTotals)) {
+          const lo = sK.toLowerCase();
+          if (lo.includes('pos') || lo.includes('optimis')) newsSent.pos += cnt as number;
+          else if (lo.includes('neg') || lo.includes('pessimis') || lo.includes('concern') || lo.includes('critical')) newsSent.neg += cnt as number;
+          else newsSent.neu += cnt as number;
         }
         const newsScored = newsSent.pos + newsSent.neu + newsSent.neg;
         const newsNet = newsScored ? Math.round(((newsSent.pos - newsSent.neg) / newsScored) * 100) : null;
@@ -2785,6 +2894,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   className="text-sm font-semibold text-gray-800 dark:text-gray-100 hover:text-blue-600 text-left flex-1 line-clamp-1" title={a.title}>
                   {a.title}
                 </button>
+                {a.is_owned && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                    title="Published by the company itself — not counted in sentiment or share of voice">owned</span>
+                )}
                 {(a.story_size || 1) >= 2 && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-semibold ${(a.story_size || 0) >= 3 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}
                     title={`Republished by ${a.story_size} sources — amplification signal`}>×{a.story_size} sources</span>
@@ -2943,8 +3056,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`), tone: negNewsToday ? -1 : null,
-                    tip: `On-brand news articles in the window (relevance >= 0.4 so name-collisions are excluded).${newsToday ? ` ${newsToday} arrived today, ${negNewsToday || 0} of them negative.` : ''}` },
+                  { label: 'News articles', value: stats?.total_articles?.toLocaleString() || '0', sub: (stats?.owned_articles || 0) > 0 ? `${stats!.owned_articles} owned excluded` : (newsToday ? `+${newsToday} today${negNewsToday ? ` · ${negNewsToday} negative` : ''}` : (config.daysBack === 0 ? 'all time' : `last ${config.daysBack}d`)), tone: negNewsToday ? -1 : null,
+                    tip: `Earned news articles in the window (relevance >= 0.4 so name-collisions are excluded).${newsToday ? ` ${newsToday} arrived today, ${negNewsToday || 0} of them negative.` : ''}${(stats?.owned_articles || 0) > 0 ? ` A further ${stats!.owned_articles} item(s) in the list are the company's own blog, press or LinkedIn posts, marked "owned"; they are not coverage, so no count or sentiment figure includes them.` : ''}` },
                   { label: 'News sentiment', value: newsNet == null ? '—' : `${newsNet > 0 ? '+' : ''}${newsNet}`, sub: `${newsSent.pos}+ ${newsSent.neu}· ${newsSent.neg}−${newsNet != null && newsCompAvg != null ? ` · comp avg ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}` : ''}`, tone: newsNet,
                     tip: `Net sentiment of news coverage: (positive − negative) ÷ scored × 100, from ${newsSent.pos} positive, ${newsSent.neu} neutral, ${newsSent.neg} negative articles. Neutrals count in the base, so many neutrals pull the net toward 0.${newsCompAvg != null ? ` Competitor average is ${newsCompAvg > 0 ? '+' : ''}${newsCompAvg}.` : ''}` },
                   { label: 'Social posts', value: (sv?.totalLoaded ?? 0).toLocaleString(), sub: socToday ? `+${socToday} today · ${socScored} scored` : `${socScored} scored`,
@@ -3149,14 +3262,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             // Aggregate sentiment from sentimentTrends — normalize labels
             const sentAgg: Record<string, number> = { Positive: 0, Neutral: 0, Negative: 0 };
             let sentTotal = 0;
-            for (const t of sentimentTrends) {
-              for (const [s, cnt] of Object.entries(t.sentiments)) {
-                const lo = s.toLowerCase();
-                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentAgg.Positive += cnt;
-                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentAgg.Negative += cnt;
-                else sentAgg.Neutral += cnt;
-                sentTotal += cnt;
-              }
+            for (const [s, cnt] of Object.entries(sentimentTotals)) {
+              const lo = s.toLowerCase();
+              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentAgg.Positive += cnt;
+              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentAgg.Negative += cnt;
+              else sentAgg.Neutral += cnt;
+              sentTotal += cnt;
             }
             const positivePct = sentTotal > 0 ? Math.round((sentAgg.Positive / sentTotal) * 100) : null;
             const negativePct = sentTotal > 0 ? Math.round((sentAgg.Negative / sentTotal) * 100) : null;
@@ -3166,6 +3277,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Articles</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_articles ?? 0}</p>
+                  {(stats?.owned_articles || 0) > 0 && (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400"
+                      title="The company's own blog, press or LinkedIn posts. They appear in the article list marked &quot;owned&quot; but count as publishing, not coverage.">
+                      {stats!.owned_articles} owned excluded
+                    </p>
+                  )}
                 </div>
                 <div className={`p-4 bg-white dark:bg-gray-800 rounded-lg border ${
                   primarySelectedId && (negativePct || 0) >= 15
@@ -3308,14 +3425,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             // Normalize into 3 buckets
             const sentBuckets = { Positive: 0, Neutral: 0, Negative: 0 };
             let sentTotal = 0;
-            for (const t of sentimentTrends) {
-              for (const [s, cnt] of Object.entries(t.sentiments)) {
-                const lo = s.toLowerCase();
-                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentBuckets.Positive += cnt;
-                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentBuckets.Negative += cnt;
-                else sentBuckets.Neutral += cnt;
-                sentTotal += cnt;
-              }
+            for (const [s, cnt] of Object.entries(sentimentTotals)) {
+              const lo = s.toLowerCase();
+              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentBuckets.Positive += cnt;
+              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentBuckets.Negative += cnt;
+              else sentBuckets.Neutral += cnt;
+              sentTotal += cnt;
             }
             const bucketColors: Record<string, string> = {
               Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626',
@@ -3386,7 +3501,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           {primarySelectedId && sentimentTrends.length > 0 && (() => {
             // Build weekly time series — normalize sentiment labels
             const weeklyMap: Record<string, { Positive: number; Neutral: number; Negative: number; total: number }> = {};
-            for (const t of sentimentTrends) {
+            for (const t of sentimentWeekly) {
               if (!weeklyMap[t.week]) weeklyMap[t.week] = { Positive: 0, Neutral: 0, Negative: 0, total: 0 };
               for (const [s, cnt] of Object.entries(t.sentiments)) {
                 const lo = s.toLowerCase();
@@ -4402,7 +4517,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
       {activeTab === 'social' && (
         <div className="space-y-6">
-          {!(social && social.total > 0) && !socialIntroDismissed && (
+          {social && social.total === 0 && socialGroupInfo && (
+          <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-sm text-gray-600 dark:text-gray-300">
+            No posts about {brands.find(b => b.id === primarySelectedId)?.display_name || 'this brand'} in the last {social.window_days} days match the current filters. Social monitoring is on
+            {socialGroupInfo.lastChecked ? `; the last collection ran ${new Date(socialGroupInfo.lastChecked).toLocaleString()}` : ''}.
+          </div>
+          )}
+          {!(social && social.total > 0) && socialGroupInfo === null && !socialIntroDismissed && (
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2">
@@ -4625,7 +4746,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Posts</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{social.total.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">last {social.window_days}d</p>
+                  <p className="text-xs text-gray-400">last {social.window_days}d{(social.owned_excluded || 0) > 0 ? ` · ${social.owned_excluded} owned excluded` : ''}</p>
                 </div>
                 <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">Evaluated</p>
@@ -5333,6 +5454,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         <BrandWatcherPerception daysBack={config.daysBack} />
       )}
 
+      {/* Voices: what each audience (patients, clinicians, customers ...) says */}
+      {activeTab === 'voices' && voicesEnabled && (
+        <BrandWatcherVoices brands={brands} daysBack={config.daysBack} />
+      )}
+
       {(activeTab === 'comparison' || exportingReport) && (
         <div className={`space-y-6 ${exportingReport ? 'order-5' : ''}`}>
           {exportingReport && (
@@ -5412,6 +5538,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{sov.brand_name}</span>
                         <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{sov.percentage.toFixed(1)}%</span>
                         <span className="text-xs text-gray-400 w-20 text-right">{sov.mention_count} articles</span>
+                        {(sov.owned_count || 0) > 0 && (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 w-16 text-right"
+                            title="The company's own posts and pages, not counted in share of voice">+{sov.owned_count} owned</span>
+                        )}
                         <ChevronRight className="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                       </button>
                     ))}
@@ -5899,6 +6029,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         title={`Coverage split: ${article.story_pos} positive vs ${article.story_neg} negative`}>⚡ polarized</span>
                     )}
                     {renderSignalsChips(article)}
+                    {article.is_owned && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                        title="Published by the company itself — not counted in sentiment or share of voice">owned</span>
+                    )}
                     {article.news_source && (
                       <span className="text-xs text-gray-400">{article.news_source}</span>
                     )}

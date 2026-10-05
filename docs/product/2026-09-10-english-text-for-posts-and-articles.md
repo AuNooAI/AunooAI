@@ -53,7 +53,9 @@ here the English is the default and the original is the option.
   marked with an ellipsis; the original is kept in full.
 - A post that mixes languages, an English post with a Japanese hashtag
   say, is left as written.
-- Sites other than Sunstar translate from now on; their older items keep
+- Oviva's last 30 days were translated the same evening (111 posts and
+  descriptions, mostly German, plus Korean and Thai posts about Noom).
+- Sites other than Sunstar and Oviva translate from now on; their older items keep
   the collected text until the backfill script is run for them.
 - The "Show original" toggle is in the news feed article panel. Brand
   Watcher's social lists show the English text without a toggle yet.

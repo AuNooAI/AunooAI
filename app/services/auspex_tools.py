@@ -228,6 +228,7 @@ class AuspexToolsService:
                     candidates=vector_articles,
                     text_fn=lambda c: f"{c.get('title', '')}. {c.get('summary', '')}",
                     top_k=limit,
+                    topic=topic,
                 )
 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
@@ -585,7 +586,10 @@ Analyzing the {len(articles)} most recent articles
         if not api_key or not search_engine_id:
             logger.debug("Google Search API key or CSE ID not configured")
             return {
-                "error": "Google Search API not configured",
+                "error": (
+                    "Google web search is not configured on this site: set "
+                    "GOOGLE_API_KEY and GOOGLE_CSE_ID"
+                ),
                 "query": query,
                 "total_results": 0,
                 "articles": []
@@ -605,8 +609,19 @@ Analyzing the {len(articles)} most recent articles
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"Google Search API error: {response.status} - {error_text}")
+                        # Google's own words: a bare status code cannot tell a
+                        # disabled API apart from a spent quota or a bad key,
+                        # and those are fixed in different places.
+                        detail = ""
+                        try:
+                            detail = (await response.json()).get("error", {}).get("message", "")
+                        except Exception:
+                            detail = error_text[:200]
                         return {
-                            "error": f"Google Search API error: {response.status}",
+                            "error": (
+                                f"Google Search API error {response.status}"
+                                + (f": {detail}" if detail else "")
+                            ),
                             "query": query,
                             "total_results": 0,
                             "articles": []
@@ -861,46 +876,160 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
+    # Words too common to retrieve on. Only used when a question has to be
+    # turned back into keywords for the rows that carry no embedding.
+    _QUERY_STOPWORDS = frozenset({
+        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+        'by', 'from', 'about', 'into', 'over', 'after', 'before', 'between',
+        'what', 'which', 'who', 'whom', 'whose', 'when', 'where', 'why', 'how',
+        'is', 'are', 'was', 'were', 'be', 'been', 'being', 'do', 'does', 'did',
+        'has', 'have', 'had', 'can', 'could', 'will', 'would', 'should',
+        'this', 'that', 'these', 'those', 'their', 'they', 'them', 'you',
+        'your', 'our', 'any', 'all', 'some', 'more', 'most', 'other', 'such',
+        'than', 'then', 'also', 'very', 'say', 'says', 'said', 'tell', 'show',
+        'give', 'find', 'article', 'articles', 'news', 'recent', 'latest',
+    })
+
+    def _query_terms(self, query: str, max_terms: int = 6) -> List[str]:
+        """The words in a question worth searching for on their own.
+
+        Acronyms come first, then longer words before shorter ones, because
+        length is a cheap stand-in for specificity: "reimbursement" narrows a
+        result set and "programme" barely does.
+        """
+        ranked = []
+        seen = set()
+        for raw in (query or "").split():
+            token = raw.strip('.,!?;:"\'()[]{}')
+            word = token.lower()
+            if not word or word in seen:
+                continue
+            acronym = len(token) >= 2 and token.isupper() and token.isalpha()
+            if not acronym and (len(word) < 4 or word in self._QUERY_STOPWORDS):
+                continue
+            seen.add(word)
+            ranked.append((not acronym, -len(word), word))
+        ranked.sort()
+        return [term for _, _, term in ranked[:max_terms]]
+
+    @staticmethod
+    def _terms_matched(row: Dict, terms: List[str]) -> int:
+        """How many of a question's terms appear in one article's text."""
+        text = f"{row.get('title') or ''} {row.get('summary') or ''}".lower()
+        return sum(1 for term in terms if term in text)
+
+    async def _retrieve_for_question(self, query: str, topic: Optional[str],
+                                     limit: int) -> Dict:
+        """Find the articles that answer a question.
+
+        Two passes, because neither covers the store on its own. The pgvector
+        index answers the question as a question, but it only holds the rows
+        we have embedded, so a keyword pass over the question's own terms
+        picks up the rest. Both sets go to the reranker together; it decides
+        the final order, and where it is switched off the semantic hits still
+        come first.
+        """
+        topic = self._normalize_topic(topic)
+        query = (query or "").strip()
+        if not query or query == "*":
+            rows, _ = self.db.facade.search_articles(topic=topic, page=1, per_page=limit)
+            return {
+                "articles": rows,
+                "candidates": len(rows),
+                "search_method": "topic listing: no query given",
+            }
+
+        seen = set()
+        semantic: List[Dict] = []
+        try:
+            hits = vector_search_articles(
+                query=query,
+                top_k=overfetch_limit(limit),
+                metadata_filter={"topic": topic} if topic else {},
+            )
+            for hit in hits:
+                metadata = hit.get("metadata") or {}
+                uri = metadata.get("uri")
+                if not uri or uri in seen:
+                    continue
+                seen.add(uri)
+                row = dict(metadata)
+                row["similarity_score"] = hit.get("score", 0)
+                semantic.append(row)
+        except Exception as e:
+            logger.warning(f"Vector pass failed for '{query}': {e}")
+
+        keyword: List[Dict] = []
+        terms = self._query_terms(query)
+        for term in terms:
+            try:
+                rows, _ = self.db.facade.search_articles(
+                    keyword=term, topic=topic, page=1, per_page=limit)
+            except Exception as e:
+                logger.warning(f"Keyword pass failed for '{term}': {e}")
+                continue
+            for row in rows:
+                uri = row.get('uri')
+                if not uri or uri in seen:
+                    continue
+                seen.add(uri)
+                keyword.append(row)
+
+        # Each term was searched on its own, so one shared word is enough to
+        # land in this list. Sorting by how many of the question's terms a row
+        # actually contains puts the rows that answer it above the ones that
+        # merely say "AI" - which is all the ordering there is when the
+        # reranker is unavailable.
+        keyword.sort(key=lambda row: -self._terms_matched(row, terms))
+
+        candidates = semantic + keyword
+        ranked = await rerank(
+            query=query,
+            candidates=candidates,
+            text_fn=lambda c: f"{c.get('title') or ''}. {c.get('summary') or ''}",
+            top_k=limit,
+        )
+        # rerank() adds this key when it ran; without it the order is cosine
+        # for the vector half and term-overlap for the keyword half. Say which,
+        # because the two are not equally good and a caller cannot tell.
+        reranked = bool(ranked) and 'rerank_score' in ranked[0]
+        return {
+            "articles": ranked,
+            "candidates": len(candidates),
+            "search_method": (
+                f"{len(semantic)} from the vector index, {len(keyword)} more matching "
+                f"{', '.join(terms) if terms else 'nothing else'}, "
+                + ("reranked against the question"
+                   if reranked else
+                   "ordered by similarity only (the reranker did not load)")
+            ),
+        }
+
     async def semantic_search_and_analyze(self, query: str, topic: str = None,
                                         analysis_type: str = "comprehensive",
                                         limit: int = 50) -> Dict:
-        """Perform semantic search with diversity filtering and structured analysis.
+        """Search the article store for a question and describe what came back.
+
+        Retrieval is semantic (see ``_retrieve_for_question``). The analysis
+        that follows is counting - sources, categories, sentiment split, dates
+        - not a model reading the articles.
 
         If topic is None (cross-topic mode), searches across all topics.
         """
         try:
-            # For comprehensive analysis requests, get all articles for the topic
-            # rather than searching for the specific query text
-            if any(word in query.lower() for word in ["comprehensive", "analysis", "detailed", "insights", "structured", "breakdown"]):
-                # Get articles by topic only for comprehensive analysis
-                articles, _ = self.db.facade.search_articles(
-                    topic=topic,  # None for cross-topic mode
-                    page=1,
-                    per_page=limit * 2  # Get more for diversity filtering
-                )
-            else:
-                # For specific queries, search by keyword
-                articles, _ = self.db.facade.search_articles(
-                    keyword=query,
-                    topic=topic,  # None for cross-topic mode
-                    page=1,
-                    per_page=limit * 2  # Get more for diversity filtering
-                )
-
-            # Apply diversity filtering (simplified version)
-            diverse_articles = self._apply_diversity_filter(articles, limit)
-
-            # Perform structured analysis
-            analysis = self._perform_structured_analysis(diverse_articles, analysis_type)
+            found = await self._retrieve_for_question(query, topic, limit)
+            articles = found["articles"]
+            analysis = self._perform_structured_analysis(articles, analysis_type)
 
             result = {
                 "query": query,
-                "topic": topic if topic else "All Topics",
+                "topic": self._normalize_topic(topic) or "All Topics",
                 "analysis_type": analysis_type,
-                "total_articles_found": len(articles),
-                "articles_analyzed": len(diverse_articles),
+                "search_method": found["search_method"],
+                "total_articles_found": found["candidates"],
+                "articles_analyzed": len(articles),
                 "analysis": analysis,
-                "articles": diverse_articles
+                "articles": articles
             }
 
             return result
@@ -912,39 +1041,6 @@ Analyzing the {len(articles)} most recent articles
                 "topic": topic,
                 "analysis": {}
             }
-
-    def _apply_diversity_filter(self, articles: List[Dict], limit: int) -> List[Dict]:
-        """Apply diversity filtering to articles."""
-        if len(articles) <= limit:
-            return articles
-        
-        # Simple diversity filter based on source and category
-        diverse_articles = []
-        seen_sources = set()
-        seen_categories = set()
-        
-        # First pass: prioritize diverse sources and categories
-        for article in articles:
-            source = article.get('source', 'Unknown')
-            category = article.get('category', 'Uncategorized')
-            
-            if len(diverse_articles) >= limit:
-                break
-                
-            # Prefer articles from new sources and categories
-            if source not in seen_sources or category not in seen_categories:
-                diverse_articles.append(article)
-                seen_sources.add(source)
-                seen_categories.add(category)
-        
-        # Second pass: fill remaining slots
-        for article in articles:
-            if len(diverse_articles) >= limit:
-                break
-            if article not in diverse_articles:
-                diverse_articles.append(article)
-        
-        return diverse_articles[:limit]
 
     def _perform_structured_analysis(self, articles: List[Dict], analysis_type: str) -> Dict:
         """Perform structured analysis on articles."""
@@ -1002,7 +1098,9 @@ Analyzing the {len(articles)} most recent articles
         """Extract key themes from articles."""
         # Simple keyword extraction from titles and summaries
         all_text = " ".join([
-            article.get('title', '') + " " + article.get('summary', '')
+            # `or ''` because a stored title or summary can be NULL, and
+            # .get(k, '') hands back that None rather than the default.
+            (article.get('title') or '') + " " + (article.get('summary') or '')
             for article in articles
         ]).lower()
         
@@ -1052,53 +1150,54 @@ Analyzing the {len(articles)} most recent articles
 
     async def follow_up_query(self, original_query: str, follow_up: str, 
                             topic: str, context_articles: List[Dict] = None) -> Dict:
-        """Perform a follow-up query based on previous results."""
+        """Answer a follow-up in the context of the question that came before."""
         try:
-            # Combine original query with follow-up for better context
-            enhanced_query = f"{original_query} {follow_up}"
-            
-            # Search for new articles
-            new_articles, _ = self.db.facade.search_articles(
-                keyword=enhanced_query,
-                topic=topic,
-                page=1,
-                per_page=25
-            )
-            
-            # If we have context articles, try to find related content
+            # The follow-up on its own is usually a fragment ("and in the UK?"),
+            # so it is searched together with the question it refines.
+            enhanced_query = f"{original_query} {follow_up}".strip()
+            found = await self._retrieve_for_question(enhanced_query, topic, 25)
+            articles = list(found["articles"])
+
+            # Articles carried over from the previous answer widen the search:
+            # their recurring terms are what the conversation is about, which
+            # the follow-up itself may never spell out.
             if context_articles:
-                # Extract keywords from context articles for better search
-                context_keywords = self._extract_context_keywords(context_articles)
-                for keyword in context_keywords[:3]:  # Use top 3 keywords
-                    keyword_articles, _ = self.db.facade.search_articles(
-                        keyword=keyword,
-                        topic=topic,
-                        page=1,
-                        per_page=10
-                    )
-                    new_articles.extend(keyword_articles)
-            
-            # Remove duplicates and limit results
-            seen_uris = set()
-            unique_articles = []
-            for article in new_articles:
-                if article['uri'] not in seen_uris:
-                    seen_uris.add(article['uri'])
-                    unique_articles.append(article)
-            
-            unique_articles = unique_articles[:25]
-            
+                seen = {a.get('uri') for a in articles}
+                for keyword in self._extract_context_keywords(context_articles)[:3]:
+                    try:
+                        rows, _ = self.db.facade.search_articles(
+                            keyword=keyword,
+                            topic=self._normalize_topic(topic),
+                            page=1,
+                            per_page=10
+                        )
+                    except Exception as e:
+                        logger.warning(f"Context keyword pass failed for '{keyword}': {e}")
+                        continue
+                    for row in rows:
+                        uri = row.get('uri')
+                        if uri and uri not in seen:
+                            seen.add(uri)
+                            articles.append(row)
+                articles = await rerank(
+                    query=enhanced_query,
+                    candidates=articles,
+                    text_fn=lambda c: f"{c.get('title') or ''}. {c.get('summary') or ''}",
+                    top_k=25,
+                )
+
             # Perform analysis on follow-up results
-            analysis = self._perform_structured_analysis(unique_articles, "focused")
-            
+            analysis = self._perform_structured_analysis(articles, "focused")
+
             result = {
                 "original_query": original_query,
                 "follow_up_query": follow_up,
                 "enhanced_query": enhanced_query,
                 "topic": topic,
-                "total_results": len(unique_articles),
+                "search_method": found["search_method"],
+                "total_results": len(articles),
                 "analysis": analysis,
-                "articles": unique_articles
+                "articles": articles
             }
             
             return result
@@ -1115,7 +1214,9 @@ Analyzing the {len(articles)} most recent articles
         """Extract keywords from context articles for follow-up queries."""
         # Extract important terms from titles and summaries
         all_text = " ".join([
-            article.get('title', '') + " " + article.get('summary', '')
+            # `or ''` because a stored title or summary can be NULL, and
+            # .get(k, '') hands back that None rather than the default.
+            (article.get('title') or '') + " " + (article.get('summary') or '')
             for article in articles
         ]).lower()
         

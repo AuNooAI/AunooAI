@@ -5,7 +5,7 @@ description: Judges whether an emerging-themes cluster detected by HDBSCAN on th
 type: agent
 version: 1.0.0
 model_config:
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.2
   max_tokens: 600
 output_schema:

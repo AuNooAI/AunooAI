@@ -29,6 +29,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
@@ -152,11 +153,11 @@ class ResearchConfig:
     temporal_distribution_older: float = 0.3  # 30% older context
 
     # Model settings
-    planning_model: str = "gpt-5.4-mini"
+    planning_model: str = "bedrock-kimi-k2-5"
     planning_temperature: float = 0.3
-    synthesis_model: str = "gpt-5.4"
+    synthesis_model: str = default_model("standard")
     synthesis_temperature: float = 0.4
-    writing_model: str = "gpt-5.4"
+    writing_model: str = default_model("standard")
     writing_temperature: float = 0.5
 
     # Timeouts (seconds)
@@ -632,7 +633,7 @@ The more specific your question, the better insights I can provide!"""
             content = "\n".join(content_items)
 
             response = await litellm.acompletion(
-                **resolve_litellm_call_params("gpt-5.4-mini"),
+                **resolve_litellm_call_params("bedrock-kimi-k2-5"),
                 messages=[
                     {
                         "role": "system",

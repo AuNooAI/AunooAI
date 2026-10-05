@@ -5,7 +5,7 @@ description: Computes derived metrics for the bundle — consensus drift, status
 type: agent
 version: 1.0.0
 model_config:
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 1.0
   max_tokens: 6000
 output_schema:

@@ -1007,7 +1007,7 @@ export async function deleteNarrative(narrativeId: number): Promise<void> {
 export async function generateNarrative(
   periodType: 'daily' | 'weekly' | 'monthly' = 'weekly',
   topic?: string,
-  model: string = 'gpt-4o-mini'
+  model: string = 'bedrock-kimi-k2-5'
 ): Promise<ThreatNarrative> {
   const response = await fetch(`${API_BASE}/generate-narrative`, {
     method: 'POST',

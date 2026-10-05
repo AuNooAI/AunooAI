@@ -19,6 +19,7 @@ import {
   Bookmark,
   Sparkles,
   LayoutGrid,
+  Vote,
   List,
   ChevronLeft,
   ChevronRight,
@@ -68,6 +69,8 @@ const MarketMonitorTab = React.lazy(() =>
   import('../components/newsfeed/MarketMonitorTab').then(m => ({ default: m.MarketMonitorTab })));
 const TimelineTab = React.lazy(() =>
   import('../components/newsfeed/TimelineTab').then(m => ({ default: m.TimelineTab })));
+const SwissDisinfoTab = React.lazy(() =>
+  import('../components/newsfeed/SwissDisinfoTab').then(m => ({ default: m.SwissDisinfoTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -218,8 +221,8 @@ export function NewsFeedPage() {
 
 
   // UI State
-  type ExploreTab = 'overview' | 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'timeline';
-  const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'timeline'];
+  type ExploreTab = 'overview' | 'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher' | 'market_monitor' | 'threat_intel' | 'swiss_disinfo' | 'timeline';
+  const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'swiss_disinfo', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
   const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'market_monitor', 'agents', 'timeline'];
@@ -961,6 +964,15 @@ export function NewsFeedPage() {
             Threat Intelligence
           </button>
           )}
+          {isModuleEnabled('swiss_disinfo') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'swiss_disinfo' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('swiss_disinfo')}
+          >
+            <Vote className="w-4 h-4" />
+            Swiss Election Watch
+          </button>
+          )}
           {dedicatedMode === false && (
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
@@ -1343,6 +1355,13 @@ export function NewsFeedPage() {
             {currentTab === 'threat_intel' && isModuleEnabled('threat_intel') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
                 <ThreatIntelligenceTab onArticleClick={handleArticleClick} />
+              </Suspense>
+            )}
+
+            {/* Swiss Election Watch Tab Content */}
+            {currentTab === 'swiss_disinfo' && isModuleEnabled('swiss_disinfo') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-red-500" /></div>}>
+                <SwissDisinfoTab onArticleClick={handleArticleClick} />
               </Suspense>
             )}
 

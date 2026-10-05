@@ -40,6 +40,7 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
 from app.compliance.ai_disclosure import pptx_set_marker as _ai_pptx_marker
+from app.model_tiers import default_model
 
 from app.services.forecast_pptx_export import (
     _add_methodology_appendix_slide,
@@ -61,6 +62,9 @@ from app.services.forecast_pptx_export import (
     WILEY_CARD_BG,
     SLATE_DARK, SLATE_MID, SLATE_LIGHT, SLATE_BLACK,
     RULE_GRAY, WHITE,
+)
+from app.services.report_branding import (
+    brand_eyebrow, report_identity,
 )
 from app.services.forecast_bundle_pptx import (
     _add_bundle_cover,
@@ -446,7 +450,7 @@ def _intro_full_bleed_navy(prs, *, eyebrow: str, title: str, subtitle: str = "")
 def _add_intro_cover_slide(prs, *, period_label: str):
     """Slide 1 — cover.
 
-    Aunoo navy ground, big pink "WILEY HORIZONS · FORESIGHT" eyebrow,
+    Aunoo navy ground, big pink brand eyebrow (REPORT_BRAND_EYEBROW),
     the period_label as the headline, "Topic Foresight Report"
     subtitle. Mirrors ``_add_bundle_cover`` from ``forecast_bundle_pptx``.
     """
@@ -457,7 +461,7 @@ def _add_intro_cover_slide(prs, *, period_label: str):
     _rect(slide, x=0, y=0, w=sw, h=0.08, fill=WILEY_TEAL)
     _rect(slide, x=0, y=5.55, w=sw, h=0.08, fill=WILEY_TEAL)
     _text(slide, x=0.6, y=1.6, w=sw-1.2, h=0.40,
-          text="WILEY HORIZONS · FORESIGHT",
+          text=f"{brand_eyebrow()} · FORESIGHT",
           font_size=13, bold=True, color=WILEY_TEAL)
     _text(slide, x=0.6, y=2.10, w=sw-1.2, h=1.05, text=period_label,
           font_size=48, bold=True, color=WHITE)
@@ -470,7 +474,7 @@ def _add_intro_cover_slide(prs, *, period_label: str):
     _add_brand_mark(slide, x=8.9, y=0.3, w=0.7, h=0.6)
 
 
-def _add_intro_platform_slide(prs):
+def _add_intro_platform_slide(prs, ident: dict):
     """Slide 2 — what AunooAI is."""
     slide = _intro_full_bleed_navy(
         prs, eyebrow="| WE WATCH THE NEWS FOR YOU",
@@ -481,10 +485,14 @@ def _add_intro_platform_slide(prs):
     # Body paragraph card
     _rect(slide, x=0.6, y=2.10, w=sw-1.2, h=2.75, fill=WILEY_CARD_BG)
     _rect(slide, x=0.6, y=2.10, w=sw-1.2, h=0.05, fill=WILEY_TEAL)
+    # Name the reader's sector when the org profile gives us one, and
+    # drop the clause rather than guess when it does not.
+    audience = (f" for the {ident['sector']} sector"
+                if ident["sector_known"] else "")
     body = (
         "AunooAI continuously collects, classifies and synthesises open-"
-        "source information to produce structured foresight analyses for "
-        "scientific publishers.\n\n"
+        "source information to produce structured foresight analyses"
+        f"{audience}.\n\n"
         "The system combines automated multi-source collection with hybrid "
         "machine-learning and large-language-model enrichment, enabling "
         "analysts to move from raw information to actionable strategic "
@@ -494,10 +502,10 @@ def _add_intro_platform_slide(prs):
           font_size=13, color=WILEY_BODY, line_spacing=1.45)
 
 
-def _add_intro_team_slide(prs):
+def _add_intro_team_slide(prs, ident: dict):
     """Slide 3 — analyst & data science team. Two-column card layout.
 
-    The bios lead with what transfers to a scientific publisher, not with
+    The bios lead with what transfers to the reader's sector, not with
     the security-industry résumé. The Q3 review flagged the old version:
     a wall of cyber-vendor advisory roles next to "expert human oversight"
     read as a domain mismatch. The credentials are unchanged and true —
@@ -520,8 +528,11 @@ def _add_intro_team_slide(prs):
                 ("",
                  "Twenty years in threat intelligence and security research, "
                  "specialising in the detection of coordinated manipulation — "
-                 "the same adversarial patterns behind paper mills, fabricated "
-                 "reviewers and citation fraud."),
+                 + ("the same adversarial patterns behind paper mills, fabricated "
+                    "reviewers and citation fraud."
+                    if ident["sector_is_publishing"] else
+                    "the same adversarial patterns behind coordinated campaigns, "
+                    "astroturfing and manufactured consensus.")),
                 ("BACKGROUND",
                  "Former Gartner Research Director · Security research: "
                  "Securonix, Tenable · Cybersecurity leadership: HP, Verizon"),
@@ -628,7 +639,7 @@ def _add_intro_human_ai_slide(prs):
             y += 0.86
 
 
-def _add_intro_pipeline_slide(prs):
+def _add_intro_pipeline_slide(prs, ident: dict):
     """Slide 5 — How We Build the Intelligence. 3-step pipeline cards."""
     slide = _intro_full_bleed_navy(
         prs, eyebrow="PIPELINE",
@@ -644,8 +655,10 @@ def _add_intro_pipeline_slide(prs):
          "Every article scored on 8 analytical dimensions: relevance, sentiment, time-to-impact, driver type, forward signal, source credibility, factuality, and thematic category.",
          "AI classifier + LLM adjudication · Confidence-scored"),
         ("03", "CONTEXTUALISE",
-         "All outputs filtered through your organisational profile — your priorities, risk appetite, competitive landscape, and sector — so analysis speaks directly to Wiley's strategic position.",
-         "Framed for scientific publishing · Org-profile aware"),
+         "All outputs filtered through your organisational profile — your priorities, risk appetite, competitive landscape, and sector — so analysis speaks directly to "
+         f"{ident['org']}'s strategic position.",
+         (f"Framed for {ident['sector']} · Org-profile aware"
+          if ident["sector_known"] else "Org-profile aware")),
     ]
     card_w = 2.95
     gap = 0.10
@@ -719,12 +732,14 @@ def _add_intro_lenses_slide(prs):
               text=body, font_size=9, color=WILEY_BODY, line_spacing=1.30)
 
 
-def _add_intro_calibration_slide(prs):
-    """Slide 7 — How Analysis Is Calibrated to Wiley. 3-system breakdown."""
+def _add_intro_calibration_slide(prs, ident: dict):
+    """Slide 7 — How Analysis Is Calibrated to <the customer>. 3-system breakdown."""
     slide = _intro_full_bleed_navy(
         prs, eyebrow="CALIBRATION",
-        title="How Analysis Is Calibrated to Wiley",
-        subtitle="Domain-specific · Evidence-based · Relevant to a scientific publisher.",
+        title=f"How Analysis Is Calibrated to {ident['org_heading']}",
+        subtitle=(f"Domain-specific · Evidence-based · Relevant to {ident['sector']}."
+                  if ident["sector_known"] else
+                  "Domain-specific · Evidence-based · Calibrated to your organisation."),
     )
     sw = 10.0
     systems = [
@@ -736,7 +751,7 @@ def _add_intro_calibration_slide(prs):
           "Decision-making style",
           "Competitive landscape",
           "Regulatory environment"],
-         "Frames recommendations in terms of actions Wiley can actually take."),
+         f"Frames recommendations in terms of actions {ident['org']} can actually take."),
         ("Topic Ontologies",
          "What vocabulary does this domain use?",
          ["Domain-specific categories",
@@ -906,13 +921,17 @@ def _add_branded_intro_pack(prs, *, period_label: str,
     except Exception:
         pass
 
+    # One lookup per deck — the customer name and sector land on four
+    # of these slides and must agree across all of them.
+    ident = report_identity(db)
+
     _add_intro_cover_slide(prs, period_label=period_label)
-    _add_intro_platform_slide(prs)
-    _add_intro_team_slide(prs)
+    _add_intro_platform_slide(prs, ident)
+    _add_intro_team_slide(prs, ident)
     _add_intro_human_ai_slide(prs)
-    _add_intro_pipeline_slide(prs)
+    _add_intro_pipeline_slide(prs, ident)
     _add_intro_lenses_slide(prs)
-    _add_intro_calibration_slide(prs)
+    _add_intro_calibration_slide(prs, ident)
     _add_intro_monitor_slide(prs, db=db, deck_topics=deck_topics)
 
 
@@ -1531,16 +1550,17 @@ def _load_articles_corpus(db, run_id: str, topic: str) -> list:
     # uses. Best-effort — may drift if the article corpus has changed.
     try:
         from app.routes.trend_convergence_routes import calculate_optimal_sample_size
-        sample_size = calculate_optimal_sample_size("gpt-5.4", sample_size_mode="auto")
+        sample_size = calculate_optimal_sample_size(default_model("standard"), sample_size_mode="auto")
         from sqlalchemy import text as sa_text
         sql = sa_text(f"""
-            SELECT uri, title, news_source, publication_date, summary
+            SELECT uri, title, news_source, publication_date, summary,
+                   source_country
             FROM articles
             WHERE topic = :topic
               AND analyzed = TRUE
               AND topic_alignment_score IS NOT NULL
               AND topic_alignment_score > 0.7
-            ORDER BY topic_alignment_score DESC, publication_date DESC
+            ORDER BY topic_alignment_score DESC, publication_date DESC NULLS LAST
             LIMIT {int(sample_size)}
         """)
         rows = db.facade._execute_with_rollback(sql, {"topic": topic}).fetchall()

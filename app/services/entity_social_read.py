@@ -139,12 +139,18 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                      "WHERE r.article_uri = m.article_uri "
                      "AND r.status = 'false_positive')")
 
+    # One row per post and company: a post that matched both an alias term
+    # and the explicit name has two mention rows, and the feed showed it twice
+    # (oviva, 9 posts in 90 days). The explicit-name mention is the one kept.
     rows = conn.execute(text(f"""
-        SELECT m.id, m.brand_id, m.article_uri, m.channel, m.platform,
+        SELECT * FROM (
+        SELECT DISTINCT ON (m.article_uri, m.brand_id)
+               m.id, m.brand_id, m.article_uri, m.channel, m.platform,
                m.relevance, m.sentiment, m.stance, m.status, m.excerpt,
                m.evaluated_at, m.mention_type,
                a.title, a.summary, a.news_source, a.publication_date, a.topic,
-               a.social_meta,
+               a.social_meta, a.original_summary, a.original_title,
+               a.author_role, a.author_role_reason,
                b.display_name,
                t.term AS matched_term,
                sa.handle AS author_handle,
@@ -160,11 +166,27 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                  ON si.social_account_id = sa.id AND si.brand_id = m.brand_id
                 AND si.valid_to IS NULL
          WHERE {' AND '.join(where)}
-         ORDER BY a.publication_date DESC
+         ORDER BY m.article_uri, m.brand_id,
+                  (m.mention_type = 'explicit_name') DESC, m.id
+        ) one
+         ORDER BY one.publication_date DESC NULLS LAST
          LIMIT :lim
     """), params).mappings().all()
 
     posts = [_post(row) for row in rows]
+
+    # Account beats post: a profiled account's role, or the majority of the
+    # account's other classified posts, overrides the one-post reading.
+    try:
+        from app.services.audience_voices import apply_account_roles
+        for p in posts:
+            meta = p.get('social_meta') or {}
+            p['_author'] = meta.get('author') if isinstance(meta, dict) else None
+        apply_account_roles(conn, posts, author_key='_author')
+        for p in posts:
+            p.pop('_author', None)
+    except Exception as e:  # noqa: BLE001 - the feed stands without the override
+        logger.debug('social_feed: account role override failed: %s', e)
 
     if keyword:
         wanted = keyword.strip().lower()
@@ -172,7 +194,23 @@ def social_feed(conn, *, brand_ids: List[int], days_back: int = 30,
                  if (p['matched_keywords']
                      and any(k.lower() == wanted for k in p['matched_keywords']))]
 
-    return _rollup(posts, days_back, min_relevance, include_unevaluated, keyword)
+    from app.services.social_sources import collapse_reposts
+    posts = collapse_reposts(posts)   # retweets and mirrors of one post read as one
+    result = _rollup(posts, days_back, min_relevance, include_unevaluated, keyword)
+
+    # The company's own posts were left out above. Say how many, as the News
+    # cards do, so a reader can tell "excluded" from "never collected".
+    result['owned_excluded'] = 0
+    if not include_owned:
+        owned_where = [w for w in where if not w.startswith('m.channel IN')]
+        owned_where.append("m.channel = 'owned_social'")
+        result['owned_excluded'] = int(conn.execute(text(f"""
+            SELECT COUNT(DISTINCT m.article_uri)
+              FROM bw_entity_mentions m
+              JOIN articles a ON a.uri = m.article_uri
+             WHERE {' AND '.join(owned_where)}
+        """), {k: v for k, v in params.items() if k != 'lim'}).scalar() or 0)
+    return result
 
 
 def _post(row) -> Dict[str, Any]:
@@ -190,6 +228,8 @@ def _post(row) -> Dict[str, Any]:
         'uri': row['article_uri'],
         'title': row['title'],
         'summary': row['summary'],
+        'original_summary': row['original_summary'],
+        'original_title': row['original_title'],
         'news_source': row['news_source'],
         'platform': row['platform'] or 'social',
         'channel': row['channel'],
@@ -199,6 +239,12 @@ def _post(row) -> Dict[str, Any]:
                      if row['relevance'] is not None else None,
         'sentiment': row['sentiment'],
         'stance': row['stance'],
+        # Who wrote it: patient, clinician, customer, journalist ... (see
+        # social_eval_service.AUTHOR_ROLES). Glassdoor is an employee channel
+        # by construction, so it needs no model verdict.
+        'author_role': ('employee' if row['channel'] == 'employee'
+                        else row['author_role']),
+        'author_role_reason': row['author_role_reason'],
         # An operator needs to see at a glance whether this is the company
         # talking or somebody else.
         'is_owned': owned,
@@ -228,6 +274,7 @@ def _rollup(posts: List[Dict[str, Any]], days_back: int, min_relevance: float,
     platforms = Counter(p['platform'] for p in posts)
     channels = Counter(p['channel'] for p in posts)
     keywords = Counter(k for p in posts for k in p['matched_keywords'])
+    roles = Counter((p.get('author_role') or 'unclassified') for p in external)
 
     notes: List[str] = []
     if not external:
@@ -253,6 +300,7 @@ def _rollup(posts: List[Dict[str, Any]], days_back: int, min_relevance: float,
         # New, and the reason for the change: these three were impossible to
         # separate when the score lived on the article row.
         'by_channel': dict(channels),
+        'by_role': dict(roles.most_common()),
         'external_total': len(external),
         'owned_total': len(owned),
         'unevaluated_total': unevaluated,
@@ -268,7 +316,8 @@ def _empty(days_back: int, min_relevance: float, include_unevaluated: bool,
         'window_days': days_back, 'min_relevance': min_relevance,
         'include_unevaluated': include_unevaluated, 'keyword': keyword,
         'total': 0, 'evaluated': 0, 'by_platform': {}, 'by_sentiment': {},
-        'by_keyword': {}, 'posts': [], 'by_channel': {}, 'external_total': 0,
+        'by_keyword': {}, 'posts': [], 'by_channel': {}, 'by_role': {},
+        'external_total': 0,
         'owned_total': 0, 'unevaluated_total': 0, 'sentiment_denominator': 0,
         'coverage_notes': [why], 'read_path': 'entity_mentions',
     }

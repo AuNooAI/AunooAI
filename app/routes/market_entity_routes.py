@@ -34,8 +34,8 @@ from sqlalchemy import text
 from app.database import get_database_instance
 from app.security.session import verify_session, verify_session_api
 from app.services import (
-    entity_events, entity_identity, entity_narratives, entity_observations,
-    entity_projection, entity_resolution,
+    entity_events, entity_identity, entity_ingest, entity_narratives,
+    entity_observations, entity_projection, entity_resolution,
 )
 from app.services.entity_field_registry import (
     ENTITY_FIELD_POLICY_VERSION, REGISTRY, policy,
@@ -623,8 +623,12 @@ async def add_identity(market_id: int, brand_id: int, payload: IdentityProposal,
                 relationship=payload.relationship,
                 verification_method='manual', actor=actor,
                 provenance={'note': payload.note, 'actor': actor})
+            # Posts this account already made were filed as public opinion.
+            moved = entity_ingest.reattribute_owned_account(
+                conn, brand_id, account['account_id'])
             conn.commit()
-            return {'account': account, 'identity': outcome}
+            return {'account': account, 'identity': outcome,
+                    'mentions_moved_to_owned': moved}
         finally:
             conn.close()
     return await asyncio.to_thread(_work)
@@ -657,13 +661,21 @@ async def decide_identity(market_id: int, brand_id: int, mapping_id: int,
                 raise HTTPException(
                     status_code=404,
                     detail='that mapping belongs to a different vendor')
+            moved = 0
             if payload.action == 'verify':
                 entity_identity.verify_identity(conn, mapping_id, actor=actor)
+                account_id = conn.execute(text("""
+                    SELECT social_account_id FROM bw_entity_social_identities
+                     WHERE id = :i
+                """), {'i': mapping_id}).scalar()
+                moved = entity_ingest.reattribute_owned_account(
+                    conn, brand_id, int(account_id))
             else:
                 entity_identity.reject_identity(conn, mapping_id, actor=actor,
                                                 reason=payload.reason or '')
             conn.commit()
-            return {'mapping_id': mapping_id, 'action': payload.action}
+            return {'mapping_id': mapping_id, 'action': payload.action,
+                    'mentions_moved_to_owned': moved}
         finally:
             conn.close()
     return await asyncio.to_thread(_work)

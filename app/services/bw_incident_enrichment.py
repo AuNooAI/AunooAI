@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy import text
 
 from app.services.social_sources import is_social_source, social_src_sql
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +57,18 @@ MIN_ALIGNMENT = 0.4
 MAX_NEW_PROFILE_BUILDS = 3     # each build costs xpoz + LLM calls
 MAX_KEYWORDS = 10
 WINDOW_PAD_DAYS = 7            # window = created_at - pad .. (resolved_at or now)
-BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", "gpt-5.4")
+BRIEF_MODEL = os.getenv("BW_ENRICH_BRIEF_MODEL", default_model("standard"))
 BRIEF_INPUT_CAP = 32000   # room for full evidence text — see _write_brief
 MAX_SIGNAL_SCREENS = int(os.getenv("BW_ENRICH_MAX_SIGNAL_SCREENS", "5"))
 
 # Assistive triage (user-confirmed 2026-07-15): the agent may auto-DISMISS
 # clear noise (candidates table only) and RECOMMEND attaches, but never
 # writes the evidence locker itself — attaching stays a human action.
-TRIAGE_MODEL = os.getenv("BW_TRIAGE_MODEL", "gpt-5.4-mini")
+TRIAGE_MODEL = os.getenv("BW_TRIAGE_MODEL", "bedrock-kimi-k2-5")
 # Incidents created without a description get one drafted from the initial
 # evidence + brief on the first enrichment run (any trigger) — analysts often
 # open a case from a single post with just a title.
-DESCRIPTION_MODEL = os.getenv("BW_ENRICH_DESC_MODEL", "gpt-5.4-mini")
+DESCRIPTION_MODEL = os.getenv("BW_ENRICH_DESC_MODEL", "bedrock-kimi-k2-5")
 # Candidate-overlap duplicate signal: this many shared topic-scoped candidate
 # refs (story siblings / vector hits, NOT brand-window posts) flags a merge.
 DUP_MIN_SHARED_CANDIDATES = int(os.getenv("BW_DUP_MIN_SHARED_CANDIDATES", "3"))
@@ -339,7 +340,7 @@ def _social_in_window(ctx: Dict) -> List[Dict]:
               AND a.publication_date >= :ws AND a.publication_date <= :we
               AND (a.topic_alignment_score IS NULL OR a.topic_alignment_score >= {MIN_ALIGNMENT})
               AND {brand_match}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 60
         """), params).fetchall()
     finally:

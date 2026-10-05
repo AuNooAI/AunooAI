@@ -1,0 +1,335 @@
+[
+ {
+  "id": "tuskira_newsletter_0921",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/tuskira_tuskira-threat-brief-week-of-september-21-activity-7507844812067315712-Y05t",
+  "title": "Tuskira: Tuskira Threat Brief: Week of September 21, 2026",
+  "expect": {
+   "shown": false
+  },
+  "why": "A weekly newsletter led the page as Help Net Security becoming a customer."
+ },
+ {
+  "id": "tuskira_newsletter_0914",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/tuskira_tuskira-threat-brief-week-of-september-14-activity-7505305334324871169-ee3j",
+  "title": "Tuskira: Tuskira Threat Brief: Week of September 14, 2026",
+  "expect": {
+   "shown": false
+  },
+  "why": "Newsletter."
+ },
+ {
+  "id": "nebulock_blog",
+  "market_id": 2,
+  "uri": "https://nebulock.io/blog/when-your-insider-risk-program-is-put-to-the-test",
+  "title": "When Your Insider Risk Program Is Put to the Test | Nebulock",
+  "expect": {
+   "shown": false
+  },
+  "why": "Vendor blog story about an unnamed customer."
+ },
+ {
+  "id": "nebulock_linkedin",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/nebulock-inc_when-a-global-software-company-began-restructuring-activity-7509278428928380929-XBvU",
+  "title": "Nebulock: When a global software company began restructuring, they created the exact conditions insider risk thrives in.",
+  "expect": {
+   "customer_name": null
+  },
+  "why": "Unnamed customer; not a named customer."
+ },
+ {
+  "id": "spectrum_sep2",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/spectrum-sec_every-detection-team-has-a-list-of-coverage-activity-7509312236440645632-kLHy",
+  "title": "Spectrum Security: Every detection team has a list of coverage they know they need and can't get to.",
+  "expect": {
+   "shown": true,
+   "headline_excludes": [
+    "SEP2 publishes"
+   ]
+  },
+  "why": "Spectrum published it; SEP2 is the customer, not the actor."
+ },
+ {
+  "id": "kai_anthropic",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/kai-security_partnerships-get-announced-constantly-activity-7498795502205919232-0Zdb",
+  "title": "Kai: Partnerships get announced constantly.",
+  "expect": {
+   "customer_not": "Anthropic"
+  },
+  "why": "Anthropic co-wrote the case study; not Kai's customer."
+ },
+ {
+  "id": "legion_daybreak",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/legion-security-ai_were-proud-to-share-that-we-have-been-accepted-activity-7509254222102634496-lX38",
+  "title": "Legion Security: We're proud to share that we have been accepted into OpenAI Daybreak Blue, OpenAI's cybersecurity initi",
+  "expect": {
+   "shown": false
+  },
+  "why": "Programme acceptance is an award."
+ },
+ {
+  "id": "mate_xaa",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/mate-security_mate-is-joining-the-xaa-ecosystem-as-ai-activity-7508545365575581696-f2h-",
+  "title": "Mate: Mate is joining the XAA Ecosystem!",
+  "expect": {
+   "shown": false
+  },
+  "why": "Protocol adoption alongside 50 others is programme membership."
+ },
+ {
+  "id": "d3_unveil_preview",
+  "market_id": 2,
+  "uri": "https://d3security.com/blog/catch-ai-soc-analyst-bluffing/",
+  "title": "How to Catch an AI SOC Analyst Bluffing",
+  "expect": {
+   "shown": false
+  },
+  "why": "A preview of a later unveiling duplicated the launch."
+ },
+ {
+  "id": "method_stratfi",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/method-security_bringing-cyber-resilience-to-space-method-activity-7500935572635586561-5135",
+  "title": "Method Security: Bringing cyber resilience to Space.",
+  "expect": {
+   "shown": true,
+   "kind_in": [
+    "customer",
+    "award",
+    "funding"
+   ]
+  },
+  "why": "A $30M government award is a contract (customer), shown."
+ },
+ {
+  "id": "aistrike_awardable",
+  "market_id": 2,
+  "uri": "http://www.businesswire.com/news/home/20260922972897/en/BlueDome-Powered-by-AiStrike-Achieves-%E2%80%9CAwardable%E2%80%9D-Status-on-the-Department-of-War-CDAO%E2%80%99s-Tradewinds-Solutions-Marketplace/",
+  "title": "BlueDome, Powered by AiStrike, Achieves “Awardable” Status on the Department of War CDAO’s Tradewinds Solutions Marketpl",
+  "expect": {
+   "shown": false
+  },
+  "why": "Awardable is a marketplace listing."
+ },
+ {
+  "id": "anvilogic_marketplaces",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/anvilogic_anvilogic-is-now-listed-in-the-snowflake-activity-7500900463190446080-KfR_",
+  "title": "Anvilogic: Anvilogic is now listed in the Snowflake Marketplace, Amazon Web Services (AWS) Marketplace, and Databricks M",
+  "expect": {
+   "shown": false
+  },
+  "why": "Marketplace listing."
+ },
+ {
+  "id": "daylight_gcp_marketplace",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/daylightsecurity_daylight-security-is-now-available-on-google-activity-7503479969935831040-Tth5",
+  "title": "Daylight Security: Daylight Security is now available on Google Cloud Marketplace ☀️",
+  "expect": {
+   "shown": false
+  },
+  "why": "Marketplace listing."
+ },
+ {
+  "id": "legion_junior_hires",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/legion-security-ai_the-legion-is-expanding-meet-the-three-newest-activity-7508884233491361792-gPFO",
+  "title": "Legion Security: The Legion is expanding.",
+  "expect": {
+   "shown": false
+  },
+  "why": "Field marketing, AE and engineer hires are not executive appointments."
+ },
+ {
+  "id": "mate_founding_channel_leader",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/mate-security_welcome-kirra-happy-to-announce-activity-7500190453703696384-mowE",
+  "title": "Mate: 🎉 Welcome, Kirra!",
+  "expect": {
+   "shown": true
+  },
+  "why": "Founding Channel Leader is senior."
+ },
+ {
+  "id": "aistrike_soc_lead",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/aistrike_aistrike-aisoc-securityoperations-activity-7500930682194391041-EBbc",
+  "title": "AiStrike: Welcome to AiStrike, Bhuvanesh Prabhakaran.",
+  "expect": {
+   "kind_not": "executive_appointment"
+  },
+  "why": "A team lead is not an executive appointment (Oliver, 27 Sep 2026)."
+ },
+ {
+  "id": "coalition_wirespeed",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/wirespeedsecurity_coalition-inc-acquired-us-for-our-ability-activity-7506472611816689667-fiYu",
+  "title": "Wirespeed ⚡️: Coalition, Inc.",
+  "expect": {
+   "shown": true,
+   "kind_in": [
+    "acquisition"
+   ],
+   "summary_excludes": [
+    "Forrester"
+   ]
+  },
+  "why": "The summary drifted to a Forrester report."
+ },
+ {
+  "id": "intezer_q2_launches",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/intezer-labs_announcing-a-major-milestone-intezer-activity-7505981894342283265--9-Z",
+  "title": "Intezer: 📈 Announcing a major milestone.",
+  "expect": {
+   "shown": true,
+   "text_includes": [
+    "Workflows"
+   ]
+  },
+  "why": "The four launches include Workflows, not 'expanded platform coverage'."
+ },
+ {
+  "id": "vigilbase_platform",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/vigilbase_say-hello-to-the-vigilbase-platform-were-activity-7509171415875473408-Uvlu",
+  "title": "Vigilbase: Say hello to the Vigilbase Platform!",
+  "expect": {
+   "shown": true
+  },
+  "why": "A real platform launch."
+ },
+ {
+  "id": "commandzero_interview",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/command-zero_blackhat-fireside-chat-clearing-the-soc-activity-7500250301841494016-5L1g",
+  "title": "Command Zero: Most SOCs are excellent at closing alerts.",
+  "expect": {
+   "shown": false
+  },
+  "why": "An interview about an earlier launch is commentary."
+ },
+ {
+  "id": "conifers_percent",
+  "market_id": 2,
+  "uri": "https://www.conifers.ai/blog/deployed-is-not-the-same-as-protected/",
+  "title": "Deployed is not the same as protected",
+  "expect": {
+   "headline_excludes": [
+    "47%",
+    "48%"
+   ]
+  },
+  "why": "The figure must be the post's."
+ },
+ {
+  "id": "commandzero_wsj_73",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/command-zero_as-ai-filters-into-cybersecurity-companies-activity-7505763962420957185-e8Ye",
+  "title": "Command Zero: Grateful for the mention in today's Wall Street Journal.",
+  "expect": {
+   "summary_excludes": [
+    "73%"
+   ]
+  },
+  "why": "'Nearly three quarters' is not 73%."
+ },
+ {
+  "id": "spectrum_quarter_25",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/spectrum-sec_across-the-detection-estates-we-replayed-activity-7506789308037525504-xilQ",
+  "title": "Spectrum Security: Across the detection estates we replayed for the Detection Debt Report, invalid syntax accounted for ",
+  "expect": {
+   "summary_excludes": [
+    "25%"
+   ]
+  },
+  "why": "'Another quarter' is not 25%."
+ },
+ {
+  "id": "imperum_downloads",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/imperumio_imperum-cybersecurityllm-v10-activity-7504175071750582273-nvi6",
+  "title": "Imperum: A big thank you to the cybersecurity community!",
+  "expect": {
+   "shown": false
+  },
+  "why": "A download count is not a launch."
+ },
+ {
+  "id": "wirespeed_avoid_attack",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/wirespeedsecurity_we-helped-another-coalition-policyholder-activity-7503897660001513472-Dv5A",
+  "title": "Wirespeed ⚡️: We helped another Coalition policyholder avoid a cyber attack!✅😁",
+  "expect": {
+   "shown": false
+  },
+  "why": "One customer avoiding one attack is not an event."
+ },
+ {
+  "id": "liveoak_opnova",
+  "market_id": 2,
+  "uri": "https://opnova.ai/blog/extending-identity-governance-to-disconnected-applications-with-live-oak-bank",
+  "title": "Extending identity governance to disconnected applications with Live Oak Bank",
+  "expect": {
+   "shown": true,
+   "customer_name": "Live Oak Bank"
+  },
+  "why": "A named customer."
+ },
+ {
+  "id": "sevii_advisor",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/seviiai_cybersecurity-agenticai-autonomousdefense-activity-7506000221936545793-DK04",
+  "title": "Sevii: Meet our Newest Advisor 🎉 Tammi Hayes",
+  "expect": {
+   "shown": false
+  },
+  "why": "An advisor is not an executive appointment."
+ },
+ {
+  "id": "strikeready_round",
+  "market_id": 2,
+  "uri": "https://www.globenewswire.com/fr/news-release/2026/09/16/3362865/0/en/strikeready-announces-investment-led-by-wa-ed-ventures-to-power-unmetered-ai-security-operations.html",
+  "title": "StrikeReady Announces Investment Led by Wa'ed Ventures to Power Unmetered AI Security Operations",
+  "expect": {
+   "shown": true,
+   "kind_in": [
+    "funding"
+   ]
+  },
+  "why": "A funding round."
+ },
+ {
+  "id": "d3_cribl_radiant",
+  "market_id": 2,
+  "uri": "https://d3security.com/blog/cribl-acquires-radiant-security-ai-soc/",
+  "title": "Cribl Just Acquired Radiant Security’s AI SOC Technology. Here’s What It Means for Your SOC.",
+  "expect": {
+   "kind_in": [
+    "acquisition"
+   ],
+   "headline_excludes": [
+    "D3 "
+   ]
+  },
+  "why": "D3's blog on Cribl buying Radiant: news about Radiant (tracked), never D3's acquisition."
+ },
+ {
+  "id": "huntbase_hub",
+  "market_id": 2,
+  "uri": "https://www.linkedin.com/posts/huntbase-io_cyber-threathunting-soc-activity-7508150436135309314-V25j",
+  "title": "Huntbase: Most threat research never becomes a hunt.",
+  "expect": {
+   "shown": true
+  },
+  "why": "A real launch."
+ }
+]

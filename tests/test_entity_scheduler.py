@@ -219,7 +219,7 @@ def test_a_vendor_without_the_identifier_is_not_selected(conn, roster):
          WHERE source = :s AND brand_id = :b
     """), {'s': SOURCE, 'b': orphan}).mappings().first()
     assert row['eligible'] is False
-    assert 'linkedin_company_url' in row['ineligible_reason']
+    assert row['ineligible_reason'] == 'no LinkedIn company page on file'
 
     for _ in range(6):
         assert orphan not in sch.claim_due(conn, SOURCE, limit=200)

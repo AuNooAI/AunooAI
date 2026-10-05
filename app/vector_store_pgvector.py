@@ -14,6 +14,7 @@ Distance metric: Cosine distance (<=> operator)
 """
 import os
 import logging
+import re
 from typing import List, Dict, Any, Optional
 import asyncio
 from datetime import datetime, timezone
@@ -336,6 +337,64 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
         logger.error("Async vector upsert failed for article %s: %s", article.get("uri"), exc)
 
 
+
+# Nearest-neighbour queries and the HNSW index (pgvector 0.6.0, no iterative
+# scans). The index returns its ef_search nearest rows (40 by default) and
+# every WHERE condition is applied afterwards, so any predicate that admits a
+# small share of the 200k-row table starves the result: the readability floor
+# alone left 5 of 30, the SOC Automation market (586 readable rows) got 0 of
+# 30, Geopolitical Hotspots (27k rows) got 1 of 30. Below
+# PGVECTOR_EXACT_SCAN_MAX matching rows an exact scan is cheap (0.07 s on 586
+# rows, 1.5 s on 27k) and complete; above it the index runs with ef_search at
+# its maximum and an exact scan follows only if it came back short.
+# Measured 2026-09-20 on bugfixing.
+EXACT_SCAN_MAX = int(os.getenv("PGVECTOR_EXACT_SCAN_MAX", "40000"))
+HNSW_EF_SEARCH_WIDE = 1000
+# With pgvector >= 0.8 the iterative index scan replaces the widened index for
+# large filtered sets (Geopolitical Hotspots, 27k rows: 30 of 30 in 0.04 s
+# against 1.2 s exact), but it gives up at its 20,000-tuple budget before a
+# tiny set yields top_k (SOC market, 586 rows: 14 of 30 in 2.9 s against 30
+# in 0.06 s exact). So small sets stay exact, with a lower cut-off.
+EXACT_SCAN_MAX_ITERATIVE = int(os.getenv("PGVECTOR_EXACT_SCAN_MAX_ITERATIVE", "5000"))
+# pgvector >= 0.8 can keep walking the index until the WHERE clause is
+# satisfied (hnsw.iterative_scan). Probed once per process; on 0.6.0 the SET
+# fails ("hnsw" is a reserved prefix) and the count-based strategy above runs.
+_ITERATIVE_SCAN: Optional[bool] = None
+ITERATIVE_SCAN_SQL = "SET LOCAL hnsw.iterative_scan = relaxed_order"
+
+
+def _scan_strategy(matching_rows: Optional[int]) -> str:
+    """'exact' or 'index' for a nearest-neighbour query with a WHERE clause."""
+    if matching_rows is None:
+        return "index"
+    return "exact" if matching_rows <= EXACT_SCAN_MAX else "index"
+
+
+VERSION_SQL = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+
+
+def _iterative_from_version(version: Optional[str]) -> bool:
+    try:
+        parts = [int(x) for x in str(version or "0").split(".")[:2]]
+        return (parts + [0])[0] > 0 or (parts + [0, 0])[1] >= 8
+    except ValueError:
+        return False
+
+
+def _probe_iterative_scan(conn) -> bool:
+    """True when pgvector >= 0.8 is installed in this database. Read from
+    pg_extension, not by trying the SET: a fresh backend accepts an unknown
+    ``hnsw.`` setting as a placeholder until the library loads, so the SET
+    "succeeds" on 0.6.0 and the query then runs with the 40-candidate index."""
+    global _ITERATIVE_SCAN
+    if _ITERATIVE_SCAN is None:
+        try:
+            _ITERATIVE_SCAN = _iterative_from_version(conn.execute(text(VERSION_SQL)).scalar())
+        except Exception:  # noqa: BLE001
+            _ITERATIVE_SCAN = False
+        logger.info("pgvector iterative index scans %s", "available" if _ITERATIVE_SCAN else "not available (pre-0.8); exact-scan strategy in use")
+    return _ITERATIVE_SCAN
+
 def search_articles(
     query: str,
     top_k: int = 10,
@@ -369,7 +428,10 @@ def search_articles(
         conn = db._temp_get_connection()
 
         # Build WHERE clause for filters
-        where_clauses = ["embedding IS NOT NULL"]
+        # Semantic search reads the same rows as every other reader: nothing
+        # below the relevance floor (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_sql
+        where_clauses = ["embedding IS NOT NULL", readable_sql()]
         params = {"limit": top_k}
 
         if metadata_filter:
@@ -481,10 +543,35 @@ def search_articles(
                 LIMIT :limit
             """)
 
+        strategy = "index"
+        if not is_wildcard:
+            iterative = _probe_iterative_scan(conn)
+            count_params = {k: v for k, v in params.items() if k not in ("limit", "query_embedding")}
+            matching = conn.execute(text(f"SELECT count(*) FROM articles WHERE {where_clause}"), count_params).scalar()
+            if iterative:
+                strategy = "exact" if (matching or 0) <= EXACT_SCAN_MAX_ITERATIVE else "iterative"
+            else:
+                strategy = _scan_strategy(matching)
+            if strategy == "exact":
+                conn.execute(text("SET LOCAL enable_indexscan = off"))
+            elif strategy == "iterative":
+                conn.execute(text(ITERATIVE_SCAN_SQL))
+            else:
+                conn.execute(text(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}"))
+            logger.debug("Vector search predicate admits %s rows; %s scan", matching, strategy)
+
         result = conn.execute(stmt, params)
+        if strategy in ("index", "iterative") and not is_wildcard:
+            rows_first = list(result.mappings())
+            if len(rows_first) < top_k:
+                # The widened index still came back short: finish with an exact scan.
+                conn.execute(text("SET LOCAL enable_indexscan = off"))
+                result = conn.execute(stmt, params)
+            else:
+                result = rows_first
 
         docs = []
-        for row in result.mappings():
+        for row in (result if isinstance(result, list) else result.mappings()):
             docs.append({
                 "id": row["id"],
                 "score": float(row["score"]),
@@ -548,7 +635,10 @@ async def search_articles_async(
         query_embedding = await asyncio.to_thread(embed_query, query)
 
         # Build WHERE clause for filters (asyncpg uses positional params $1, $2, etc.)
-        where_clauses = ["embedding IS NOT NULL"]
+        # Semantic search reads the same rows as every other reader: nothing
+        # below the relevance floor (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_sql
+        where_clauses = ["embedding IS NOT NULL", readable_sql()]
         param_values = []  # Will be built as we process filters
         param_idx = 2  # Start at 2 since $1 is the embedding
 
@@ -568,6 +658,12 @@ async def search_articles_async(
                                     where_clauses.append(f"{key} > ${param_idx}")
                                 elif op == "$lt":
                                     where_clauses.append(f"{key} < ${param_idx}")
+                                elif op == "$ne":
+                                    # IS DISTINCT FROM, not <>, so NULL survives. This
+                                    # branch was missing here (present in the sync path),
+                                    # so {"$ne": x} became "= x" and the chat's
+                                    # "not filtered_relevance" returned only rejected rows.
+                                    where_clauses.append(f"{key} IS DISTINCT FROM ${param_idx}")
                                 else:
                                     where_clauses.append(f"{key} = ${param_idx}")
                                 param_values.append(op_value)
@@ -591,6 +687,8 @@ async def search_articles_async(
                                 where_clauses.append(f"{key} > ${param_idx}")
                             elif op == "$lt":
                                 where_clauses.append(f"{key} < ${param_idx}")
+                            elif op == "$ne":
+                                where_clauses.append(f"{key} IS DISTINCT FROM ${param_idx}")
                             else:
                                 where_clauses.append(f"{key} = ${param_idx}")
                             param_values.append(op_value)
@@ -634,7 +732,34 @@ async def search_articles_async(
             # Build final params list: embedding, filter values, limit
             final_params = [embedding_str] + param_values + [top_k]
 
-            rows = await conn.fetch(query_sql, *final_params)
+            # Same strategy as the sync path (see EXACT_SCAN_MAX): count the
+            # rows the predicate admits, then exact scan or widened index.
+            global _ITERATIVE_SCAN
+            if _ITERATIVE_SCAN is None:
+                try:
+                    _ITERATIVE_SCAN = _iterative_from_version(await conn.fetchval(VERSION_SQL))
+                except Exception:  # noqa: BLE001
+                    _ITERATIVE_SCAN = False
+                logger.info("pgvector iterative index scans %s", "available" if _ITERATIVE_SCAN else "not available (pre-0.8); exact-scan strategy in use")
+            count_clause = re.sub(r"\$(\d+)", lambda m: f"${int(m.group(1)) - 1}", where_clause)
+            matching = await conn.fetchval(f"SELECT count(*) FROM articles WHERE {count_clause}", *param_values)
+            if _ITERATIVE_SCAN:
+                strategy = "exact" if (matching or 0) <= EXACT_SCAN_MAX_ITERATIVE else "iterative"
+            else:
+                strategy = _scan_strategy(matching)
+            async with conn.transaction():
+                if strategy == "exact":
+                    await conn.execute("SET LOCAL enable_indexscan = off")
+                elif strategy == "iterative":
+                    await conn.execute(ITERATIVE_SCAN_SQL)
+                else:
+                    await conn.execute(f"SET LOCAL hnsw.ef_search = {HNSW_EF_SEARCH_WIDE}")
+                rows = await conn.fetch(query_sql, *final_params)
+            if strategy in ("index", "iterative") and len(rows) < top_k:
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL enable_indexscan = off")
+                    rows = await conn.fetch(query_sql, *final_params)
+            logger.debug("Vector search (async) predicate admits %s rows; %s scan", matching, strategy)
 
             docs = []
             for row in rows:
@@ -859,7 +984,7 @@ def cluster_articles_by_similarity(
             FROM articles
             WHERE uri IN ({placeholders})
             AND embedding IS NOT NULL
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
         """)
 
         result = conn.execute(stmt, params)

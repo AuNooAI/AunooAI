@@ -31,6 +31,7 @@ Usage:
 
 import logging
 import os
+import random
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -53,7 +54,11 @@ LLM_FALLBACK_THRESHOLD = 0.3  # Legacy constant, kept for reference
 # this input: the reranker was trained on (search query, passage) pairs and a
 # topic label is not a search query. Measured on REAL production documents
 # (title + summary, the same string _compute_cross_encoder_score builds) from
-# wileytest:
+# wileytest — against BAAI/bge-reranker-v2-m3, which was the shared model at
+# the time. The retrieval reranker moved to BAAI/bge-reranker-base on
+# 23 September 2026, so these numbers describe a model this tier no longer
+# loads: re-measure before trusting any threshold here. The tier stays off
+# by default and the reasons below are unchanged either way.
 #
 #   THEME topics  AUC 0.885   relevant median 0.0014   other median 0.00003
 #   BRAND topics  AUC 0.478   relevant median 0.00043  other median 0.00055
@@ -85,6 +90,22 @@ USE_CE_TIER = os.getenv("RELEVANCE_USE_CE_TIER", "false").lower() in {"1", "true
 # 2/114 irrelevant (1.8%) — a modest saving of LLM calls at a cost of at worst
 # a couple of extra enrichments.
 CE_HIGH = float(os.getenv("RELEVANCE_CE_HIGH", "0.05"))  # above → confident accept
+
+# TypeSafe Jev shadow tier. When on (and TYPESAFE_API_KEY is set) every scored
+# article is also sent to the Jev decision model and its answers are attached to
+# the result as jev_on_topic / jev_score / jev_confidence. They are recorded in
+# relevance_confidence_readings and NEVER change `score`, `relevant` or `method`.
+# Benchmarked 2026-09-19 on 240 bugfixing articles: AUC 0.90 (theme) / 0.86
+# (market) against the pipeline's own verdicts, with every hand-checked
+# disagreement favouring Jev. Runs a week in shadow before it may decide.
+JEV_SHADOW = os.getenv("TYPESAFE_SHADOW_RELEVANCE", "false").lower() in {"1", "true", "yes"}
+JEV_SHADOW_RATE = float(os.getenv("TYPESAFE_SHADOW_RATE", "1.0"))  # fraction of articles sent
+# Accept-only decision tier (2026-09-20). When the local score is uncertain
+# and Jev's on-topic probability clears JEV_ACCEPT_MIN, accept without the
+# LLM fallback. Never rejects: a wrong confident reject drops the article for
+# good, a wrong accept costs one enrichment call. Off by default.
+JEV_ACCEPT = os.getenv("TYPESAFE_DECIDE_RELEVANCE_ACCEPT", "false").lower() in {"1", "true", "yes"}
+JEV_ACCEPT_MIN = float(os.getenv("TYPESAFE_DECIDE_RELEVANCE_MIN", "0.8"))
 
 # Both brand-topic naming conventions in use across tenants.
 _BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
@@ -195,6 +216,33 @@ class HybridRelevanceService:
         if not self._embedding_loaded:
             self._load_embedding_model()
         return self._embedding_loaded
+
+    def _get_topic_description(self, topic: str) -> Optional[str]:
+        """The topic's description from config.json (cached per topic).
+
+        The description is where a tenant scopes a generic label: "M&A
+        Updates ... in scientific publishing, research and academia". The
+        embedding tier already used it; the LLM auditor judged against the
+        bare label and three keywords and approved every merger on Earth.
+        """
+        cache = getattr(self, "_topic_description_cache", None)
+        if cache is None:
+            cache = self._topic_description_cache = {}
+        if topic in cache:
+            return cache[topic]
+        desc = None
+        try:
+            import json
+            with open("app/config/config.json", "r") as f:
+                config = json.load(f)
+            for t in config.get('topics', []):
+                if t.get('name') == topic:
+                    desc = (t.get('description') or '').strip() or None
+                    break
+        except Exception as e:
+            logger.debug(f"Could not read topic description for '{topic}': {e}")
+        cache[topic] = desc
+        return desc
 
     def _get_topic_embedding(self, topic: str) -> np.ndarray:
         """Get or compute topic embedding (cached).
@@ -333,6 +381,7 @@ class HybridRelevanceService:
         summary: str,
         use_local: bool = False,
         keywords: Optional[List[str]] = None,
+        description: Optional[str] = None,
     ) -> Optional[float]:
         """
         Get relevance score from LLM (most accurate, but slow/expensive).
@@ -399,6 +448,14 @@ Score:"""
         else:
             # Theme topics keep the strict "must be primarily about the topic" auditor —
             # it works well for them and their trained classifier is reliable.
+            if description is None:
+                description = self._get_topic_description(topic)
+            definition_line = f"\nTopic definition: {description}" if description else ""
+            scope_rule = ("""
+- SCOPE: the topic means what its definition says. Where the definition names a focus
+  (a sector, a field, a region, a kind of organisation), an article outside that focus
+  scores 0.1-0.3 even when its subject matches the topic's words — a merger in mining is
+  not "M&A" for a topic defined around scientific publishing.""" if description else "")
             materiality_rules = """
 - MATERIALITY: the topic concerns developments of broad/strategic significance, NOT
   local administrative trivia. Purely LOCAL or single-institution items with no wider
@@ -410,7 +467,7 @@ Score:"""
   generic-drug dynamics, major institutions, or developments affecting the field broadly."""
             prompt = f"""You are a strict relevance auditor. Rate the relevance of this article to the given topic.
 
-Topic: {topic}{kw_line}
+Topic: {topic}{definition_line}{kw_line}
 
 Article Title: {title}
 Article Summary: {summary}
@@ -419,7 +476,7 @@ Rules:
 - The article must be DIRECTLY about the topic, not just tangentially related
 - Sharing a keyword is NOT enough — the article's main subject must match the topic
 - Generic news that mentions a related term in passing scores 0.1-0.2
-- Only score above 0.7 if the article is primarily about the topic{materiality_rules}
+- Only score above 0.7 if the article is primarily about the topic{scope_rule}{materiality_rules}
 
 Respond with ONLY a number between 0.0 and 1.0.
 
@@ -502,6 +559,97 @@ Score:"""
         except Exception as e:
             logger.error(f"External LLM relevance scoring failed: {e}")
             return None
+
+    def _compute_jev_shadow(
+        self,
+        topic: str,
+        title: str,
+        summary: str,
+        keywords: Optional[List[str]] = None,
+        description: Optional[str] = None,
+    ) -> Optional[Dict[str, float]]:
+        """Ask the TypeSafe Jev decision model the same question the LLM judge
+        gets, as typed questions. Returns ``{jev_on_topic, jev_score,
+        jev_confidence}`` or ``None``. Never raises; never influences the verdict.
+
+        The definition of "relevant" is deliberately the one from the matching
+        LLM prompt in ``_compute_llm_score`` (market / brand / theme), because
+        Jev reads instructions literally: in the benchmark, feeding it the
+        config.json meta-description of a market topic dropped the on-topic
+        median for approved articles from 0.75 to 0.45.
+        """
+        from app.services import typesafe_client
+
+        if not typesafe_client.is_configured():
+            return None
+        brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
+        market_match = _MARKET_TOPIC_RE.match(topic or '')
+        kw = [k for k in (keywords or []) if k][:20]
+        if market_match:
+            name = market_match.group(1).strip()
+            definition = (
+                f"The {name} market: its technology, products, vendors, buyers, adoption, pricing, "
+                f"funding, acquisitions, partnerships, leadership, analyst coverage, and practitioner "
+                f"debate about how this kind of product is built, bought, evaluated or trusted. "
+                f"A listed vendor does not have to be named."
+            )
+            secondary = f"{name} or one of its vendors is a secondary element of a story mainly about something else"
+            unrelated = "an unrelated subject that only shares a word with a vendor name or search term"
+        elif brand_match:
+            name = brand_match.group(1).strip()
+            definition = (
+                f'The organisation "{name}": its products and services, its named competitors, '
+                f"and the industry, sector or policy it operates in, even when {name} is not named."
+            )
+            secondary = f"{name} or its sector is a notable part of a broader story"
+            unrelated = (f"only a coincidental name or keyword match about an unrelated subject "
+                         f"(a different person, place or product with the same name), or unrelated local trivia")
+        else:
+            name = topic
+            if description is None:
+                description = self._get_topic_description(topic)
+            definition = description or topic
+            secondary = "the topic is mentioned in passing or is one of several subjects; or the item is purely local, single-institution administrative trivia"
+            unrelated = "the article is about something else and only shares a keyword"
+        state = {
+            "article": {"title": title or "", "summary": (summary or "")[:4000]},
+            "monitoring_topic": {"name": name, "definition": definition, "search_terms": kw},
+        }
+        questions = {
+            "on_topic": {
+                "type": "noul",
+                "instructions": "Is `article` primarily about `monitoring_topic`, as `monitoring_topic.definition` describes it?",
+                "criteria": {
+                    "true": "The article's main subject matches the definition; an analyst tracking this topic would want to read it",
+                    "false": "The topic is absent, mentioned only in passing, or matched by a coincidental word",
+                },
+            },
+            "alignment": {
+                "type": "score",
+                "instructions": "How closely does `article`'s main subject align with `monitoring_topic` as defined in `monitoring_topic.definition`?",
+                "criteria": [
+                    f"Unrelated: {unrelated}",
+                    f"Secondary: {secondary}",
+                    f"Primarily about the topic: the article's subject is {name} as defined",
+                ],
+            },
+        }
+        out = typesafe_client.system_one(
+            state, questions, use_case="services.hybrid_relevance_service:_compute_jev_shadow",
+        )
+        if not out:
+            return None
+        try:
+            answers = out["answers"]
+            on_topic = float(answers["on_topic"]["noul"])
+            align = answers["alignment"]
+            levels = max(1, len(questions["alignment"]["criteria"]) - 1)
+            score = max(0.0, min(1.0, float(align["score"]) / levels))
+            confidence = float(align.get("confidence", 0.0))
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning(f"Jev shadow: could not read answers ({e}): {str(out)[:200]}")
+            return None
+        return {"jev_on_topic": on_topic, "jev_score": score, "jev_confidence": confidence}
 
     def score_relevance(
         self,
@@ -673,6 +821,23 @@ Score:"""
                         f"(> {CE_HIGH}), skipping LLM"
                     )
 
+        # Jev accept-only tier: ask before paying for the LLM fallback. The
+        # answer is reused as the shadow reading below, so this costs no
+        # extra call. See JEV_ACCEPT at the top of this module.
+        jev_pre = None
+        if JEV_ACCEPT and use_llm_fallback and result["confidence"] != "high":
+            try:
+                jev_pre = self._compute_jev_shadow(topic, title, summary, keywords=keywords)
+                if jev_pre and jev_pre["jev_on_topic"] >= JEV_ACCEPT_MIN:
+                    result["score"] = max(result["score"], threshold)
+                    result["method"] = f"{result['method']}+jev_accept"
+                    result["confidence"] = "high"
+                    logger.info(f"🎯 Jev accepted borderline case: on_topic={jev_pre['jev_on_topic']:.2f} "
+                                f">= {JEV_ACCEPT_MIN}, skipping LLM")
+            except Exception as e:  # noqa: BLE001 — the tier must never break scoring
+                logger.warning(f"Jev accept tier failed, falling through to the LLM: {e}")
+                jev_pre = None
+
         # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
@@ -686,6 +851,26 @@ Score:"""
 
         # Make binary decision
         result["relevant"] = result["score"] >= threshold
+
+        # Shadow tier: record what Jev would have said. Runs AFTER the decision
+        # and touches none of score / relevant / method / confidence.
+        result["jev_on_topic"] = None
+        result["jev_score"] = None
+        result["jev_confidence"] = None
+        if jev_pre:
+            result.update(jev_pre)
+        elif JEV_SHADOW and (JEV_SHADOW_RATE >= 1.0 or random.random() < JEV_SHADOW_RATE):
+            try:
+                shadow = self._compute_jev_shadow(topic, title, summary, keywords=keywords)
+                if shadow:
+                    result.update(shadow)
+                    logger.info(
+                        f"🪞 Jev shadow: on_topic={shadow['jev_on_topic']:.2f} "
+                        f"score={shadow['jev_score']:.2f} conf={shadow['jev_confidence']:.2f} "
+                        f"vs pipeline score={result['score']:.2f} relevant={result['relevant']}"
+                    )
+            except Exception as e:  # noqa: BLE001 — the shadow must never break scoring
+                logger.warning(f"Jev shadow failed: {e}")
 
         return result
 

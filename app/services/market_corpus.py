@@ -180,6 +180,20 @@ DEFAULT_EXCLUDE_TERMS: List[str] = [
     "iPad",
     "Liquid Retina",
     "XDR display",
+    # The "AI SoC" reading is a semiconductor, not a security operations
+    # centre. The consumer-benchmark terms above miss the industrial and
+    # stock-market coverage of chip makers — a Doosan Tesna stock post about
+    # "AI SoC and automotive semiconductors" matched the "AI SOC" context term
+    # with zero topical alignment. None of these words belong in AI-SOC
+    # security coverage, so the phrase scan skips an article carrying them.
+    # Both singular and plural: the phrase scan matches whole words (\bword\b),
+    # so "semiconductor" alone would miss "automotive semiconductors".
+    "semiconductor",
+    "semiconductors",
+    "foundry",
+    "foundries",
+    "wafer",
+    "wafers",
 ]
 
 
@@ -512,6 +526,36 @@ def _without_urls(text: str) -> str:
     return _URLISH.sub(" ", text or "")
 
 
+#: A reference code rather than a word: two or more runs joined by a hyphen,
+#: underscore or slash, where each run mixes letters and digits. "7AI-N5AI"
+#: and "SOC2-X1" are codes; "7AI-backed" and "Strike48-powered" are not,
+#: because the second run is an ordinary word.
+_CODEISH = re.compile(
+    r"\b[A-Za-z0-9]*\d[A-Za-z0-9]*(?:[-_/][A-Za-z0-9]*\d[A-Za-z0-9]*)+\b")
+
+
+def _without_codes(text: str) -> str:
+    """Text with reference codes removed before name matching.
+
+    A name inside a code is not a mention. A Bluesky promo post reading "Use
+    code: 7AI-N5AI to unlock the latest drop" was attributed to 7ai and led
+    the public site's Social panel (16 Sep 2026). The name is real and the
+    word boundary is real — the hyphen ends a word — so neither the matcher
+    nor the context rule could tell it apart; the token it sits in is what
+    gives it away.
+
+    Both runs must mix letters and digits, so an ordinary hyphenated phrase
+    survives and no vendor name in the registry is itself erased; a test
+    asserts the second on every market's terms.
+    """
+    return _CODEISH.sub(" ", text or "")
+
+
+def _matchable(text: str) -> str:
+    """One article's words as the name scan should read them."""
+    return _without_codes(_without_urls(text))
+
+
 def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
                  ) -> List[Tuple[Dict[str, Any], str]]:
     """``[(vendor, term that matched)]`` for one article's text.
@@ -533,7 +577,8 @@ def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
     return hits
 
 
-def _link_entity(conn, uri: str, brand_id: int, term: str) -> None:
+def _link_entity(conn, uri: str, brand_id: int, term: str,
+                 method: str = "keyword") -> None:
     """Tell the entity layer about a link the market just made.
 
     The vendor page's "External mentions" reads ``bw_entity_mentions``; the
@@ -562,7 +607,7 @@ def _link_entity(conn, uri: str, brand_id: int, term: str) -> None:
         # found in the text, which is what this is.
         entity_ingest.link_content(conn, uri, candidates=[{
             "brand_id": brand_id, "term": term,
-            "attribution_method": "keyword",
+            "attribution_method": method,
             "mention_type": "explicit_name",
         }])
         conn.execute(text("RELEASE SAVEPOINT market_entity_link"))
@@ -635,7 +680,7 @@ def attribute_vendors(conn, market_id: int, *,
     rejected: List[Dict[str, Any]] = []
     per_vendor: Dict[str, int] = {}
     for row in rows:
-        content = _without_urls(f"{row['title'] or ''} {row['summary'] or ''}")
+        content = _matchable(f"{row['title'] or ''} {row['summary'] or ''}")
         hits = _vendor_hits(content, vendors)
         if not hits:
             continue
@@ -839,6 +884,8 @@ def scan(conn, market_id: int, *,
     # this market's coverage whether or not it used a market phrase.
     names = attribute_vendors(conn, market_id, topic_name=topic_name,
                               days=days, limit=limit, dry_run=dry_run)
+    owned = attribute_owned_pages(conn, market_id, days=days, limit=limit,
+                                  dry_run=dry_run)
 
     return {
         "terms": len(terms),
@@ -855,7 +902,130 @@ def scan(conn, market_id: int, *,
         "dry_run": dry_run,
         "samples": samples,
         "vendor_names": names,
+        "owned_pages": owned,
     }
+
+
+#: ``bw_article_categories.classification_method`` for a page linked to a
+#: vendor because it sits on that vendor's own domain.
+OWNED_DOMAIN_METHOD = "owned_domain"
+
+
+def _domain_brands(conn, market_id: int) -> Dict[str, int]:
+    """``{domain: brand_id}`` for every vendor in the market, excluded ones too
+    (see :func:`vendor_domains` for why)."""
+    rows = conn.execute(text("""
+        SELECT DISTINCT i.normalized_value, i.brand_id
+        FROM bw_vendor_identifiers i
+        JOIN bw_market_brands mb ON mb.brand_id = i.brand_id
+                                 AND mb.market_id = :m
+        WHERE i.kind = 'domain' AND i.valid_to IS NULL
+    """), {"m": market_id}).fetchall()
+    out: Dict[str, int] = {}
+    for value, brand_id in rows:
+        host = (value or "").strip().lower().lstrip(".")
+        if host.startswith("www."):
+            host = host[4:]
+        if host:
+            out[host] = int(brand_id)
+    return out
+
+
+def attribute_owned_pages(conn, market_id: int, *,
+                          days: Optional[int] = None,
+                          limit: int = DEFAULT_LIMIT,
+                          dry_run: bool = False) -> Dict[str, Any]:
+    """Link every page on a vendor's own domain to that vendor.
+
+    The name scan above links a page only when the vendor's name is in its
+    title or summary, and a vendor's blog rarely names itself: "Why triage
+    forgets everything" is Torq's post whoever reads it. 305 of market 2's
+    vendor blog posts had no link on 25 Sep 2026, so the post review never
+    saw them and no blog announcement ever became a development. The domain
+    is a stronger signal than the name, so it needs no context check.
+
+    Writes the same three things a name match does: the category row, the
+    entity link (as the vendor's own web content) and the market corpus row,
+    and marks the article ``owned:<domain>`` when nothing marked it yet.
+    """
+    domains = _domain_brands(conn, market_id)
+    if not domains:
+        return {"scanned": 0, "attributed": 0, "corpus_added": 0}
+    alternatives = "|".join(re.escape(d) for d in
+                            sorted(domains, key=len, reverse=True))
+    where = [f"a.uri ~* :host_rx",
+             "COALESCE(a.bias_source, '') <> 'vendor:linkedin'",
+             "COALESCE(a.article_origin, '') <> 'report'"]
+    # Done means categorised and, where the entity layer is on, linked as the
+    # vendor's own web content. Anything short of that is picked up again.
+    from app.services import entity_flags
+
+    # Tagged as the company's own publishing too: a page linked to its
+    # vendor by name, and never tagged, was skipped for good on a site with
+    # the entity layer off (SmartBear's blog on panaya).
+    done = ["EXISTS (SELECT 1 FROM bw_article_categories x"
+            " WHERE x.article_uri = a.uri)",
+            "COALESCE(a.bias_source, '') LIKE 'owned:%'"]
+    if entity_flags.enabled():
+        done.append("EXISTS (SELECT 1 FROM bw_entity_content_links l"
+                    " WHERE l.article_uri = a.uri AND l.channel = 'owned_web')")
+    where.append(f"NOT ({' AND '.join(done)})")
+    params: Dict[str, Any] = {
+        "host_rx": rf"^https?://([^/@]+\.)?({alternatives})(:\d+)?(/|$)",
+        "lim": int(limit)}
+    if days:
+        where.append("COALESCE(a.publication_date, a.submission_date) >= :since")
+        params["since"] = _iso_days_ago(days)
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary, a.bias_source
+          FROM articles a
+         WHERE {' AND '.join(where)}
+         ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+         LIMIT :lim
+    """), params).mappings().all()
+
+    from app.services.market_collect import _categorize
+
+    attributed = corpus_added = 0
+    for row in rows:
+        host = _host(row["uri"])
+        domain = next((d for d in sorted(domains, key=len, reverse=True)
+                       if host == d or host.endswith("." + d)), None)
+        if not domain or dry_run:
+            continue
+        brand_id = domains[domain]
+        if not row["bias_source"]:
+            conn.execute(text("""
+                UPDATE articles SET bias_source = :tag
+                 WHERE uri = :uri AND bias_source IS NULL
+            """), {"tag": f"owned:{domain}", "uri": row["uri"]})
+        cats = _categorize(row["title"] or "", row["summary"] or "")
+        # One category row per (article, vendor), as in attribute_vendors:
+        # the overview counts rows, and a second would count one post twice.
+        wrote = conn.execute(text("""
+            INSERT INTO bw_article_categories
+                (article_uri, brand_id, category, classification_method,
+                 confidence)
+            SELECT :uri, :bid, :cat, :method, 1.0
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM bw_article_categories x
+                  WHERE x.article_uri = :uri AND x.brand_id = :bid)
+        """), {"uri": row["uri"], "bid": brand_id,
+               "cat": cats[0] if cats else "Product & Innovation",
+               "method": OWNED_DOMAIN_METHOD}).rowcount
+        attributed += 1 if wrote else 0
+        _link_entity(conn, row["uri"], brand_id, domain, method="domain")
+        corpus_added += conn.execute(text("""
+            INSERT INTO bw_market_articles
+                (market_id, article_uri, matched_terms, title_terms,
+                 body_terms, score, method, origin)
+            VALUES (:m, :uri, '{}', 0, 0, :score, :method, 'corpus')
+            ON CONFLICT (market_id, article_uri) DO NOTHING
+        """), {"m": market_id, "uri": row["uri"], "score": TITLE_WEIGHT,
+               "method": OWNED_DOMAIN_METHOD}).rowcount
+    return {"scanned": len(rows), "attributed": attributed,
+            "corpus_added": corpus_added,
+            "truncated": len(rows) >= int(limit), "dry_run": dry_run}
 
 
 def _iso_days_ago(days: int) -> str:
@@ -1211,7 +1381,8 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
                a.social_meta,
                ma.score, ma.matched_terms, ma.origin, ma.title_terms,
                ma.review_verdict, ma.review_kind, ma.review_reason,
-               ma.review_customer
+               ma.review_customer, ma.review_headline, ma.review_summary,
+               ma.review_check
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE {' AND '.join(where)}

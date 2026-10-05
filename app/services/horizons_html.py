@@ -8,10 +8,10 @@ self-contained HTML document. Used by
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from typing import Optional
 
+from app.services.report_branding import brand_eyebrow, brand_footer_credit
 from app.services.html_report_common import (
     BASE_CSS, esc, esc_cites, html_document, section_open,
     render_executive_summary_cards, render_scenarios, clean_article_ref,
@@ -351,7 +351,7 @@ def build_horizons_html(
 
     # Cover
     body_parts.append('<div class="cover">')
-    body_parts.append(f'<div class="eyebrow">{esc(os.getenv("REPORT_BRAND_EYEBROW", "WILEY HORIZONS"))} · FUTURE HORIZONS</div>')
+    body_parts.append(f'<div class="eyebrow">{esc(brand_eyebrow())} · FUTURE HORIZONS</div>')
     body_parts.append(f'<h1>{esc(topic)}</h1>')
     body_parts.append('<div class="subtitle">Three Horizons foresight  ·  Produced by AunooAI</div>')
     meta_bits = []
@@ -397,7 +397,7 @@ def build_horizons_html(
     body_parts.append(
         '<footer class="meta">'
         f'Future Horizons rendered {esc(datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))}'
-        f'  ·  AunooAI {esc(os.getenv("REPORT_BRAND_EYEBROW", "WILEY HORIZONS").title())} Foresight'
+        f'  ·  {esc(brand_footer_credit())}'
         '</footer>'
     )
 

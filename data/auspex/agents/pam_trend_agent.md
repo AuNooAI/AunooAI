@@ -5,7 +5,7 @@ type: agent
 version: 1.0.0
 description: "Interprets calculated trend scores for T1-T5 2030 trends"
 model_config:
-  model: "gpt-4.1-mini"
+  model: bedrock-kimi-k2-5
   temperature: 0.3
   max_tokens: 3000
 output_schema:

@@ -102,6 +102,22 @@ _register(AnalysisModule(
     frontend_tab_icon="Microscope",
 ))
 
+# --- Swiss Election Watch ------------------------------------------------------
+_register(AnalysisModule(
+    id="swiss_disinfo",
+    name="Swiss Election Watch",
+    description="Disinformation and influence operations aimed at Swiss voters: narratives, vectors, targets, languages.",
+    route_module="app.routes.swiss_disinfo_routes",
+    route_prefix="/api/swiss-disinfo",
+    task_module="app.tasks.swiss_disinfo_monitor",
+    task_function="run_swiss_disinfo_monitor",
+    task_delay=50,
+    migration_prefix="sd_",
+    frontend_tab_id="swiss_disinfo",
+    frontend_tab_label="Swiss Election Watch",
+    frontend_tab_icon="Vote",
+))
+
 # --- Brand Watcher ------------------------------------------------------------
 _register(AnalysisModule(
     id="brand_watcher",

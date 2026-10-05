@@ -85,6 +85,18 @@ def _conn():
     return get_database_instance()._temp_get_connection()
 
 
+def _public_base(request: Request) -> Optional[str]:
+    """``https://<host>`` when the request came in on a public host such as
+    aisocnews.com, where the market is served at ``/``; None on the app host
+    and on localhost. Same rule as the inquiry pages' ``_links``."""
+    from urllib.parse import urlparse as _urlparse
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].split(":")[0].lower()
+    app_host = (_urlparse(os.getenv("APP_URL") or "").hostname or "").lower()
+    if not host or host == app_host or host.startswith("127.") or host == "localhost":
+        return None
+    return f"https://{host}"
+
+
 def _slugify(value: str) -> str:
     import re
 
@@ -541,7 +553,7 @@ async def list_vendors(
             sql = """SELECT mb.brand_id, mb.role, mb.sort_order, mb.is_public,
                             mb.collection_enabled, mb.brand_monitoring_enabled,
                             mb.review_status, mb.baseline,
-                            b.name AS slug, b.display_name, b.enabled,
+                            b.name AS slug, b.display_name, b.enabled, b.color,
                             (SELECT json_agg(json_build_object(
                                  'kind', i.kind, 'value', i.display_value,
                                  'normalized', i.normalized_value))
@@ -639,8 +651,25 @@ async def add_vendor(market_id: int, payload: AddVendor,
                            "p": json.dumps({"source": "manual"})})
 
             conn.commit()
+
+            # Search for the new vendor by name from the next cycle. A failure
+            # here must not undo the vendor, which is already committed.
+            keywords_added: List[str] = []
+            try:
+                from app.services.market_collect import resync_market_keywords
+                market_name = _load_market(conn, market_id)["name"]
+                synced = resync_market_keywords(
+                    conn, get_database_instance(), market_id, market_name)
+                if synced:
+                    conn.commit()
+                    keywords_added = synced.get("keywords_added") or []
+            except Exception as exc:
+                conn.rollback()
+                logger.warning("market %s: keyword re-sync after adding %s "
+                               "failed: %s", market_id, name, exc)
             return {"brand_id": brand_id, "display_name": name,
-                    "created_brand": created_brand}
+                    "created_brand": created_brand,
+                    "keywords_added": keywords_added}
         except HTTPException:
             conn.rollback()
             raise
@@ -943,10 +972,11 @@ class CollectionSetup(BaseModel):
     # Appended to vendor names too short or too ordinary to search alone. The
     # firehose collector reads a two-word keyword as AND-of-words.
     qualifier: str = Field("security", min_length=2, max_length=40)
-    # none | funded | all. Funded by default: a disclosed raise is the best
-    # available proxy for a vendor active enough to generate coverage, and
-    # searching all 82 spends quota on companies nobody writes about.
-    vendor_names: str = Field("funded", pattern="^(none|funded|all)$")
+    # none | funded | all. Left out, a re-run keeps the mode the market was
+    # last set up with; a first setup defaults to funded, because a disclosed
+    # raise is the best available proxy for a vendor active enough to generate
+    # coverage.
+    vendor_names: Optional[str] = Field(None, pattern="^(none|funded|all)$")
     # Preview by default. Creating the group starts spending provider quota on
     # the next collection cycle.
     dry_run: bool = True
@@ -1001,15 +1031,24 @@ async def set_collection_terms(market_id: int, payload: CollectionTerms,
 
 @router.get("/markets/{market_id}/collection-plan")
 async def collection_plan(market_id: int, qualifier: str = Query("security"),
-                          vendor_names: str = Query("funded"),
+                          vendor_names: Optional[str] = Query(None),
+                          zero_match: bool = Query(False),
                           session=Depends(verify_session_api)):
-    """What the market's collection group would search for. Reads only."""
+    """What the market's collection group would search for. Reads only.
+
+    The zero-match warning is off unless asked for: the market page calls this
+    on every load, and the check alone took 14s there, during which the page
+    showed "No collection configured".
+    """
     def _work():
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            plan = mc.plan_market_keywords(conn, market_id, qualifier,
-                                           vendor_names)
+            plan = mc.plan_market_keywords(
+                conn, market_id, qualifier,
+                vendor_names or mc.stored_collection_settings(
+                    conn, market_id)["vendor_names"],
+                                           check_zero_match=zero_match)
             plan["group_name"] = f"{market['name']} - Market Watch"
             plan["topic_name"] = f"Market Monitoring {market['name']}"
             plan["existing"] = (market.get("config") or {}).get("collection")
@@ -1037,7 +1076,8 @@ async def collection_setup(market_id: int, payload: CollectionSetup,
             result = mc.setup_market_collection(
                 conn, get_database_instance(), market_id, market["name"],
                 qualifier=payload.qualifier,
-                vendor_names=payload.vendor_names,
+                vendor_names=payload.vendor_names or mc.stored_collection_settings(
+                    conn, market_id)["vendor_names"],
                 dry_run=payload.dry_run,
             )
             if not payload.dry_run:
@@ -1193,6 +1233,7 @@ async def market_feed(
     base = (os.getenv("APP_URL") or "").rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
+    public_base = _public_base(request)
 
     def _work():
         conn = _conn()
@@ -1214,7 +1255,8 @@ async def market_feed(
                            surface="feed.xml")
             return mp.build_feed(conn, market, base_url=base, kind=kind,
                                  classes=picked or None, days=days,
-                                 limit=limit, allowed_brand_ids=allowed)
+                                 limit=limit, allowed_brand_ids=allowed,
+                                 public_base=public_base)
         finally:
             conn.close()
 
@@ -1242,6 +1284,7 @@ async def market_feed_json(
     base = (os.getenv("APP_URL") or "").rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
+    public_base = _public_base(request)
 
     def _work():
         conn = _conn()
@@ -1260,7 +1303,8 @@ async def market_feed_json(
                            surface="feed.json")
             return mp.build_feed_json(conn, market, base_url=base, kind=kind,
                                       classes=picked or None, days=days,
-                                      limit=limit, allowed_brand_ids=allowed)
+                                      limit=limit, allowed_brand_ids=allowed,
+                                      public_base=public_base)
         finally:
             conn.close()
 
@@ -2491,7 +2535,7 @@ async def market_follow_list(market_id: int, session=Depends(verify_session_api)
         conn = _conn()
         try:
             _load_market(conn, market_id)
-            return {"accounts": mf.followed(conn)}
+            return {"accounts": mf.followed(conn, market_id)}
         finally:
             conn.close()
 
@@ -2512,7 +2556,7 @@ async def market_follow_add(market_id: int, body: FollowRequest,
         conn.close()
     try:
         row = await mf.follow(get_database_instance(), body.platform, body.handle,
-                              market["name"])
+                              market["name"], market_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except RuntimeError as exc:
@@ -2529,7 +2573,7 @@ async def market_follow_remove(market_id: int, body: FollowRequest,
     from app.services import market_follow as mf
 
     if not await asyncio.to_thread(mf.unfollow, get_database_instance(),
-                                   body.platform, body.handle):
+                                   body.platform, body.handle, market_id):
         raise HTTPException(status_code=404, detail="Not on the list")
     return {"ok": True}
 
@@ -2799,7 +2843,7 @@ async def market_topics_compute(
 class HorizonControls(BaseModel):
     multipliers: Dict[str, float] = Field(default_factory=dict)
     note: Optional[str] = Field(None, max_length=4000)
-    status: str = Field("active", pattern="^(active|acquired|closed|pivoted)$")
+    status: str = Field("active", pattern="^(active|acquired|closed|pivoted|incumbent)$")
     acquired_by: Optional[str] = Field(None, max_length=200)
     status_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
@@ -3049,6 +3093,8 @@ class PostReviewRequest(BaseModel):
     # With redo: only posts already given one of these kinds.
     kinds: Optional[List[str]] = None
     dry_run: bool = False
+    # With redo: also re-read posts whose reading Jev has checked.
+    force: bool = False
 
 
 @router.post("/markets/{market_id}/posts/review")
@@ -3073,7 +3119,8 @@ async def market_post_review(market_id: int, body: PostReviewRequest,
         return await mpr.review(
             conn, market_id, market["name"],
             limit=body.limit, batch=body.batch, days=body.days,
-            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run)
+            redo=body.redo, kinds=body.kinds, dry_run=body.dry_run,
+            force=body.force)
     finally:
         conn.close()
 
@@ -3805,7 +3852,8 @@ async def vendor_detail(market_id: int, brand_id: int,
                 SELECT mb.brand_id, mb.role, mb.collection_enabled,
                        mb.brand_monitoring_enabled, mb.is_public,
                        mb.review_status, mb.baseline, mb.sort_order,
-                       b.name AS slug, b.display_name, b.enabled, b.brand_keywords
+                       b.name AS slug, b.display_name, b.enabled, b.brand_keywords,
+                       b.color
                 FROM bw_market_brands mb
                 JOIN bw_brands b ON b.id = mb.brand_id
                 WHERE mb.market_id = :m AND mb.brand_id = :b
@@ -3885,7 +3933,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     WHERE bac.brand_id = :b
                       AND a.bias_source = 'vendor:linkedin'
                       AND {_OWN_VOICE}
-                    ORDER BY a.uri, a.publication_date DESC
+                    ORDER BY a.uri, a.publication_date DESC NULLS LAST
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 10
             """), {"b": brand_id}).mappings().all()]
@@ -3903,7 +3951,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                     JOIN bw_market_articles ma ON ma.article_uri = a.uri
                     WHERE bac.brand_id = :b
                       AND ma.review_verdict = 'signal'
-                    ORDER BY a.uri, a.publication_date DESC
+                    ORDER BY a.uri, a.publication_date DESC NULLS LAST
                 ) p
                 ORDER BY p.publication_date DESC NULLS LAST LIMIT 25
             """), {"b": brand_id}).mappings().all()]
@@ -3929,7 +3977,7 @@ async def vendor_detail(market_id: int, brand_id: int,
                 JOIN articles a ON a.uri = bac.article_uri
                 WHERE bac.brand_id = :b
                   AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
-                ORDER BY a.uri, a.publication_date DESC LIMIT 10
+                ORDER BY a.uri, a.publication_date DESC NULLS LAST LIMIT 10
             """), {"b": brand_id}).mappings().all()]
 
             vendor["review_tasks"] = [dict(r) for r in conn.execute(text("""

@@ -5,7 +5,7 @@ description: Drafts a short expert-view commentary on the quarter's emerging the
 type: agent
 version: 1.1.0
 model_config:
-  model: gpt-4.1
+  model: claude-sonnet-4-5
   temperature: 0.3
   max_tokens: 2000
 output_schema:

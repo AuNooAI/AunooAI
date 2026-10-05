@@ -144,6 +144,15 @@ def formation(conn, market_id: int) -> Dict[str, Any]:
 # the market".
 MIN_POSTS_FOR_RATIO = 8
 
+# The floor a social post must clear to count as an outside voice on this
+# market. Term matching attaches anything carrying a market phrase, and phrases
+# collide across fields: "AI SoC" (a chip) trips the "AI SOC" (SOC platform)
+# term, so semiconductor and stock-market posts term-matched in with alignment
+# 0 and rendered on the public page because the voices queries filtered only on
+# review_verdict, never on alignment. 0.4 is the same cut the rest of the
+# customer-facing selections use. Applied to every social query below.
+MIN_SOCIAL_ALIGNMENT = 0.4
+
 
 def signal_noise(conn, market_id: int, *, days: Optional[int] = None
                  ) -> Dict[str, Any]:
@@ -1137,7 +1146,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
     who else is talking.
     """
     window = ""
-    params: Dict[str, Any] = {"m": market_id, "lim": limit}
+    # Over-fetch: the Jev check below turns some away.
+    params: Dict[str, Any] = {"m": market_id, "lim": limit * 8}
     if days:
         window = "AND COALESCE(a.publication_date, a.submission_date) >= :since"
         params["since"] = _iso_days_ago(days)
@@ -1153,7 +1163,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
                  + COALESCE((a.social_meta->>'reposts')::numeric,
                             (a.social_meta->>'shares')::numeric, 0)
                  AS engagement,
-               COALESCE(a.publication_date, a.submission_date) AS published
+               COALESCE(a.publication_date, a.submission_date) AS published,
+               ma.review_check
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
@@ -1161,6 +1172,7 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         ORDER BY engagement DESC,
                  COALESCE(a.publication_date, a.submission_date) DESC
@@ -1173,7 +1185,10 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         # usually the post, and the summary is a truncation of it.
         quote = (row.get("title") or row.get("summary") or "").strip()
         # A training log or a job hunt is not an outside voice on the market.
-        if not quote or is_noise(quote):
+        if not quote or is_noise(f"{row.get('title') or ''} {row.get('summary') or ''}"):
+            continue
+        from app.services.market_post_review import social_passes
+        if not social_passes(row):
             continue
         out.append({
             "uri": row["uri"],
@@ -1183,6 +1198,8 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
             "published": row["published"],
             "quote": quote,
         })
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -1238,6 +1255,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         GROUP BY 1, 2
         ORDER BY engagement DESC, posts DESC
@@ -1263,6 +1281,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
               AND COALESCE(ma.review_verdict, '') <> 'excluded'
               AND a.social_meta->>'author' IS NOT NULL
               AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+              AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
               {window}
             GROUP BY 1) t
     """), {k: v for k, v in params.items() if k != "lim"}).fetchone()
@@ -1301,6 +1320,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
           AND a.social_meta IS NOT NULL
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           {window}
         GROUP BY 1, 2
         HAVING COUNT(*) >= :threshold
@@ -1336,7 +1356,10 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
             (r["handle_canonical"], r["platform"]): dict(r)
             for r in conn.execute(text("""
                 SELECT platform, handle_canonical, id AS account_id, handle,
-                       display_name, followers_count, summary, watchlisted,
+                       display_name, followers_count, summary,
+                       EXISTS (SELECT 1 FROM market_follows mf
+                                WHERE mf.market_id = :m
+                                  AND mf.account_id = social_accounts.id) AS watchlisted,
                        tags, bio, profile_url, topics, verified, brand_context,
                        avatar_url, posts_count, last_profiled_at,
                        metadata->>'market_role' AS role,
@@ -1347,7 +1370,8 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                      SELECT lower(p), lower(h) FROM UNNEST(:plats, :handles)
                           AS t(p, h))
             """), {"plats": [p for _, p in pairs],
-                   "handles": [a for a, _ in pairs]}).mappings().all()
+                   "handles": [a for a, _ in pairs],
+                   "m": market_id}).mappings().all()
         }
         for v in voices:
             hit = accounts.get((str(v["author"]).lower(),
@@ -1390,6 +1414,29 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
     tracked = _tracked_vendor_names(conn, market_id)
     for v in voices:
         v["vendor_tag"] = _vendor_tag(v, tracked)
+
+    # Which audience each account belongs to, for the accounts nobody has
+    # profiled: the social evaluation names the author's role on every
+    # on-brand post, and an account whose posts keep reading the same way
+    # (patient, clinician, journalist ...) is that thing. A profiled account
+    # answers from its profile instead. Absent when neither can say.
+    if voices:
+        try:
+            from app.services.audience_voices import ROLE_LABELS, account_audiences
+            aud = account_audiences(conn, {(str(v["platform"]).lower(),
+                                            str(v["author"]).lower()) for v in voices})
+            for v in voices:
+                hit = aud.get((str(v["platform"]).lower(), str(v["author"]).lower()))
+                v["audience"] = ({
+                    "role": hit["role"],
+                    "label": ROLE_LABELS.get(hit["role"], {}).get("label", hit["role"]),
+                    "source": hit["source"],
+                    "n": hit.get("n"),
+                } if hit else None)
+        except Exception as exc:  # noqa: BLE001 - the list stands without it
+            logger.debug("top_voices: audience lookup failed: %s", exc)
+            for v in voices:
+                v.setdefault("audience", None)
 
     # What each account is actually talking about. A ranked list of handles
     # with no subject is a list of strangers — the useful question is who is
@@ -1445,6 +1492,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         WHERE ma.market_id = :m
           AND COALESCE(ma.review_verdict, '') <> 'excluded'
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
+          AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
           AND (a.news_source = 'bluesky' OR a.news_source LIKE 'xpoz%')
           {window}
     """), params).fetchone()

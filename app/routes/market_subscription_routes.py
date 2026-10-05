@@ -75,7 +75,7 @@ async def subscribe_checkout(market_id: int, request: Request,
             status_code=status, headers=_NO_STORE)
 
     if plan not in msub.PLANS:
-        return await asyncio.to_thread(_page, "Pick one of the two plans.", 422)
+        return await asyncio.to_thread(_page, "Pick a plan.", 422)
     if not values["name"]:
         return await asyncio.to_thread(_page, "Your name is needed for the account.", 422)
     if not msub.EMAIL_RE.match(values["email"]):

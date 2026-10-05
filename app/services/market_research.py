@@ -28,7 +28,7 @@ Every item links to its source; nothing is republished.
 import logging
 import re
 import unicodedata
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -69,6 +69,7 @@ REPORT_FAMILIES: List[Tuple[str, str, str]] = [
     ("Innovation Insight", r"innovation\s+insight", ":"),
     ("Emerging Tech Impact Radar", r"emerging\s+tech(?:nolog(?:y|ies))?\s+impact\s+radar", ":"),
     ("Emerging Tech", r"emerging\s+tech(?:nolog(?:y|ies))?(?=\s*:)", ":"),
+    ("AI Vendor Race", r"ai\s+vendor\s+race", ":"),
     ("Forrester Wave", r"forrester\s+wave|forrester\s+new\s+wave|\bnew\s+wave\b", "for|on"),
     ("Tech Tide", r"tech\s+tide", ":"),
     ("Landscape", r"landscape\s*(?:™|®)?\s*(?:report|,\s*q[1-4])", "for"),
@@ -97,6 +98,7 @@ _POSITION = re.compile(
 _RESEARCH_WORD = re.compile(r"\b(?:research|report|note|study|analysis|brief)\b", re.I)
 _NEAR = 60
 _YEAR = re.compile(r"\b(20\d\d)\b")
+_QUOTED_SPAN = re.compile(r"['\"“‘]([^'\"”’\n]{8,160})['\"”’]")
 #: A title-case run: words starting with a capital or a digit, joined by
 #: connectors, on one line. Stops at punctuation, quotes, a line break and
 #: lower-case words.
@@ -186,6 +188,24 @@ def _vendor_of(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = Non
     return re.sub(r"^www\.", "", host) or "unknown"
 
 
+#: Words that make a year a forecast rather than the report's edition:
+#: "Gartner expects AI agents to remediate 70% of code vulnerabilities by
+#: 2028" labelled a 2026 report "Preemptive Cybersecurity, 2028".
+_FORECAST_BEFORE = re.compile(r"\b(?:by|until|through|before|in\s+the\s+next)\s*$", re.I)
+
+
+def _report_year(window: str, published_year: str = "") -> Optional[str]:
+    """The first year in ``window`` that can be a report's edition: not a
+    forecast, and not later than the year after the post was published."""
+    for m in _YEAR.finditer(window or ""):
+        if _FORECAST_BEFORE.search(window[max(0, m.start() - 20):m.start()]):
+            continue
+        if published_year.isdigit() and int(m.group(1)) > int(published_year) + 1:
+            continue
+        return m.group(1)
+    return None
+
+
 def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
     """The analyst report a record cites, or None.
 
@@ -220,14 +240,29 @@ def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> 
     if family is None and not recognised:
         return None
     vendor = _vendor_of(row, domain_names)
+    # Whether the citer is one of the market's vendors, or an X handle, a
+    # host or a headline's lead name standing in for one.
+    tracked = bool([v for v in (row.get("vendors") or []) if v.get("vendor")]) or (
+        vendor in set((domain_names or {}).values()))
+    published_year = str(row.get("published") or "")[:4]
     topic = year = title = None
     if fam_match:
         m = topic_pat.match(hay, fam_match.end())
         if m:
             topic = _clean_topic(m.group(1), vendor) or None
         around = hay[max(0, fam_match.start() - 40): fam_match.end() + 40]
-        years = _YEAR.findall(around)
-        year = years[0] if years else None
+        year = _report_year(around, published_year)
+        # A quoted report title runs to its closing quote, lower-case words
+        # and all: 'Innovation Insight: Role Agents Have a Mandate, Not a Task
+        # List' was cut to "Role Agents".
+        for qm in _QUOTED_SPAN.finditer(hay):
+            # Only a quote that opens on the report family itself.
+            if qm.start(1) == fam_match.start():
+                rest = re.sub(r"^(?:[\s:–—-]+|for\s+)+", "",
+                              hay[fam_match.end():qm.end(1)]).strip()
+                if topic and len(rest) > len(topic):
+                    topic = _clean_topic(rest, vendor) or topic
+                break
     else:
         after = hay[at: at + 160]
         q = _QUOTED.search(after) or _AFTER_RESEARCH_WORD.search(after)
@@ -235,12 +270,11 @@ def cite(row: Dict[str, Any], domain_names: Optional[Dict[str, str]] = None) -> 
             title = _clean_topic(q.group(1), vendor) or None
             if title and len(title) < 12:
                 title = None
-        years = _YEAR.findall(hay[max(0, at - 40): at + 80])
-        year = years[0] if years else None
+        year = _report_year(hay[max(0, at - 40): at + 80], published_year)
     return {
         "firm": firm, "family": family, "topic": topic, "year": year, "title": title,
         "position": (position.group(1).title() if position else None),
-        "vendor": vendor, "uri": row.get("uri"),
+        "vendor": vendor, "tracked": tracked, "uri": row.get("uri"),
         "date": str(row.get("published") or "")[:10],
         "headline": row.get("title") or "",
     }
@@ -267,6 +301,116 @@ def label_of(group: Dict[str, Any]) -> str:
     if group.get("title"):
         return f"{firm}: “{group['title']}”{year}"
     return f"{head}{year}" if family else f"{firm} research{year}"
+
+
+#: Words every analyst citation contains, which therefore identify no report.
+_CITE_COMMON = frozenset("""
+gartner forrester idc gigaom kuppingercole omdia esg named names naming
+recognised recognized positioned included mentioned featured listed cited
+highlighted identified report reports research note study analysis brief
+vendor vendors sample representative market markets security operations
+company companies the and for our its this that with from was were has have
+just last week month year new one only first also read more here link post
+announced announcing proud excited thrilled congratulations team
+""".split())
+
+_CITE_WORD = re.compile(r"[A-Za-z][A-Za-z0-9&.\-]*")
+
+
+def _cite_tokens(text_blob: str, exclude: Set[str]) -> Set[str]:
+    """Words specific enough that two citations sharing them name one report.
+
+    Capitalised runs and long words carry the report's subject — "Autonomous
+    Exposure Remediation", "Preemptive Cybersecurity". The firm's name, the
+    vendors' names and the vocabulary every citation shares are dropped,
+    because they are present by construction and identify nothing.
+    """
+    out: Set[str] = set()
+    for raw in _CITE_WORD.findall(text_blob or ""):
+        token = raw.strip(".,;:&-")
+        low = token.lower()
+        if len(token) < 4 or low in _CITE_COMMON or low in exclude:
+            continue
+        if token[:1].isupper() or len(token) >= 8:
+            out.add(low)
+    return out
+
+
+#: Distinctive words two citations must share before they are read as one
+#: report. One is too loose here: a citation headline is a whole sentence, so
+#: a single shared word happens by chance far more often than it does between
+#: a news article and an event.
+_FOLD_MIN_SHARED = 2
+
+
+def _fold_nameless(groups: Dict[Any, Dict[str, Any]]) -> int:
+    """Fold a citation that named no report into the report it describes.
+
+    A vendor posts twice about one analyst mention and names the report series
+    in only one of them. The post that named it parses into
+    "Gartner Emerging Tech Impact Radar: Preemptive Cybersecurity, 2028"; the
+    one that did not has no family and no quoted title, so it becomes a group
+    of its own and renders as the bare "Gartner research" — sitting in the
+    panel directly beside its own twin.
+
+    The existing reconciliation above cannot reach these. It starts from the
+    family and fills in a missing topic, so a citation with no family at all
+    is invisible to it. This matches on the vendors' own wording instead,
+    which is what two posts about one report actually share.
+
+    Firm must agree, and the texts must share at least ``_FOLD_MIN_SHARED``
+    distinctive words with the firm's name, the vendors' names and citation
+    boilerplate taken out. Vendors are not required to match: two companies
+    named in one report belong in one group, which is the point of grouping.
+    """
+    folded = 0
+    named = [(k, g) for k, g in groups.items() if k[0] != "__loose__"]
+    for key in [k for k in groups if k[0] == "__loose__"]:
+        g = groups.get(key)
+        if g is None or g["family"] or g["title"]:
+            continue
+        exclude = {w.lower() for v in g["vendors"] for w in _CITE_WORD.findall(v)}
+        exclude.add((g["firm"] or "").lower())
+        mine = _cite_tokens(g["headline"], exclude)
+        if len(mine) < _FOLD_MIN_SHARED:
+            continue
+        best, best_score = None, _FOLD_MIN_SHARED - 1
+        for _, other in named:
+            if other["firm"] != g["firm"]:
+                continue
+            theirs = _cite_tokens(
+                f"{other['headline']} {other.get('topic') or ''} "
+                f"{other.get('title') or ''}", exclude)
+            shared = len(mine & theirs)
+            if shared > best_score:
+                best, best_score = other, shared
+        if best is None:
+            continue
+        for name, v in g["vendors"].items():
+            prev = best["vendors"].get(name)
+            if prev is None or v["date"] > prev["date"]:
+                best["vendors"][name] = v
+            elif v.get("position") and not prev.get("position"):
+                prev["position"] = v["position"]
+        best["latest"] = max(best["latest"], g["latest"])
+        best["year"] = best["year"] or g["year"]
+        del groups[key]
+        folded += 1
+    return folded
+
+
+def _names_a_report(group: Dict[str, Any]) -> bool:
+    """Whether the citation points at research a reader could go and find.
+
+    A report series, a quoted title, or a stated position in one — "a Leader",
+    "a Sample Vendor" — all name something. Without any of the three the item
+    is a vendor mentioning the firm: "Gartner just named AI-driven
+    vulnerability discovery the top emerging risk", "SAP kept Splunk." Those
+    rendered as "Gartner research", which claims a report we cannot point to
+    and the reader cannot check. Better absent than unfalsifiable.
+    """
+    return bool(group.get("family") or group.get("title")
+                or any(v.get("position") for v in group["vendors"].values()))
 
 
 def group_citations(rows: List[Dict[str, Any]],
@@ -297,6 +441,7 @@ def group_citations(rows: List[Dict[str, Any]],
         if prev is None or c["date"] > prev["date"]:
             g["vendors"][c["vendor"]] = {"vendor": c["vendor"], "position": c["position"] or
                                          (prev or {}).get("position"),
+                                         "tracked": c.get("tracked", True),
                                          "uri": c["uri"], "date": c["date"]}
         elif c["position"] and not prev.get("position"):
             prev["position"] = c["position"]
@@ -320,10 +465,18 @@ def group_citations(rows: List[Dict[str, Any]],
                 target["vendors"][name] = v
         target["latest"] = max(target["latest"], g["latest"])
         del groups[key]
+    # Fold before dropping. A nameless twin of a named report carries a real
+    # citation — a second vendor, a later date — and dropping it first would
+    # throw that away along with the duplicate row.
+    _fold_nameless(groups)
     out = []
     for g in groups.values():
+        if not _names_a_report(g):
+            continue
         g["vendors"] = sorted(g["vendors"].values(), key=lambda v: v["date"], reverse=True)
         g["label"] = label_of(g)
+        g["tracked"] = any(v.get("tracked", True) for v in g["vendors"])
+        g["named"] = bool(g.get("topic") or g.get("title"))
         g["uri"] = g["vendors"][0]["uri"]
         out.append(g)
     out.sort(key=lambda g: (len(g["vendors"]), g["latest"]), reverse=True)

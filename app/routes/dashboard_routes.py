@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from app.database import Database, get_database_instance
+from app.model_tiers import default_model
 from app.ai_models import LiteLLMModel, get_available_models  # Added for LLM access
 from app.security.session import verify_session
 from pydantic import BaseModel
@@ -141,7 +142,7 @@ class ArticleInsightsRequest(BaseModel):
     days_limit: int = 7
     force_regenerate: bool = False
     cache_only: bool = False  # read cache (any recency), NEVER run the LLM — page-load path
-    model: str = "gpt-5.4-mini"
+    model: str = "bedrock-kimi-k2-5"
     system_prompt: Optional[str] = None  # Custom system prompt
     user_prompt: Optional[str] = None  # Custom user prompt
 
@@ -611,7 +612,7 @@ async def get_key_articles(
         combined_article_text = "\n---\n".join(article_details_for_llm)
 
         # 3. Initialize LLM
-        llm_model_name = "gpt-5.4" 
+        llm_model_name = default_model("standard") 
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for key articles")
@@ -757,7 +758,7 @@ async def get_generated_insights(
             data_for_llm += "No top tag data available for the selected period.\n\n"
         
         # 3. Initialize LLM
-        llm_model_name = "gpt-5.4"
+        llm_model_name = default_model("standard")
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"LLM Initialization error for insights: {llm_model_name}", exc_info=True)
@@ -1381,7 +1382,7 @@ async def get_category_insights(
     # Accept both camelCase and snake_case from frontend
     force_regenerate_camel: Optional[str] = Query(None, alias="forceRegenerate"),
     force_regenerate_snake: Optional[str] = Query(None, alias="force_regenerate"),
-    model: str = Query("gpt-5.4-mini", description="AI model to use for analysis"),
+    model: str = Query("bedrock-kimi-k2-5", description="AI model to use for analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):

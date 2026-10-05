@@ -596,7 +596,7 @@ class GeopoliticalService:
                 FROM hotspot_articles ha
                 JOIN articles a ON ha.article_uri = a.uri
                 WHERE ha.hotspot_id = ?
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
                 LIMIT ? OFFSET ?
             """, [hotspot_id, page_size, offset])
 
@@ -1346,7 +1346,7 @@ class GeopoliticalService:
                     WHERE a.topic = ?
                     AND a.category IS NOT NULL
                     AND a.sentiment IS NOT NULL
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """, [topic, limit])
             else:
@@ -1360,7 +1360,7 @@ class GeopoliticalService:
                     AND a.category IS NOT NULL
                     AND a.sentiment IS NOT NULL
                     AND ha.article_uri IS NULL
-                    ORDER BY a.publication_date DESC
+                    ORDER BY a.publication_date DESC NULLS LAST
                     LIMIT ?
                 """, [topic, limit])
 
@@ -1987,7 +1987,7 @@ class GeopoliticalService:
             conn.close()
 
 
-async def extract_location_with_llm(title: str, summary: str, category: str, model_name: str = "gpt-5.4-mini") -> Dict[str, Any]:
+async def extract_location_with_llm(title: str, summary: str, category: str, model_name: str = "bedrock-kimi-k2-5") -> Dict[str, Any]:
     """Use LLM to extract location information from an article."""
     from app.ai_models import LiteLLMModel
 
@@ -2027,7 +2027,7 @@ async def extract_location_with_llm(title: str, summary: str, category: str, mod
         return {"no_location": True, "error": str(e)}
 
 
-async def generate_narrative_with_llm(stats: Dict[str, Any], model_name: str = "gpt-5.4-mini") -> Dict[str, Any]:
+async def generate_narrative_with_llm(stats: Dict[str, Any], model_name: str = "bedrock-kimi-k2-5") -> Dict[str, Any]:
     """Use LLM to generate a strategic intelligence narrative."""
     from app.ai_models import LiteLLMModel
 

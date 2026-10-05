@@ -375,9 +375,20 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
           setConfig(prev => ({ ...prev, profileId: defaultProfile.id }));
         }
 
-        // Set default topic if none selected and topics available
-        if (config.selectedTopics.length === 0 && safeTopics.length > 0) {
-          setConfig(prev => ({ ...prev, selectedTopics: [safeTopics[0].name] }));
+        // Drop saved topics the site no longer lists. The selection lives in
+        // localStorage, so a topic removed from the list kept being requested on
+        // every load: on oviva a saved "Brand Monitoring" template topic got a
+        // 404 from article-insights after the topic list stopped offering it.
+        // Then fall back to the first topic when nothing valid is left.
+        // An empty list (fetch failed) leaves the saved selection alone.
+        if (safeTopics.length > 0) {
+          const listed = new Set(safeTopics.map(t => t.name));
+          const kept = config.selectedTopics.filter(name => listed.has(name));
+          if (kept.length === 0) {
+            setConfig(prev => ({ ...prev, selectedTopics: [safeTopics[0].name] }));
+          } else if (kept.length !== config.selectedTopics.length) {
+            setConfig(prev => ({ ...prev, selectedTopics: kept }));
+          }
         }
       } catch (err) {
         console.error('Error loading initial data:', err);

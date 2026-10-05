@@ -1289,7 +1289,7 @@ async def regenerate_pillar_queries(
         service = get_pam_service()
         queries = await service._generate_pillar_queries(
             pillar,
-            model=model or "gpt-5.4-mini",
+            model=model or "bedrock-kimi-k2-5",
             force_regenerate=True
         )
 
@@ -1338,7 +1338,7 @@ async def list_pam_prompts(
                             "id": filename.replace(".md", ""),
                             "name": frontmatter.get("name", filename),
                             "description": frontmatter.get("description", ""),
-                            "model": frontmatter.get("model_config", {}).get("model", "gpt-5.4-mini"),
+                            "model": frontmatter.get("model_config", {}).get("model", "bedrock-kimi-k2-5"),
                             "temperature": frontmatter.get("model_config", {}).get("temperature", 0.3),
                             "version": frontmatter.get("version", "1.0.0")
                         })

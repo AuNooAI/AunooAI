@@ -333,7 +333,8 @@ class RelevanceConfidenceTracker:
 
     def record(self, topic: str, score: float, classifier_score: float = None,
                embedding_score: float = None, method: str = "hybrid", relevant: bool = None,
-               ce_score: float = None):
+               ce_score: float = None, jev_on_topic: float = None, jev_score: float = None,
+               jev_confidence: float = None, article_uri: str = None):
         """
         Record a relevance score for a topic.
 
@@ -345,6 +346,9 @@ class RelevanceConfidenceTracker:
             method: Scoring method used (hybrid, classifier_only, embedding_only, llm)
             relevant: Final relevance decision
             ce_score: Cross-encoder score when the CE tier ran (optional)
+            jev_on_topic / jev_score / jev_confidence: TypeSafe Jev shadow answers
+                (optional; recorded for comparison, never part of the decision)
+            article_uri: the article the reading is about, when the caller knows it
         """
         conn = None
         try:
@@ -353,8 +357,10 @@ class RelevanceConfidenceTracker:
 
             conn.execute(text("""
                 INSERT INTO relevance_confidence_readings
-                    (topic, score, classifier_score, embedding_score, method, relevant, ce_score)
-                VALUES (:topic, :score, :classifier_score, :embedding_score, :method, :relevant, :ce_score)
+                    (topic, score, classifier_score, embedding_score, method, relevant, ce_score,
+                     jev_on_topic, jev_score, jev_confidence, article_uri)
+                VALUES (:topic, :score, :classifier_score, :embedding_score, :method, :relevant, :ce_score,
+                        :jev_on_topic, :jev_score, :jev_confidence, :article_uri)
             """), {
                 "topic": topic,
                 "score": score,
@@ -362,7 +368,11 @@ class RelevanceConfidenceTracker:
                 "embedding_score": embedding_score,
                 "method": method,
                 "relevant": relevant,
-                "ce_score": ce_score
+                "ce_score": ce_score,
+                "jev_on_topic": jev_on_topic,
+                "jev_score": jev_score,
+                "jev_confidence": jev_confidence,
+                "article_uri": (article_uri or None) and str(article_uri)[:2000],
             })
 
             conn.commit()
@@ -1864,10 +1874,10 @@ async def get_model_config():
     # External models (LLM fallbacks)
     external_models = [
         ModelInfo(
-            name="gpt-5.4-mini",
+            name="bedrock-kimi-k2-5",
             type="external",
             status="available",
-            latency=format_latency('gpt-5.4-mini', '~2-5s'),
+            latency=format_latency('bedrock-kimi-k2-5', '~2-5s'),
             description="Fallback for all stages",
             tooltip="OpenAI gpt-5.4-mini used as fallback when: (1) Local models unavailable, (2) DeBERTa confidence < 0.6, (3) Topics with < 500 training samples, (4) Relevance score in uncertain range (0.3-0.7). Cost is per-article average.",
             usage="Fallback: Summary, Category, Enrichment, Explanations, Tags",
@@ -2463,7 +2473,7 @@ async def get_triage_articles(
                        category, topic, sentiment, tags, keyword_relevance_score
                 FROM articles
                 WHERE {where_sql}
-                ORDER BY publication_date DESC
+                ORDER BY publication_date DESC NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),
             params,

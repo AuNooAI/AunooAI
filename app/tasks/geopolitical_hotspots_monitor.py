@@ -234,7 +234,7 @@ class GeopoliticalHotspotsMonitor:
             # Get configuration from schedule
             topic = schedule.get('topic') or DEFAULT_GEOPOLITICAL_TOPIC
             batch_size = schedule.get('batch_size', 50)
-            model = schedule.get('model', 'gpt-5.4-mini')
+            model = schedule.get('model', 'bedrock-kimi-k2-5')
             process_all = schedule.get('process_all', False)
 
             # Adaptive batching: calculate batch size based on backlog

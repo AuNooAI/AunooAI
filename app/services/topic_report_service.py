@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from app.ai_models import resolve_litellm_call_params
+from app.model_tiers import default_model
+from app.ai_models import is_reasoning_model
 from app.services.report_style import CLINICAL_STYLE
 
 logger = logging.getLogger(__name__)
@@ -398,7 +400,7 @@ def _default_profile_text(db) -> str:
 
 
 async def generate_executive_summary_for_run(
-    run_id: str, topic: str, scenarios: list, model: str = "gpt-5.4",
+    run_id: str, topic: str, scenarios: list, model: str = default_model("standard"),
 ) -> Optional[dict]:
     """Generate the Future Horizons "Executive Summary" cards for a stored
     horizons run and cache them in ``analysis_versions_v2`` under the
@@ -458,7 +460,7 @@ async def generate_executive_summary_for_run(
         "messages": [{"role": "user", "content": full_prompt}],
         "caching": False,
     }
-    if model.startswith("gpt-5"):
+    if is_reasoning_model(model):
         from app.ai_models import minimal_reasoning_effort
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
@@ -635,13 +637,16 @@ async def _rerun_future_horizons_for_topic(
         sql = sa_text(f"""
             SELECT uri, title, summary, publication_date, sentiment, category,
                    future_signal, driver_type, time_to_impact, quality_score,
-                   news_source, topic_alignment_score, topic
+                   news_source, topic_alignment_score, topic,
+                   -- carried so filter_report_corpus can hold a market deck to
+                   -- its own country; without it the filter declines and warns
+                   source_country
             FROM articles
             WHERE topic = ANY(:topics)
               AND analyzed = TRUE
               AND topic_alignment_score IS NOT NULL
               AND topic_alignment_score > 0.7
-            ORDER BY topic_alignment_score DESC, publication_date DESC, uri ASC
+            ORDER BY topic_alignment_score DESC, publication_date DESC NULLS LAST, uri ASC
             LIMIT {int(sample_size)}
         """)
         rows = db.facade._execute_with_rollback(sql, {"topics": eval_topics}).fetchall()
@@ -697,7 +702,7 @@ async def _rerun_future_horizons_for_topic(
         "messages": [{"role": "user", "content": formatted_prompt}],
         "caching": False,
     }
-    if model.startswith("gpt-5"):
+    if is_reasoning_model(model):
         from app.ai_models import minimal_reasoning_effort
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
@@ -890,7 +895,7 @@ async def generate_topic_report(
 
     # Re-run the upstream Three Horizons analysis per topic if asked.
     if rerun_forecast:
-        model = force_model or "gpt-5.4"
+        model = force_model or default_model("standard")
         span_lo, span_hi = 5, 65   # share the progress budget across topics
         n = max(1, len(topics))
         for i, topic in enumerate(topics, 1):

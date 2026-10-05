@@ -79,6 +79,15 @@ SOURCE_POST_REVIEW = "post_review"
 SOURCE_EVENTS = "entity_events"
 # Writes the previous month's briefing, once that month is over.
 SOURCE_BRIEFING = "monthly_briefing"
+# Profiles the most active voices that have no profile yet, a few a day.
+# Each one is two xpoz calls and one short model call.
+SOURCE_VOICE_PROFILES = "voice_profiles"
+# Jev reads each new practitioner post once: on topic, and saying something.
+SOURCE_SOCIAL_CHECK = "social_check"
+# The "Wider market" strip: other companies' news, written and checked.
+SOURCE_WIDER_REVIEW = "wider_review"
+# Each company an item is credited to must be one its sources say did it.
+SOURCE_ACTOR_REVIEW = "actor_review"
 
 PROVIDER_BRIGHTDATA = "brightdata"
 PROVIDER_INTERNAL = "internal"
@@ -109,6 +118,23 @@ def _enabled() -> bool:
 
 def _max_vendors_per_run() -> int:
     return _env_int("MARKET_MAX_VENDORS_PER_RUN", 20)
+
+
+def _posts_per_vendor() -> int:
+    """How many recent posts to buy per vendor per run.
+
+    Bright Data bills per record delivered and its posts dataset cannot filter
+    by date, so this bound is the only cost lever the post source has. Left at
+    the client default of 25 it bought 2,020 records a run twice a day for the
+    AI-in-the-SOC market and kept about three of them, which was 98% of that
+    market's provider spend (91.29 of 92.85 in September 2026).
+
+    Five covers the busiest single day any one vendor managed over the two
+    weeks to 21 Sep 2026; the median vendor posts 1.2 times a day and the 95th
+    percentile is 2. Raise it if the cadence goes slower than daily, because
+    the bound is per run and a missed post is not re-offered.
+    """
+    return _env_int("MARKET_POSTS_PER_VENDOR", 5)
 
 
 def _monthly_budget() -> float:
@@ -177,6 +203,10 @@ def cadence(source: str) -> timedelta:
         SOURCE_POST_REVIEW: slow,     # daily — reads what posts arrived
         SOURCE_EVENTS: slow,          # daily — after the review, reads what it judged
         SOURCE_BRIEFING: slow,        # daily check; writes once a month
+        SOURCE_VOICE_PROFILES: slow,  # daily, capped by MARKET_PROFILE_DAILY
+        SOURCE_SOCIAL_CHECK: timedelta(hours=4),  # with the corpus match
+        SOURCE_WIDER_REVIEW: timedelta(hours=4),  # with the corpus match
+        SOURCE_ACTOR_REVIEW: timedelta(hours=4),  # with the corpus match
         SOURCE_DISCOVERY: slow * 30,  # monthly, plus after a redirect
     }.get(source, slow)
 
@@ -535,6 +565,10 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     runs += _extract_events(conn, market, now)
     runs += await _collect_followed(conn, market, now)
     runs += await _write_briefing(conn, market, now)
+    runs += await _profile_voices(conn, market, now)
+    runs += await _check_social(conn, market, now)
+    runs += await _review_wider(conn, market, now)
+    runs += await _review_actors(conn, market, now)
     runs += await _discover_feeds(conn, market, vendors, now,
                                   forced_run_id=manual.get((SOURCE_DISCOVERY, None)))
     runs += await _poll_pages(conn, market, vendors, now,
@@ -742,7 +776,7 @@ async def _collect_followed(conn, market: Dict[str, Any], now: datetime) -> int:
         return 0
     from app.services import market_follow as mf
 
-    if not mf.followed(conn, limit=1):
+    if not mf.followed(conn, market_id, limit=1):
         return 0
     run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_FOLLOW,
                          provider="xpoz")
@@ -832,7 +866,23 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         result = await mpr.review(
             conn, market_id, market["name"],
             limit=int(os.getenv("MARKET_POST_REVIEW_LIMIT", "200")))
-        counts = result["counts"]
+        counts = dict(result["counts"])
+
+        # Trade press, read in the same run and the same way. The pass above
+        # establishes what the companies said about themselves; this one is
+        # the only thing that can corroborate it, and it is far smaller — tens
+        # of articles a month against hundreds of posts. A failure here does
+        # not fail the vendor pass that already succeeded.
+        try:
+            earned = await mpr.review_earned(
+                conn, market_id, market["name"],
+                limit=int(os.getenv("MARKET_EARNED_REVIEW_LIMIT", "100")))
+            result["earned"] = earned
+            result["candidates"] += earned["candidates"]
+            for verdict, n in earned["counts"].items():
+                counts[verdict] = counts.get(verdict, 0) + n
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("market %s earned review failed: %s", market_id, exc)
         # A run where every batch failed is a failed run, not a quiet one.
         if result["batches"] and result["failed_batches"] == result["batches"]:
             status = "failed"
@@ -852,6 +902,136 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
         mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
         conn.commit()
         logger.warning("market %s post review failed: %s", market_id, exc)
+    return 1
+
+
+async def _check_social(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Have Jev read the practitioner posts that arrived since the last pass.
+
+    In a worker thread on its own connection: each post is one call, and the
+    tick must not stall on them.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_SOCIAL_CHECK, now) is None:
+        return 0
+    from app.services import market_post_review as mpr
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_SOCIAL_CHECK,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await asyncio.to_thread(mpr.check_social_posts, market_id, days=7)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["shown"],
+                     skipped=result["checked"] - result["shown"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s social check failed: %s", market_id, exc)
+    return 1
+
+
+async def _review_wider(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Write and check the "Wider market" strip's items that have no reading.
+
+    The strip shows only items this passed (market_wider_review), so until it
+    runs a new item waits rather than showing the article's own text.
+    """
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_WIDER_REVIEW, now) is None:
+        return 0
+    from app.services import market_wider_review as mwr
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_WIDER_REVIEW,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mwr.review(conn, market_id, days=30)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["passed"],
+                     skipped=result["failed"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s wider review failed: %s", market_id, exc)
+    return 1
+
+
+async def _review_actors(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Check that each company an item is credited to did it
+    (market_actor_review). An item waits on the page until this has run."""
+    market_id = market["id"]
+    if _is_due(conn, market_id, SOURCE_ACTOR_REVIEW, now) is None:
+        return 0
+    from app.services import market_actor_review as mar
+
+    run_id = mc.open_run(conn, market_id=market_id, source=SOURCE_ACTOR_REVIEW,
+                         provider="local")
+    conn.commit()
+    try:
+        result = await mar.review(conn, market_id, days=30)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=result["candidates"], new=result["confirmed"],
+                     skipped=result["rejected"])
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s actor review failed: %s", market_id, exc)
+    return 1
+
+
+def _profiles_per_day() -> int:
+    """How many unprofiled voices to profile per market per day; 0 turns it off."""
+    try:
+        return max(0, int(os.getenv("MARKET_PROFILE_DAILY", "") or 25))
+    except ValueError:
+        return 25
+
+
+async def _profile_voices(conn, market: Dict[str, Any], now: datetime) -> int:
+    """Profile the busiest voices that have none, a few each day.
+
+    Until 25 Sep 2026 profiles were built only from the page's button. The
+    last run was on 8 Sep, and 24 of the market's top 30 voices showed no
+    role, so a promoter and an analyst looked the same in the Social panel.
+    The daily cap keeps the xpoz key, which other sites share, and the model
+    spend small; the job runs in the background like the button's.
+    """
+    market_id = market["id"]
+    per_day = _profiles_per_day()
+    if not per_day or _is_due(conn, market_id, SOURCE_VOICE_PROFILES, now) is None:
+        return 0
+
+    from app.services import market_analysis as man
+    from app.services import market_voice_profiles as mvp
+
+    if mvp.running(market_id):
+        return 0
+    run_id = mc.open_run(conn, market_id=market_id,
+                         source=SOURCE_VOICE_PROFILES, provider="xpoz")
+    conn.commit()
+    try:
+        voices = (man.top_voices(conn, market_id, days=30, limit=200)
+                  .get("voices") or [])
+        todo = [v for v in voices
+                if (v.get("platform") or "").lower() in mvp.PROFILABLE
+                and not (v.get("account") or {}).get("profiled")][:per_day]
+        job = mvp.start_many(get_database_instance(), market_id,
+                             market["name"], todo)
+        mc.close_run(conn, run_id, status="succeeded",
+                     received=len(voices), new=job.get("total", 0))
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        mc.close_run(conn, run_id, status="failed", error=str(exc)[:500])
+        conn.commit()
+        logger.warning("market %s voice profiling failed: %s", market_id, exc)
     return 1
 
 
@@ -966,6 +1146,31 @@ def _discover_candidates(conn, market: Dict[str, Any], now: datetime) -> int:
 
 
 # ── Feeds ───────────────────────────────────────────────────────────────────
+
+
+def _vendor_feed_topic(conn, market: Dict[str, Any], vendor: Dict[str, Any],
+                       market_topic: str) -> str:
+    """Topic a vendor's discovered feeds are filed under.
+
+    The market's collection topic by default. A market whose config sets
+    ``collection.vendor_feed_topics = "brand"`` files each vendor's feeds under
+    that vendor's own brand topic when the site has one. Oviva's market sent
+    every feed to "Brand Monitoring Oviva", so Noom's blog read as Oviva news
+    (42 articles, Sep 2026).
+    """
+    own = f"Brand Monitoring {vendor.get('display_name') or ''}".strip()
+    try:
+        mode = conn.execute(text(
+            "SELECT config->'collection'->>'vendor_feed_topics' FROM bw_markets WHERE id = :m"),
+            {"m": market["id"]}).scalar()
+        if mode != "brand":
+            return market_topic
+        if conn.execute(text("SELECT 1 FROM keyword_groups WHERE topic = :t LIMIT 1"),
+                        {"t": own}).scalar():
+            return own
+    except Exception:  # noqa: BLE001 - fall back to the market topic
+        logger.debug("vendor feed topic lookup failed", exc_info=True)
+    return market_topic
 
 async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
                           now: datetime, forced_run_id: Optional[int] = None) -> int:
@@ -1082,13 +1287,14 @@ async def _discover_feeds(conn, market: Dict[str, Any], vendors: List[dict],
             # Register the feeds so the existing RSS collector polls them.
             # Recording them only in the baseline would leave a vendor's blog
             # "discovered" and never read.
+            feed_topic = _vendor_feed_topic(conn, market, vendor, topic_name)
             for feed_url in sources.feeds:
                 conn.execute(text("""
                     INSERT INTO rss_feeds (name, url, topic, description, is_active)
                     SELECT :n, :u, :t, :d, TRUE
                     WHERE NOT EXISTS (SELECT 1 FROM rss_feeds WHERE url = :u)
                 """), {"n": f"{vendor['display_name']} feed"[:255], "u": feed_url,
-                       "t": topic_name[:255],
+                       "t": feed_topic[:255],
                        "d": f"Discovered on {sources.domain} by Market Monitor"})
                 found += 1
 
@@ -1821,7 +2027,8 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
     try:
         if source == SOURCE_POSTS:
             result = await client.trigger_posts(
-                urls, since=since, webhook_url=callback_url(run_id),
+                urls, since=since, limit_per_input=_posts_per_vendor(),
+                webhook_url=callback_url(run_id),
                 webhook_auth=webhook_auth_value())
         else:
             result = await client.trigger_profiles(

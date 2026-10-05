@@ -31,6 +31,40 @@ export interface BWSentimentTrend {
   total: number;
 }
 
+// One bucket per period with each article counted once, whatever number of
+// categories it carries. The trend rows above are per category, so summing
+// them across categories over-counts multi-category articles.
+export interface BWSentimentBucket {
+  week: string;
+  sentiments: Record<string, number>;
+  total: number;
+}
+
+export interface BWSentimentTrendsResponse {
+  trends: BWSentimentTrend[];
+  weekly?: BWSentimentBucket[];   // absent on backends older than 14 Sep 2026
+  totals?: Record<string, number>;
+}
+
+// Fallback for older backends: collapse the per-category rows. Still
+// over-counts multi-category articles, but no worse than before.
+export function collapseSentimentTrends(trends: BWSentimentTrend[]): { weekly: BWSentimentBucket[]; totals: Record<string, number> } {
+  const byWeek: Record<string, Record<string, number>> = {};
+  const totals: Record<string, number> = {};
+  for (const t of trends || []) {
+    const w = (t.week || '').slice(0, 10);
+    const bucket = byWeek[w] || (byWeek[w] = {});
+    for (const [s, n] of Object.entries(t.sentiments || {})) {
+      bucket[s] = (bucket[s] || 0) + (n as number);
+      totals[s] = (totals[s] || 0) + (n as number);
+    }
+  }
+  const weekly = Object.keys(byWeek).sort().map(week => ({
+    week, sentiments: byWeek[week], total: Object.values(byWeek[week]).reduce((a, b) => a + b, 0),
+  }));
+  return { weekly, totals };
+}
+
 export interface BWAlertArticle {
   uri: string;
   title: string;
@@ -77,6 +111,9 @@ export interface BWStats {
   most_active_category: string | null;
   multi_category_count: number;
   category_breakdown: Record<string, number>;
+  // The brand's own blog/press/LinkedIn items in the same window. They show in
+  // the article list flagged "owned" but are left out of every count above.
+  owned_articles?: number;
 }
 
 export interface BWCategory {
@@ -107,6 +144,9 @@ export interface BWArticle {
   story_scored?: number | null;
   // MBFC source authority (when the source is in the mediabias dataset).
   factual_reporting?: string | null;
+  // The company's own publishing (its website, its LinkedIn): listed and
+  // flagged, left out of sentiment and share of voice.
+  is_owned?: boolean;
   // Adverse risk findings [{risk_type, severity, confidence}] + case state.
   risks?: { risk_type: string; severity: string; confidence?: number | null }[];
   review_status?: string | null;
@@ -207,7 +247,9 @@ export interface BWSocialMeta {
 export interface BWSocialPost {
   uri: string;
   title: string;
-  summary: string | null;
+  summary: string | null;            // English; the translation when the post was not English
+  original_summary?: string | null;  // the post as written, only when it was translated
+  original_title?: string | null;
   news_source: string | null;
   platform: string;
   publication_date: string | null;
@@ -217,6 +259,15 @@ export interface BWSocialPost {
   matched_keywords?: string[];
   social_meta?: BWSocialMeta | null;
   review_status?: string | null;
+  // Who wrote it (patient, clinician, customer, employee, journalist ...), from
+  // the social evaluation step; null on posts scored before roles existed.
+  author_role?: string | null;
+  author_role_reason?: string | null;
+  post_role?: string | null;
+  author_role_source?: 'post' | 'account_profile' | 'account_posts';
+  // Copies of the same text (retweets, mirrors) folded into this entry.
+  repost_count?: number;
+  reposts?: string[];
 }
 
 export interface BWSocialResponse {
@@ -229,6 +280,9 @@ export interface BWSocialResponse {
   by_platform: Record<string, number>;
   by_sentiment: Record<string, number>;
   by_keyword?: Record<string, number>;
+  by_role?: Record<string, number>;
+  /** The company's own posts left out of the feed and its sentiment. */
+  owned_excluded?: number;
   posts: BWSocialPost[];
 }
 
@@ -286,7 +340,8 @@ export interface BWComparison {
 export interface BWShareOfVoice {
   brand_id: number;
   brand_name: string;
-  mention_count: number;
+  mention_count: number;   // earned coverage only
+  owned_count?: number;    // the company's own blog / LinkedIn posts, reported beside it
   percentage: number;
   color: string | null;
 }
@@ -601,6 +656,124 @@ export interface BWPerceptionBrand {
   dimensions: Record<'media' | 'social' | 'community' | 'employee' | 'investor', BWPerceptionDimension>;
 }
 
+// ---- Voices: what each audience says about a brand ----
+export interface BWVoicePost {
+  uri: string;
+  title: string | null;
+  text: string;
+  platform: string;
+  publication_date: string | null;
+  sentiment: 'positive' | 'neutral' | 'negative' | null;
+  relevance: number | null;
+  author: string | null;
+  engagement: number;
+  author_role: string;
+  author_role_reason: string | null;
+  /** The reading of this post alone, before the account overrode it. */
+  post_role?: string;
+  /** post = from this post's text; account_profile = the Top voices / Accounts
+   *  profile of the author; account_posts = the majority of the author's other
+   *  classified posts. */
+  author_role_source?: 'post' | 'account_profile' | 'account_posts';
+  account_market_role?: string;
+  account_org?: string;
+}
+
+export interface BWVoiceRole {
+  role: string;
+  label: string;
+  hint: string;
+  n: number;
+  positive: number;
+  neutral: number;
+  negative: number;
+  net: number | null;
+  by_platform: Record<string, number>;
+  posts: BWVoicePost[];
+}
+
+export interface BWVoicesResponse {
+  brand_id: number;
+  brand: string;
+  days_back: number;
+  min_relevance: number;
+  total: number;
+  classified: number;
+  focus: string[];          // the pair to open on, e.g. ['clinician', 'patient']
+  roles: BWVoiceRole[];     // ranked by volume
+  coverage_notes: string[];
+  read_path: string;
+}
+
+export interface BWVoicesDigest {
+  brand_id: number;
+  brand: string;
+  role: string;
+  label: string;
+  days_back: number;
+  post_count: number;
+  /** One sentence the reader needs to weigh the rest: posts, accounts, platforms, countries, clustering, dates. */
+  context?: string | null;
+  facts?: { posts: number; accounts: number | null; platforms: Record<string, number>; from: string | null; to: string | null };
+  summary: string | null;
+  themes: Array<{ theme: string; sentiment: string; post_count: number; quotes: string[] }>;
+  /** What the posts ask for or would change, as items the brand could act on. */
+  asks?: string[];
+  note?: string;
+  model?: string;
+  generated_at?: string;
+  cached?: boolean;
+}
+
+export async function getVoices(brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4): Promise<BWVoicesResponse> {
+  const q = new URLSearchParams({ days_back: String(daysBack), min_relevance: String(minRelevance) });
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch voices: ${res.status}`);
+  return res.json();
+}
+
+/** Progress of a run that profiles the accounts behind a brand's posts. */
+export interface BWVoicesProfileStatus {
+  state: 'idle' | 'running' | 'done';
+  total?: number;
+  done?: number;
+  built?: number;
+  failed?: number;
+  skipped?: number;
+  errors?: string[];
+  started_at?: string;
+  finished_at?: string | null;
+}
+
+export async function startVoicesProfiling(brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4, refresh = false): Promise<BWVoicesProfileStatus> {
+  const res = await fetch(`${BASE}/voices/profile-posters`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_id: brandId, days_back: daysBack, min_relevance: minRelevance, refresh }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `Failed to start profiling: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getVoicesProfilingStatus(brandId: number | null): Promise<BWVoicesProfileStatus> {
+  const q = new URLSearchParams();
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices/profile-posters?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch profiling status: ${res.status}`);
+  return res.json();
+}
+
+export async function getVoicesDigest(role: string, brandId: number | null, daysBack: number = 90, minRelevance: number = 0.4): Promise<BWVoicesDigest> {
+  const q = new URLSearchParams({ role, days_back: String(daysBack), min_relevance: String(minRelevance) });
+  if (brandId != null) q.set('brand_id', String(brandId));
+  const res = await fetch(`${BASE}/voices/digest?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch voices digest: ${res.status}`);
+  return res.json();
+}
+
 export async function getPerception(daysBack: number = 90): Promise<{ days_back: number; brands: BWPerceptionBrand[] }> {
   const res = await fetch(`${BASE}/perception?days_back=${daysBack}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch perception: ${res.status}`);
@@ -809,7 +982,7 @@ export async function runScheduleNow(id: number): Promise<{ run_id: number }> {
 
 // --- Sentiment Trends ---
 
-export async function getSentimentTrends(brandId: number, daysBack: number = 365, topics?: string[]): Promise<{ trends: BWSentimentTrend[] }> {
+export async function getSentimentTrends(brandId: number, daysBack: number = 365, topics?: string[]): Promise<BWSentimentTrendsResponse> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/brands/${brandId}/sentiment-trends?${params}`, { credentials: 'include' });

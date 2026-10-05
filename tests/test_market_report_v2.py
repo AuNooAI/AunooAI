@@ -31,11 +31,16 @@ def test_every_development_lands_once_and_the_lead_is_not_repeated():
              "significant_hiring", "headcount_change"]
     devs = [_dev(i, t) for i, t in enumerate(types)]
     parts = html._v2_sections(devs, [], [], [])
-    assert parts["lead"] is devs[0]
+    # The lead rotates daily through the top few by rank, never a hire.
+    lead = parts["lead"]
+    assert lead in devs[:html._V2_LEAD_ROTATION + 2]
+    assert lead["event_type"] not in ("significant_hiring", "headcount_change")
     placed = [d["event_id"] for b in parts["buckets"].values() for d in b
               if "event_id" in d]
-    assert sorted(placed) == sorted(d["event_id"] for d in devs[1:])
-    assert [d["event_type"] for d in parts["buckets"]["launches"]] == ["product_launch", "product_expansion"]
+    assert sorted(placed) == sorted(d["event_id"] for d in devs if d is not lead)
+    assert [d["event_type"] for d in parts["buckets"]["launches"]
+            if d is not lead] == [t for t in ("product_launch", "product_expansion")
+                                  if t != lead["event_type"]]
     assert [d["event_type"] for d in parts["buckets"]["hiring"]] == ["significant_hiring", "headcount_change"]
     assert all(d["event_type"] not in ("product_launch", "product_expansion",
                                        "significant_hiring", "headcount_change")
@@ -88,7 +93,8 @@ def test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view():
     tv = {"voices": [{"platform": "twitter", "author": "h1", "posts": 3,
                       "latest_post": {"url": "https://x/p"}}]}
     shared = html._v2_voices_card(rows, tv, teaser=True)
-    assert shared.index("Person 0") < shared.index("Person 1")
+    # Who posted this period comes first, then the rest by reach.
+    assert shared.index("Person 1") < shared.index("Person 0") < shared.index("Person 2")
     assert "Following" in shared and "3 posts" in shared and "quiet this period" in shared
     assert html._TEASER_START in shared and shared.index("Person 10") > shared.index(html._TEASER_START)
     full = html._v2_voices_card(rows, tv, teaser=False)
@@ -126,7 +132,9 @@ def test_lead_skips_a_hiring_count():
 
 
 def test_named_customer_is_a_customer_and_unnamed_is_a_case_study():
-    lead = _dev(0, "acquisition")
+    # The only fresh item, so it leads whatever day the test runs.
+    from datetime import datetime, timezone
+    lead = _dev(0, "acquisition", date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     named = _dev(1, "customer", attributes={"customer": {"named": True, "name": "Acme"}})
     unnamed = _dev(2, "customer", attributes={"customer": {"named": False}})
     bare = _dev(3, "customer")
@@ -416,3 +424,128 @@ def test_attention_bars_carry_a_delta_against_the_period_before():
     assert "the same in the period before" in html             # 7ai earned unchanged
     # Without a previous window the engagement bar keeps its posts note.
     assert "9 posts" in _v2_motion(rows, prev=None)
+
+
+def test_the_social_panel_spreads_across_voices():
+    """On 16 September 2026 one feed robot held two of the six front-page
+    slots and one person's duplicate post held two more, so the panel showed
+    three voices where it had room for six."""
+    from app.services.market_report_html import _spread_voices
+
+    rows = [{"uri": f"u{i}", "social_meta": {"author": a}} for i, a in
+            enumerate(["opsmatters", "opsmatters", "gullible", "gullible",
+                       "chuvakin", "polsia", "torq_io"])]
+    shown = _spread_voices(rows, 6)
+    authors = [(r["social_meta"]["author"]) for r in shown]
+    assert authors[:5] == ["opsmatters", "gullible", "chuvakin", "polsia",
+                           "torq_io"]
+    # Nothing is dropped: with five distinct voices and room for six, a
+    # second post fills the last slot rather than leaving it empty.
+    assert len(shown) == 6
+    assert len(_spread_voices(rows, 20)) == len(rows)
+
+
+def test_the_social_panel_keeps_rows_with_no_author():
+    from app.services.market_report_html import _spread_voices
+
+    rows = [{"uri": "a", "social_meta": {}}, {"uri": "b", "social_meta": None},
+            {"uri": "c"}]
+    assert len(_spread_voices(rows, 6)) == 3
+
+
+def test_the_social_panel_shows_one_line_of_campaign_copy_once():
+    """A partner campaign runs the same sentence from several handles: the
+    Microsoft Copilot line ran from three accounts, two of which reached the
+    panel on 16 September 2026."""
+    from app.services.market_report_html import _spread_voices
+
+    copy = "Fragmented security tools impact visibility. Message us to talk."
+    rows = [{"uri": "a", "title": copy, "social_meta": {"author": "one"}},
+            {"uri": "b", "title": copy, "social_meta": {"author": "two"}},
+            {"uri": "c", "title": "Wazuh and TheHive are talking to each other",
+             "social_meta": {"author": "three"}}]
+    shown = _spread_voices(rows, 2)
+    assert [r["uri"] for r in shown] == ["a", "c"]
+    # Kept, not dropped: with room for three the repeat fills the last slot.
+    assert [r["uri"] for r in _spread_voices(rows, 3)] == ["a", "c", "b"]
+
+
+def test_the_same_post_from_two_handles_keys_the_same():
+    """A social title is "@handle: <the post>", so keying the panel's dedup
+    on the title let one line of syndicated copy through twice (16 Sep
+    2026)."""
+    from app.services.market_report_html import _same_words
+
+    body = ("AI-powered SOC automation reduces detection time and improves "
+            "accuracy while keeping human analysts responsible.")
+    a = {"title": f"@bizintelbriefly.bsky.social: {body}", "summary": body}
+    b = {"title": f"@devopsbriefly.bsky.social: {body}", "summary": body}
+    assert _same_words(a) == _same_words(b)
+    # With no body, the handle still comes off the title.
+    assert (_same_words({"title": f"@one: {body}"})
+            == _same_words({"title": f"@two: {body}"}))
+
+
+def test_a_contract_award_is_a_move_tagged_contract():
+    award = _dev(5, "customer")
+    award["headline"] = "Method Security wins $30M STRATFI award from U.S. Space Force"
+    lead = _dev(0, "acquisition")
+    parts = html._v2_sections([lead, award], [], [], [])
+    # The lead rotates by day, so the award is either the lead or a move;
+    # what it must never be is a case study.
+    assert award not in parts["buckets"]["cases"]
+    assert award in parts["buckets"]["moves"] or parts.get("lead") is award
+    assert html._v2_tag(award) == "Contract"
+
+
+def test_the_vendors_own_text_is_never_the_summary():
+    own = _dev(7, "partnership", summary="We are proud to announce that we are the partner.",
+               evidence=[{"uri": "https://x/7", "voice": "owned", "social": True}])
+    assert html._summary_unless_duplicate(own) == ""
+    own["dek"] = "Camelot becomes the Ravens' cyber resilience partner."
+    assert html._summary_unless_duplicate(own) == own["dek"]
+    news = _dev(8, "launch", summary="The publisher's own summary of the launch.",
+                evidence=[{"uri": "https://x/8", "voice": "independent", "social": False}])
+    assert html._summary_unless_duplicate(news)
+
+
+def test_a_headcount_reading_is_measured_on_a_day():
+    dev = _dev(9, "headcount_change", date="2026-09-23", date_established=False)
+    assert html._dev_date(dev) == "measured 23 Sep 2026"
+
+
+def test_a_vendor_post_row_drops_the_page_name_the_byline_already_gives():
+    row = {"uri": "https://www.linkedin.com/posts/x", "article_class": "social",
+           "title": "detections.ai: Threat actor delivery picked up the pace this week.",
+           "summary": "", "published": "2026-09-25T10:00:00Z",
+           "vendors": [{"brand_id": 1, "vendor": "System Two Security"}]}
+    out = html._v2_voice_row(row)
+    assert "System Two Security on LinkedIn" in out
+    assert "detections.ai:" not in out and "Threat actor delivery" in out
+    assert "(A Devo company)" not in html._river_source(
+        {**row, "vendors": [{"vendor": "Strike48 (A Devo company)"}]})
+
+
+def test_one_copy_of_each_story_the_most_substantive_one():
+    def post(uri, text_value, substance):
+        return {"uri": uri, "title": text_value, "summary": "",
+                "review_check": {"social": {"substance": substance}}}
+    rows = [post("a", "The Agentic SOC is not a future fantasy and not a single product feature", 0.4),
+            post("b", "The Agentic SOC is not a future fantasy and not a single product feature!", 0.7),
+            post("c", "Alert triage is high volume and bounded, which is why agents land there", 0.8)]
+    kept = html._one_per_story(rows)
+    assert [r["uri"] for r in kept] == ["b", "c"]
+
+
+def test_social_quotes_the_post_opening_not_a_picked_sentence():
+    text_value = ("Good to see more young founders building from Riyadh. An AI SOC aimed "
+                  "at the GCC is a smart angle: data residency rules there make US tools "
+                  "a hard sell, and local analysts know the threat actors. Curious how "
+                  "they handle Arabic-language phishing triage at scale.")
+    quote = html._opening_quote({"summary": text_value})
+    assert quote.startswith("Good to see") and "smart angle" in quote
+    assert len(quote) <= html._QUOTE_CHARS
+    assert html._opening_quote({"summary": "@a @b I used to laugh"}) == "I used to laugh"
+    row = html._v2_voice_row({"uri": "https://x/p", "summary": "Short post.",
+                              "social_meta": {"author": "a", "platform": "twitter"}})
+    assert 'data-src="quote"' in row

@@ -202,9 +202,9 @@ class KeywordSuggestionService:
             if not model:
                 try:
                     settings = self.db.facade.get_keyword_monitor_settings_by_id(1)
-                    model = settings.get('default_llm_model', 'gpt-5.4-mini') if settings else 'gpt-5.4-mini'
+                    model = settings.get('default_llm_model', 'bedrock-kimi-k2-5') if settings else 'bedrock-kimi-k2-5'
                 except Exception:
-                    model = 'gpt-5.4-mini'
+                    model = 'bedrock-kimi-k2-5'
 
             # Get topic description if available
             topic_description = ""
@@ -284,8 +284,12 @@ class KeywordSuggestionService:
                 {"role": "user", "content": prompt}
             ]
 
+            # A direct litellm call bypasses the Router: resolve the yaml name
+            # to its provider path and credentials or a Bedrock name cannot
+            # route at all.
+            from app.ai_models import resolve_litellm_call_params
             response = completion(
-                model=model,
+                **resolve_litellm_call_params(model),
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.3

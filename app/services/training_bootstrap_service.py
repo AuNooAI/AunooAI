@@ -54,7 +54,7 @@ class TrainingBootstrapService:
     _initialized = False
 
     # Default bootstrap model - can be overridden via config
-    DEFAULT_BOOTSTRAP_MODEL = "gpt-5.4-mini"
+    DEFAULT_BOOTSTRAP_MODEL = "bedrock-kimi-k2-5"
 
     def __new__(cls):
         if cls._instance is None:
@@ -77,7 +77,7 @@ class TrainingBootstrapService:
         with fallback to DEFAULT_BOOTSTRAP_MODEL.
 
         Returns:
-            Model name string (e.g., "gpt-5.4-mini")
+            Model name string (e.g., "bedrock-kimi-k2-5")
         """
         if self._bootstrap_model is None:
             try:

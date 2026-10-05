@@ -3,7 +3,7 @@ category: executive_briefing
 description: Scores and selects top N articles based on persona criteria for executive briefing
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-nano
+  model: bedrock-kimi-k2-5
   temperature: 0.3
 name: eb_selection_agent
 output_schema:

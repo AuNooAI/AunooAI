@@ -24,6 +24,7 @@ import { DataTable, type Column } from './DataTable';
 import { MarketThemesPanel } from './MarketThemesPanel';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
 import type { DrilldownSpec } from './MarketDrilldownHost';
+import { useVendorColours, VendorSwatch } from './vendorColours';
 
 // SVG stroke/fill props take a literal color, not a Tailwind class, so every
 // chart color needs a light/dark pair picked at render time (see `cc` below).
@@ -123,6 +124,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
   const AXIS_LABEL = cc(isDark, AXIS_LABEL_L, AXIS_LABEL_D);
   const SOV_PIE_COLORS = isDark ? SOV_PIE_COLORS_D : SOV_PIE_COLORS_L;
   const SOV_PIE_OTHER = cc(isDark, SOV_PIE_OTHER_L, SOV_PIE_OTHER_D);
+  // Each vendor's brand colour; a vendor without one keeps the chart's colour.
+  const colours = useVendorColours(marketId);
 
   useEffect(() => {
     let live = true;
@@ -339,7 +342,11 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                        'Share of voice']} />
                   <Bar dataKey="earned_share" fill={SIGNAL} name="Share of voice"
                        cursor="pointer"
-                       onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)} />
+                       onClick={(d: any) => d?.brand_id && onVendor(d.brand_id)}>
+                    {sov.vendors.filter(v => v.earned > 0).map(v => (
+                      <Cell key={v.brand_id} fill={colours.byId(v.brand_id) ?? SIGNAL} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (() => {
@@ -371,7 +378,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                          labelLine={false}>
                       {pieData.map((p, i) => (
                         <Cell key={p.name}
-                              fill={p.brand_id === null ? SOV_PIE_OTHER : SOV_PIE_COLORS[i]}
+                              fill={p.brand_id === null ? SOV_PIE_OTHER
+                                    : (colours.byId(p.brand_id) ?? SOV_PIE_COLORS[i])}
                               cursor={p.brand_id ? 'pointer' : 'default'}
                               onClick={() => p.brand_id && onVendor(p.brand_id)} />
                       ))}
@@ -429,6 +437,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                   fill="#d6409f">
                   {sov.vendors.filter(v => v.reactions_per_post !== null).map(v => (
                     <Cell key={v.brand_id} cursor="pointer"
+                          fill={colours.byId(v.brand_id) ?? '#d6409f'}
                           onClick={() => onVendor(v.brand_id)} />
                   ))}
                   <LabelList dataKey="vendor" position="top"
@@ -446,7 +455,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                 <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
                         className="w-full flex items-center justify-between
                                    py-1.5 text-sm hover:bg-slate-50 text-left dark:hover:bg-gray-700">
-                  <span className="text-slate-700 dark:text-gray-300">{v.vendor}</span>
+                  <span className="text-slate-700 dark:text-gray-300 inline-flex items-center gap-1.5">
+                    <VendorSwatch color={colours.byId(v.brand_id)} />{v.vendor}</span>
                   <span className="text-slate-500 tabular-nums dark:text-gray-400"
                         title="Own posts about itself, in this window">
                     {v.own_posts} post{v.own_posts === 1 ? '' : 's'}
@@ -484,7 +494,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                                            justify-between gap-2
                                            text-slate-700 hover:bg-slate-50
                                            dark:text-gray-300 dark:hover:bg-gray-700">
-                          <span>{v.vendor}</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <VendorSwatch color={colours.byId(v.brand_id)} />{v.vendor}</span>
                           <span className="text-xs text-slate-400 dark:text-gray-500 shrink-0">
                             {v.last_posted_at
                               ? `last posted ${String(v.last_posted_at).slice(0, 10)}`
@@ -511,9 +522,10 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                         <div className="divide-y">
                           {sov.unmeasured.slice(0, 10).map(v => (
                             <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
-                                    className="w-full py-1.5 text-sm text-left
+                                    className="w-full py-1.5 text-sm text-left flex items-center gap-1.5
                                                text-slate-700 hover:bg-slate-50
                                                dark:text-gray-300 dark:hover:bg-gray-700">
+                              <VendorSwatch color={colours.byId(v.brand_id)} />
                               {v.vendor}
                             </button>
                           ))}
@@ -603,6 +615,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                 <Scatter data={fu.momentum} fill={INK}>
                   {fu.momentum.map(m => (
                     <Cell key={m.brand_id} cursor="pointer"
+                          fill={colours.byId(m.brand_id) ?? INK}
                           onClick={() => onVendor(m.brand_id)} />
                   ))}
                   <LabelList dataKey="vendor" position="top"
@@ -628,7 +641,8 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                 <button key={m.brand_id} onClick={() => onVendor(m.brand_id)}
                         className="w-full flex items-center justify-between
                                    py-1.5 text-sm hover:bg-slate-50 text-left dark:hover:bg-gray-700">
-                  <span className="text-slate-700 dark:text-gray-300">{m.vendor}</span>
+                  <span className="text-slate-700 dark:text-gray-300 inline-flex items-center gap-1.5">
+                    <VendorSwatch color={colours.byId(m.brand_id)} />{m.vendor}</span>
                   <span className="text-slate-500 tabular-nums dark:text-gray-400">
                     <span title="Crunchbase Growth, their own score, 0-100. Not ours and not a forecast.">
                       growth {m.growth_score ?? '—'}
@@ -813,6 +827,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                           {openVendorRow === v.brand_id
                             ? <ChevronDown className="w-3 h-3 text-slate-400 dark:text-gray-500" />
                             : <ChevronRight className="w-3 h-3 text-slate-400 dark:text-gray-500" />}
+                          <VendorSwatch color={colours.byId(v.brand_id)} />
                           {v.vendor}
                         </span>
                       ) },
@@ -829,6 +844,7 @@ export function MarketAnalysisView({ marketId, onVendor, onDrill, onRecords,
                   return (
                     <div className="border rounded-lg p-3 bg-slate-50 mt-2 dark:bg-gray-700">
                       <div className="flex items-center gap-2 mb-2">
+                        <VendorSwatch color={colours.byId(v.brand_id)} />
                         <span className="text-sm font-medium text-slate-800 dark:text-gray-100">
                           {v.vendor}
                         </span>

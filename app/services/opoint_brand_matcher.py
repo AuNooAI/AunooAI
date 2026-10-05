@@ -53,6 +53,44 @@ def is_scholarly_source(news_source: Optional[str], url: Optional[str] = "") -> 
     return False
 
 
+# Records these two shapes carry no journal domain, so is_scholarly_source()
+# cannot see them: Crossref/OpenAlex/PubMed index records are bare doi.org
+# links, and journal pages relayed through Google News have an opaque
+# news.google.com URL. Only the source name, or the platform name Google News
+# appends to the title ("... - Wiley Online Library"), identifies them.
+SCHOLARLY_SOURCE_NAMES = ("crossref", "openalex", "semantic scholar", "semanticscholar", "pubmed")
+SCHOLARLY_TITLE_SUFFIXES = (
+    "wiley online library", "sciencedirect", "springerlink", "taylor & francis online",
+    "sage journals", "acs publications", "pubmed", "frontiers", "mdpi", "oxford academic",
+    "cambridge core", "plos", "ieee xplore", "arxiv", "biorxiv", "medrxiv", "jama network",
+    "emerald insight", "karger", "hindawi", "ssrn", "researchgate", "semantic scholar",
+    "pnas", "rsc publishing", "cell press", "elife",
+)
+# Brand Watcher category for a paper, chapter or dataset the brand published.
+# Not one of the eleven news categories: a publisher's own output is not
+# coverage of the publisher, and the news classifiers read an abstract as a
+# product breakthrough.
+SCHOLARLY_CATEGORY = "Publications"
+
+
+def is_scholarly_article(news_source: Optional[str], url: Optional[str] = "",
+                         title: Optional[str] = "") -> bool:
+    """is_scholarly_source() plus index records and Google News journal relays."""
+    if is_scholarly_source(news_source, url):
+        return True
+    if "doi.org/" in (url or "").lower():
+        return True
+    if (news_source or "").strip().lower() in SCHOLARLY_SOURCE_NAMES:
+        return True
+    t = (title or "").strip().lower()
+    for sep in (" - ", " | ", " – ", " — "):
+        if sep in t:
+            tail = t.rsplit(sep, 1)[1].strip()
+            if tail and any(tail.startswith(x) for x in SCHOLARLY_TITLE_SUFFIXES):
+                return True
+    return False
+
+
 def source_reach_weight(opoint_entities: Optional[dict]) -> float:
     """Proxy for a source's audience reach, from Opoint ``site_rank.rank_global``.
 

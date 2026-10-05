@@ -493,10 +493,10 @@ export function AddAgentModal({
               disabled={saving || loading || loadingModels}
             >
               <SelectTrigger>
-                <SelectValue placeholder={loadingModels ? "Loading models..." : "Default (gpt-5.4-mini)"} />
+                <SelectValue placeholder={loadingModels ? "Loading models..." : "Default (Kimi K2.5)"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__default__">Default (gpt-5.4-mini)</SelectItem>
+                <SelectItem value="__default__">Default (Kimi K2.5)</SelectItem>
                 {/* An existing agent can hold a model that is no longer offered;
                     keep it listed so editing the agent does not change it. */}
                 {model && !availableModels.some(m => m.id === model) && (

@@ -4,7 +4,7 @@ description: Creates focus group dynamics including consensus areas, tension poi
   and diversity analysis
 model_config:
   max_tokens: 3000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.5
 name: fg_synthesis_agent
 output_schema:

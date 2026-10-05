@@ -108,10 +108,13 @@ async def get_topics_unified(
                     'is_tracked_only': True,
                 })
 
-        # Dedicated Brand Watcher tenants only expose brand monitoring topics
+        # Dedicated Brand Watcher tenants only expose brand monitoring topics.
+        # The trailing space leaves out the bare "Brand Monitoring" template
+        # that new brand topics copy from: it never has articles, and listing it
+        # made the Explore page ask for its narratives and get a 404 (oviva, 2 Oct).
         from app.core.modules import is_dedicated_bw
         if is_dedicated_bw():
-            all_topics = [t for t in all_topics if str(t.get('name', '')).startswith('Brand Monitoring')]
+            all_topics = [t for t in all_topics if str(t.get('name', '')).startswith('Brand Monitoring ')]
 
         # If not including full config, return minimal information
         if not include_config:

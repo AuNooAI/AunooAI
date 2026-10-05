@@ -23,7 +23,7 @@ class AutoIngestConfig:
     enabled: bool = True
     quality_control_enabled: bool = True
     min_relevance_threshold: float = 0.3
-    llm_model: str = "gpt-5.4-mini"
+    llm_model: str = "bedrock-kimi-k2-5"
     llm_temperature: float = 0.7
     batch_size: int = 5
     max_concurrent_batches: int = 2

@@ -92,10 +92,10 @@ const CREATIVITY_PRESETS = [
 
 // Default models for each agent type
 const DEFAULT_MODELS: Record<string, string> = {
-  sio_discovery_agent: 'gpt-5.4-mini',
-  sio_triage_agent: 'gpt-5.4-mini',
-  sio_deep_analysis_agent: 'gpt-5.4',
-  sio_synthesis_agent: 'gpt-5.4'
+  sio_discovery_agent: 'bedrock-kimi-k2-5',
+  sio_triage_agent: 'bedrock-kimi-k2-5',
+  sio_deep_analysis_agent: 'claude-sonnet-4-5',
+  sio_synthesis_agent: 'claude-sonnet-4-5'
 };
 
 // Default temperatures for each agent type
@@ -169,7 +169,7 @@ export function SIOTuneModal({
 
         for (const agent of promptsData.prompts || []) {
           initialContent[agent.id] = agent.content;
-          initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
+          initialModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'claude-sonnet-4-5';
           const temp = agent.metadata?.model_config?.temperature;
           initialTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.3');
         }
@@ -317,7 +317,7 @@ export function SIOTuneModal({
 
     for (const agent of agents) {
       resetContent[agent.id] = agent.content;
-      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'gpt-5.4';
+      resetModels[agent.id] = agent.metadata?.model_config?.model || DEFAULT_MODELS[agent.id] || 'claude-sonnet-4-5';
       const temp = agent.metadata?.model_config?.temperature;
       resetTemps[agent.id] = temp !== undefined ? String(temp) : (DEFAULT_TEMPS[agent.id] || '0.3');
     }

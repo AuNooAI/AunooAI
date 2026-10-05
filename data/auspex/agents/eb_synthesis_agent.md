@@ -4,7 +4,7 @@ description: Creates briefing-level synthesis with cross-article themes and prio
   actions
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-nano
+  model: bedrock-kimi-k2-5
   temperature: 0.5
 name: eb_synthesis_agent
 output_schema:

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from app.model_tiers import default_model
 from typing import Optional, List, Dict
 from re import U
 import sqlite3
@@ -6,6 +7,7 @@ import json
 
 # TODO SQLAlchemy: Replace all references to sqlite.
 # TODO SQLAlchemy:
+from app.services.article_visibility import readable_clause, story_clause
 from sqlalchemy import (select,
                         insert,
                         update,
@@ -438,9 +440,57 @@ class DatabaseQueryFacade:
         return article_exists
 
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
+        """Insert a collected article, or attach a repeat to the row we hold.
+
+        The row is found by identity, not only by exact URL
+        (``app.services.article_identity``): a tracking variant of a known
+        URL, a social post seen under a second URL, or a second provider's
+        copy of a known story all land on the existing row. A repeat may
+        fill empty columns and replace an excerpt with a full text; it never
+        empties a column or touches the analysis. Every sighting is written
+        to ``article_observations`` and ``article_url_aliases``.
+
+        Returns ``(inserted_new_article, False, match_updated)`` as before.
+        The fuller outcome is in ``self.last_create_outcome``:
+        ``{"outcome": "inserted" | "existing" | "merged", "uri", "method",
+        "matched_by"}``. The one caller (keyword_monitor) reads the tuple.
+        """
         # Don't call begin() - transaction is auto-started by PostgreSQL on first execute
         try:
+            from app.services.article_identity import (
+                column_updates, content_kind_of, merge_fields, provider_of,
+                record_observation, record_type_of, resolve_identity,
+            )
             inserted_new_article = False
+            labels = {}
+            resolution = None
+            outcome = "existing"
+            try:
+                resolution = resolve_identity(self, dict(article, url=article_url, topic=topic))
+            except Exception as _ie:
+                self.logger.warning(f"Identity resolution skipped for {article_url}: {_ie}")
+            if resolution and resolution.existing and resolution.uri:
+                if resolution.uri != article_url:
+                    self.logger.info(
+                        f"Same article as {resolution.uri} (by {resolution.matched_by}): {article_url}")
+                    article_url = resolution.uri
+                article_exists = True
+            if not article_exists:
+                # Is this a copy of a row we already hold? The same URL with
+                # different tracking parameters is that row; the same story on
+                # another outlet is inserted and marked as a copy.
+                try:
+                    from app.services.story_identity import label_article
+                    labels = label_article(self, article_url, article.get('title'),
+                                           article.get('source'), topic,
+                                           article.get('published_date'))
+                except Exception as _le:
+                    self.logger.warning(f"Story labels skipped for {article_url}: {_le}")
+                    labels = {}
+                if labels.get('same_row'):
+                    self.logger.info(f"Same article as {labels['same_row']}: {article_url}")
+                    article_url = labels['same_row']
+                    article_exists = True
             if not article_exists:
                 # English title and text for a row collected in another language.
                 # Done here, at the first insert, because social posts and news
@@ -452,6 +502,8 @@ class DatabaseQueryFacade:
                     english_fields(article)
                 except Exception as _te:
                     self.logger.warning(f"Translation skipped for {article_url}: {_te}")
+                from datetime import timezone as _tz
+                now = datetime.now(_tz.utc)
                 # Save new article
                 self._execute_with_rollback(insert(articles).values(
                     uri=article_url,
@@ -467,11 +519,53 @@ class DatabaseQueryFacade:
                     # Social posts (xpoz/bluesky) carry author + engagement here; the
                     # social-only group path saves ONLY via this insert, so dropping
                     # it loses author/likes for good (adverse rules depend on both).
-                    social_meta=article.get('social_meta')
+                    social_meta=article.get('social_meta'),
+                    url_key=labels.get('url_key'),
+                    source_type=labels.get('source_type'),
+                    duplicate_of=labels.get('duplicate_of'),
+                    # Collector data quality (cdq_001): how the row is identified,
+                    # what kind of text it holds, when we first and last saw it.
+                    canonical_url=(resolution.canonical_url if resolution else None) or None,
+                    identity_method=(resolution.method if resolution else None),
+                    record_type=(resolution.record_type if resolution else record_type_of(article)),
+                    content_kind=content_kind_of(article),
+                    first_seen_at=now,
+                    last_seen_at=now,
+                    published_at_raw=(str(article['published_at_raw'])[:200]
+                                      if article.get('published_at_raw') else None),
+                    publication_date_precision=article.get('publication_date_precision'),
+                    date_provenance=article.get('date_provenance'),
                 ))
 
                 inserted_new_article = True
+                outcome = "inserted"
                 self.logger.info(f"Inserted new article: {article_url}")
+            else:
+                # A repeat: fill what the stored row lacks, never empty anything.
+                try:
+                    existing_row = self._fetchone_with_rollback(
+                        select(articles.c.title, articles.c.news_source, articles.c.summary,
+                               articles.c.publication_date, articles.c.content_kind,
+                               articles.c.social_meta, articles.c.original_title,
+                               articles.c.original_summary
+                               ).where(articles.c.uri == article_url), mappings=True)
+                    updates = merge_fields(dict(existing_row) if existing_row else {}, article)
+                    writes = column_updates(updates)
+                    if existing_row and writes:
+                        self._execute_with_rollback(
+                            update(articles).where(articles.c.uri == article_url).values(**writes))
+                        if set(writes) - {'last_seen_at'}:
+                            outcome = "merged"
+                            self.logger.info(
+                                f"Merged {sorted(set(writes) - {'last_seen_at'})} into {article_url}")
+                except Exception as _me:
+                    self.logger.warning(f"Merge skipped for {article_url}: {_me}")
+
+            try:
+                record_observation(self, article_url, dict(article, url=article.get('url') or article_url),
+                                   provider_of(article), resolution=resolution)
+            except Exception as _oe:
+                self.logger.warning(f"Observation skipped for {article_url}: {_oe}")
 
             # Get the group_id for this keyword
             group_id = self._scalar_with_rollback(
@@ -508,6 +602,12 @@ class DatabaseQueryFacade:
 
             self.connection.commit()
 
+            self.last_create_outcome = {
+                "outcome": outcome,
+                "uri": article_url,
+                "method": resolution.method if resolution else None,
+                "matched_by": resolution.matched_by if resolution else None,
+            }
             # For backward compatibility, return the same structure but alert_inserted is always False now
             return inserted_new_article, False, match_updated
 
@@ -706,11 +806,11 @@ class DatabaseQueryFacade:
                 raw_articles_table,
                 articles.c.uri == raw_articles_table.c.uri
             )
-        ).where(and_(*conditions))
+        ).where(and_(*conditions, story_clause(articles)))
         if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
-            statement = statement.order_by(articles.c.publication_date.desc(), articles.c.title.asc())
+            statement = statement.order_by(articles.c.publication_date.desc().nullslast(), articles.c.title.asc())
         else:
-            statement = statement.order_by(articles.c.publication_date.desc())
+            statement = statement.order_by(articles.c.publication_date.desc().nullslast())
 
         statement = statement.limit(optimal_sample_size * fetch_multiplier)
 
@@ -1157,7 +1257,7 @@ class DatabaseQueryFacade:
                 articles.c.analyzed == True  # Use True for boolean column
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(50)
         return self._fetchall_with_rollback(statement, mappings=True)
 
@@ -1186,7 +1286,7 @@ class DatabaseQueryFacade:
                 articles.c.summary != ''
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(optimal_sample_size)
         return self._fetchall_with_rollback(statement, mappings=True)
 
@@ -1201,6 +1301,7 @@ class DatabaseQueryFacade:
             List of article dictionaries with raw_markdown field
         """
         from app.database_models import t_raw_articles
+        from app.services.article_visibility import readable_clause
 
         statement = select(
             articles.c.uri,
@@ -1222,10 +1323,11 @@ class DatabaseQueryFacade:
         ).where(
             and_(
                 articles.c.topic == topic,
-                articles.c.analyzed == True  # Only analyzed articles
+                articles.c.analyzed == True,  # Only analyzed articles
+                readable_clause(articles)
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1265,7 +1367,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date >= cutoff_date_str
             )
         ).order_by(
-            desc(articles.c.publication_date)
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1297,6 +1399,9 @@ class DatabaseQueryFacade:
             articles.c.summary,
             articles.c.publication_date,
             articles.c.news_source,
+            # Carried so the report corpus can hold a market topic to its own
+            # country — see app/services/report_corpus.filter_report_corpus.
+            articles.c.source_country,
             articles.c.topic_alignment_score,
         ).where(
             and_(
@@ -1308,7 +1413,7 @@ class DatabaseQueryFacade:
             )
         ).order_by(
             desc(articles.c.topic_alignment_score),
-            desc(articles.c.publication_date),
+            articles.c.publication_date.desc().nullslast(),
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -1381,7 +1486,7 @@ class DatabaseQueryFacade:
             articles.c.user_preference,
         ).where(and_(*conditions)).order_by(
             desc(articles.c.topic_alignment_score),
-            desc(articles.c.publication_date),
+            articles.c.publication_date.desc().nullslast(),
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -2400,7 +2505,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date >= datetime.utcnow() - timedelta(days=params[2])
             )
         ).order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).limit(5)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -2474,7 +2579,7 @@ class DatabaseQueryFacade:
         if topic and topic != "__all__":
             statement = statement.where(articles.c.topic == topic)
 
-        statement = statement.order_by(articles.c.publication_date.desc())
+        statement = statement.order_by(articles.c.publication_date.desc().nullslast())
 
         if limit:
             statement = statement.limit(limit)
@@ -3559,7 +3664,7 @@ class DatabaseQueryFacade:
             func.coalesce(keyword_monitor_settings.c.min_relevance_threshold, 0.0).label("min_relevance_threshold"),
             func.coalesce(keyword_monitor_settings.c.quality_control_enabled, True).label("quality_control_enabled"),
             func.coalesce(keyword_monitor_settings.c.auto_save_approved_only, False).label("auto_save_approved_only"),
-            func.coalesce(keyword_monitor_settings.c.default_llm_model, "gpt-5.4-mini").label("default_llm_model"),
+            func.coalesce(keyword_monitor_settings.c.default_llm_model, "bedrock-kimi-k2-5").label("default_llm_model"),
             func.coalesce(keyword_monitor_settings.c.llm_temperature, 0.1).label("llm_temperature"),
             func.coalesce(keyword_monitor_settings.c.llm_max_tokens, 1000).label("llm_max_tokens"),
             func.coalesce(kms_subq.c.requests_today, 0).label("requests_today"),
@@ -3645,7 +3750,7 @@ class DatabaseQueryFacade:
                 min_relevance_threshold=0.7,
                 quality_control_enabled=True,
                 auto_save_approved_only=False,
-                default_llm_model="gpt-5.4",
+                default_llm_model=default_model("standard"),
                 llm_temperature=0.7,
                 llm_max_tokens=2000
             )
@@ -5056,7 +5161,7 @@ class DatabaseQueryFacade:
                 articles.c.publication_date <= end_date
             )
         statement = statement.order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).limit(limit)
 
         return self._fetchall_with_rollback(statement, mappings=True)
@@ -5130,6 +5235,29 @@ class DatabaseQueryFacade:
                 select(articles.c.uri).where(articles.c.uri == uri)
             )
 
+            labels = {}
+            if not existing:
+                # Same URL apart from tracking parameters: update that row.
+                # Same story on another outlet: insert, marked as a copy.
+                try:
+                    from app.services.story_identity import label_article
+                    labels = label_article(self, uri, article_data.get('title'),
+                                           article_data.get('news_source'), topic,
+                                           article_data.get('publication_date'))
+                except Exception as _le:
+                    self.logger.warning(f"Story labels skipped for {uri}: {_le}")
+                    labels = {}
+                if labels.get('same_row'):
+                    self.logger.info(f"Same article as {labels['same_row']}: {uri}")
+                    uri = labels['same_row']
+                    article_data = dict(article_data, uri=uri)
+                    existing = (uri,)
+                else:
+                    article_data = dict(article_data,
+                                        url_key=labels.get('url_key'),
+                                        source_type=labels.get('source_type'),
+                                        duplicate_of=labels.get('duplicate_of'))
+
             # Define all possible article fields
             valid_fields = [
                 'uri', 'title', 'news_source', 'summary', 'sentiment',
@@ -5145,7 +5273,8 @@ class DatabaseQueryFacade:
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
                 'ingest_status', 'auto_ingested', 'article_origin',
-                'opoint_entities', 'original_title', 'original_summary'
+                'opoint_entities', 'original_title', 'original_summary',
+                'url_key', 'source_type', 'duplicate_of'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -5487,9 +5616,14 @@ class DatabaseQueryFacade:
         date_type='publication',
         date_field=None,
         require_category=False,
-        exclude_ingest_status=None
+        exclude_ingest_status=None,
+        readable_only=True
     ):
         """Search articles with filters including topic - SQLAlchemy version.
+
+        readable_only (default True) leaves out rows below the relevance floor,
+        the rule every view applies (app/services/article_visibility.py). Pass
+        False only from training or audit code that needs the rejects.
 
         exclude_ingest_status: list of ingest_status values to leave out, e.g.
         ["filtered_relevance"] for articles the collector rejected before the AI
@@ -5506,7 +5640,8 @@ class DatabaseQueryFacade:
             date_field_to_use = getattr(articles.c, date_field)
 
         # Build WHERE conditions
-        conditions = []
+        from app.services.article_visibility import readable_clause
+        conditions = [readable_clause(articles)] if readable_only else []
 
         # Add topic filter
         if topic:
@@ -5597,8 +5732,10 @@ class DatabaseQueryFacade:
         else:
             logger.info(f"Database: Fetching {limit} recent articles across ALL topics (date range: {start_date} to {end_date})")
 
-        # Build WHERE conditions (topic filter optional for cross-topic mode)
-        conditions = []
+        # Build WHERE conditions (topic filter optional for cross-topic mode).
+        # Readers never see what quality control rejected (app/services/article_visibility.py).
+        from app.services.article_visibility import readable_clause
+        conditions = [readable_clause(articles)]
         if topic_name:
             conditions.append(articles.c.topic == topic_name)
 
@@ -5667,7 +5804,9 @@ class DatabaseQueryFacade:
             logger.info(f"Database: Fetching {limit} articles with bias data across ALL topics")
 
         # Build WHERE conditions - must have bias data
+        from app.services.article_visibility import readable_clause
         conditions = [
+            readable_clause(articles),
             articles.c.bias.isnot(None),
             articles.c.bias != ''
         ]
@@ -5721,7 +5860,9 @@ class DatabaseQueryFacade:
             logger.info(f"Database: Fetching {limit} articles with future signals across ALL topics")
 
         # Build WHERE conditions - must have future_signal data
+        from app.services.article_visibility import readable_clause
         conditions = [
+            readable_clause(articles),
             articles.c.future_signal.isnot(None),
             articles.c.future_signal != '',
             articles.c.future_signal != 'None'
@@ -5814,7 +5955,9 @@ class DatabaseQueryFacade:
         where_conditions.extend([
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Add bias filter if specified
@@ -5923,11 +6066,11 @@ class DatabaseQueryFacade:
             articles.c.driver_type,
             articles.c.driver_type_explanation
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         ).order_by(
             # Sort by date first (newest day first), then by quality within each day
             # This ensures today's articles always appear before yesterday's
-            articles.c.publication_date.desc(),
+            articles.c.publication_date.desc().nullslast(),
             factual_reporting_order.desc(),
             news_source_order.desc()
         )
@@ -6002,7 +6145,9 @@ class DatabaseQueryFacade:
         where_conditions.extend([
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Add spam/promotional content filters
@@ -6059,7 +6204,7 @@ class DatabaseQueryFacade:
         ).select_from(
             articles
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         )
 
         # Execute and return scalar result
@@ -6109,7 +6254,9 @@ class DatabaseQueryFacade:
             articles.c.publication_date.isnot(None),
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         # Spam/promotional content filters
@@ -6169,9 +6316,9 @@ class DatabaseQueryFacade:
             articles.c.bias_country,
             articles.c.user_preference,
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         ).order_by(
-            articles.c.publication_date.desc()
+            articles.c.publication_date.desc().nullslast()
         ).offset(offset).limit(limit)
 
         # Execute and return results
@@ -6218,7 +6365,9 @@ class DatabaseQueryFacade:
             articles.c.publication_date.isnot(None),
             articles.c.category.isnot(None),
             articles.c.category != '',
-            articles.c.sentiment.isnot(None)
+            articles.c.sentiment.isnot(None),
+            # Same floor as every other reader: rows quality control rejected stay out.
+            readable_clause(articles)
         ])
 
         where_conditions.extend([
@@ -6260,7 +6409,7 @@ class DatabaseQueryFacade:
         ).select_from(
             articles
         ).where(
-            and_(*where_conditions)
+            and_(*where_conditions, story_clause(articles))
         )
 
         result = self._scalar_with_rollback(statement)
@@ -6403,7 +6552,8 @@ class DatabaseQueryFacade:
     # ============================================================
 
     def get_signal_alerts(self, topic: str = None, instruction_id: int = None,
-                         acknowledged: bool = None, limit: int = 100) -> List[Dict]:
+                         acknowledged: bool = None, limit: int = 100,
+                         review_status: str = None) -> List[Dict]:
         """Get signal alerts with optional filters.
 
         Args:
@@ -6421,7 +6571,7 @@ class DatabaseQueryFacade:
         query = """
         SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-               sa.is_acknowledged, sa.acknowledged_at,
+               sa.is_acknowledged, sa.acknowledged_at, sa.review_status,
                a.title as article_title, a.news_source as article_source,
                a.publication_date as article_publication_date
         FROM signal_alerts sa
@@ -6438,6 +6588,13 @@ class DatabaseQueryFacade:
         if acknowledged is not None:
             query += " AND sa.is_acknowledged = :acknowledged"
             params['acknowledged'] = acknowledged
+
+        # 'held' = alerts the Jev referee kept out of the email (review list);
+        # 'sent' = everything else; None = all.
+        if review_status == 'held':
+            query += " AND sa.review_status = 'held'"
+        elif review_status == 'sent':
+            query += " AND (sa.review_status IS NULL OR sa.review_status <> 'held')"
 
         if topic:
             query += " AND (a.topic = :topic OR a.title LIKE :topic_pattern OR a.summary LIKE :topic_pattern)"
@@ -6459,6 +6616,7 @@ class DatabaseQueryFacade:
                     'confidence': row['confidence'],
                     'threat_level': row['threat_level'],
                     'summary': row['summary'],
+                    'review_status': row['review_status'],
                     'detected_at': row['detected_at'],
                     'is_acknowledged': bool(row['is_acknowledged']),
                     'acknowledged_at': row['acknowledged_at'],
@@ -6808,7 +6966,7 @@ class DatabaseQueryFacade:
     def save_signal_alert(self, article_uri: str, instruction_id: int,
                          instruction_name: str, confidence: float,
                          threat_level: str, summary: str,
-                         reasoning: str = None) -> Optional[int]:
+                         reasoning: str = None, review_status: str = None) -> Optional[int]:
         """Save a signal alert.
 
         Args:
@@ -6826,13 +6984,14 @@ class DatabaseQueryFacade:
         try:
             query = """
             INSERT INTO signal_alerts
-            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, reasoning)
-            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary, :reasoning)
+            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, reasoning, review_status)
+            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary, :reasoning, :review_status)
             ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
                 confidence = :confidence,
                 threat_level = :threat_level,
                 summary = :summary,
                 reasoning = :reasoning,
+                review_status = :review_status,
                 detected_at = CURRENT_TIMESTAMP
             RETURNING id
             """
@@ -6843,7 +7002,8 @@ class DatabaseQueryFacade:
                 'confidence': confidence,
                 'threat_level': threat_level,
                 'summary': summary,
-                'reasoning': reasoning
+                'reasoning': reasoning,
+                'review_status': review_status
             })
             self.connection.commit()
             return row[0] if row else None
@@ -13807,6 +13967,25 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting desk briefings for user {username}: {e}")
             return []
 
+    @staticmethod
+    def _decode_briefing_json_fields(briefing: dict) -> dict:
+        """Return a briefing whose JSONB fields are real lists and dicts.
+
+        Some rows were written with json.dumps() into a JSONB column, so the
+        value comes back as a JSON *string* instead of the list it should be.
+        Readers then iterate the characters of that string and crash. The
+        writers are fixed, and this decodes rows stored before that fix.
+        """
+        for field in ('articles', 'incidents', 'emerging_topics', 'themes',
+                      'priority_actions', 'metadata'):
+            value = briefing.get(field)
+            if isinstance(value, str):
+                try:
+                    briefing[field] = json.loads(value)
+                except (ValueError, TypeError):
+                    briefing[field] = {} if field == 'metadata' else []
+        return briefing
+
     def get_desk_briefing_by_id(self, briefing_id: int, username: str) -> dict:
         """Get a specific desk briefing by ID (user-scoped).
 
@@ -13823,7 +14002,7 @@ class DatabaseQueryFacade:
 
             result = self._fetchone_with_rollback(statement)
             if result:
-                return dict(result._mapping)
+                return self._decode_briefing_json_fields(dict(result._mapping))
             return None
         except Exception as e:
             self.logger.error(f"Error retrieving desk briefing {briefing_id}: {e}")
@@ -14344,6 +14523,43 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error finalizing desk briefing {briefing_id}: {e}")
             return False
 
+    def save_desk_briefing_review_draft(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str,
+        themes: list,
+        priority_actions: list,
+        metadata: dict,
+        model_used: str
+    ) -> bool:
+        """Store a generated synthesis that the reviewer blocked, leaving the
+        briefing a draft. The analyst can read the findings, regenerate, or
+        finalize over them; nothing is emailed until then."""
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+            import json
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'draft')
+            ).values(
+                synthesis=synthesis,
+                themes=json.loads(json.dumps(themes, default=str)) if themes else None,
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else None,
+                metadata=json.loads(json.dumps(metadata, default=str)) if metadata else None,
+                model_used=model_used,
+                updated_at=datetime.utcnow()
+            )
+            result = self._execute_with_rollback(update_stmt)
+            return result.rowcount > 0
+        except Exception as e:
+            self.logger.error(f"Error saving desk briefing review draft: {e}")
+            return False
+
     def update_desk_briefing_synthesis(
         self,
         briefing_id: int,
@@ -14440,7 +14656,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             ).values(
-                priority_actions=json.dumps(priority_actions) if priority_actions else '[]',
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else [],
                 updated_at=datetime.utcnow()
             )
 
@@ -14478,7 +14694,7 @@ class DatabaseQueryFacade:
                 (t_desk_briefings.c.id == briefing_id) &
                 (t_desk_briefings.c.username == username)
             ).values(
-                themes=json.dumps(themes) if themes else '[]',
+                themes=json.loads(json.dumps(themes, default=str)) if themes else [],
                 updated_at=datetime.utcnow()
             )
 

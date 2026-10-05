@@ -59,6 +59,64 @@ def filter_kwargs_to_signature(fn: Callable[..., Any], kwargs: dict[str, Any]) -
     return {k: v for k, v in kwargs.items() if k in accepted}
 
 
+# The UI never shows an article whose topic alignment is below this; a topic's
+# keyword collection pulls in name-collisions ("second nature", Juniper
+# Networks) that the relevance step scores near zero and the views hide. The
+# MCP tools returned them anyway, so an assistant reading a brand topic saw
+# iOS release notes and college football (oviva, 14 Sep 2026). Same gate here,
+# applied to any list of article rows in a tool result. Unscored rows pass.
+RELEVANCE_FLOOR = 0.4
+_ARTICLE_LIST_KEYS = ("articles", "results", "sample_articles", "related_articles")
+
+
+def _row_alignment(row: Any) -> float | None:
+    if not isinstance(row, dict):
+        return None
+    for key in ("topic_alignment_score", "alignment", "relevance"):
+        v = row.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+    return None
+
+
+def _raise_if_tool_reported_failure(tool_name: str, result: Any) -> None:
+    """Turn a tool's own failure report into a real error.
+
+    Several tools answer a failure with ``{"error": ..., "articles": []}``
+    rather than raising. Left alone that reaches the client as a successful
+    empty result and is recorded in ``mcp_tool_calls`` as ``ok``, so a broken
+    tool is indistinguishable from a quiet corpus. Only a top-level ``error``
+    counts: a per-item one (a single market analysis that failed while the
+    others succeeded) leaves the rest of the payload worth returning.
+    """
+    if not isinstance(result, dict):
+        return
+    message = result.get("error")
+    if isinstance(message, str) and message.strip():
+        raise ToolError(f"{tool_name}: {message.strip()}")
+
+
+def gate_low_relevance(result: Any) -> Any:
+    """Drop article rows scored below RELEVANCE_FLOOR from a tool result."""
+    if not isinstance(result, dict):
+        return result
+    dropped = 0
+    for key in _ARTICLE_LIST_KEYS:
+        rows = result.get(key)
+        if not isinstance(rows, list) or not rows:
+            continue
+        kept = [r for r in rows if (a := _row_alignment(r)) is None or a >= RELEVANCE_FLOOR]
+        if len(kept) != len(rows):
+            dropped += len(rows) - len(kept)
+            result[key] = kept
+            for count_key in ("total_articles", "total_results", "count", "total"):
+                if isinstance(result.get(count_key), int):
+                    result[count_key] = len(kept)
+    if dropped:
+        result["filtered_low_relevance"] = dropped
+    return result
+
+
 def cap_payload(payload: Any, *, max_bytes: int) -> dict[str, Any]:
     """Cap on a UTF-8 boundary so a cut never yields invalid text."""
     serialised = json.dumps(payload, default=str, ensure_ascii=False)
@@ -142,6 +200,8 @@ async def dispatch(
         except Exception as exc:  # noqa: BLE001
             logger.exception("mcp: tool %s failed", tool_name)
             raise ToolError(f"{tool_name} failed: {type(exc).__name__}")
+        _raise_if_tool_reported_failure(tool_name, result)
+        result = gate_low_relevance(result)
         payload = cap_payload(result, max_bytes=spec.max_bytes)
         response_bytes = len(json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8"))
         return payload

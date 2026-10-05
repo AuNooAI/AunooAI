@@ -30,7 +30,57 @@ _CALL_TIMEOUT_S = 90  # hard cap per model call; wedged provider sockets must no
 from app.services.social_sources import SOCIAL_SOURCES, is_social_source  # noqa: F401
 _MAX_CONCURRENT = 6  # cap parallel model calls
 
-_SYSTEM = (
+# Who wrote the post. A brand hears its audiences apart only if each post
+# says who is speaking: a GP prescribing a programme is not a patient on it,
+# and neither is the company's own account. Generic on purpose, so the same
+# list serves a health provider (patient / clinician), a publisher
+# (customer / academic / professional) and a security vendor (customer /
+# professional). "unknown" is the honest default when the text gives no clue.
+AUTHOR_ROLES = (
+    "patient",       # uses or has been referred to a health service or treatment
+    "caregiver",     # family member or carer speaking for a patient
+    "clinician",     # doctor, GP, nurse, dietitian, pharmacist, therapist, other health professional
+    "dental_professional",  # dentist, hygienist, dental clinic or dental student speaking as such
+    "customer",      # end user or buyer of a non-health product/service, incl. prospective
+    "academic",      # researcher, lecturer, scientist speaking as such
+    "professional",  # works in the brand's industry but not for the brand (analyst, librarian, consultant, commissioner)
+    "employee",      # works or worked for the brand
+    "journalist",    # press, media outlet account, newsletter author
+    "investor",      # shareholder, analyst covering the stock, VC
+    "brand",         # the company itself, an affiliate or paid promotion
+    "retailer",      # shop, pharmacy, online seller or distributor selling the brand's products
+    "competitor",    # a rival company in the brand's market, its staff or its paid promotion
+    "unknown",
+)
+
+_ROLE_GUIDE = (
+    "Judge the role from what the post says and how the author speaks. If the BRAND CONTEXT "
+    "describes a health, medical, care or treatment service, anyone using it, on it, referred "
+    "to it, prescribed it, or logging their own progress with it is a patient, never a "
+    "customer; customer is for non-health products and services only. Anyone who prescribes, "
+    "refers, treats, or speaks as a doctor, GP, nurse, dietitian, pharmacist or therapist is a "
+    "clinician, including when they say 'we' or 'us' about patients or about being asked to "
+    "prescribe. A dentist, dental hygienist, orthodontist, dental clinic or dental student "
+    "speaking as such is a dental_professional, not a clinician. A relative or carer describing "
+    "someone else's care is a caregiver. An outlet or reporter is a journalist. A shop, "
+    "pharmacy, online seller or distributor offering the brand's products for sale is a "
+    "retailer; a recipe, review, comparison or affiliate account that links to the brand but "
+    "does not sell its products is not: a review or comparison site is a journalist, and a "
+    "recipe account that only names the brand as an ingredient or tag is unknown. Anyone "
+    "describing the brand's product in their own routine, purchase, haul or use is a customer "
+    "(or a patient, as above), even without saying 'I use'. Memes, jokes and commentary about the "
+    "company that show no use of its products are unknown. A post marked #ad, #PR, gifted, "
+    "sponsored or affiliate that promotes the product is paid promotion, so brand. A rival "
+    "company's own account, its staff or its paid promotion is a competitor. Competitor needs "
+    "the author to BE a rival company; an 'X vs Y' comparison, review or SEO article by anyone "
+    "else is never a competitor (a journalist when it reports, otherwise unknown). Only the "
+    "company's own account (including its regional and product "
+    "accounts), its staff speaking for it, affiliates or paid promotion count as brand; a "
+    "person's own progress log that names the brand is not the brand. When nothing in the "
+    "text shows who is speaking, answer unknown rather than guessing. "
+)
+
+_SYSTEM_HEAD = (
     "You are a precise brand-monitoring classifier. For each social media post you are "
     "given a BRAND/TOPIC and the post text. Decide (1) how relevant the post is to that "
     "brand/topic on a 0.0-1.0 scale and (2) the sentiment toward the brand/topic.\n"
@@ -52,9 +102,46 @@ _SYSTEM = (
     "product name containing the brand, @handle, #hashtag, or stock ticker — relevance must "
     "not exceed 0.3, no matter how close the subject matter is to the brand's industry "
     "(e.g. a complaint about ebooks or textbooks that names a different company or none).\n"
-    'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
-    '"positive"|"neutral"|"negative"}. No prose.'
+    "(3) Also name WHO is speaking. "
 )
+_SYSTEM_TAIL = (
+    'Respond with ONLY a JSON object: {"relevance": <float 0-1>, "sentiment": '
+    '"positive"|"neutral"|"negative", "author_role": <one of the roles>, '
+    '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
+)
+
+
+def author_roles() -> tuple:
+    """The roles this site uses: AUTHOR_ROLES, or the set VOICES_PERSONAS names."""
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    return AUTHOR_ROLES if alt is None else alt.roles
+
+
+def _role_prompt() -> str:
+    """The role list and how to pick one, for this site's persona set."""
+    from app.services import voices_personas
+    alt = voices_personas.active_set()
+    if alt is None:
+        return "Pick author_role from this list only: " + ", ".join(AUTHOR_ROLES) + ". " + _ROLE_GUIDE
+    return alt.role_prompt()
+
+
+def _author_line(author: str) -> str:
+    """The author's handle, for a site with its own persona set.
+
+    On wileytest a journal's own account (@respcasereports) read as an academic
+    without it: the handle is the evidence. Sites on the standard list keep the
+    exact user message they had, so this is empty for them.
+    """
+    from app.services import voices_personas
+    if voices_personas.active_set() is None or not (author or "").strip():
+        return ""
+    return f"\nAUTHOR: @{author.strip().lstrip('@')}"
+
+
+def _system_prompt() -> str:
+    return _SYSTEM_HEAD + _role_prompt() + _SYSTEM_TAIL
 
 
 _SUPERVISOR_SYSTEM = (
@@ -98,9 +185,57 @@ def _brand_anchor_tokens(brand_topic: str) -> List[str]:
     return toks[:1]
 
 
-def _mentions_brand(text_lower: str, anchors: List[str]) -> bool:
-    """Word-start match so '#Wiley' / '@wileyglobal' / '$WLYY-adjacent' handles count."""
-    return any(re.search(r"(?<![a-z0-9])" + re.escape(a), text_lower) for a in anchors)
+_SUPERSCRIPT_DIGITS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+_JA_COMPANY_SUFFIX = re.compile(r"(株式会社|ホールディングス)$")
+
+
+def _brand_anchors(display_name: str, keywords: List[str]) -> List[str]:
+    """Every name that counts as the post mentioning the brand.
+
+    The cap used only the first word of the brand's title, so a post about
+    Ora² or GUM never "mentioned" Sunstar and a Sensodyne post never mentioned
+    Haleon: real posts were held at 0.3. Now the brand's keywords and product
+    names count too, whole, and a Japanese company name counts without its
+    株式会社 suffix (ライオン株式会社 -> ライオン).
+
+    The first word of a keyword counts on its own only when it is written in
+    capitals ("GUM toothbrush" -> GUM, matched in capitals only, so "gum
+    disease" stays capped). Lower-case first words do not: "Science journals"
+    would make every post about science count as naming Elsevier. A
+    case-sensitive anchor carries a leading "=".
+    """
+    out: List[str] = list(_brand_anchor_tokens(display_name))
+    for raw in keywords or []:
+        raw = str(raw or "").strip().translate(_SUPERSCRIPT_DIGITS)
+        kw = raw.lower()
+        if not kw:
+            continue
+        out.append(kw)
+        short = _JA_COMPANY_SUFFIX.sub("", kw)
+        if short and short != kw:
+            out.append(short)
+        words = re.findall(r"[A-Za-z0-9']+", raw)
+        if len(words) > 1 and words[0].lower() not in _ANCHOR_STOP:
+            first = words[0]
+            if len(first) >= 3 and first.isupper():
+                out.append("=" + first)
+    return list(dict.fromkeys(a for a in out if a))
+
+
+def _mentions_brand(text_lower: str, anchors: List[str], text_raw: str = "") -> bool:
+    """Word-start match so '#Wiley' / '@wileyglobal' / '$WLYY-adjacent' handles count.
+
+    An anchor starting with "=" is matched case-sensitively, as a whole word,
+    against ``text_raw`` (see ``_brand_anchors``).
+    """
+    for a in anchors:
+        if a.startswith("="):
+            if text_raw and re.search(r"(?<![A-Za-z0-9])" + re.escape(a[1:]) + r"(?![A-Za-z])",
+                                      text_raw):
+                return True
+        elif re.search(r"(?<![a-z0-9])" + re.escape(a), text_lower):
+            return True
+    return False
 
 
 def _parse_eval(content: str) -> Optional[Dict]:
@@ -122,7 +257,27 @@ def _parse_eval(content: str) -> Optional[Dict]:
     sent = str(obj.get("sentiment", "")).strip().lower()
     if sent not in ("positive", "neutral", "negative"):
         sent = "neutral"
-    return {"relevance": rel, "sentiment": sent}
+    out = {"relevance": rel, "sentiment": sent}
+    out.update(_parse_role(obj))
+    return out
+
+
+def _parse_role(obj: Dict) -> Dict:
+    """author_role + reason from a parsed model object; unknown when absent or off-list."""
+    role = str(obj.get("author_role") or "").strip().lower().replace(" ", "_")
+    if role not in author_roles():
+        role = "unknown"
+    reason = str(obj.get("author_role_reason") or "").strip()[:200]
+    return {"author_role": role, "author_role_reason": reason or None}
+
+
+def _role_system_prompt() -> str:
+    return (
+        "You are a brand-monitoring classifier. You are given a BRAND and a social media post "
+        "about it. Say WHO wrote the post. " + _role_prompt() +
+        'Respond with ONLY a JSON object: {"author_role": <one of the roles>, '
+        '"author_role_reason": <at most 12 words of evidence from the post>}. No prose.'
+    )
 
 
 def _parse_verify(content: str) -> Optional[Dict]:
@@ -163,17 +318,87 @@ class SocialEvalService:
         return self._model
 
     async def _eval_one(self, brand_topic: str, title: str, body: str,
-                        author: str = "", brand_context: str = "") -> Optional[Dict]:
+                        author: str = "", brand_context: str = "",
+                        anchors: Optional[List[str]] = None, source_tier: str = "",
+                        topic_mode: bool = False) -> Optional[Dict]:
         model = self._get_model()
         if not model:
             return None
         text = f"{title}\n{body}".strip()[:1500]
+        # Cheapest gate first (AI_DESIGN_PATTERNS 1.4). A post that never names
+        # the brand is capped at 0.3 below, under every on-brand floor, whatever
+        # the model says; so settle it here instead of paying for the call.
+        # About half of collected posts are like this (Sunstar, 26 Sep 2026).
+        gate_anchors = anchors if anchors is not None else _brand_anchor_tokens(brand_topic)
+        gate_raw = f"{text}\n{author or ''}".translate(_SUPERSCRIPT_DIGITS)
+        if gate_anchors and not _mentions_brand(gate_raw.lower(), gate_anchors, gate_raw):
+            return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
+                    "author_role_reason": None, "no_brand_mention": True}
+        # Same name, different subject: a brand's exclude_context marks every
+        # mention in the post as something else (OVIVA the antibiotics trial,
+        # cited by infectious-disease doctors; oviva, Sep 2026). Settled here
+        # like a post that never names the brand, without a model call.
+        try:
+            from app.services import brand_mention_gate as _bmg
+            _gb = _bmg.brand_for_topic(brand_topic)
+            if (_gb and _gb["exclude"] is not None
+                    and _bmg.judge(_gb, gate_raw)["verdict"] == "excluded"):
+                return {"relevance": 0.0, "sentiment": "neutral", "author_role": None,
+                        "author_role_reason": None, "no_brand_mention": True,
+                        "excluded_context": True}
+        except Exception as _gate_err:  # noqa: BLE001 - never block scoring
+            logger.debug(f"brand exclude gate skipped: {_gate_err}")
+        # Second cheap gate (AI_DESIGN_PATTERNS 2.1), where the site sets
+        # SOCIAL_JEV_PREFILTER_MIN. Jev (TypeSafe, ~$0.00006 a post) reads whether
+        # the post is about the brand; under the minimum it is settled without
+        # the model. On Sunstar's 16,172 posts at 0.1 it skipped half the model
+        # calls and lost 6 of 4,406 on-brand posts, all six the model's own
+        # errors ("Colgate is an Ivy League school").
+        #
+        # Where the site also sets SOCIAL_JEV_ACCEPT_MIN, a post Jev reads as
+        # about the brand above that minimum, and not negative, is settled
+        # without the model too. At 0.91 on Sunstar's posts, 21 of its 23
+        # disagreements with the model were the model missing real company news
+        # (Colgate's dividend, Haleon's results). A post Jev reads as negative
+        # (p >= _JEV_NEGATIVE_TO_MODEL) still goes to the model: negatives drive
+        # the alerts and get the model's second look. That caught all 115 of the
+        # model's negatives in the accept range. The author role comes from the
+        # Jev role reader, as for every other post on these sites.
+        jev_min = _jev_prefilter_min()
+        jev_accept = _jev_accept_min()
+        if (jev_min or jev_accept) and brand_context and not topic_mode:
+            jev = await asyncio.to_thread(_jev_about_brand, brand_topic, brand_context,
+                                          title, body, author)
+            if jev is not None:
+                if jev_min and jev["relevance"] < jev_min:
+                    return {"relevance": round(jev["relevance"], 3), "sentiment": "neutral",
+                            "author_role": None, "author_role_reason": None,
+                            "jev_prefilter": True}
+                if (jev_accept and jev["relevance"] > jev_accept
+                        and jev["sentiment"] in ("positive", "neutral")
+                        and jev["p_negative"] < _JEV_NEGATIVE_TO_MODEL):
+                    return {"relevance": round(jev["relevance"], 3), "sentiment": jev["sentiment"],
+                            "author_role": None, "author_role_reason": None,
+                            "jev_accept": True}
         # brand_context = the bw_brands description. Without it the model cannot
         # tell same-name entities apart: a post by @Hotel_Sunstar IS about "a
         # Sunstar", and only "Sunstar = oral care company" makes it a miss.
-        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:300]}" if brand_context else ""
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
+        ctx += _author_line(author)
+        # A watch on a subject is not a watch on a company. The extra guidance
+        # rides in the user message rather than the system prompt so the brand
+        # path sees byte-identical input to what it saw before.
+        if source_tier and source_tier not in ("unknown", ""):
+            ctx += f"\nSOURCE: {author or 'unknown'} — known to us as {source_tier.replace('_', ' ')}"
+        if topic_mode:
+            ctx += ("\nThis is a SUBJECT watch, not a company. Relevance means the post is "
+                    "substantively about this subject — including a post that argues a position "
+                    "within it. A post from a source known to us as state media, alternative "
+                    "media or a party, pushing a line on this subject, is highly relevant even "
+                    "when it names no organisation. Judge the subject, not a company name, and "
+                    "score posts in any language on the same scale.")
         messages = [
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": f"BRAND/TOPIC: {brand_topic}{ctx}\n\nPOST:\n{text}"},
         ]
         try:
@@ -197,9 +422,11 @@ class SocialEvalService:
         # subject matter (a French Sony ebook complaint scored 0.75 for Wiley).
         # 0.3 sits below the 0.4 relevance floor used by feeds and alert rules.
         if r and r["relevance"] > 0.3:
-            anchors = _brand_anchor_tokens(brand_topic)
-            hay = f"{text}\n{author or ''}".lower()
-            if anchors and not _mentions_brand(hay, anchors):
+            # Brands keep the single title-derived anchor; a topic passes its own
+            # keyword terms, which carry the language variants.
+            anchors = anchors if anchors is not None else _brand_anchor_tokens(brand_topic)
+            raw = f"{text}\n{author or ''}".translate(_SUPERSCRIPT_DIGITS)
+            if anchors and not _mentions_brand(raw.lower(), anchors, raw):
                 r["relevance"] = 0.3
         # Supervisor pass: negative on-brand verdicts drive the spike alerts and
         # adverse panels, so they get a second, stricter look before they count.
@@ -236,8 +463,71 @@ class SocialEvalService:
             logger.debug(f"SocialEval supervisor call failed: {e}")
             return None
 
+    async def _role_one(self, brand_topic: str, title: str, body: str,
+                        brand_context: str = "", author: str = "") -> Optional[Dict]:
+        model = self._get_model()
+        if not model:
+            return None
+        text = f"{title}\n{body}".strip()[:1500]
+        ctx = f"\nBRAND CONTEXT: {brand_context.strip()[:600]}" if brand_context else ""
+        ctx += _author_line(author)
+        messages = [
+            {"role": "system", "content": _role_system_prompt()},
+            {"role": "user", "content": f"BRAND: {brand_topic}{ctx}\n\nPOST:\n{text}"},
+        ]
+        try:
+            from fastapi.concurrency import run_in_threadpool
+            content = await asyncio.wait_for(
+                run_in_threadpool(model.generate_response, messages), timeout=_CALL_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            logger.warning(f"SocialEval role call timed out after {_CALL_TIMEOUT_S}s")
+            return None
+        except Exception as e:
+            logger.debug(f"SocialEval role call failed: {e}")
+            return None
+        m = re.search(r"\{[\s\S]*\}", content or "")
+        if not m:
+            return None
+        try:
+            return _parse_role(json.loads(m.group()))
+        except json.JSONDecodeError:
+            return None
+
+    async def classify_roles(self, posts: List[Dict], brand_topic: str,
+                             brand_context: str = "",
+                             competitors: Optional[List[str]] = None) -> List[Dict]:
+        """Author role only, for posts that were scored before roles existed.
+
+        Same taxonomy as the combined call; returns [{uri, author_role,
+        author_role_reason}] for the posts the model answered. A site with
+        VOICES_ROLE_MODEL=jev gets the role from Jev instead (author_role_jev).
+        """
+        from app.services import author_role_jev
+        if posts and author_role_jev.enabled():
+            got = await asyncio.to_thread(author_role_jev.read_roles, brand_topic,
+                                          brand_context, competitors or [], posts)
+            return [{"uri": uri, **r} for uri, r in got.items()]
+        if not posts or not self._get_model():
+            return []
+        sem = asyncio.Semaphore(_MAX_CONCURRENT)
+        results: List[Dict] = []
+
+        async def _run(p):
+            async with sem:
+                r = await self._role_one(brand_topic, p.get("title") or "",
+                                         p.get("summary") or p.get("content") or "",
+                                         brand_context=brand_context,
+                                         author=p.get("author") or "")
+                if r:
+                    results.append({"uri": p.get("uri") or p.get("url"), **r})
+
+        await asyncio.gather(*[_run(p) for p in posts], return_exceptions=True)
+        return results
+
     async def evaluate_posts(self, posts: List[Dict], brand_topic: str,
-                             brand_context: str = "") -> List[Dict]:
+                             brand_context: str = "", anchors: Optional[List[str]] = None,
+                             tiers: Optional[Dict[str, str]] = None,
+                             topic_mode: bool = False) -> List[Dict]:
         """Evaluate a batch of post dicts (need 'uri','title','summary'/'content').
 
         Returns list of {uri, relevance, sentiment} for posts the model scored.
@@ -253,8 +543,15 @@ class SocialEvalService:
                 title = p.get("title") or ""
                 body = p.get("summary") or p.get("content") or ""
                 author = p.get("author") or (p.get("social_meta") or {}).get("author") or ""
+                # A Bluesky handle and a Telegram channel are both addressed the
+                # way a domain is, so one lookup serves both.
+                tier = ""
+                if tiers:
+                    handle = (author or "").strip().lstrip("@").lower()
+                    tier = tiers.get(handle) or tiers.get(f"t.me/{handle}") or ""
                 r = await self._eval_one(brand_topic, title, body, author=author,
-                                         brand_context=brand_context)
+                                         brand_context=brand_context, anchors=anchors,
+                                         source_tier=tier, topic_mode=topic_mode)
                 if r:
                     results.append({"uri": p.get("uri") or p.get("url"), **r})
 
@@ -298,6 +595,12 @@ class SocialEvalService:
         # brand description rides along on the model calls so the LLM can tell
         # look-alike entities apart on its own.
         ctx = _brand_context_for_topic(db, brand_topic)
+        # No brand behind this topic: it is a subject watch, so give the model
+        # the topic's description and its own keyword terms as anchors.
+        profile = {"description": "", "anchors": [], "tiers": {}}
+        topic_mode = not ctx["description"] and not ctx["excludes"]
+        if topic_mode:
+            profile = _topic_profile(db, brand_topic)
         excluded_zeroed = 0
         if ctx["excludes"]:
             keep = []
@@ -313,14 +616,34 @@ class SocialEvalService:
                 else:
                     keep.append(p)
             posts = keep
-        scored = await self.evaluate_posts(posts, brand_topic,
-                                           brand_context=ctx["description"])
+        scored = await self.evaluate_posts(
+            posts, brand_topic,
+            brand_context=ctx["description"] or profile["description"],
+            anchors=(profile["anchors"] or None) if topic_mode else (ctx.get("anchors") or None),
+            tiers=profile["tiers"] or None,
+            topic_mode=topic_mode and bool(profile["description"] or profile["anchors"]))
+        # The model call keeps relevance and sentiment; on a site that has
+        # switched it on, Jev names the author's role (author_role_jev).
+        from app.services import author_role_jev
+        if author_role_jev.enabled() and not topic_mode and scored:
+            brand = brand_topic.replace("Brand Monitoring ", "", 1)
+            by_uri = {p["uri"]: p for p in posts}
+            jev = await asyncio.to_thread(
+                author_role_jev.read_roles, brand, ctx["description"],
+                author_role_jev.rival_names(db, brand),
+                [by_uri[s["uri"]] for s in scored
+                 if s["uri"] in by_uri
+                 and not (s.get("no_brand_mention") or s.get("jev_prefilter"))])
+            for s in scored:
+                s.update(jev.get(s["uri"]) or {})
         for s in scored:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
-                    sentiment = :sent, ingest_status = 'social_evaluated', analyzed = true
+                    sentiment = :sent, ingest_status = 'social_evaluated', analyzed = true,
+                    author_role = :role, author_role_reason = :role_why
                 WHERE uri = :uri
-            """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"]})
+            """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"],
+                   "role": s.get("author_role"), "role_why": s.get("author_role_reason")})
         db.facade.connection.commit()
         logger.info(f"SocialEval: scored {len(scored)}/{len(posts)} {brand_topic!r} posts via {self.model_name}"
                     + (f" ({excluded_zeroed} zeroed by exclude terms)" if excluded_zeroed else ""))
@@ -372,7 +695,8 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
         SELECT m.id, m.brand_id, m.article_uri, b.display_name,
                a.title, a.summary,
                (SELECT count(*) FROM bw_entity_mentions o
-                 WHERE o.article_uri = m.article_uri) AS entities_on_article
+                 WHERE o.article_uri = m.article_uri) AS entities_on_article,
+               COALESCE(b.description, '') AS brand_context
           FROM bw_entity_mentions m
           JOIN bw_brands b ON b.id = m.brand_id
           JOIN articles a ON a.uri = m.article_uri
@@ -385,16 +709,52 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
 
     conn = db.facade.connection
     evaluated = 0
+    excluded = 0
+    excludes_by_brand: Dict[int, List[str]] = {}
+    anchors_by_brand: Dict[int, Optional[List[str]]] = {}
+    from app.services import author_role_jev
+    rivals_by_brand: Dict[str, List[str]] = {}
     for (mention_id, mention_brand, uri, display_name, title, summary,
-         entities_on_article) in rows:
+         entities_on_article, brand_context) in rows:
+        # Entity collisions (config.news_keyword_excludes: "Oviva Therapeutics",
+        # a US biotech, next to Oviva the weight-management provider) are
+        # settled before any model call, the same way evaluate_and_store does
+        # on the topic path. This path skipped it, so a look-alike scored 0.9.
+        if mention_brand not in excludes_by_brand:
+            _ctx = _brand_context_for_topic(db, f"Brand Monitoring {display_name}")
+            excludes_by_brand[mention_brand] = _ctx["excludes"]
+            anchors_by_brand[mention_brand] = _ctx.get("anchors") or None
+        blob = f"{title or ''} {summary or ''}".lower()
+        author = db.facade._execute_with_rollback(text(
+            "SELECT COALESCE(social_meta->>'author', '') FROM articles WHERE uri = :u"),
+            {"u": uri}).scalar() or ""
+        if any(x in blob or x in author.lower() for x in excludes_by_brand[mention_brand]):
+            entity_content.score_mention(
+                conn, mention_id, relevance=0.0, sentiment=None,
+                stance='not_applicable', method='exclude_term', model=None,
+                version=entity_content.MATCHER_VERSION, status='accepted')
+            excluded += 1
+            continue
         # One post, one company, one verdict — the brand name is the subject
         # of the question rather than the topic the post was collected under.
+        # The brand description rides along so the model can tell a patient
+        # from a customer and a look-alike company from the real one.
         scored = await service.evaluate_posts(
             [{"uri": uri, "title": title, "summary": summary, "author": ""}],
-            display_name)
+            display_name, brand_context=brand_context,
+            anchors=anchors_by_brand.get(mention_brand))
         if not scored:
             continue
         verdict = scored[0]
+        if author_role_jev.enabled() and not (verdict.get("no_brand_mention")
+                                             or verdict.get("jev_prefilter")):
+            if display_name not in rivals_by_brand:
+                rivals_by_brand[display_name] = author_role_jev.rival_names(db, display_name)
+            jev = await asyncio.to_thread(
+                author_role_jev.read_role, display_name, brand_context,
+                rivals_by_brand[display_name],
+                {"title": title, "summary": summary, "author": author})
+            verdict.update(jev or {})
         sentiment = (verdict.get("sentiment") or "").lower()
         entity_content.score_mention(
             conn, mention_id, relevance=verdict.get("relevance"),
@@ -404,6 +764,15 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
             version=entity_content.MATCHER_VERSION,
             status='accepted')
         evaluated += 1
+
+        # Who wrote the post does not depend on which company is asked about,
+        # so the role goes on the article row for every mention.
+        if verdict.get("author_role"):
+            db.facade._execute_with_rollback(text("""
+                UPDATE articles SET author_role = :role, author_role_reason = :why
+                 WHERE uri = :uri
+            """), {"role": verdict["author_role"],
+                   "why": verdict.get("author_role_reason"), "uri": uri})
 
         # Only unambiguous posts may write the shared article columns.
         if entity_flags.dual_write() and int(entities_on_article) == 1:
@@ -418,10 +787,10 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
                    "sent": sentiment.capitalize(), "uri": uri})
 
     conn.commit()
-    logger.info("SocialEval: scored %d/%d pending mentions via %s",
-                evaluated, len(rows), service.model_name)
+    logger.info("SocialEval: scored %d/%d pending mentions via %s (%d zeroed by exclude terms)",
+                evaluated, len(rows), service.model_name, excluded)
     return {"evaluated": evaluated, "candidates": len(rows),
-            "model": service.model_name}
+            "excluded": excluded, "model": service.model_name}
 
 
 # A company being the actor in a story is not the same as the story being
@@ -433,6 +802,74 @@ _STANCE_BY_SENTIMENT = {
     "neutral": "neutral",
     "mixed": "mixed",
 }
+
+
+def _topic_profile(db, topic: str) -> Dict:
+    """Description, anchor terms and source tiers for a plain keyword topic.
+
+    The brand path (``_brand_context_for_topic``) answers for
+    "Brand Monitoring <name>" topics and is untouched. Everything else used to
+    get nothing at all: no description, so the model judged a post against the
+    bare topic title, and a single anchor word derived from that title, so the
+    no-mention cap fired on any post not containing it. For
+    "Swiss Federal Elections 2027 Disinfo Monitoring" the anchor was "swiss",
+    which does not match "Switzerland" (swiss/switz) and matches no German,
+    French or Italian post at all — 88 posts sat at the 0.30 ceiling, several
+    of them squarely on topic (2026-09-17).
+
+    Anchors now come from the topic's own monitored keywords, which already
+    carry the language variants, and tiers come from sd_sources when a watch
+    module has populated it.
+    """
+    from sqlalchemy import text
+    out: Dict[str, Any] = {"description": "", "anchors": [], "tiers": {}}
+    if not topic:
+        return out
+    try:
+        from app.config.settings import get_config_path
+        cfg_path = get_config_path()
+    except Exception:
+        cfg_path = None
+    try:
+        import json as _json
+        from pathlib import Path
+        path = Path(cfg_path) if cfg_path else Path(__file__).resolve().parents[1] / "config" / "config.json"
+        cfg = _json.loads(path.read_text())
+        for t in cfg.get("topics", []):
+            if (t.get("name") or "").strip().lower() == topic.strip().lower():
+                out["description"] = (t.get("description") or "").strip()
+                break
+    except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
+        logger.debug(f"SocialEval topic description lookup failed for {topic!r}: {e}")
+
+    try:
+        rows = db.facade._fetchall_with_rollback(text(
+            "SELECT k.keyword FROM monitored_keywords k "
+            "JOIN keyword_groups g ON g.id = k.group_id WHERE g.topic = :t"),
+            {"t": topic}, operation_name="social eval topic anchors")
+        seen: List[str] = []
+        for (kw,) in rows or []:
+            bare = re.sub(r"^(company|tech|person|location):", "", (kw or "").strip(), flags=re.I)
+            for tok in re.findall(r"[\w'-]{4,}", bare.lower(), flags=re.UNICODE):
+                if tok not in _ANCHOR_STOP and tok not in seen:
+                    seen.append(tok)
+        for tok in re.findall(r"[\w'-]{4,}", (topic or "").lower(), flags=re.UNICODE):
+            if tok not in _ANCHOR_STOP and tok not in seen:
+                seen.append(tok)
+        out["anchors"] = seen[:60]
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"SocialEval topic anchors lookup failed for {topic!r}: {e}")
+
+    try:
+        if db.facade._fetchone_with_rollback(text("SELECT to_regclass('sd_sources')"), {},
+                                             operation_name="social eval tier probe")[0]:
+            rows = db.facade._fetchall_with_rollback(text(
+                "SELECT domain, tier FROM sd_sources"), {},
+                operation_name="social eval tiers")
+            out["tiers"] = {(d or "").lower(): t for d, t in (rows or []) if d and t}
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"SocialEval tier lookup failed: {e}")
+    return out
 
 
 def _brand_context_for_topic(db, brand_topic: str) -> Dict:
@@ -451,17 +888,77 @@ def _brand_context_for_topic(db, brand_topic: str) -> Dict:
         return {"description": "", "excludes": []}
     try:
         row = db.facade._fetchone_with_rollback(text(
-            "SELECT description, config FROM bw_brands WHERE LOWER(display_name) = LOWER(:n)"),
+            "SELECT description, config, brand_keywords, product_keywords "
+            "FROM bw_brands WHERE LOWER(display_name) = LOWER(:n)"),
             {"n": name}, operation_name="social eval brand context")
         if not row:
             return {"description": "", "excludes": []}
         cfg = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
         excludes = [str(x).strip().lower() for x in (cfg.get("news_keyword_excludes") or [])
                     if str(x).strip()]
-        return {"description": (row[0] or "").strip(), "excludes": excludes}
+        kws: List[str] = []
+        for col in (row[2], row[3]):
+            vals = col if isinstance(col, list) else (json.loads(col) if col else [])
+            kws.extend(str(v) for v in vals or [])
+        return {"description": (row[0] or "").strip(), "excludes": excludes,
+                "anchors": _brand_anchors(name, kws)}
     except Exception as e:  # noqa: BLE001 - context is an enhancement, never a blocker
         logger.debug(f"SocialEval brand-context lookup failed for {brand_topic!r}: {e}")
         return {"description": "", "excludes": []}
+
+
+def apply_exclude_terms(conn, brand_id: int, display_name: str,
+                        excludes: List[str]) -> Dict[str, int]:
+    """Zero already-scored posts that match the brand's exclude terms.
+
+    The terms are checked when a post is first evaluated, so a term added
+    later did nothing for what was already in the tables: Noom's Voices kept
+    showing Thai fan posts about an actor nicknamed "Noom" that the model had
+    scored 0.7 to 1.0. Saving the list now re-applies it to the brand's stored
+    mentions and topic rows, the same way the evaluators would have. Matching
+    is the same lowercase substring test over title, summary and author.
+    """
+    terms = [str(x).strip().lower() for x in (excludes or []) if str(x).strip()]
+    if not terms:
+        return {"mentions": 0, "articles": 0}
+    from sqlalchemy import text
+    from app.services import entity_content
+    out = {"mentions": 0, "articles": 0}
+    topic = f"Brand Monitoring {display_name}"
+
+    def _hit(title, summary, author) -> bool:
+        blob = f"{title or ''} {summary or ''} {author or ''}".lower()
+        return any(t in blob for t in terms)
+
+    try:
+        rows = conn.execute(text("""
+            SELECT m.id, a.uri, a.title, a.summary, a.social_meta->>'author'
+              FROM bw_entity_mentions m JOIN articles a ON a.uri = m.article_uri
+             WHERE m.brand_id = :b AND COALESCE(m.relevance, 0) > 0
+        """), {"b": brand_id}).fetchall()
+        for mid, uri, title, summary, author in rows:
+            if _hit(title, summary, author):
+                entity_content.score_mention(
+                    conn, int(mid), relevance=0.0, sentiment=None,
+                    stance='not_applicable', method='exclude_term', model=None,
+                    version=entity_content.MATCHER_VERSION, status='accepted')
+                out["mentions"] += 1
+    except Exception as e:  # noqa: BLE001 — no mention table on the topic-only trees
+        logger.debug("apply_exclude_terms: mention pass skipped: %s", e)
+    rows = conn.execute(text("""
+        SELECT uri, title, summary, social_meta->>'author'
+          FROM articles
+         WHERE topic = :t AND COALESCE(topic_alignment_score, 0) > 0
+    """), {"t": topic}).fetchall()
+    for uri, title, summary, author in rows:
+        if _hit(title, summary, author):
+            conn.execute(text("""
+                UPDATE articles SET topic_alignment_score = 0, keyword_relevance_score = 0,
+                       sentiment = 'Neutral'
+                 WHERE uri = :u
+            """), {"u": uri})
+            out["articles"] += 1
+    return out
 
 
 _singleton: Optional[SocialEvalService] = None
@@ -521,3 +1018,62 @@ async def sweep_unevaluated_social(db, limit_per_topic: int = 200,
     if total["swept"]:
         logger.info(f"SocialEval sweep: re-scored {total['swept']} posts across {total['topics']} topic(s)")
     return total
+
+
+def _jev_accept_min() -> float:
+    """SOCIAL_JEV_ACCEPT_MIN from the site's .env; 0 (off) when unset."""
+    try:
+        return max(0.0, float(os.getenv("SOCIAL_JEV_ACCEPT_MIN", "") or 0))
+    except ValueError:
+        return 0.0
+
+
+#: A post Jev accepts is still sent to the model when Jev gives negative this much.
+_JEV_NEGATIVE_TO_MODEL = 0.3
+
+
+def _jev_prefilter_min() -> float:
+    """SOCIAL_JEV_PREFILTER_MIN from the site's .env; 0 (off) when unset."""
+    try:
+        return max(0.0, float(os.getenv("SOCIAL_JEV_PREFILTER_MIN", "") or 0))
+    except ValueError:
+        return 0.0
+
+
+_JEV_ABOUT_BRAND = {"relevance": {
+    "type": "noul",
+    "instructions": "Is `post` substantively about `brand` (its business, products, people, actions, or someone's genuine experience or opinion of it), as `brand.context` describes the brand?",
+    "criteria": {"true": "The post is about this brand or someone's experience with it",
+                 "false": "A coincidental name match, a different business or person with the same name, an advert or solicitation that merely lists the brand, or a post that never mentions the brand"}},
+    "sentiment": {
+    "type": "choice",
+    "instructions": "What is the sentiment of `post` toward `brand`? Judge who is criticised or praised, not the mood of the subject matter.",
+    "criteria": {"positive": "Praise, recommendation, gratitude, a good experience with the brand",
+                 "neutral": "Factual, mixed, or the brand is not the target of any feeling",
+                 "negative": "Complaint, criticism or disappointment aimed at the brand or its products or services"}}}
+
+
+def _jev_about_brand(brand_topic: str, brand_context: str, title: str, body: str,
+                     author: str) -> Optional[Dict]:
+    """Jev's reading of the post: relevance (probability it is about the brand),
+    sentiment (its choice) and p_negative. None on any failure, so the post
+    falls through to the model as before."""
+    try:
+        from app.services import typesafe_client
+        if not typesafe_client.is_configured():
+            return None
+        name = re.sub(r"^brand monitoring\s+", "", (brand_topic or "").strip(), flags=re.I)
+        state = {"brand": {"name": name, "context": (brand_context or "")[:600]},
+                 "post": {"author": (author or "")[:120], "title": (title or "")[:300],
+                          "text": (body or "")[:1500]}}
+        out = typesafe_client.system_one(state, _JEV_ABOUT_BRAND,
+                                         use_case="services.social_eval_service:jev_prefilter")
+        if not out:
+            return None
+        a = out["answers"]
+        return {"relevance": float(a["relevance"]["noul"]),
+                "sentiment": str(a["sentiment"].get("choice") or ""),
+                "p_negative": float((a["sentiment"].get("probabilities") or {}).get("negative", 1.0))}
+    except Exception as e:  # noqa: BLE001 - the gate is an optimisation, never a blocker
+        logger.debug(f"SocialEval Jev prefilter failed: {e}")
+        return None

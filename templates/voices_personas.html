@@ -1,0 +1,159 @@
+{% extends "base_with_shared_nav.html" %}
+
+{% block title %}Voices personas - Aunoo{% endblock %}
+
+{% block extra_css %}
+<style>
+  .vp { max-width: 1200px; margin: 24px auto; padding: 0 16px; font-size: 14px; }
+  .vp h1 { font-size: 22px; margin: 0 0 4px; }
+  .vp .muted { color: #666; }
+  .vp .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+  .vp table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .vp th, .vp td { border-bottom: 1px solid #e5e5e5; padding: 6px 4px; vertical-align: top; text-align: left; }
+  .vp th { font-weight: 600; font-size: 12px; color: #555; }
+  .vp input[type=text], .vp textarea, .vp select { width: 100%; box-sizing: border-box; font: inherit; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+  .vp textarea { min-height: 54px; }
+  .vp .key { width: 130px; } .vp .label { width: 150px; } .vp .show { width: 100px; } .vp .group { width: 120px; } .vp .n { width: 60px; text-align: right; }
+  .vp button { padding: 6px 12px; border: 1px solid #999; border-radius: 4px; background: #fff; cursor: pointer; }
+  .vp button.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  .vp .msg { padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
+  .vp .ok { background: #ecfdf5; color: #065f46; } .vp .err { background: #fef2f2; color: #991b1b; }
+  .vp .box { border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; margin-top: 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vp">
+  <h1>Voices personas</h1>
+  <p class="muted">The audiences this site's Voices view uses. The model and Jev pick each post's audience by the definition, so write it as a test a post passes. Only admins see this page.</p>
+  <div class="bar">
+    <span>Current set: <b id="source">…</b></span>
+    <span style="margin-left:auto">Start from</span>
+    <select id="preset" style="width:auto"></select>
+    <button id="loadPreset">Load</button>
+  </div>
+  <div id="msg"></div>
+  <div class="bar"><label>Set name <input type="text" id="setName" style="width:240px"></label></div>
+  <table>
+    <thead><tr><th class="key">Key</th><th class="label">Label</th><th>Definition (what the model picks by)</th><th>Short reason (shown in Voices)</th><th class="show">Show as</th><th class="group">Group into</th><th class="n">Posts now</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="bar"><button id="addRow">Add audience</button></div>
+  <div class="box">
+    <label><b>Guide</b> <span class="muted">(how to choose between audiences; sent to the model with the list)</span></label>
+    <textarea id="guide" style="min-height:90px"></textarea>
+    <label style="display:block;margin-top:10px"><b>Opening pairs</b> <span class="muted">(one per line, two keys separated by a comma; the first pair with posts on both sides opens the view)</span></label>
+    <textarea id="pairs"></textarea>
+    <label style="display:block;margin-top:10px"><b>Person audiences</b> <span class="muted">(comma-separated keys a paid-promotion marker such as #ad may turn into brand)</span></label>
+    <input type="text" id="personRoles">
+  </div>
+  <div class="bar">
+    <button class="primary" id="save">Save as this site's set</button>
+    <button id="reset">Go back to the set in code</button>
+  </div>
+  <div class="box">
+    <b>Re-read past posts</b>
+    <p class="muted">A saved set applies to new posts at once. Posts already read keep their old audience until they are re-read.</p>
+    <div id="estimate" class="muted">…</div>
+    <div class="bar"><button id="reread">Re-read past posts</button> <span id="job"></span></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  let counts = {};
+  const msg = (text, ok) => { $('msg').innerHTML = text ? `<div class="msg ${ok ? 'ok' : 'err'}">${text}</div>` : ''; };
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  function row(a) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" data-f="key" value="${esc(a.key)}"></td>
+      <td><input type="text" data-f="label" value="${esc(a.label)}"></td>
+      <td><textarea data-f="definition">${esc(a.definition)}</textarea></td>
+      <td><input type="text" data-f="reason" value="${esc(a.reason)}"></td>
+      <td><select data-f="show">${['column','button','hidden'].map(v => `<option ${v === a.show ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td><input type="text" data-f="group" value="${esc(a.group)}" placeholder="(none)"></td>
+      <td class="n">${counts[a.key] ?? ''}</td>
+      <td><button title="Remove">×</button></td>`;
+    tr.querySelector('button').onclick = () => tr.remove();
+    return tr;
+  }
+
+  function fill(set) {
+    $('setName').value = set.name || '';
+    $('rows').innerHTML = '';
+    (set.audiences || []).forEach(a => $('rows').appendChild(row(a)));
+    $('guide').value = set.guide || '';
+    $('pairs').value = (set.open_pairs || []).map(p => p.join(', ')).join('\n');
+    $('personRoles').value = (set.person_roles || []).join(', ');
+  }
+
+  function collect() {
+    const audiences = [...$('rows').querySelectorAll('tr')].map(tr => {
+      const a = {};
+      tr.querySelectorAll('[data-f]').forEach(el => a[el.dataset.f] = el.value.trim());
+      return a;
+    }).filter(a => a.key);
+    const open_pairs = $('pairs').value.split('\n').map(l => l.split(',').map(s => s.trim()).filter(Boolean)).filter(p => p.length);
+    const person_roles = $('personRoles').value.split(',').map(s => s.trim()).filter(Boolean);
+    return { name: $('setName').value.trim() || 'site', audiences, guide: $('guide').value.trim(), open_pairs, person_roles };
+  }
+
+  async function load() {
+    const r = await fetch('/api/voices/personas');
+    if (!r.ok) { msg('Could not load the current set (' + r.status + ').'); return; }
+    const d = await r.json();
+    counts = d.counts || {};
+    $('source').textContent = d.source;
+    $('preset').innerHTML = d.presets.map(p => `<option>${p}</option>`).join('');
+    fill(d.set);
+    loadReread();
+  }
+
+  async function loadReread() {
+    const r = await fetch('/api/voices/personas/reread');
+    if (!r.ok) return;
+    const d = await r.json(), e = d.estimate, j = d.job || {};
+    $('estimate').textContent = `${e.posts} on-brand posts from the last ${e.days} days, read by ${e.reader}; roughly $${e.usd}.`;
+    $('job').textContent = j.state === 'running' ? `Running: ${j.done} of ${j.total}` :
+      j.state === 'done' ? `Last run finished: ${j.written} posts re-read.` :
+      j.state === 'failed' ? `Last run failed: ${j.error}` : '';
+    $('reread').disabled = j.state === 'running';
+    if (j.state === 'running') setTimeout(loadReread, 4000);
+  }
+
+  $('loadPreset').onclick = async () => {
+    const r = await fetch('/api/voices/personas/preset/' + encodeURIComponent($('preset').value));
+    if (!r.ok) { msg('Could not load that preset.'); return; }
+    fill(await r.json());
+    msg('Preset loaded. Nothing is saved until you press Save.', true);
+  };
+  $('addRow').onclick = () => $('rows').appendChild(row({ show: 'column' }));
+  $('save').onclick = async () => {
+    const r = await fetch('/api/voices/personas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collect()) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { msg('Not saved: ' + (Array.isArray(d.detail) ? d.detail.map(x => typeof x === 'string' ? x : (x.msg || JSON.stringify(x))).join('; ') : (d.detail || r.status))); return; }
+    msg('Saved. New posts use this set now; re-read past posts to apply it to them.', true);
+    load();
+  };
+  $('reset').onclick = async () => {
+    if (!window.confirm('Go back to the set in code? The saved set stays in history.')) return;
+    const r = await fetch('/api/voices/personas/reset', { method: 'POST' });
+    msg(r.ok ? 'Back to the set in code.' : 'Could not reset (' + r.status + ').', r.ok);
+    load();
+  };
+  $('reread').onclick = async () => {
+    const r = await fetch('/api/voices/personas/reread', { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { msg('Re-read not started: ' + (d.detail || r.status)); return; }
+    msg('Re-read started.', true);
+    loadReread();
+  };
+  load();
+})();
+</script>
+{% endblock %}

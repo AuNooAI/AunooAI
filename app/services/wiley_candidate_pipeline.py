@@ -23,6 +23,7 @@ Reuses existing primitives:
 - ``wiley_overlay_generator.generate_overlay_proposal``
 """
 from __future__ import annotations
+from app.model_tiers import default_model
 
 import asyncio
 import json
@@ -336,7 +337,7 @@ async def _gather_seed_articles(
 
     def _exact_match(t: str) -> list:
         sql = sa_text("""
-            SELECT uri
+            SELECT uri, title, news_source, source_country
             FROM articles
             WHERE topic = :topic
               AND (publication_date IS NULL OR
@@ -347,7 +348,24 @@ async def _gather_seed_articles(
         rows = db.facade._execute_with_rollback(
             sql, {"topic": t, "days": int(days_back), "limit": int(limit)},
         ).fetchall()
-        return [r._mapping["uri"] for r in rows]
+        return _hygiene([dict(r._mapping) for r in rows], t)
+
+    def _hygiene(rows: list, t: str) -> list:
+        """Run seed rows through the report corpus rules and return URIs.
+
+        Every path into a deck goes through here — explicit source topics, the
+        exact-name match and the semantic fallback — because the rules are
+        about what may be cited, not about how the article was found. Only the
+        source-topic path was filtered at first, and five of the six Wiley
+        tracker topics carry no source topics, so their decks would have gone
+        on citing press releases and aggregators.
+        """
+        try:
+            from app.services.report_corpus import filter_report_corpus
+            rows = filter_report_corpus(rows, topic=t)
+        except Exception as e:
+            logger.warning("corpus filter skipped for %r: %s", t, e)
+        return [r.get("uri") for r in rows if r.get("uri")]
 
     seen: set = set()
     ordered: list = []
@@ -360,15 +378,41 @@ async def _gather_seed_articles(
 
     # 1. Explicit source topics — alignment-filtered (customer-facing quality)
     if source_topics:
+        # Take from every source topic in turn rather than draining them in
+        # order. Concatenating and then truncating at `limit` starved whichever
+        # topics came last: a synthesis over nine sources filled its whole
+        # 60-article budget from the first four (Research, Japan, the US and
+        # Germany) and gave France, Italy, Spain, Brazil and the consumer voice
+        # nothing at all, which is not a synthesis. Round-robin keeps each
+        # source's ranking intact while guaranteeing every one is represented,
+        # and a thin topic simply runs out early and hands its share back.
+        per_topic: list = []
         for t in source_topics:
             rows = db.facade.get_relevant_articles_for_topic(
                 t, days_back=days_back, limit=limit,
             )
-            picked = [r["uri"] for r in rows]
+            # Same hygiene the report corpus gets, and for the same reason: a
+            # market source topic must only contribute its own country's press.
+            # Without this a deck built from "…- France" still cited a BBC
+            # Afrique story, because the country filter lives at corpus-build
+            # time and this path went straight to the facade.
+            picked = _hygiene([dict(r) for r in rows], t)
             if not picked:
                 # topic has no alignment scores yet — fall back to raw match
                 picked = _exact_match(t)
-            _add(picked)
+            per_topic.append(picked)
+
+        if len(per_topic) == 1:
+            _add(per_topic[0])
+        else:
+            depth = 0
+            while len(ordered) < limit and any(len(p) > depth for p in per_topic):
+                for picked in per_topic:
+                    if depth < len(picked):
+                        _add([picked[depth]])
+                        if len(ordered) >= limit:
+                            break
+                depth += 1
         return ordered[:limit]
 
     # 2. Exact match on the tracked name (original behaviour)
@@ -391,7 +435,17 @@ async def _gather_seed_articles(
             top_k=max(limit * 2, 60),
             metadata_filter={"publication_date": {"$gte": cutoff}},
         )
-        _add([r.get("id") for r in results])
+        # Third path into a deck, same rules. The vector store returns URIs,
+        # so fetch the columns the rules need before applying them.
+        uris = [r.get("id") for r in results if r.get("id")]
+        if uris:
+            rows = db.facade._execute_with_rollback(sa_text(
+                "SELECT uri, title, news_source, source_country "
+                "FROM articles WHERE uri = ANY(:u)"
+            ), {"u": uris}).fetchall()
+            by_uri = {dict(r._mapping)["uri"]: dict(r._mapping) for r in rows}
+            ranked = [by_uri[u] for u in uris if u in by_uri]
+            _add(_hygiene(ranked, topic))
     except Exception as e:
         logger.warning("Semantic seed fallback failed for '%s': %s", topic, e)
 
@@ -634,7 +688,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
     from app.routes.trend_convergence_routes import generate_future_horizons_prompt
     formatted_prompt = generate_future_horizons_prompt(topic, article_rows, "", None)
 
-    ai_model = get_ai_model("gpt-5.4")
+    ai_model = get_ai_model(default_model("standard"))
     if not ai_model:
         raise RuntimeError("gpt-5.4 model not available for Three Horizons run.")
 
@@ -695,7 +749,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
             "topic_label": topic,
             "topic_description": candidate.get("proposed_description"),
             "articles_analyzed": len(article_rows),
-            "model_used": "gpt-5.4",
+            "model_used": default_model("standard"),
             "generated_at": _dt.utcnow().isoformat(),
             "analysis_type": "candidate_promotion",
             "source_candidate_id": candidate.get("id"),
@@ -705,7 +759,7 @@ async def _run_three_horizons(topic: str, candidate: dict) -> str:
         analysis_id=run_id,
         user_id=None,
         topic=topic,
-        model_used="gpt-5.4",
+        model_used=default_model("standard"),
         raw_output=raw_output,
         total_articles_analyzed=len(article_rows),
         analysis_duration_seconds=_time.time() - started,

@@ -60,6 +60,8 @@ import {
   type BriefingAction,
   type BriefingTheme,
   type FinalizeProgressEvent,
+  type BriefingReview,
+  type BriefingReviewFinding,
 } from '../../services/briefingDeskApi';
 import { Skeleton } from '../ui/skeleton';
 import { ShareModal, ShareDeskBriefingData } from '../ShareModal';
@@ -220,7 +222,9 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     try {
       const final = await streamComposeDailyBriefing(
         selectedTopics.length ? selectedTopics : undefined,
-        undefined,
+        // The page's model selector applies to compose too; when nothing is
+        // selected the server uses the tenant's pinned briefing model.
+        model ? { model } : undefined,
         (evt) => {
           // Keep one line per stage; replace the stage's line as it progresses
           setComposeLog((prev) => {
@@ -312,7 +316,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     setFinalizeProgress(null);
 
     try {
-      await finalizeBriefing(selectedBriefing.id, model || 'gpt-5.4', (event) => {
+      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-4-5', (event) => {
         setFinalizeProgress(event);
       }, {
         organizational_profile: organizationalProfile,
@@ -328,6 +332,25 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     } finally {
       setFinalizing(false);
       setFinalizeProgress(null);
+    }
+  };
+
+  // Finalize a draft the reviewer held, as stored, recording who and why.
+  const handleFinalizeOverride = async (note: string) => {
+    if (!selectedBriefing) return;
+    setFinalizing(true);
+    try {
+      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-4-5', () => undefined, {
+        override_review: true,
+        override_note: note,
+      });
+      const detail = await fetchBriefing(selectedBriefing.id);
+      setSelectedBriefing(detail);
+      await loadBriefings();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to finalize briefing');
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -728,6 +751,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
           onRemoveIncident={handleRemoveIncident}
           onRemoveEmergingTopic={handleRemoveEmergingTopic}
           onFinalize={handleFinalize}
+          onFinalizeOverride={handleFinalizeOverride}
           onReopen={handleReopen}
           onExport={handleExport}
           onExportPdf={handleExportPdf}
@@ -894,6 +918,7 @@ interface BriefingDetailPanelProps {
   onRemoveIncident: (name: string) => void;
   onRemoveEmergingTopic: (name: string) => void;
   onFinalize: () => void;
+  onFinalizeOverride: (note: string) => void;
   onReopen: () => void;
   onExport: (format: 'markdown' | 'html' | 'json') => void;
   onExportPdf: () => void;
@@ -913,6 +938,7 @@ function BriefingDetailPanel({
   onRemoveIncident,
   onRemoveEmergingTopic,
   onFinalize,
+  onFinalizeOverride,
   onReopen,
   onExport,
   onExportPdf,
@@ -972,6 +998,7 @@ function BriefingDetailPanel({
   const [savingActions, setSavingActions] = useState(false);
 
   const isDraft = briefing.status === 'draft';
+  const review = (briefing.metadata as { review?: BriefingReview } | undefined)?.review;
   const canFinalize = isDraft && (briefing.articles.length > 0 || briefing.incidents.length > 0);
 
   // Sync edited synthesis when briefing changes
@@ -1359,6 +1386,13 @@ function BriefingDetailPanel({
               </div>
             )}
 
+            {/* Reviewer held the generated synthesis: show findings, offer regenerate / override */}
+            {isDraft && !finalizing && review?.status === 'revision_requested' && (
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                <ReviewBlockedPanel briefing={briefing} review={review} onRegenerate={onFinalize} onOverride={onFinalizeOverride} busy={finalizing} />
+              </div>
+            )}
+
             {/* Finalize progress indicator */}
             {isDraft && finalizing && (
               <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -1366,7 +1400,9 @@ function BriefingDetailPanel({
                   <Loader2 className="w-4 h-4 animate-spin text-pink-500" />
                   {finalizeProgress?.stage === 'analysis'
                     ? `Analyzing ${finalizeProgress.current_item || 0}/${finalizeProgress.total_items || 0}...`
-                    : 'Synthesizing...'}
+                    : finalizeProgress?.stage === 'review'
+                      ? 'Checking the draft against its sources...'
+                      : 'Synthesizing...'}
                 </div>
               </div>
             )}
@@ -1725,8 +1761,9 @@ function BriefingDetailPanel({
                 {briefing.metadata && (
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Generated with {briefing.model_used || getDeployedModelNames() || 'AI'} on {formatDate(briefing.finalized_at)}
+                      Generated with {briefing.model_used || getDeployedModelNames() || 'AI'}{briefing.finalized_at ? ` on ${formatDate(briefing.finalized_at)}` : ', held as a draft'}
                     </p>
+                    {review && <ReviewNote review={review} />}
                   </div>
                 )}
               </>
@@ -1871,3 +1908,177 @@ function BriefingDetailPanel({
 }
 
 export default BriefingDeskSection;
+
+// ---------------------------------------------------------------------------
+// Reviewer findings (LLM-as-judge). Errors hold the briefing as a draft.
+// ---------------------------------------------------------------------------
+
+const SEVERITY_STYLE: Record<BriefingReviewFinding['severity'], string> = {
+  error: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  warning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  info: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+};
+
+function ReviewFindingsList({ findings }: { findings: BriefingReviewFinding[] }) {
+  const order = { error: 0, warning: 1, info: 2 };
+  const sorted = [...findings].sort((a, b) => order[a.severity] - order[b.severity]);
+  return (
+    <ul className="space-y-2">
+      {sorted.map((f, i) => (
+        <li key={i} className="text-sm text-gray-700 dark:text-gray-300">
+          <div className="flex items-start gap-2">
+            <span className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${SEVERITY_STYLE[f.severity]}`}>{f.severity}</span>
+            <div className="min-w-0">
+              <span className="text-xs text-gray-400 mr-1">{f.target}</span>
+              <span>{f.finding}</span>
+              {f.evidence && <span className="text-xs text-gray-400"> ({f.evidence})</span>}
+              {f.suggested_fix && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Fix: {f.suggested_fix}</div>
+              )}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ReviewBlockedPanel({
+  briefing, review, onRegenerate, onOverride, busy,
+}: {
+  briefing: DeskBriefing;
+  review: BriefingReview;
+  onRegenerate: () => void;
+  onOverride: (note: string) => void;
+  busy: boolean;
+}) {
+  const [note, setNote] = useState('');
+  const [showDraft, setShowDraft] = useState(false);
+  const errors = review.summary?.errors ?? review.findings.filter(f => f.severity === 'error').length;
+  const warnings = review.summary?.warnings ?? review.findings.filter(f => f.severity === 'warning').length;
+  return (
+    <div className="rounded-lg border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-4 space-y-3">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+            The reviewer held this briefing: {errors} error{errors === 1 ? '' : 's'}{warnings ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}
+          </p>
+          <p className="text-xs text-red-600/80 dark:text-red-300/80">
+            The synthesis was generated but not finalized. Each error is a claim the sources do not support. Regenerate, or finalize over the findings and edit the text afterwards.
+          </p>
+        </div>
+      </div>
+      <ReviewFindingsList findings={review.findings} />
+      <div>
+        <button onClick={() => setShowDraft(v => !v)} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline">
+          {showDraft ? 'Hide' : 'Show'} the held summary
+        </button>
+        {showDraft && briefing.synthesis && (
+          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap border-l-2 border-gray-300 dark:border-gray-600 pl-3">{briefing.synthesis}</p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <button onClick={onRegenerate} disabled={busy}
+          className="text-xs font-medium px-2.5 py-1 bg-pink-500 text-white rounded hover:bg-pink-600 disabled:opacity-50">
+          Regenerate
+        </button>
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Reason for finalizing anyway (recorded)"
+          className="flex-1 min-w-[12rem] text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200" />
+        <button onClick={() => onOverride(note)} disabled={busy || !note.trim()}
+          title="Finalize the held text as it is. Your name and reason are stored on the briefing."
+          className="text-xs font-medium px-2.5 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50">
+          Finalize anyway
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewNote({ review }: { review: BriefingReview }) {
+  const [open, setOpen] = useState(false);
+  const errors = review.summary?.errors ?? 0;
+  const warnings = review.summary?.warnings ?? 0;
+  let label: string;
+  if (review.status === 'review_failed') label = `Reviewer did not run${review.error ? ` (${review.error})` : ''}`;
+  else if (review.override) label = `Finalized over ${errors} reviewer error${errors === 1 ? '' : 's'} by ${review.override.by}${review.override.note ? `: ${review.override.note}` : ''}`;
+  else if (errors) label = `Held by the reviewer: ${errors} error${errors === 1 ? '' : 's'}${warnings ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`;
+  else if (warnings) label = `Reviewed: ${warnings} warning${warnings === 1 ? '' : 's'}, no errors`;
+  else label = 'Reviewed: no findings';
+  const tone = review.override || review.status === 'review_failed' ? 'text-amber-600 dark:text-amber-400'
+    : errors ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
+  return (
+    <div className="mt-1">
+      <button onClick={() => review.findings.length && setOpen(v => !v)} className={`text-xs ${tone} ${review.findings.length ? 'underline' : ''}`}>
+        {label}{review.findings.length ? (open ? ' (hide)' : ' (show)') : ''}
+      </button>
+      {open && <div className="mt-2"><ReviewFindingsList findings={review.findings} /></div>}
+      <RepairHistory review={review} />
+    </div>
+  );
+}
+
+const REVIEW_RESULT: Record<string, string> = {
+  approved: 'clean',
+  approved_with_warnings: 'warnings only',
+  revision_requested: 'held',
+  review_failed: 'review failed',
+};
+
+function RepairHistory({ review }: { review: BriefingReview }) {
+  const [open, setOpen] = useState(false);
+  const rounds = review.repair_rounds || [];
+  if (!rounds.length) return null;
+  const dateFixes = rounds.filter(r => r.kind === 'date_fix').length;
+  const writerPasses = rounds.length - dateFixes;
+  const kept = review.repair_kept_round ?? 0;
+  const parts = [`${rounds.length} repair pass${rounds.length === 1 ? '' : 'es'}`];
+  const kinds: string[] = [];
+  if (dateFixes) kinds.push(`${dateFixes} date fix${dateFixes === 1 ? '' : 'es'}`);
+  if (writerPasses) kinds.push(`${writerPasses} writer`);
+  if (kinds.length) parts[0] += ` (${kinds.join(', ')})`;
+  parts.push(kept ? `kept pass ${kept}` : 'kept the first draft');
+  if (review.confirmation && (review.confirmation.confirmed || review.confirmation.withdrawn)) {
+    parts.push(`judge errors: ${review.confirmation.confirmed} confirmed, ${review.confirmation.withdrawn} withdrawn`);
+  }
+  const first = rounds[0];
+  const rows = [
+    { label: 'First draft', errors: first.errors_before, warnings: first.warnings_before, result: '', round: 0, stopped: '' },
+    ...rounds.map(r => ({
+      label: r.kind === 'date_fix' ? `${r.round} · date fix${r.fixed ? ` (${r.fixed} sentence${r.fixed === 1 ? '' : 's'})` : ''}` : `${r.round} · writer`,
+      errors: r.errors_after, warnings: r.warnings_after,
+      result: REVIEW_RESULT[r.status || ''] || r.status || '',
+      round: r.round,
+      stopped: r.stopped === 'regression' ? 'stopped: this pass added errors' : r.status === 'repair_failed' ? 'writer returned nothing usable' : '',
+    })),
+  ];
+  return (
+    <div className="mt-1">
+      <button onClick={() => setOpen(v => !v)} className="text-xs text-gray-500 dark:text-gray-400 underline">
+        {parts.join(' · ')}{open ? ' (hide)' : ' (show)'}
+      </button>
+      {open && (
+        <table className="mt-2 text-xs text-gray-700 dark:text-gray-300 border-collapse">
+          <thead>
+            <tr className="text-left text-gray-500 dark:text-gray-400">
+              <th className="pr-4 font-medium">Pass</th>
+              <th className="pr-4 font-medium text-right">Errors</th>
+              <th className="pr-4 font-medium text-right">Warnings</th>
+              <th className="pr-4 font-medium">Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.round} className={row.round === kept ? 'font-semibold' : ''}>
+                <td className="pr-4 py-0.5 whitespace-nowrap">{row.label}{row.round === kept ? ' · kept' : ''}</td>
+                <td className="pr-4 py-0.5 text-right">{row.errors}</td>
+                <td className="pr-4 py-0.5 text-right">{row.warnings}</td>
+                <td className="pr-4 py-0.5">{row.result}{row.stopped ? ` · ${row.stopped}` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}

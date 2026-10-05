@@ -26,6 +26,7 @@ from fastapi.concurrency import run_in_threadpool
 import litellm
 
 from app.database import get_database_instance
+from app.model_tiers import default_model
 from app.database_query_facade import DatabaseQueryFacade
 from app.vector_store_pgvector import search_articles as vector_search_articles
 from app.ai_models import get_ai_model, resolve_litellm_call_params
@@ -40,7 +41,7 @@ from app.services.external_data import SemanticScholarProvider, GoogleSearchProv
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "bedrock-kimi-k2-5"
 CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "auspex" / "pam_config.json"
 AGENTS_PATH = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
@@ -262,11 +263,11 @@ class PAMService:
                 "parallel_agents": True
             },
             "agents": {
-                "power": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
-                "attention": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
-                "money": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 4000},
-                "trends": {"model": "gpt-5.4-mini", "temperature": 0.3, "max_tokens": 3000},
-                "synthesis": {"model": "gpt-5.4", "temperature": 0.4, "max_tokens": 5000}
+                "power": {"model": "bedrock-kimi-k2-5", "temperature": 0.3, "max_tokens": 4000},
+                "attention": {"model": "bedrock-kimi-k2-5", "temperature": 0.3, "max_tokens": 4000},
+                "money": {"model": "bedrock-kimi-k2-5", "temperature": 0.3, "max_tokens": 4000},
+                "trends": {"model": "bedrock-kimi-k2-5", "temperature": 0.3, "max_tokens": 3000},
+                "synthesis": {"model": default_model("standard"), "temperature": 0.4, "max_tokens": 5000}
             },
             "score_calculation": {
                 "pillar_weights": {"power": 0.35, "attention": 0.35, "money": 0.30},
@@ -1352,7 +1353,7 @@ class PAMService:
         """Generate executive summary using synthesis agent prompt."""
         # Load synthesis prompt from file
         prompt_file = AGENTS_PATH / "pam_synthesis_agent.md"
-        synthesis_model = self.config.get("agents", {}).get("synthesis", {}).get("model", "gpt-5.4")
+        synthesis_model = self.config.get("agents", {}).get("synthesis", {}).get("model", default_model("standard"))
         synthesis_temp = self.config.get("agents", {}).get("synthesis", {}).get("temperature", 0.4)
 
         # Build context

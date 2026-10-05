@@ -164,6 +164,8 @@ export interface Vendor {
   enabled: boolean;
   baseline: VendorBaseline;
   identifiers: VendorIdentifier[] | null;
+  /** Brand colour (#rrggbb, bw_brands.color); null when none is set. */
+  color?: string | null;
 }
 
 export interface FacetValue { value: string; n: number }
@@ -1191,6 +1193,8 @@ export interface VendorDetail {
   is_public: boolean;
   review_status: string;
   enabled: boolean;
+  /** Brand colour (#rrggbb, bw_brands.color); null when none is set. */
+  color?: string | null;
   baseline: VendorBaseline;
   identifiers: VendorIdentifier2[];
   profile_series: ProfileReading[];
@@ -1869,6 +1873,10 @@ export interface Voice {
    *  the list, tagged. */
   vendor_tag: { label: string; org: string | null; brand_id: number | null;
                 tracked: boolean; linked: boolean; source: string } | null;
+  /** Which audience the account belongs to (patient, clinician, customer,
+   *  journalist ...): from its profile role when profiled, else the majority
+   *  of its posts as read by the social evaluation. Null when neither can say. */
+  audience: { role: string; label: string; source: 'account_profile' | 'account_posts'; n: number | null } | null;
   sample_of_one: boolean;
 }
 
@@ -2025,13 +2033,13 @@ export interface HorizonMarkers {
   funded_days: number;
 }
 export interface HorizonAcquired {
-  brand_id: number; vendor: string; status: 'acquired' | 'closed' | 'pivoted';
+  brand_id: number; vendor: string; status: 'acquired' | 'closed' | 'pivoted' | 'incumbent';
   acquired_by: string | null; status_date: string | null; note: string | null;
 }
 export interface HorizonControls {
   multipliers: Record<string, number>;
   note: string | null;
-  status: 'active' | 'acquired' | 'closed' | 'pivoted';
+  status: 'active' | 'acquired' | 'closed' | 'pivoted' | 'incumbent';
   acquired_by: string | null;
   status_date: string | null;
   updated_by?: string | null;

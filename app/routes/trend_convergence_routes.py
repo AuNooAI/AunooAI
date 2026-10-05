@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from app.ai_models import model_caps
+from app.model_tiers import default_model
 from app.security.session import verify_session, verify_session_api
 from typing import List, Dict, Optional, Callable, Any
 import logging
@@ -21,54 +23,6 @@ from app.services.prompt_loader import PromptLoader
 from app.analyzers.prompt_manager import PromptManager, PromptManagerError
 from app.retrieval.reranker import rerank, is_enabled as rerank_is_enabled
 
-# Context limits for different AI models (copied from futures cone)
-CONTEXT_LIMITS = {
-    # OpenAI flagship — gpt-5.4 is the current customer-facing recommendation
-    # (the Wiley bundle supervisor pipeline already runs on it).
-    'gpt-5': 400000,
-    'gpt-5-mini': 400000,
-    'gpt-5-nano': 400000,
-    'gpt-5.5': 1000000,
-    'gpt-5.4': 400000,
-    'gpt-5.4-mini': 400000,
-    'gpt-5.4-nano': 400000,
-    'gpt-3.5-turbo': 16385,
-    'gpt-3.5-turbo-16k': 16385,
-    'gpt-4': 8192,
-    'gpt-4-32k': 32768,
-    'gpt-4-turbo': 128000,
-    'gpt-4-turbo-preview': 128000,
-    'gpt-4o': 128000,
-    'gpt-4o-mini': 128000,
-    'gpt-4.1': 1000000,
-    'gpt-4.1-mini': 1000000,
-    'gpt-4.1-nano': 1000000,
-    'claude-3-opus': 200000,
-    'claude-3-sonnet': 200000,
-    'claude-3-haiku': 200000,
-    'claude-3.5-sonnet': 200000,
-    'claude-4': 200000,
-    'claude-4-opus': 200000,
-    'claude-4-sonnet': 200000,
-    'claude-4-haiku': 200000,
-    # Bedrock aliases from the tenant litellm yamls (2026-08-31): without these the
-    # lookup fell to the 16k default and the analysis output was squeezed to 500 tokens.
-    'claude-sonnet-5': 200000,
-    'claude-opus-5': 200000,
-    'claude-sonnet-4-5': 200000,
-    'claude-haiku-4-5': 200000,
-    'bedrock-claude-sonnet': 200000,
-    'bedrock-claude-haiku': 200000,
-    'nova-pro': 300000,
-    'nova-lite': 300000,
-    'bedrock-kimi-k2-5': 256000,
-    'gemini-pro': 32768,
-    'gemini-1.5-pro': 2097152,
-    'llama-2-70b': 4096,
-    'llama-3-70b': 8192,
-    'mixtral-8x7b': 32768,
-    'default': 16385
-}
 
 # Consistency mode enum for analysis control
 class ConsistencyMode(str, Enum):
@@ -126,7 +80,7 @@ def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', cu
         return custom_limit
     
     # Calculate based on mode and model capabilities
-    context_limit = CONTEXT_LIMITS.get(model, CONTEXT_LIMITS['default'])
+    context_limit = model_caps(model).context
     is_mega_context = context_limit >= 1000000
     
     if sample_size_mode == 'focused':
@@ -561,16 +515,22 @@ async def get_trend_convergence_models():
     # carry are hidden by the same intersection, so this list can safely
     # name models only some tenants have.
     SUPPORTED = [
-        ('claude-sonnet-4-5', 'Claude Sonnet 4.5', 200000),
-        ('claude-sonnet-5',   'Claude Sonnet 5',   1000000),
-        ('claude-opus-5',     'Claude Opus 5',     1000000),
-        ('claude-haiku-4-5',  'Claude Haiku 4.5',  200000),
-        ('nova-pro',          'Nova Pro',          300000),
-        ('nova-lite',         'Nova Lite',         300000),
-        ('bedrock-kimi-k2-5', 'Kimi K2.5',         256000),
+        ('claude-sonnet-4-5', 'Claude Sonnet 4.5'),
+        ('claude-sonnet-5',   'Claude Sonnet 5'),
+        ('claude-opus-5',     'Claude Opus 5'),
+        ('claude-haiku-4-5',  'Claude Haiku 4.5'),
+        ('nova-pro',          'Nova Pro'),
+        ('nova-lite',         'Nova Lite'),
+        ('bedrock-kimi-k2-5', 'Kimi K2.5'),
     ]
-    _all = [{'id': mid, 'name': label, 'context_limit': ctx, 'provider': 'bedrock'}
-            for mid, label, ctx in SUPPORTED]
+    # Limits come from the model the id runs on (ai_models.model_caps), so the
+    # UI and the backend size prompts from the same numbers.
+    _all = []
+    for mid, label in SUPPORTED:
+        caps = model_caps(mid)
+        _all.append({'id': mid, 'name': label, 'context_limit': caps.context,
+                     'max_output': caps.max_output, 'reasoning': caps.reasoning,
+                     'provider': 'bedrock'})
     try:
         from app.ai_models import get_available_models
         # Name -> provider, so the dropdowns can label a model with the
@@ -3606,7 +3566,7 @@ class HorizonsExecutiveSummaryRequest(BaseModel):
     """Request model for generating executive summary from horizons scenarios"""
     scenarios: List[Dict[str, Any]]
     topic: str
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
     profile_id: Optional[int] = None
 
 
@@ -3889,7 +3849,7 @@ async def download_horizons_html(
         try:
             from app.routes.trend_convergence_routes import calculate_optimal_sample_size
             sample_size = calculate_optimal_sample_size(
-                model_used or "gpt-5.4", sample_size_mode="auto"
+                model_used or default_model("standard"), sample_size_mode="auto"
             )
             from sqlalchemy import text as sa_text
             sql = sa_text(f"""
@@ -3899,7 +3859,7 @@ async def download_horizons_html(
                   AND analyzed = TRUE
                   AND topic_alignment_score IS NOT NULL
                   AND topic_alignment_score > 0.7
-                ORDER BY topic_alignment_score DESC, publication_date DESC
+                ORDER BY topic_alignment_score DESC, publication_date DESC NULLS LAST
                 LIMIT {int(sample_size)}
             """)
             rows = facade._execute_with_rollback(sql, {"topic": topic}).fetchall()

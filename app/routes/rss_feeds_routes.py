@@ -481,7 +481,8 @@ async def _fetch_feed_articles(
                             articles=batch_articles,
                             topic=topic,
                             keywords=topic_keywords,
-                            relevance_threshold_override=threshold_override
+                            relevance_threshold_override=threshold_override,
+                            route="rss",
                         )
                         enriched_count = result.get('saved', 0)
                         logger.info(f"RSS enrichment completed: {result}")

@@ -27,7 +27,7 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-NARRATIVE_MODEL = "gpt-5.4-mini"
+NARRATIVE_MODEL = "bedrock-kimi-k2-5"
 
 
 # Customer-facing label translation (mirrors forecast_pptx_export.CUSTOMER_LABEL).

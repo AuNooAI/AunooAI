@@ -5,7 +5,7 @@ description: Names an emerging-theme cluster of articles and decides whether the
 type: agent
 version: 1.0.0
 model_config:
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.3
   max_tokens: 400
 output_schema:

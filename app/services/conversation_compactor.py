@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_RECENT_TURNS_TO_KEEP = 6  # Keep last 6 turns (3 user + 3 assistant) in full
 DEFAULT_TOKEN_THRESHOLD = 50000  # Start compaction above 50k tokens
 CHARS_PER_TOKEN = 4  # Conservative estimate
-SUMMARY_MODEL = "gpt-5.4-mini"  # Fast model for summarization
+SUMMARY_MODEL = "bedrock-kimi-k2-5"  # Fast model for summarization
 MAX_SUMMARY_TOKENS = 2000  # Max tokens for the summary
 
 

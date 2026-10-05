@@ -21,7 +21,7 @@ from app.ai_models import resolve_litellm_call_params
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = "bedrock-kimi-k2-5"
 
 
 class AgentStage(Enum):

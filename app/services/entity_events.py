@@ -60,7 +60,7 @@ EVENT_TYPES = (
     'leadership_change', 'product_launch', 'pricing_change', 'partnership',
     'customer_win', 'geographic_expansion', 'headcount_change',
     'hiring_spike', 'brand_identity_change', 'controversy',
-    'regulatory_legal', 'narrative_spike',
+    'regulatory_legal', 'narrative_spike', 'research_finding',
 )
 
 # Ordered weakest to strongest, so an upgrade is a comparison.
@@ -149,6 +149,11 @@ def independence_key_for_article(news_source: Optional[str],
     """
     if (bias_source or '').startswith('vendor:'):
         return f"owned:{bias_source}"
+    # A page already marked as the company's own publishing. Keyed by host it
+    # read as an independent publisher: Prophet's own blog post was the
+    # "independent" source behind a Prophet launch (Sep 2026).
+    if (bias_source or '').startswith('owned:'):
+        return bias_source
     if url:
         host = (urlsplit(url).netloc or '').lower()
         if host.startswith('www.'):
@@ -157,8 +162,19 @@ def independence_key_for_article(news_source: Optional[str],
             owner = (owned_domains or {}).get(host)
             if owner:
                 return f"owned:vendor:{owner}"
+            if _is_wire(host):
+                return f"owned:wire:{host}"
             return f"domain:{host}"
+    if _is_wire(news_source):
+        return f"owned:wire:{(news_source or '').strip().lower()}"
     return f"source:{(news_source or 'unknown').lower()}"
+
+
+def _is_wire(host: Optional[str]) -> bool:
+    """A paid release channel: the company speaking, not a publisher."""
+    from app.services.report_corpus import is_wire_host
+
+    return is_wire_host(host or "")
 
 
 def owned_domains(conn, market_id: Optional[int] = None) -> Dict[str, str]:
@@ -484,6 +500,11 @@ def subject_key(reason: Optional[str]) -> Optional[str]:
     return re.sub(r'[^a-z0-9 ]', '', str(reason).lower()).strip() or None
 
 
+#: How far apart two stored events may be and still be one announcement said
+#: twice. Matches the report's own merge window.
+DUPLICATE_WINDOW_DAYS = 14
+
+
 def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
     """Fold events that are the same announcement said twice.
 
@@ -498,7 +519,7 @@ def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
     also the one whose date the timeline should keep.
     """
     rows = conn.execute(text("""
-        SELECT e.id, e.event_type, ma.review_reason,
+        SELECT e.id, e.event_type, ma.review_reason, e.occurred_at,
                (SELECT array_agg(DISTINCT ee.brand_id ORDER BY ee.brand_id)
                   FROM bw_entity_event_entities ee WHERE ee.event_id = e.id)
                    AS brands
@@ -510,7 +531,7 @@ def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
          ORDER BY e.id
     """), {'who': announced_by}).mappings().all()
 
-    groups: Dict[tuple, List[int]] = {}
+    groups: Dict[tuple, List[tuple]] = {}
     seen: set = set()
     for row in rows:
         if row['id'] in seen:
@@ -520,10 +541,30 @@ def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
         if not key or not row['brands']:
             continue
         groups.setdefault(
-            (row['event_type'], tuple(row['brands']), key), []).append(row['id'])
+            (row['event_type'], tuple(row['brands']), key), []).append(
+                (row['id'], row['occurred_at']))
+
+    # A restatement comes within days of the first post. The same review
+    # wording months apart is two announcements (a "new integration" every
+    # quarter), and folding them lost the later one's date, so each group is
+    # cut into runs no wider than DUPLICATE_WINDOW_DAYS from the first sighting.
+    clusters: List[List[int]] = []
+    for members in groups.values():
+        current: List[int] = []
+        anchor = None
+        for event_id, when in members:
+            if current and anchor is not None and when is not None \
+                    and abs((when - anchor).days) > DUPLICATE_WINDOW_DAYS:
+                clusters.append(current)
+                current, anchor = [], None
+            current.append(event_id)
+            if anchor is None:
+                anchor = when
+        if current:
+            clusters.append(current)
 
     merged = 0
-    for ids in groups.values():
+    for ids in clusters:
         if len(ids) < 2:
             continue
         survivor, losers = ids[0], ids[1:]
@@ -578,8 +619,8 @@ def merge_duplicates(conn, *, announced_by: str = 'vendor') -> Dict[str, Any]:
 
     if merged:
         logger.info('merged %d duplicate event(s) into %d survivor(s)',
-                    merged, sum(1 for v in groups.values() if len(v) > 1))
-    return {'groups': sum(1 for v in groups.values() if len(v) > 1),
+                    merged, sum(1 for v in clusters if len(v) > 1))
+    return {'groups': sum(1 for v in clusters if len(v) > 1),
             'merged': merged}
 
 

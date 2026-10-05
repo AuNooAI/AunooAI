@@ -20,7 +20,10 @@ from app.services.daily_briefing_ranking import (
     SOURCE_CAP_OVERRIDE_GAP,
     annotate_candidates,
     backfill,
+    balance_across_groups,
     build_shortlist,
+    label_similarity,
+    labels_match,
     clamp01,
     credibility_score,
     dedupe_candidates,
@@ -405,3 +408,73 @@ class TestBackfill:
         gap = pool[0]["_score"] - next(r for r in pool if r["uri"] == "thin")["_score"]
         assert gap > SOURCE_CAP_OVERRIDE_GAP
         assert len([r for r in added if r["news_source"] == "hub.com"]) == 4
+
+
+# --------------------------------------------------------------------------
+# Priority slots, label matching, group balance
+# --------------------------------------------------------------------------
+
+class TestPriorityAndLabels:
+    def _by_topic(self, spec):
+        return {t: rank(annotate_candidates(rows, topic=t, now=NOW)) for t, rows in spec.items()}
+
+    def test_a_priority_topic_gets_its_slots_before_the_round_robin(self):
+        by_topic = self._by_topic({
+            "a": [article(f"a{i}", align=0.9, source=f"a{i}.com") for i in range(6)],
+            "b": [article(f"b{i}", align=0.9, source=f"b{i}.com") for i in range(6)],
+            "own": [article(f"own{i}", align=0.6, source=f"o{i}.com") for i in range(6)],
+        })
+        shortlist, stats = build_shortlist(by_topic, limit=9, topic_order=["a", "b", "own"],
+                                           priority={"own": 5})
+        assert stats["priority"] == {"own": 5}
+        assert stats["per_topic"] == {"a": 2, "b": 2, "own": 5}
+        assert [r["uri"] for r in shortlist[:5]] == [f"own{i}" for i in range(5)]
+
+    def test_priority_slots_still_respect_the_source_cap(self):
+        by_topic = self._by_topic({
+            "own": [article(f"own{i}", align=0.6, source="same.com") for i in range(6)],
+        })
+        _, stats = build_shortlist(by_topic, limit=6, topic_order=["own"], priority={"own": 5})
+        assert stats["priority"] == {"own": MAX_PER_SOURCE}
+
+    def test_label_similarity_catches_a_relabelled_repeat(self):
+        assert labels_match("Anthropic AI Extinction Warning and Congressional Response",
+                            "Anthropic AI Extinction Warnings and Regulatory Push")
+        assert labels_match("Anthropic Researcher Resignations Over AI Safety",
+                            "Anthropic AI Safety Researcher Exodus")
+
+    def test_label_similarity_does_not_merge_different_stories(self):
+        assert not labels_match("OpenAI Calls for Mandatory AI Safety Rules",
+                                "OpenAI Backs Binding UK AI Regulation")
+        assert not labels_match("Gates Foundation $1B AI Inequality Initiative",
+                                "Google DeepMind AlphaGenome Atlas Launch")
+        assert label_similarity("Wiley AI", "Wiley AI Bet Pays Off") == 0.0
+
+    def test_balance_gives_every_group_its_best_before_seconds(self):
+        groups = {"a": ["a0", "a1", "a2"], "b": ["b0"], "c": []}
+        chosen, per_group = balance_across_groups(groups, limit=3, group_order=["a", "b", "c"])
+        assert chosen == ["a0", "b0", "a1"]
+        assert per_group == {"a": 2, "b": 1, "c": 0}
+
+
+class TestBackfillTopicCap:
+    def _rows(self, spec):
+        rows = []
+        for topic, items in spec.items():
+            rows.extend(annotate_candidates(items, topic=topic, now=NOW))
+        return rows
+
+    def test_backfill_prefers_a_less_covered_topic_over_a_third_of_the_same(self):
+        selected = self._rows({"quantum": [article("q1", align=0.9, source="a.com"),
+                                            article("q2", align=0.9, source="b.com")]})
+        pool = self._rows({"quantum": [article("q3", align=0.95, source="c.com")],
+                           "patents": [article("p1", align=0.7, source="d.com")]})
+        added = backfill(selected, pool, target=3, topics=[f"t{i}" for i in range(18)])
+        assert [r["uri"] for r in added] == ["p1"]
+
+    def test_a_saturated_topic_still_fills_when_nothing_else_is_left(self):
+        selected = self._rows({"quantum": [article("q1", align=0.9, source="a.com"),
+                                            article("q2", align=0.9, source="b.com")]})
+        pool = self._rows({"quantum": [article("q3", align=0.95, source="c.com")]})
+        added = backfill(selected, pool, target=3, topics=[f"t{i}" for i in range(18)])
+        assert [r["uri"] for r in added] == ["q3"]

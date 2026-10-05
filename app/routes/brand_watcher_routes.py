@@ -20,6 +20,15 @@ from functools import lru_cache
 import os
 
 from app.security.session import verify_session
+from app.model_tiers import default_model
+from app.services.social_sources import (
+    earned_news_sql, social_src_sql, owned_src_sql, is_owned_source, collapse_reposts,
+)
+
+# Row predicates shared by the Brand Watcher queries (static SQL, no bind params).
+_EARNED_NEWS = earned_news_sql('a')          # analysed, not social, not the company's own publishing
+_SOCIAL_ROW = social_src_sql('a.news_source')
+_OWNED_ROW = owned_src_sql('a.bias_source')
 from app.services import brand_screening
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
@@ -435,6 +444,10 @@ class StatsResponse(BaseModel):
     most_active_category: Optional[str] = None
     multi_category_count: int = 0
     category_breakdown: Dict[str, int] = {}
+    # The company's own blog and press posts, which the article list shows but
+    # the counts above leave out. Reported so a zero article count next to a
+    # populated list reads as "no earned coverage" and not as a broken query.
+    owned_articles: int = 0
 
 
 class CategoryDistribution(BaseModel):
@@ -467,6 +480,9 @@ class ArticleResponse(BaseModel):
     story_group_id: Optional[str] = None
     # MBFC source authority (when the source is in the mediabias dataset).
     factual_reporting: Optional[str] = None
+    # The company's own publishing (its website, its LinkedIn): listed, flagged,
+    # and left out of sentiment and share of voice.
+    is_owned: bool = False
     # Adverse risk findings: [{risk_type, severity, confidence}] (bw_article_risks).
     risks: List[dict] = []
     # Case state (bw_finding_reviews): new | reviewed | escalated | dismissed.
@@ -475,6 +491,9 @@ class ArticleResponse(BaseModel):
     # signals: [{key, band, score}]} — compact row summary; full detail via
     # GET /signals/detail.
     signals_summary: Optional[dict] = None
+    # A mention kept because the body names the brand (brand_mention_gate):
+    # the sentence that names it. matched_keywords then carries the brand.
+    brand_mention: Optional[str] = None
 
 
 class ArticlesListResponse(BaseModel):
@@ -506,7 +525,8 @@ class ComparisonDataResponse(BaseModel):
 class ShareOfVoiceResponse(BaseModel):
     brand_id: int
     brand_name: str
-    mention_count: int
+    mention_count: int              # earned coverage only
+    owned_count: int = 0            # the company's own blog / LinkedIn posts, shown beside it
     percentage: float
     color: Optional[str] = None
 
@@ -516,7 +536,7 @@ class NarrativeRequest(BaseModel):
     days_back: int = 365
     # Standard tier, not mini: this is the most executive-facing text in Brand
     # Watcher, and it gets a same-tier reviewer pass on top (see generate_narrative).
-    model: str = "gpt-5.4"
+    model: str = default_model("standard")
 
 
 class NarrativeResponse(BaseModel):
@@ -541,7 +561,7 @@ class CategoryInsightRequest(BaseModel):
     brand_id: int
     category: str
     days_back: int = 365
-    model: str = "gpt-5.4-mini"
+    model: str = "bedrock-kimi-k2-5"
 
 
 class CategoryInsightResponse(BaseModel):
@@ -1220,7 +1240,7 @@ async def source_comparison_domain_articles(
             FROM articles a
             WHERE topic=:t AND publication_date>=:s AND publication_date<=:e AND {op_clause}
               AND lower(replace(news_source,'www.','')) = :dom
-            ORDER BY publication_date DESC LIMIT :lim
+            ORDER BY publication_date DESC NULLS LAST LIMIT :lim
         """), {"t": topic, "s": start_date, "e": end_date, "dom": domain.lower().replace("www.", ""), "lim": limit}).fetchall()
         return {"brand": brand[0], "domain": domain, "dataset": dataset, "articles": [
             {"uri": r[0], "title": r[1], "publication_date": str(r[2]) if r[2] else None,
@@ -1394,6 +1414,39 @@ incremental article volume.</p>
         conn.close()
 
 
+def _brand_of_topic(topic: Optional[str]) -> str:
+    """Display name of the brand a ``Brand Monitoring <name>`` topic tracks."""
+    name = (topic or "").strip()
+    for prefix in ("Brand Monitoring ", "Market Monitoring "):
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def _owned_social_accounts(conn) -> set:
+    """(brand display name, platform, handle) for every verified own account.
+
+    Empty on a tenant without the Entity Intelligence tables, rather than an
+    error that would abort the transaction the feed is read in.
+    """
+    try:
+        if conn.execute(text(
+                "SELECT to_regclass('bw_entity_social_identities')")).scalar() is None:
+            return set()
+        rows = conn.execute(text("""
+        SELECT b.display_name, lower(sa.platform), sa.handle_canonical
+          FROM bw_entity_social_identities si
+          JOIN social_accounts sa ON sa.id = si.social_account_id
+          JOIN bw_brands b ON b.id = si.brand_id
+         WHERE si.relationship = 'owned_company' AND si.status = 'verified'
+           AND si.valid_to IS NULL
+        """)).fetchall()
+    except Exception as e:  # noqa: BLE001 - the feed stands without the filter
+        logger.warning(f"bw/social: own-account lookup failed: {e}")
+        return set()
+    return {(r[0], r[1], r[2]) for r in rows}
+
+
 @router.get("/social")
 @bw_cached
 async def get_social_posts(
@@ -1484,16 +1537,22 @@ async def get_social_posts(
 
         rows = conn.execute(text(f"""
             SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
-                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta
+                   a.topic_alignment_score, a.sentiment, a.topic, a.social_meta,
+                   a.original_summary, a.original_title,
+                   a.author_role, a.author_role_reason
             FROM articles a
             WHERE a.publication_date >= :start AND a.publication_date <= :end
               AND {src_clause}
               {topic_clause}
               {rel_clause}
               {fp_clause}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
+
+        # Read now, while the transaction is clean: a later best-effort lookup
+        # (account roles) can fail and leave it aborted.
+        owned_keys = _owned_social_accounts(conn)
 
         def _platform(ns):
             s = (ns or "").lower()
@@ -1513,6 +1572,12 @@ async def get_social_posts(
             "sentiment": r[6], "topic": r[7],
             "social_meta": (r[8] if isinstance(r[8], dict)
                             else (json.loads(r[8]) if r[8] else None)),
+            # The post as written when it was not English; summary is then the translation.
+            "original_summary": r[9], "original_title": r[10],
+            # Who wrote it (patient, clinician, customer ...); Glassdoor is
+            # an employee channel by construction.
+            "author_role": "employee" if r[3] == "Glassdoor" else r[11],
+            "author_role_reason": r[12],
         } for r in rows]
 
         # Attach the brand keyword(s) that triggered each post so the UI can show a
@@ -1558,6 +1623,32 @@ async def get_social_posts(
         for p in posts:
             p["review_status"] = st_map.get(p["uri"])
 
+        # Account beats post: a profiled account's role, or the majority of the
+        # account's other classified posts, overrides the one-post reading.
+        try:
+            from app.services.audience_voices import apply_account_roles
+            for p in posts:
+                p["_author"] = (p.get("social_meta") or {}).get("author")
+            apply_account_roles(conn, posts, author_key="_author")
+            for p in posts:
+                p.pop("_author", None)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"bw/social: account role override failed: {e}")
+
+        # The company's own posts are claims, not opinion about it. The entity
+        # read path drops them by channel; this path has no channel, so it
+        # checks the author against the verified own-account registry for the
+        # brand the topic names. On sunstar, Colgate's regional accounts alone
+        # were ~50 on-brand posts in 90 days, nearly all positive.
+        for p in posts:
+            author = str((p.get("social_meta") or {}).get("author") or ""
+                         ).strip().lstrip("@").lower()
+            p["is_owned"] = bool(author) and (
+                _brand_of_topic(p.get("topic")), p["platform"], author) in owned_keys
+        owned_excluded = sum(1 for p in posts if p["is_owned"])
+        if not include_owned:
+            posts = [p for p in posts if not p["is_owned"]]
+
         # Optional filter: only posts triggered by a specific keyword (case-insensitive).
         if keyword:
             kw_lc = keyword.strip().lower()
@@ -1565,9 +1656,11 @@ async def get_social_posts(
 
         # sentiment + platform rollups for the tab summary
         from collections import Counter
+        posts = collapse_reposts(posts)   # retweets and mirrors of one post read as one
         sent_counts = Counter((p["sentiment"] or "Unrated") for p in posts)
         plat_counts = Counter(p["platform"] for p in posts)
         kw_counts = Counter(k for p in posts for k in p["matched_keywords"])
+        role_counts = Counter((p.get("author_role") or "unclassified") for p in posts)
         evaluated = sum(1 for p in posts if p["relevance"] is not None)
         return {
             "window_days": days_back,
@@ -1579,6 +1672,8 @@ async def get_social_posts(
             "by_platform": dict(plat_counts),
             "by_sentiment": dict(sent_counts),
             "by_keyword": dict(kw_counts.most_common()),
+            "by_role": dict(role_counts.most_common()),
+            "owned_excluded": 0 if include_owned else owned_excluded,
             "posts": posts,
         }
     except Exception as e:
@@ -1845,9 +1940,19 @@ async def update_brand_config(brand_id: int, config_update: dict, session=Depend
         conn.execute(text("""
             UPDATE bw_brands SET config = :config, updated_at = NOW() WHERE id = :id
         """), {"id": brand_id, "config": json.dumps(current_config)})
+        # A new exclude term applies to what is already scored, not only to
+        # posts evaluated from now on; otherwise a look-alike that slipped
+        # through stays in every view until it ages out.
+        applied = None
+        if "news_keyword_excludes" in config_update:
+            from app.services.social_eval_service import apply_exclude_terms
+            name = conn.execute(text("SELECT display_name FROM bw_brands WHERE id = :id"),
+                                {"id": brand_id}).scalar() or ""
+            applied = apply_exclude_terms(conn, brand_id, name,
+                                          current_config.get("news_keyword_excludes") or [])
         conn.commit()
         bw_cache_clear()
-        return {"config": current_config}
+        return {"config": current_config, "excludes_applied": applied}
     except HTTPException:
         raise
     except Exception as e:
@@ -2135,7 +2240,7 @@ Write each keyword as plain text with no quotation marks — they are added afte
 Respond ONLY with valid JSON, no markdown formatting."""
 
     async def _llm_suggest() -> dict:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
@@ -2260,6 +2365,8 @@ async def classify_articles(
 
 async def _run_classification_task(run_id: int, brand_id: Optional[int], run_type: str, days_back: int, topics: Optional[List[str]] = None):
     """Background: classify articles per brand using SLM → LLM → keyword waterfall."""
+    from app.services.opoint_brand_matcher import (
+        is_scholarly_article as _is_scholarly_article, SCHOLARLY_CATEGORY as _SCHOLARLY_CATEGORY)
     import asyncio
 
     db = get_database_instance()
@@ -2396,6 +2503,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
 
             # Build SQL brand search with word-boundary matching for short terms
             brand_filter, brand_params = _build_brand_filter_sql(search_terms)
+            # A mention kept by brand_mention_gate usually names the brand only in
+            # the body, so the name filter above would never select it.
+            try:
+                from app.services.brand_mention_gate import kept_mentions_sql
+                brand_filter, brand_params = kept_mentions_sql(
+                    brand_filter, brand_params, brand["display_name"])
+            except Exception as _kept_err:
+                logger.debug(f"kept-mentions filter skipped: {_kept_err}")
 
             base_params = {"start": start_date, "end": end_date, **brand_params, **social_excl_params}
             if topics:
@@ -2419,7 +2534,13 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     SELECT a.uri, a.title, a.summary, a.topic, a.topic_alignment_score,
                            a.news_source, a.factual_reporting, a.sentiment FROM articles a
                     LEFT JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
-                    WHERE a.publication_date >= :start AND a.publication_date <= :end
+                    -- Collected in the window counts too. Collectors deliver items days
+                    -- after publication, and the 6-hourly incremental_since_last run
+                    -- starts at its last run's date, so an article published on
+                    -- 7 Aug and collected on 9 Sep was never classified: it showed in
+                    -- perception but never in the article list (Voy on oviva, 1 Oct).
+                    WHERE ((a.publication_date >= :start AND a.publication_date <= :end)
+                           OR a.submission_date >= :start)
                     AND a.analyzed = true
                     AND bac.id IS NULL
                     {social_excl}
@@ -2486,9 +2607,19 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 method = "keyword"
                 confidence = None
 
+                # A paper, chapter or dataset record is the brand's own output,
+                # not coverage of it. It goes to the Publications bucket and
+                # skips the news classifiers, which read a chemistry abstract as
+                # a product breakthrough: 45 of the 46 articles behind Wiley's
+                # 'Product & Innovation' spike of 2026-09-27 were papers.
+                if _is_scholarly_article(art_source, uri, title):
+                    categories = [_SCHOLARLY_CATEGORY]
+                    method = "scholarly"
+                    confidence = 1.0
+
                 # Step 1: SLM (with per-brand threshold)
                 brand_threshold = brand.get("config", {}).get("slm_confidence_threshold")
-                if slm_available:
+                if slm_available and not categories:
                     try:
                         slm_result = slm.classify(text_input, threshold=brand_threshold, return_scores=True)
                         categories = slm_result.get("categories", [])
@@ -2611,6 +2742,14 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     conn.rollback()
                 except Exception:
                     pass
+
+        # A brand's own website is collected like any other source; stamp those
+        # rows as owned so the metrics leave them out (bw_owned).
+        try:
+            from app.services.bw_owned import tag_owned_articles
+            tag_owned_articles(conn, brand_id=brand_id)
+        except Exception as oe:
+            logger.warning(f"BW Run {run_id}: owned-article tagging failed: {oe}")
 
         # Mark run complete
         conn.execute(text("""
@@ -2750,7 +2889,7 @@ async def _llm_categorize_article(title: str, summary: str, brand: dict) -> Dict
             summary=summary or "No summary available"
         )
 
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a brand intelligence analyst. Respond only with valid JSON."},
             {"role": "user", "content": prompt}
@@ -2906,8 +3045,11 @@ async def get_stats(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
-              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
-              AND a.analyzed = true
+              -- earned coverage only: social posts and the brand's own publishing
+              -- are excluded here. The article list is deliberately wider (it keeps
+              -- owned rows, flagged), so these counts can sit below the list length;
+              -- owned_articles below says by how much.
+              AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2917,25 +3059,47 @@ async def get_stats(
             if row[0] in cat_counts:
                 cat_counts[row[0]] = row[1]
 
-        # Aggregate stats — inner sub-query needs its own brand filter without table alias
-        brand_sub_filter = brand_filter.replace("bac.", "")  # strip alias for unqualified column
-        brand_sub_where = f"WHERE 1=1 {brand_sub_filter}" if brand_sub_filter else ""
+        # Aggregate stats. The relevance gate sits in the per-brand sub-query so it
+        # uses the same score as the article list (the row's relevance_score, falling
+        # back to the article's topic alignment). Gating on topic alignment alone made
+        # the headline count one article higher than the list (oviva, 14 Sep 2026).
         stats_result = conn.execute(text(f"""
             SELECT COUNT(DISTINCT a.uri),
                    MIN(a.publication_date), MAX(a.publication_date),
                    SUM(CASE WHEN cc.cnt >= 3 THEN 1 ELSE 0 END)
             FROM articles a
             JOIN (
-                SELECT article_uri, COUNT(*) as cnt FROM bw_article_categories
-                {brand_sub_where}
-                GROUP BY article_uri
+                SELECT bac.article_uri, COUNT(*) as cnt
+                FROM bw_article_categories bac
+                JOIN articles a2 ON bac.article_uri = a2.uri
+                WHERE COALESCE(bac.relevance_score, a2.topic_alignment_score) >= 0.4
+                {brand_filter}
+                GROUP BY bac.article_uri
             ) cc ON a.uri = cc.article_uri
-            WHERE a.publication_date >= :start AND a.publication_date <= :end AND a.topic_alignment_score >= 0.4
-              -- same gate as the article list: chips must not count items it never shows (own LinkedIn posts, Glassdoor reviews live on the Social tab)
-              AND a.analyzed = true
+            WHERE a.publication_date >= :start AND a.publication_date <= :end
+              -- earned coverage only: social posts and the brand's own publishing
+              -- are excluded here. The article list is deliberately wider (it keeps
+              -- owned rows, flagged), so these counts can sit below the list length;
+              -- owned_articles below says by how much.
+              AND {_EARNED_NEWS}
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
+
+        # Owned rows the gate above removed: the brand's own blog, press page and
+        # LinkedIn. Same window and relevance gate as the article list, so this
+        # says how much of that list the counts above are not measuring. On oviva
+        # (21 Sep 2026) it was all of it: 0 earned articles against 19 owned.
+        owned_result = conn.execute(text(f"""
+            SELECT COUNT(DISTINCT a.uri)
+            FROM articles a
+            JOIN bw_article_categories bac ON bac.article_uri = a.uri
+            WHERE a.publication_date >= :start AND a.publication_date <= :end
+              AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+              AND a.analyzed = true AND NOT {_SOCIAL_ROW} AND {_OWNED_ROW}
+            {brand_filter} {topic_filter}
+        """), params)
+        owned_articles = owned_result.fetchone()[0] or 0
 
         # Brand count
         brand_count_result = conn.execute(text("SELECT COUNT(*) FROM bw_brands WHERE enabled = true"))
@@ -2951,6 +3115,7 @@ async def get_stats(
             most_active_category=most_active[0] if most_active[1] > 0 else None,
             multi_category_count=sr[3] or 0,
             category_breakdown=cat_counts,
+            owned_articles=owned_articles,
         )
     except Exception as e:
         logger.error(f"Error fetching brand watcher stats: {e}")
@@ -2982,6 +3147,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -2997,6 +3163,7 @@ async def get_category_distribution(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :prev_start AND a.publication_date < :start AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -3052,6 +3219,7 @@ async def get_temporal_data(
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -3065,6 +3233,7 @@ async def get_temporal_data(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -3131,13 +3300,13 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY bac.category
             """), params)
 
             breakdown = {row[0]: row[1] for row in cat_result.fetchall()}
-            total = sum(breakdown.values())
 
             # Sentiment breakdown for this brand
             sent_result = conn.execute(text(f"""
@@ -3145,11 +3314,17 @@ async def get_brand_comparison(
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
                 {topic_filter}
                 GROUP BY COALESCE(a.sentiment, 'Unknown')
             """), params)
             sentiment_breakdown = {row[0]: row[1] for row in sent_result.fetchall()}
+            # An article carries several categories but exactly one sentiment, so the
+            # sentiment groups partition the articles. Summing the category counts
+            # instead counted multi-category articles more than once and made this
+            # total disagree with Share of Voice (oviva 104 vs 95, 14 Sep 2026).
+            total = sum(sentiment_breakdown.values())
 
             response.append(ComparisonDataResponse(
                 brand_id=bid,
@@ -3184,24 +3359,29 @@ async def get_share_of_voice(
 
         result = conn.execute(text(f"""
             SELECT bac.brand_id, b.display_name, b.color,
-                   COUNT(DISTINCT bac.article_uri)
+                   COUNT(DISTINCT bac.article_uri) FILTER (WHERE NOT {_OWNED_ROW}) AS mentions,
+                   COUNT(DISTINCT bac.article_uri) FILTER (WHERE {_OWNED_ROW}) AS owned
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             JOIN bw_brands b ON bac.brand_id = b.id
             WHERE a.publication_date >= :start AND a.publication_date <= :end AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
             AND b.enabled = true
+            AND a.analyzed = true AND NOT {_SOCIAL_ROW}
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
-            ORDER BY COUNT(DISTINCT bac.article_uri) DESC
+            ORDER BY 4 DESC
         """), params)
 
         rows = result.fetchall()
+        # Share of voice is earned coverage only; a company's own blog and
+        # LinkedIn posts are reported beside it as owned_count, not inside it.
         grand_total = sum(r[3] for r in rows) or 1
 
         return [
             ShareOfVoiceResponse(
                 brand_id=r[0], brand_name=r[1],
                 mention_count=r[3],
+                owned_count=r[4] or 0,
                 percentage=round(r[3] / grand_total * 100, 1),
                 color=r[2],
             ) for r in rows
@@ -3242,16 +3422,47 @@ async def get_sentiment_trends(
             SELECT DATE_TRUNC('{bucket}', a.publication_date::timestamp)::date as week,
                    bac.category,
                    a.sentiment,
-                   COUNT(*) as cnt
+                   COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
             GROUP BY week, bac.category, a.sentiment
             ORDER BY week
         """), params)
+
+        # The rows above count an article once per category it carries, which is
+        # right for the per-category chart and wrong for anything that sums across
+        # categories (the dashboard bar showed 20 for 13 articles on oviva, 14 Sep
+        # 2026). These buckets count each article once.
+        bucket_result = conn.execute(text(f"""
+            SELECT DATE_TRUNC('{bucket}', a.publication_date::timestamp)::date as week,
+                   a.sentiment,
+                   COUNT(DISTINCT bac.article_uri) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            AND {_EARNED_NEWS}
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            {topic_filter}
+            GROUP BY GROUPING SETS ((week, a.sentiment), (a.sentiment))
+            ORDER BY week NULLS LAST
+        """), params)
+        weekly_buckets: Dict[str, Dict[str, int]] = {}
+        totals: Dict[str, int] = {}
+        for week_val, sentiment, cnt in bucket_result.fetchall():
+            if week_val is None:
+                totals[sentiment] = cnt
+            else:
+                weekly_buckets.setdefault(str(week_val), {})[sentiment] = cnt
+        weekly = [
+            {"week": week, "sentiments": sentiments, "total": sum(sentiments.values())}
+            for week, sentiments in sorted(weekly_buckets.items())
+        ]
 
         # Build structured response
         weekly_data: Dict[str, Dict[str, Dict[str, int]]] = {}
@@ -3278,7 +3489,7 @@ async def get_sentiment_trends(
                     "total": total,
                 })
 
-        return {"trends": trends}
+        return {"trends": trends, "weekly": weekly, "totals": totals}
     except Exception as e:
         logger.error(f"Error fetching sentiment trends: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3302,22 +3513,22 @@ async def get_brand_alerts(
     conn = db._temp_get_connection()
     try:
         # Recent 7-day counts
-        recent = conn.execute(text("""
+        recent = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
         """), {"bid": brand_id})
         recent_counts = {row[0]: row[1] for row in recent.fetchall()}
 
         # 30-day avg (per week, excluding last 7 days)
-        avg_result = conn.execute(text("""
+        avg_result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
             AND a.publication_date < (NOW() - INTERVAL '7 days')::text
             GROUP BY bac.category
@@ -3349,10 +3560,10 @@ async def get_brand_alerts(
                 SELECT bac.category, a.uri, a.title, a.publication_date, a.sentiment, a.news_source
                 FROM bw_article_categories bac
                 JOIN articles a ON bac.article_uri = a.uri
-                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
                 AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
                 AND bac.category IN ({ph})
-                ORDER BY a.publication_date DESC
+                ORDER BY a.publication_date DESC NULLS LAST
             """), art_params).fetchall()
             by_cat: Dict[str, list] = {}
             for cat, uri, title, pubdate, sentiment, source in art_rows:
@@ -3418,7 +3629,7 @@ async def export_brand_data(
             LEFT JOIN bw_finding_reviews fr ON fr.article_uri = a.uri AND fr.brand_id = bac.brand_id
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
         """), {"bid": brand_id, "start": sd, "end": ed})
 
         rows = result.fetchall()
@@ -3531,7 +3742,8 @@ async def get_articles(
                        MAX(stc.story_size) as story_size,
                        MAX(stc.story_neg) as story_neg,
                        MAX(stc.story_pos) as story_pos,
-                       MAX(stc.story_scored) as story_scored
+                       MAX(stc.story_scored) as story_scored,
+                       a.bias_source
                 FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
@@ -3551,7 +3763,7 @@ async def get_articles(
                     GROUP BY st2.brand_id, st2.story_group_id
                 ) stc ON stc.brand_id = st.brand_id AND stc.story_group_id = st.story_group_id
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
-                AND a.analyzed = true
+                AND a.analyzed = true AND NOT {_SOCIAL_ROW}
                 AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
                 -- items flagged false-positive (any brand) are hidden from the list
                 -- but kept in the DB as labeled data for relevance fine-tuning
@@ -3561,7 +3773,7 @@ async def get_articles(
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name,
                          a.tags, a.extracted_article_keywords, b.name, a.opoint_entities,
-                         a.factual_reporting
+                         a.factual_reporting, a.bias_source
             )
         """
 
@@ -3569,7 +3781,7 @@ async def get_articles(
         total_count = conn.execute(text(count_q), params).scalar() or 0
         total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
 
-        order = "ORDER BY cat_count DESC, publication_date DESC" if sort_by == "category_count" else "ORDER BY publication_date DESC"
+        order = "ORDER BY cat_count DESC, publication_date DESC NULLS LAST" if sort_by == "category_count" else "ORDER BY publication_date DESC NULLS LAST"
         arts_q = base + f" SELECT * FROM art {order} LIMIT :per_page OFFSET :offset"
         result = conn.execute(text(arts_q), params)
 
@@ -3661,11 +3873,24 @@ async def get_articles(
                 story_neg=row[17],
                 story_pos=row[18],
                 story_scored=row[19],
+                is_owned=is_owned_source(row[20]),
                 risks=risk_map.get((row[0], row[6]), []),
                 review_status=review_map.get((row[0], row[6])),
                 signals_summary=signals_map.get((row[0], row[6])),
             ))
 
+        # Kept mentions name the brand in the body, so the keyword match above
+        # is empty for them; say where the brand is named instead.
+        try:
+            from app.services.brand_mention_gate import kept_mention_evidence
+            _ev = kept_mention_evidence(conn, [a.uri for a in articles if not a.matched_keywords])
+            for a in articles:
+                e = _ev.get(a.uri)
+                if e and (not a.brand_name or e["brand"] == a.brand_name):
+                    a.matched_keywords = [e["brand"]]
+                    a.brand_mention = e["snippet"]
+        except Exception as _ev_err:
+            logger.debug(f"kept-mention evidence skipped: {_ev_err}")
         from app.services.bw_signals_service import signals_available
         return ArticlesListResponse(
             articles=articles, total_count=total_count,
@@ -3702,11 +3927,11 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         brand = _brand_row_to_dict(brand_row)
 
         # Category counts
-        cat_result = conn.execute(text("""
+        cat_result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri)
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
@@ -3722,10 +3947,10 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
         competitor_kws = brand.get("competitor_keywords") or []
         competitor_counts: Dict[str, int] = {}
         if competitor_kws:
-            art_result = conn.execute(text("""
+            art_result = conn.execute(text(f"""
                 SELECT DISTINCT a.title, a.summary FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
-                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
                 AND a.publication_date >= :start AND a.publication_date <= :end
             """), {"bid": request.brand_id, "start": start_date, "end": end_date})
             for atitle, asumm in art_result.fetchall():
@@ -3752,30 +3977,30 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
 
         # Clinical sentiment facts for the prompt. Distinct articles, not
         # category rows — multi-category articles used to vote once per category.
-        sent_row = conn.execute(text("""
+        sent_row = conn.execute(text(f"""
             SELECT COUNT(DISTINCT a.uri) FILTER (WHERE LOWER(a.sentiment) IN
                        ('negative', 'pessimistic', 'concerning', 'concerned',
                         'critical', 'alarming')) AS neg,
                    COUNT(DISTINCT a.uri) AS total
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
         """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchone()
         win_neg, win_scored = int(sent_row[0] or 0), int(sent_row[1] or 0)
 
         # Fetch recent negative/concerning articles so the narrative can cite specific drivers
-        neg_articles_result = conn.execute(text("""
+        neg_articles_result = conn.execute(text(f"""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('negative', 'pessimistic', 'concerning',
                                         'concerned', 'critical', 'alarming')
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 20
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         neg_articles = neg_articles_result.fetchall()
@@ -3794,15 +4019,15 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             neg_articles_text = "\n".join(lines)
 
         # Fetch recent positive articles to ground positive signals with evidence
-        pos_articles_result = conn.execute(text("""
+        pos_articles_result = conn.execute(text(f"""
             SELECT DISTINCT a.title, a.summary, a.sentiment,
                    bac.category, a.publication_date, a.uri, a.news_source
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
-            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+            WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND {_EARNED_NEWS}
             AND a.publication_date >= :start AND a.publication_date <= :end
             AND LOWER(a.sentiment) IN ('positive', 'optimistic', 'positive development')
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 20
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         pos_articles = pos_articles_result.fetchall()
@@ -3901,7 +4126,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             WHERE a.topic = :stopic
               AND a.publication_date >= :start AND a.publication_date <= :end
               AND {_ssrc}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
         """), _sparams).fetchall()
 
         social_signal = "No social (Reddit/Bluesky) posts were collected for this brand in the period."
@@ -3956,7 +4181,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             WHERE r.brand_id = :bid
               AND a.publication_date >= :start AND a.publication_date <= :end
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                     a.publication_date DESC
+                     a.publication_date DESC NULLS LAST
         """), {"bid": request.brand_id, "start": start_date, "end": end_date}).fetchall()
         _issue_status = {i["id"]: "active issue" for i in active_issues}
         for i in (assessment.get("resolved_issues") or []):
@@ -4293,7 +4518,7 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE bac.brand_id = :bid AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
-            ORDER BY a.publication_date DESC LIMIT 10
+            ORDER BY a.publication_date DESC NULLS LAST LIMIT 10
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         sample_titles = "\n".join([f"- {row[0]}" for row in sample_result.fetchall()])
 
@@ -5019,7 +5244,7 @@ async def get_story_siblings(group_id: str = Query(...), brand_id: Optional[int]
             FROM bw_article_stories st
             JOIN articles a ON a.uri = st.article_uri
             WHERE st.story_group_id = :g {bclause}
-            ORDER BY a.publication_date DESC
+            ORDER BY a.publication_date DESC NULLS LAST
             LIMIT 25
         """), params).fetchall()
         return {"articles": [{
@@ -5313,7 +5538,7 @@ async def incident_attach_search(q: str = Query(..., min_length=2),
                    a.topic_alignment_score, a.social_meta
             FROM articles a
             WHERE a.uri = :q OR ({' AND '.join(clauses)})
-            ORDER BY (a.uri = :q) DESC, a.publication_date DESC
+            ORDER BY (a.uri = :q) DESC, a.publication_date DESC NULLS LAST
             LIMIT :lim
         """), params).fetchall()
         out = []
@@ -5367,7 +5592,7 @@ async def translate_for_report(req: ReportTranslateRequest, session=Depends(veri
         f"{numbered}"
     )
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response([
             {"role": "system", "content": "You are a professional translator. Respond only with valid JSON."},
             {"role": "user", "content": prompt},
@@ -5537,7 +5762,7 @@ async def incident_report_summary(incident_id: int, session=Depends(verify_sessi
         + (f"\n\nLatest agent brief:\n{brief[0][:3000]}" if brief and brief[0] else "")
     )
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         summary = (await model.agenerate_response([
             {"role": "system", "content": "You are a senior brand-protection analyst. Respond with the paragraph only."},
             {"role": "user", "content": prompt},
@@ -6123,8 +6348,14 @@ async def get_perception_dimensions(
         #      article-level column when both exist.
         # Source buckets are matched strictly (not the substring helper) so news
         # sites like financetwitter.com don't land in the social bucket. A
-        # vendor's own LinkedIn posts are its voice, not perception of it, so
-        # they fall into an "owned" bucket that no dimension reads.
+        # company's own publishing is its voice, not perception of it, so it
+        # falls into an "owned" bucket that no dimension reads: its LinkedIn
+        # posts (bias_source vendor:) and its own website (owned:<domain>,
+        # stamped by bw_owned). That test comes first, because an owned row
+        # is the brand talking whichever surface it appears on. Until
+        # 23 September 2026 only the LinkedIn half was excluded, so a brand's
+        # blog and press page counted as press coverage of it: oviva's media
+        # score read +45 over 22 articles, every one of them its own.
         topic_vals = ", ".join(f"(:_b{i}, :_t{i})" for i in range(len(brands)))
         topic_params = {}
         for i, b in enumerate(brands):
@@ -6160,12 +6391,12 @@ async def get_perception_dimensions(
                 SELECT DISTINCT ON (l.brand_id, l.article_uri)
                        l.brand_id,
                        CASE
+                         WHEN {_OWNED_ROW} THEN 'owned'
                          WHEN LOWER(a.news_source) LIKE 'reddit%' OR LOWER(a.news_source) LIKE 'www.reddit%'
                               OR LOWER(a.news_source) = 'xpoz:reddit' THEN 'community'
                          WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
                               OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
                          WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
-                         WHEN LOWER(a.news_source) = 'linkedin' AND a.bias_source LIKE 'vendor:%' THEN 'owned'
                          ELSE 'media'
                        END AS dim,
                        COALESCE(l.sentiment, a.sentiment) AS sentiment
@@ -6248,6 +6479,181 @@ async def get_perception_dimensions(
         conn.close()
 
 
+def _voices_enabled() -> bool:
+    """Per-site switch. Off where the audience list does not fit the customer yet."""
+    return os.getenv("BW_VOICES_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _voices_mention_read() -> bool:
+    """Per-mention read when Entity Intelligence ships on this tree; topic read otherwise."""
+    try:
+        from app.services import entity_flags as _ef
+        return _ef.mention_read()
+    except ImportError:
+        return False
+
+
+def _voices_brand(conn, brand_id: Optional[int]) -> tuple:
+    """(id, display_name) for the requested brand, or the primary brand."""
+    if brand_id is not None:
+        row = conn.execute(text(
+            "SELECT id, display_name FROM bw_brands WHERE id = :b"), {"b": brand_id}).fetchone()
+    else:
+        row = conn.execute(text(
+            "SELECT id, display_name FROM bw_brands WHERE enabled = true "
+            "ORDER BY is_primary DESC, display_name LIMIT 1")).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    return int(row[0]), row[1]
+
+
+@router.get("/voices")
+@bw_cached
+async def get_voices(
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    days_back: int = Query(90, ge=1, le=730),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    session=Depends(verify_session),
+):
+    """What each audience says about a brand: posts grouped by who wrote them
+    (patient, clinician, customer, employee, journalist ...) with a sentiment
+    split per audience. The role comes from the social evaluation step and
+    lives on the article row; Glassdoor reviews count as employees without a
+    model verdict. `focus` names the pair the view opens on (clinicians vs
+    patients on a health tenant)."""
+    from app.services import audience_voices
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, name = _voices_brand(conn, brand_id)
+        return await _bw_asyncio.to_thread(
+            audience_voices.voices, conn, brand_id=bid, display_name=name,
+            days_back=days_back, mention_read=_voices_mention_read(),
+            min_relevance=min_relevance)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"brand-watcher/voices error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/voices/digest")
+@bw_cached
+async def get_voices_digest(
+    role: str = Query(..., description="One audience role, e.g. patient or clinician"),
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    days_back: int = Query(90, ge=1, le=730),
+    min_relevance: float = Query(0.4, ge=0.0, le=1.0),
+    session=Depends(verify_session),
+):
+    """A model reads one audience's posts and reports the themes, each with
+    verbatim quotes, plus a 60-word summary. Cached per post set for six
+    hours, so the model runs again only when the posts change."""
+    from app.services import audience_voices
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, name = _voices_brand(conn, brand_id)
+        return await audience_voices.digest(
+            conn, brand_id=bid, display_name=name, role=role.strip().lower(),
+            days_back=days_back, mention_read=_voices_mention_read(),
+            min_relevance=min_relevance)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"brand-watcher/voices/digest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+class VoicesProfileRequest(BaseModel):
+    brand_id: Optional[int] = None
+    days_back: int = Field(90, ge=1, le=730)
+    min_relevance: float = Field(0.4, ge=0.0, le=1.0)
+    # Rebuild accounts that already have a profile too.
+    refresh: bool = False
+    limit: int = Field(80, ge=1, le=200)
+
+
+def _voices_uncache() -> None:
+    """Drop cached Voices answers so a finished profiling run shows at once."""
+    for key in [k for k in _BW_CACHE if k.startswith("get_voices")]:
+        _BW_CACHE.pop(key, None)
+
+
+@router.post("/voices/profile-posters")
+async def start_voices_profiling(body: VoicesProfileRequest, session=Depends(verify_session)):
+    """Profile the accounts behind this brand's posts that have no profile yet.
+
+    A profiled account carries its audience onto all its posts, which is how
+    Oviva's table settled while Noom's and WeightWatchers' sat a third
+    unplaced. Runs in the background through the same paced, rate-limit-aware
+    runner as Market Monitor Top voices; poll the GET for progress. 409 while
+    a run for the brand is still going.
+    """
+    from app.services import audience_voices
+    from app.services import market_voice_profiles as mvp
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+
+    def _work():
+        conn = db._temp_get_connection()
+        try:
+            bid, name = _voices_brand(conn, body.brand_id)
+            todo = audience_voices.posters_to_profile(
+                conn, brand_id=bid, display_name=name, days_back=body.days_back,
+                mention_read=_voices_mention_read(), min_relevance=body.min_relevance,
+                refresh=body.refresh, limit=body.limit)
+            return bid, audience_voices.profile_context(conn, bid, name), todo
+        finally:
+            conn.close()
+
+    try:
+        bid, context, todo = await _bw_asyncio.to_thread(_work)
+        _voices_uncache()
+        return mvp.start_handles(db, f"brand:{bid}", context,
+                                 [(a["platform"], a["handle"]) for a in todo])
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as e:
+        logger.error(f"brand-watcher/voices/profile-posters error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/voices/profile-posters")
+async def voices_profiling_status(
+    brand_id: Optional[int] = Query(None, description="Defaults to the primary brand"),
+    session=Depends(verify_session),
+):
+    """Progress of the brand's profiling run: state, total, done, built, failed."""
+    from app.services import market_voice_profiles as mvp
+    if not _voices_enabled():
+        raise HTTPException(status_code=404, detail="Voices is not enabled on this site")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        bid, _ = await _bw_asyncio.to_thread(_voices_brand, conn, brand_id)
+    finally:
+        conn.close()
+    out = mvp.status(f"brand:{bid}")
+    if out.get("state") == "done" and not out.get("uncached"):
+        _voices_uncache()
+        job = mvp._JOBS.get(f"brand:{bid}")
+        if job is not None:
+            job["uncached"] = True
+    return out
+
+
 @router.get("/brands/{brand_id}/employee-risk")
 @bw_cached
 async def get_employee_risk(
@@ -6296,7 +6702,7 @@ async def get_employee_risk(
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
             WHERE a.news_source = 'Glassdoor'
               AND a.publication_date >= :sd AND a.publication_date <= :ed
-            ORDER BY a.publication_date DESC LIMIT 100
+            ORDER BY a.publication_date DESC NULLS LAST LIMIT 100
         """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
         pos = neu = neg = 0
         reviews = []
@@ -6322,7 +6728,7 @@ async def get_employee_risk(
                 ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
             WHERE r.brand_id = :b AND r.risk_type = 'workforce_labor'
             ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                     a.publication_date DESC
+                     a.publication_date DESC NULLS LAST
             LIMIT 50
         """), {"b": brand_id}).fetchall()
         workforce_risks = [
@@ -6455,7 +6861,7 @@ async def get_risk_summary(
                     ON fr.article_uri = r.article_uri AND fr.brand_id = r.brand_id
                 WHERE r.brand_id = :b AND a.publication_date >= :sd AND a.publication_date <= :ed
                 ORDER BY CASE r.severity WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                         a.publication_date DESC
+                         a.publication_date DESC NULLS LAST
                 LIMIT 10
             """), {"b": brand_id, "sd": sd, "ed": ed}).fetchall()
         ]

@@ -58,6 +58,7 @@ Each pattern states: the **problem** it solves, the **mechanism** (with diagram 
   - 6.6 Style Guard / AI-Tells Self-Policing
   - 6.7 Async Job Queue Wrapping Long LLM Work
   - 6.8 Deterministic Detection → LLM Review → Recommendation Queue
+  - 6.9 Reviewer Gate + Bounded Repair Loop (desk briefing)
 - [Part 7 — Cross-Cutting LLM Infrastructure](#part-7--cross-cutting-llm-infrastructure)
   - 7.1 Alias-Based Model Routing (litellm yaml)
   - 7.2 Severity-Classified Errors, Retry & Circuit Breaker
@@ -264,6 +265,8 @@ flowchart TB
 **Spec-reuse notes.**
 - **Rule for specs:** any customer-facing article selection MUST filter on `topic_alignment_score` (prefer `get_relevant_articles_for_topic`). This is standing policy (memory `wiley_topic_collection_noise`).
 - **Gotcha:** floors are inconsistent and hard-coded per consumer (0.3 / 0.4 / 0.7) with no central config. A spec touching several consumers should state which floor applies where.
+
+**Update 2026-09-14.** The filter now lives in the data layer instead of in each consumer: `app/services/article_visibility.py` (`readable_clause` / `readable_sql` / `is_readable`, floor 0.4, unscored rows pass) is applied inside the facade readers (`get_recent_articles_by_topic`, `search_articles` with `readable_only=True`, `get_articles_by_topic`, bias and future-signal readers) and inside both pgvector searches. Readers that need the rejects (training, audit) opt out explicitly. Before this, Auspex chat, deep research, the Auspex tools and the MCP tools read the raw store while the views filtered, and an assistant reading a brand topic through MCP saw 389 rows the dashboard showed none of. The MCP dispatcher keeps a result-level gate as a backstop.
 
 ## 2.4 Sample-Count Bootstrap Routing
 
@@ -934,6 +937,35 @@ sequenceDiagram
 **Spec-reuse notes.** The layering is the point: deterministic evidence → durable statistics → LLM narration → staged recommendations. LLMs narrate and extract; they never detect, count, or apply. The two-call split (narrate, then extract structured recs from the narration) keeps each prompt simple and independently testable.
 
 ---
+
+## 6.9 Reviewer Gate + Bounded Repair Loop (desk briefing)
+
+**Problem.** The daily briefing had one writer call and a send button. A reader checked one day's Sunstar briefing and found a 2024 guideline "released September 10" and a May paper "published September 10": the writer stamps events with the article's collection date, and no stage read the output against its sources. A judge alone does not fix this: with kimi as judge, three of five remaining "errors" on a corrected draft were about sentences that were already right, and a briefing could stay held for ever.
+
+**Mechanism** (`app/services/daily_report_service.py`, `data/auspex/agents/dr_reviewer_agent.md`, finalize route in `app/routes/daily_reports_routes.py`):
+
+```mermaid
+flowchart TB
+    SYN["Synthesis (pinned briefing model)"] --> REV
+    subgraph REV["Review = preflight + judge"]
+        PRE["Deterministic preflight: every date, figure and monitored-brand name in the draft must appear in the source items; a date that is only a published date may not carry an event verb unless the sentence says 'reported'"]
+        JUD["LLM judge (gpt-5.4 alias) returns findings that QUOTE the draft verbatim; a finding whose quote is not in the draft is discarded, one without a quote is demoted to warning"]
+    end
+    REV --> V{"errors?"}
+    V -- "no" --> FIN["Finalize; review stored under metadata.review"]
+    V -- "yes, rounds < 2" --> REP["Repair: writer gets the flagged sentences, the findings and the same sources; changes those sentences only"] --> REV
+    V -- "yes, rounds = 2" --> HOLD["Held as draft: text + findings stored; desk shows Regenerate and a recorded 'Finalize anyway'"]
+```
+
+- The verdict is computed from severity counts in code, never taken from the judge.
+- Preflight findings hold a briefing on their own, so a judge outage cannot approve a wrong date; a judge outage without preflight findings is recorded as `review_failed`, shown, and does not block.
+- Repair is targeted: each finding carries `claim_text`, and the repair prompt may change those sentences and nothing else, keeping structure and field names.
+- Stop condition is measurable (zero errors) with a hard cap (two repair rounds), the 4.9 contract.
+- The override is the analyst's, recorded as `{by, at, note}`; a second override on a finalized row is refused.
+
+**Where.** `_preflight_findings`, `_verify_claim_quotes`, `_merge_findings`, `_run_review`, `_repair_synthesis`, `generate_synthesis` stages `review` / `repair`; facade `save_desk_briefing_review_draft`; UI `BriefingDeskSection.tsx` (`ReviewBlockedPanel`, `ReviewNote`).
+
+**Spec-reuse notes.** Three pieces transfer to any generate-then-ship feature: (1) a deterministic roster check for the claim types that matter most (dates, figures, names), which is cheap and never hallucinates; (2) the verbatim-quote gate on judge findings, the 5.2 candidate-set idea applied to critiques; (3) a bounded repair loop that edits only quoted sentences. The judge model should be a tier above the writer; a writer-tier judge produces confident findings about text that does not exist.
 
 # Part 7 — Cross-Cutting LLM Infrastructure
 

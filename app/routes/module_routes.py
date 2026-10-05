@@ -38,10 +38,24 @@ def _build_module_list():
     return modules
 
 
+def _features() -> dict:
+    """Per-site switches for views inside a module, read from the environment.
+
+    bw_voices: the Brand Watcher Voices sub-tab (who is talking and what each
+    audience thinks). Off where the audience list does not fit the customer
+    yet (BW_VOICES_ENABLED=0).
+    """
+    return {
+        "bw_voices": os.getenv("BW_VOICES_ENABLED", "1").strip().lower()
+                     not in ("0", "false", "no", "off"),
+    }
+
+
 @router.get("/api/modules")
 async def list_modules(session=Depends(verify_session)):
     """Return metadata about all analysis modules with enabled state."""
-    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw()}
+    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw(),
+            "features": _features()}
 
 
 @router.put("/api/modules/{module_id}/toggle")
@@ -55,4 +69,5 @@ async def toggle_module(module_id: str, body: ToggleRequest, session=Depends(ver
     user = session.get("user") if isinstance(session, dict) else None
     username = user.get("username") if isinstance(user, dict) else user
     set_module_enabled(module_id, body.enabled, username)
-    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw()}
+    return {"modules": _build_module_list(), "dedicated_mode": is_dedicated_bw(),
+            "features": _features()}

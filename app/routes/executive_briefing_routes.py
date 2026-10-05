@@ -24,6 +24,7 @@ from app.services.executive_briefing_service import (
     DEFAULT_PERSONAS
 )
 from app.security.session import verify_session, verify_session_api
+from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 
@@ -1103,7 +1104,7 @@ class GeneratePodcastScriptRequest(BaseModel):
     priority_actions: List[Dict[str, Any]] = Field(default_factory=list, description="Priority actions")
     articles: List[Dict[str, Any]] = Field(default_factory=list, description="Analyzed articles")
     duration: str = Field("short", description="Script duration: short, medium, long")
-    model: str = Field("gpt-5.4", description="LLM model to use for script generation")
+    model: str = Field(default_model("standard"), description="LLM model to use for script generation")
 
 
 EB_PODCAST_SCRIPT_PROMPT = """You are an expert podcast script writer creating an executive intelligence briefing.

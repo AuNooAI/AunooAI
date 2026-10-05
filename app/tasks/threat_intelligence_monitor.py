@@ -10,6 +10,7 @@ from typing import Dict, Optional, Any, List, Union
 from sqlalchemy import text
 
 from app.database import Database, get_database_instance
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,9 @@ class ThreatIntelligenceMonitor:
                         article['title'] or "",
                         article['summary'] or "",
                         article['content'] or "",
-                        model='gpt-5.4-mini'
+                        # The schedule row carries the model; it was read and
+                        # then ignored here until 25 Sep 2026.
+                        model=schedule.get('model') or default_model("fast")
                     )
 
                     if extraction_result.get('no_threat'):

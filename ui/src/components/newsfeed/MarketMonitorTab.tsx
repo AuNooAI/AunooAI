@@ -25,6 +25,7 @@ import { DataTable } from './DataTable';
 import { ConfidenceGate, type ThinPanel } from './ConfidenceGate';
 import { MetricHeading, SourceLegend } from './MarketMetric';
 import { DrilldownHost, type DrilldownSpec } from './MarketDrilldownHost';
+import { vendorColoursFrom, VendorSwatch, type VendorColours } from './vendorColours';
 import {
   BarChart, Bar, CartesianGrid, Cell, Legend, Line,
   LineChart as RLineChart, ReferenceArea, ReferenceLine,
@@ -495,12 +496,13 @@ function dayLabel(iso: string | null): string {
  *  same whether it is inside a story cluster, a vendor section or a day
  *  section — only the surrounding structure changes. */
 function CoverageCard({ article: a, vendorFilter, setVendorFilter,
-                        clusterOpen, onToggleCluster }: {
+                        clusterOpen, onToggleCluster, colours }: {
   article: CorpusArticle;
   vendorFilter: number | null;
   setVendorFilter: (id: number | null) => void;
   clusterOpen: boolean;
   onToggleCluster: () => void;
+  colours?: VendorColours;
 }) {
   const sm = a.social_meta ?? {};
   const engagement = engagementOf(a);
@@ -574,10 +576,11 @@ function CoverageCard({ article: a, vendorFilter, setVendorFilter,
               <button key={v.brand_id}
                       onClick={() => setVendorFilter(
                         vendorFilter === v.brand_id ? null : v.brand_id)}
-                      className={`text-xs px-1.5 py-0.5 rounded border ${
+                      className={`text-xs px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${
                         vendorFilter === v.brand_id
                           ? 'bg-slate-800 text-white border-slate-800'
                           : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800'}`}>
+                <VendorSwatch color={colours?.byId(v.brand_id)} />
                 {v.vendor}
               </button>
             ))}
@@ -631,17 +634,21 @@ function CoverageCard({ article: a, vendorFilter, setVendorFilter,
  *  90 posts should not push every other vendor off the screen. */
 function GroupSection({ title, count, hint, items, expanded, onToggle,
                         vendorFilter, setVendorFilter,
-                        openCluster, setOpenCluster }: {
+                        openCluster, setOpenCluster, colours, color }: {
   title: string; count: number; hint?: string; items: CorpusArticle[];
   expanded: boolean; onToggle: () => void;
   vendorFilter: number | null; setVendorFilter: (id: number | null) => void;
   openCluster: string | null; setOpenCluster: (uri: string | null) => void;
+  colours?: VendorColours;
+  /** The group's vendor colour, when the groups are vendors. */
+  color?: string;
 }) {
   const CAP = 6;
   const visible = expanded ? items : items.slice(0, CAP);
   return (
     <div className="space-y-2">
       <div className="flex items-baseline gap-2 pt-1">
+        <VendorSwatch color={color} className="self-center" />
         <h3 className="text-sm font-semibold text-slate-800 dark:text-gray-100">{title}</h3>
         <span className="text-xs text-slate-400 tabular-nums dark:text-gray-500">{count}</span>
         {hint && <span className="text-xs text-slate-400 dark:text-gray-500">· {hint}</span>}
@@ -651,6 +658,7 @@ function GroupSection({ title, count, hint, items, expanded, onToggle,
           <CoverageCard key={a.uri} article={a} vendorFilter={vendorFilter}
                         setVendorFilter={setVendorFilter}
                         clusterOpen={openCluster === a.uri}
+                        colours={colours}
                         onToggleCluster={() => setOpenCluster(
                           openCluster === a.uri ? null : a.uri)} />
         ))}
@@ -711,8 +719,9 @@ function TimelineTooltip({ active, payload }: any) {
  *  a count and a significance are not something a reader can check without
  *  seeing what they were computed from. Vendor badges on each article pivot
  *  to that vendor's page, the same as Coverage already does. */
-function WireEventCard({ event: e, onVendor, vendorIds }: {
+function WireEventCard({ event: e, onVendor, vendorIds, colours }: {
   event: TimelineEvent; onVendor: (brandId: number) => void;
+  colours?: VendorColours;
   /** display name (lower-cased) → brand id for the market's vendors, so a
    *  card can say which of the companies it names are the ones we track. */
   vendorIds?: Map<string, number>;
@@ -750,9 +759,10 @@ function WireEventCard({ event: e, onVendor, vendorIds }: {
             <div className="flex flex-wrap items-center gap-1 mt-1">
               {tracked.map(n => (
                 <button key={n} onClick={() => onVendor(vendorIds!.get(n.toLowerCase())!)}
-                        className="text-xs px-1.5 py-0.5 rounded border
+                        className="text-xs px-1.5 py-0.5 rounded border inline-flex items-center gap-1
                                    bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100
                                    dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                  <VendorSwatch color={colours?.byName(n)} />
                   {n}
                 </button>
               ))}
@@ -807,9 +817,10 @@ function WireEventCard({ event: e, onVendor, vendorIds }: {
                     </span>
                     {a.vendors.map(v => (
                       <button key={v.brand_id} onClick={() => onVendor(v.brand_id)}
-                              className="text-xs px-1.5 py-0.5 rounded border
+                              className="text-xs px-1.5 py-0.5 rounded border inline-flex items-center gap-1
                                          bg-sky-50 text-sky-700 border-sky-200
                                          hover:bg-sky-100 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                        <VendorSwatch color={colours?.byId(v.brand_id)} />
                         {v.vendor}
                       </button>
                     ))}
@@ -831,6 +842,8 @@ function WireEventCard({ event: e, onVendor, vendorIds }: {
 
 interface CoverageGroup {
   key: string; label: string; hint?: string; items: CorpusArticle[];
+  /** Set on vendor groups only, so the header can carry the vendor's colour. */
+  brandId?: number;
 }
 
 /** One section per vendor, most-covered first. Articles with no attributed
@@ -842,7 +855,7 @@ function groupByVendor(articles: CorpusArticle[]): CoverageGroup[] {
     const v = a.vendors[0];
     const key = v ? `v${v.brand_id}` : 'no-vendor';
     const label = v ? v.vendor : NO_VENDOR;
-    if (!map.has(key)) map.set(key, { key, label, items: [] });
+    if (!map.has(key)) map.set(key, { key, label, items: [], brandId: v?.brand_id });
     map.get(key)!.items.push(a);
   }
   return [...map.values()].sort((a, b) => b.items.length - a.items.length);
@@ -891,11 +904,12 @@ function groupByKind(articles: CorpusArticle[]): CoverageGroup[] {
 
 function CoverageGrouped({ groups, expandedGroups, setExpandedGroups,
                            vendorFilter, setVendorFilter,
-                           openCluster, setOpenCluster }: {
+                           openCluster, setOpenCluster, colours }: {
   groups: CoverageGroup[];
   expandedGroups: Set<string>; setExpandedGroups: (s: Set<string>) => void;
   vendorFilter: number | null; setVendorFilter: (id: number | null) => void;
   openCluster: string | null; setOpenCluster: (uri: string | null) => void;
+  colours?: VendorColours;
 }) {
   return (
     <div className="space-y-5">
@@ -909,7 +923,8 @@ function CoverageGrouped({ groups, expandedGroups, setExpandedGroups,
                         setExpandedGroups(next);
                       }}
                       vendorFilter={vendorFilter} setVendorFilter={setVendorFilter}
-                      openCluster={openCluster} setOpenCluster={setOpenCluster} />
+                      openCluster={openCluster} setOpenCluster={setOpenCluster}
+                      colours={colours} color={colours?.byId(g.brandId)} />
       ))}
     </div>
   );
@@ -1042,6 +1057,8 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
   const [error, setError] = useState<string | null>(null);
 
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
+  // Each vendor's brand colour, for the dots and the per-vendor chart bars.
+  const colours = useMemo(() => vendorColoursFrom(vendors), [vendors]);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [tasks, setTasks] = useState<ReviewTask[] | null>(null);
   const [health, setHealth] = useState<SourceHealth | null>(null);
@@ -1755,7 +1772,11 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                 initialSort="vendor"
                 onRowClick={v => openVendorPage(v.brand_id)}
                 columns={[
-                  { key: 'vendor', label: 'Vendor' },
+                  { key: 'vendor', label: 'Vendor',
+                    render: v => (
+                      <span className="inline-flex items-center gap-1.5">
+                        <VendorSwatch color={colours.byId(v.brand_id)} />{v.vendor}
+                      </span>) },
                   { key: 'country', label: 'Country', groupable: true },
                   { key: 'founded', label: 'Founded', groupable: true },
                   { key: 'funding_status', label: 'Funding', groupable: true,
@@ -1940,7 +1961,11 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                     rows={rows} rowKey={v => v.brand_id}
                     onRowClick={v => openVendorPage(v.brand_id)}
                     columns={[
-                      { key: 'vendor', label: 'Vendor' },
+                      { key: 'vendor', label: 'Vendor',
+                        render: v => (
+                          <span className="inline-flex items-center gap-1.5">
+                            <VendorSwatch color={colours.byId(v.brand_id)} />{v.vendor}
+                          </span>) },
                       { key: 'activity_index', label: 'Activity Index',
                         align: 'right',
                         render: v => v.activity_index === null ? (
@@ -2433,7 +2458,11 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                              days: periodDays, vendorId: hit.brand_id,
                              ownership: 'owned', expectedTotal: d?.posts,
                            });
-                         }} radius={[0, 3, 3, 0]} />
+                         }} radius={[0, 3, 3, 0]}>
+                      {pulse.loudest_vendors.slice(0, 8).map(r => (
+                        <Cell key={r.vendor} fill={colours.byName(r.vendor) ?? '#d6409f'} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -2489,7 +2518,8 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
             ) : (
               <ol className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
                 {pulse.events.map(e => (
-                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
+                  <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds}
+                               colours={colours} />
                 ))}
               </ol>
             )}
@@ -2526,9 +2556,10 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                       </span>
                       {a.vendors.map(v => (
                         <button key={v.brand_id} onClick={() => openVendorPage(v.brand_id)}
-                                className="text-xs px-1.5 py-0.5 rounded border
+                                className="text-xs px-1.5 py-0.5 rounded border inline-flex items-center gap-1
                                            bg-sky-50 text-sky-700 border-sky-200
                                            hover:bg-sky-100 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800">
+                          <VendorSwatch color={colours.byId(v.brand_id)} />
                           {v.vendor}
                         </button>
                       ))}
@@ -3079,7 +3110,8 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                   groups={groups}
                   expandedGroups={expandedGroups} setExpandedGroups={setExpandedGroups}
                   vendorFilter={vendorFilter} setVendorFilter={setVendorFilter}
-                  openCluster={openCluster} setOpenCluster={setOpenCluster} />
+                  openCluster={openCluster} setOpenCluster={setOpenCluster}
+                  colours={colours} />
               );
             })()}
 
@@ -3377,7 +3409,8 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
             <>
             <ol className="space-y-2">
               {events.map(e => (
-                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds} />
+                <WireEventCard key={e.id} event={e} onVendor={openVendorPage} vendorIds={vendorIds}
+                               colours={colours} />
               ))}
             </ol>
             {events.length >= 50 && (
@@ -3549,8 +3582,9 @@ export function MarketMonitorTab({ onFeedChanged }: { onFeedChanged?: () => void
                       onClick={() => openVendorPage(v.brand_id)}
                       className="border-t hover:bg-slate-50 cursor-pointer dark:hover:bg-gray-700">
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-800 hover:underline dark:text-gray-100">
-                        {v.display_name}</div>
+                      <div className="font-medium text-slate-800 hover:underline dark:text-gray-100
+                                      flex items-center gap-1.5">
+                        <VendorSwatch color={v.color} />{v.display_name}</div>
                       {v.role === 'excluded' && (
                         <span className="text-xs text-slate-500 dark:text-gray-400">out of scope</span>
                       )}

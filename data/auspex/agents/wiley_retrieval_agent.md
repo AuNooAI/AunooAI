@@ -5,7 +5,7 @@ description: Curates the top supporting / contradicting articles per scenario an
 type: agent
 version: 1.0.0
 model_config:
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 1.0
   max_tokens: 8000
 output_schema:

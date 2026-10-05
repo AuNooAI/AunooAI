@@ -226,7 +226,7 @@ def refresh_social_engagement(db, limit: int = 300) -> Dict:
           AND topic_alignment_score >= 0.4
           AND publication_date >= :old AND publication_date <= :new
           AND (social_meta->>'eng_refreshed_at' IS NULL OR social_meta->>'eng_refreshed_at' < :stale)
-        ORDER BY publication_date DESC
+        ORDER BY publication_date DESC NULLS LAST
         LIMIT :lim
     """), {"old": win_old, "new": win_new, "stale": stale, "lim": limit}).fetchall()
     if not rows:

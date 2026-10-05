@@ -222,7 +222,7 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
       start_date: params.startDate,
       end_date: params.endDate,
       max_articles: params.maxArticles || 100,
-      model: params.model || 'gpt-4o-mini',
+      model: params.model || 'bedrock-kimi-k2-5',
       force_regenerate: params.forceRegenerate || false,
       cache_only: params.cacheOnly || false,
       profile_id: params.profileId,

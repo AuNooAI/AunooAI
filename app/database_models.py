@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
@@ -379,6 +379,12 @@ t_articles = Table(
     Column('mbfc_credibility_rating', Text),
     Column('bias_source', Text),
     Column('bias_country', Text),
+    # Publisher country (ISO 3166-1 alpha-2) resolved by
+    # app/services/source_country.py, with the rung of the ladder that
+    # answered. Distinct from bias_country, which is free text written by
+    # the bias analysis and is empty on 99% of rows.
+    Column('source_country', String(2)),
+    Column('source_country_method', String(16)),
     Column('press_freedom', Text),
     Column('media_type', Text),
     Column('popularity', Text),
@@ -400,6 +406,26 @@ t_articles = Table(
     Column('original_title', Text),  # collector title when `title` is an English translation of it
     Column('original_summary', Text),  # collected post/description when `summary` is its English translation
     Column('social_meta', JSONB),  # Social post media + engagement (thumbnail, likes/reposts/comments/plays) for xpoz posts
+    # Set at insert by app/services/story_identity.py (migration si_001).
+    Column('url_key', Text),  # the URL without tracking parameters
+    Column('duplicate_of', Text),  # uri of the first copy of the same story in this topic
+    Column('source_type', Text),  # 'news' or 'press_release'; NULL = not yet classified
+    # Collector data quality (cdq_001): dates with precision and provenance,
+    # content kind, identity method, quarantine state. All nullable.
+    Column('published_at_raw', Text),
+    Column('publication_date_precision', String(8)),
+    Column('date_provenance', String(32)),
+    Column('source_indexed_at', DateTime(timezone=True)),
+    Column('first_seen_at', DateTime(timezone=True)),
+    Column('last_seen_at', DateTime(timezone=True)),
+    Column('future_date_flag', Boolean),
+    Column('content_kind', String(16)),
+    Column('extraction_status', String(32)),
+    Column('identity_method', String(24)),
+    Column('canonical_url', Text),
+    Column('record_type', String(16)),
+    Column('enrichment_block_reason', Text),
+    Column('enrichment_attempts', Integer, server_default=text('0')),
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),
@@ -1666,6 +1692,23 @@ t_rss_feeds = Table(
     Column('articles_enriched', Integer, server_default=text('0'), nullable=False),
     Column('last_error', Text),
 
+    # Scheduling state apart from coverage state (cdq_001). last_checked_at
+    # stays as the scheduling alias; coverage_through is the only field that
+    # says what has actually been collected.
+    Column('consecutive_error_count', Integer, server_default=text('0'), nullable=False),
+    Column('polling_status', String(20), server_default=text("'ok'"), nullable=False),
+    Column('first_failed_at', DateTime(timezone=True)),
+    Column('last_failed_at', DateTime(timezone=True)),
+    Column('next_poll_at', DateTime(timezone=True)),
+    Column('last_attempt_at', DateTime(timezone=True)),
+    Column('last_success_at', DateTime(timezone=True)),
+    Column('coverage_through', DateTime(timezone=True)),
+    Column('etag', Text),
+    Column('last_modified', Text),
+    Column('parse_partial_count', Integer, server_default=text('0'), nullable=False),
+    Column('pending_batch', JSONB),
+    Column('needs_attention_reason', Text),
+
     # Timestamps
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
@@ -1673,6 +1716,102 @@ t_rss_feeds = Table(
     Index('ix_rss_feeds_topic', 'topic'),
     Index('ix_rss_feeds_is_active', 'is_active'),
     Index('ix_rss_feeds_last_checked', 'last_checked_at')
+)
+
+# Collector data quality tables (cdq_001). See docs/COLLECTOR_DATA_QUALITY_SPEC.md.
+t_collection_runs = Table(
+    'collection_runs', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('provider', String(40), nullable=False),
+    Column('scope_kind', String(32)),
+    Column('scope_id', Text),
+    Column('status', String(12), nullable=False),
+    Column('interval_start', DateTime(timezone=True)),
+    Column('interval_end', DateTime(timezone=True)),
+    Column('coverage_complete', Boolean),
+    Column('checkpoint_before', DateTime(timezone=True)),
+    Column('checkpoint_after', DateTime(timezone=True)),
+    Column('continuation', JSONB),
+    Column('counts', JSONB),
+    Column('item_count', Integer),
+    Column('duration_ms', Integer),
+    Column('error_code', String(32)),
+    Column('error_message', Text),
+    Column('truncated_reason', String(32)),
+    Column('parse_partial', Boolean, server_default=text('false'), nullable=False),
+    Column('diagnostics', JSONB),
+    Column('started_at', DateTime(timezone=True)),
+    Column('finished_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+)
+
+t_collection_checkpoints = Table(
+    'collection_checkpoints', metadata,
+    Column('provider', String(40), primary_key=True),
+    Column('scope_key', Text, primary_key=True),
+    Column('interval_start', DateTime(timezone=True)),
+    Column('interval_end', DateTime(timezone=True)),
+    Column('coverage_through', DateTime(timezone=True)),
+    Column('coverage_unknown_before', DateTime(timezone=True)),
+    Column('continuation', JSONB),
+    Column('version', Integer, server_default=text('0'), nullable=False),
+    Column('lease_owner', Text),
+    Column('lease_until', DateTime(timezone=True)),
+    Column('last_attempt_at', DateTime(timezone=True)),
+    Column('last_success_at', DateTime(timezone=True)),
+    Column('consecutive_failures', Integer, server_default=text('0'), nullable=False),
+    Column('last_error_code', String(32)),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+)
+
+t_rejected_candidates = Table(
+    'rejected_candidates', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('canonical_url', Text, nullable=False),
+    Column('group_id', Integer, nullable=False),
+    Column('gate_version', String(64), nullable=False),
+    Column('score', Float),
+    Column('threshold', Float),
+    Column('evaluated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('hits', Integer, server_default=text('0'), nullable=False),
+    UniqueConstraint('canonical_url', 'group_id', name='uq_rejected_candidates_url_group'),
+)
+
+t_article_observations = Table(
+    'article_observations', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('provider', String(40), nullable=False),
+    Column('external_id', Text),
+    Column('observation_key', Text, nullable=False, unique=True),
+    Column('url', Text),
+    Column('content_kind', String(16)),
+    Column('truncated', Boolean),
+    Column('extraction_method', String(32)),
+    Column('published_at_raw', Text),
+    Column('observed_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('payload', JSONB),
+)
+
+t_article_url_aliases = Table(
+    'article_url_aliases', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('url', Text, nullable=False, unique=True),
+    Column('canonical_url', Text, nullable=False),
+    Column('registry_version', String(32)),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+)
+
+t_pending_feed_entries = Table(
+    'pending_feed_entries', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('feed_id', Integer, ForeignKey('rss_feeds.id', ondelete='CASCADE'), nullable=False),
+    Column('entry_key', Text, nullable=False),
+    Column('payload', JSONB, nullable=False),
+    Column('attempts', Integer, server_default=text('0'), nullable=False),
+    Column('last_error', Text),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('feed_id', 'entry_key', name='uq_pending_feed_entries'),
 )
 
 t_rss_feed_monitor_status = Table(

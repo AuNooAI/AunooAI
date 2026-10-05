@@ -54,6 +54,8 @@ CONTACT_EMAIL = os.getenv("OFFICIAL_SOURCES_CONTACT_EMAIL", "oliver.rochford@gma
 _UA = f"Aunoo Brand Monitoring ({CONTACT_EMAIL})"
 
 # Registry consumed by the poll loop, the status endpoint, and the UI modal.
+from app.services.opoint_brand_matcher import SCHOLARLY_CATEGORY
+
 OFFICIAL_SOURCES: Dict[str, Dict[str, Any]] = {
     "sec_edgar": {
         "label": "SEC EDGAR",
@@ -83,7 +85,7 @@ OFFICIAL_SOURCES: Dict[str, Dict[str, Any]] = {
         "label": "Crossref",
         "description": "Scholarly mentions (Crossref works)",
         "news_source": "Crossref",
-        "category": "Product & Innovation",
+        "category": SCHOLARLY_CATEGORY,
         "domain": "crossref.org",
         "requires_key": None,
     },
@@ -91,7 +93,7 @@ OFFICIAL_SOURCES: Dict[str, Dict[str, Any]] = {
         "label": "OpenAlex",
         "description": "Scholarly mentions (OpenAlex works)",
         "news_source": "OpenAlex",
-        "category": "Product & Innovation",
+        "category": SCHOLARLY_CATEGORY,
         "domain": "openalex.org",
         "requires_key": None,
     },

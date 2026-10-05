@@ -4,7 +4,7 @@ description: Generates strategic hedging recommendations and early warning indic
   for extreme scenarios
 model_config:
   max_tokens: 4000
-  model: gpt-4.1-mini
+  model: bedrock-kimi-k2-5
   temperature: 0.4
 name: eos_implications_agent
 output_schema:

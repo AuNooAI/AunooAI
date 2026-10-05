@@ -6,7 +6,7 @@ category: "strategic_intelligence"
 description: "Clusters articles into events and ranks by strategic importance"
 
 model_config:
-  model: "gpt-4.1-mini"
+  model: bedrock-kimi-k2-5
   temperature: 0.2
   max_tokens: 4000
 

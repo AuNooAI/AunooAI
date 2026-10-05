@@ -32,6 +32,7 @@ Query it exactly like saas:
 
 from __future__ import annotations
 
+import contextvars
 import functools
 import logging
 import os
@@ -45,6 +46,24 @@ logger = logging.getLogger(__name__)
 #: Key under which the calling site is tucked into litellm ``metadata``.
 _USE_CASE_KEY = "aunoo_use_case"
 
+#: The app-owned caller, recorded by an async wrapper before it hands the call
+#: to a worker thread. The worker's own stack holds only ai_models.py and
+#: litellm, so the stack walk found nothing: $30 a week of Sonnet 4.5 from the
+#: emerging-topics deep analyzer was logged as "unknown" (Sep 2026).
+#: ``asyncio.to_thread`` copies context variables into the thread.
+_CALLER: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
+    "aunoo_llm_caller", default=None)
+
+
+def remember_caller() -> None:
+    """Record the calling site for a model call about to leave this thread."""
+    try:
+        found = _guess_use_case(use_remembered=False)
+        if found != "unknown":
+            _CALLER.set(found)
+    except Exception:  # noqa: BLE001 — never break an LLM call over logging
+        pass
+
 _QUEUE: "queue.Queue[tuple]" = queue.Queue(maxsize=10_000)
 _DROPPED = 0
 _INSTALLED = False
@@ -54,12 +73,18 @@ _BATCH_MAX = 500
 # Fallback price table (USD per 1M tokens, input/output) for when litellm
 # can't cost a call. Substring-matched against the resolved model id.
 _PRICE_PER_M: dict[str, tuple[float, float]] = {
+    # Claude 5 family and Kimi K3 (Bedrock list prices, 27 Sep 2026). Missing,
+    # their calls were logged as free.
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-opus-5": (5.00, 25.00),
+    "kimi-k3": (3.00, 15.00),
     "claude-sonnet-4-5": (3.00, 15.00),
     "claude-sonnet-4": (3.00, 15.00),
     "claude-haiku-4-5": (0.80, 4.00),
     "nova-pro": (0.80, 3.20),
     "nova-lite": (0.06, 0.24),
     "nova-micro": (0.035, 0.14),
+    "kimi-k2": (0.60, 3.03),
     "mistral-large": (0.80, 4.00),
     "llama3-3-70b": (0.06, 0.24),
     "gpt-5.4-mini": (0.15, 0.60),
@@ -72,8 +97,9 @@ _SKIP_FRAME_TOKENS = (
 )
 
 
-def _guess_use_case() -> str:
-    """First app-owned frame below us on the stack, as ``module:function``."""
+def _guess_use_case(use_remembered: bool = True) -> str:
+    """First app-owned frame below us on the stack, as ``module:function``,
+    or the caller an async wrapper remembered before switching threads."""
     try:
         for frame in reversed(traceback.extract_stack(limit=40)):
             fn = frame.filename or ""
@@ -85,6 +111,10 @@ def _guess_use_case() -> str:
             return f"{mod}:{frame.name}"[:200]
     except Exception:
         pass
+    if use_remembered:
+        remembered = _CALLER.get()
+        if remembered:
+            return remembered
     return "unknown"
 
 
@@ -320,6 +350,28 @@ def _flusher() -> None:
             conn = None
 
 
+def _async_ledger():
+    """The ledger as a litellm CustomLogger, for asynchronous calls.
+
+    litellm (1.80) calls a plain function in ``success_callback`` for
+    synchronous calls only. Every ``acompletion`` (direct or through a Router)
+    went unlogged: the market review's Kimi drafter and Sonnet 5 corrector
+    never reached llm_usage_log, found 28 Sep 2026. Async calls reach only
+    this hook and sync calls only the function, so no success is counted twice.
+    """
+    from litellm.integrations.custom_logger import CustomLogger
+
+    class _AsyncLedger(CustomLogger):
+        _aunoo_ledger = True
+
+        # Successes only: failed async calls already reach the plain
+        # failure_callback, and hooking them here logged each one twice.
+        async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+            _on_success(kwargs, response_obj, start_time, end_time)
+
+    return _AsyncLedger()
+
+
 def install() -> None:
     """Register callbacks + start the flusher. Idempotent; call at startup."""
     global _INSTALLED
@@ -334,6 +386,8 @@ def install() -> None:
         litellm.success_callback.append(_on_success)
     if _on_failure not in litellm.failure_callback:
         litellm.failure_callback.append(_on_failure)
+    if not any(getattr(c, "_aunoo_ledger", False) for c in litellm.callbacks):
+        litellm.callbacks.append(_async_ledger())
     _install_call_site_tagging()
     threading.Thread(target=_flusher, name="llm-usage-flusher", daemon=True).start()
     _INSTALLED = True

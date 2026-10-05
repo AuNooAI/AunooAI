@@ -52,6 +52,25 @@ MAX_FACTS_PER_SECTION = 80
 DEFAULT_MODEL = os.getenv("MARKET_BRIEFING_MODEL", "bedrock-kimi-k2-5")
 
 
+# Internal news_source codes carry our collection plumbing ("xpoz:twitter" is
+# the paid social corpus). Those codenames must never appear on a reader-facing
+# page, so every source rendered into briefing text goes through this map to a
+# public platform name; an unrecognised "prefix:tail" is shown as its tail, not
+# the prefix, so the codename still cannot leak.
+_PLATFORM_LABELS = {"twitter": "X", "x": "X", "bluesky": "Bluesky", "bsky": "Bluesky",
+                    "reddit": "Reddit", "linkedin": "LinkedIn", "mastodon": "Mastodon",
+                    "instagram": "Instagram", "tiktok": "TikTok", "youtube": "YouTube"}
+
+
+def source_label(source: Optional[str]) -> str:
+    """Reader-facing name for an internal news_source ('xpoz:twitter' -> 'X')."""
+    s = (source or "").strip()
+    slug = s.lower().split(":")[-1]
+    if slug in _PLATFORM_LABELS:
+        return _PLATFORM_LABELS[slug]
+    return s.split(":")[-1] if ":" in s else s
+
+
 def month_bounds(year: int, month: int) -> Tuple[date, date, str]:
     """``(first, last, 'YYYY-MM')`` for a calendar month."""
     last = monthrange(year, month)[1]
@@ -146,8 +165,8 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
                                      AND mb.market_id = :m
             WHERE ma.market_id = :m AND ma.review_verdict = 'signal'
               AND a.publication_date >= :d0 AND a.publication_date <= :d1
-            ORDER BY a.uri, a.publication_date DESC
-        ) x ORDER BY x.publication_date DESC
+            ORDER BY a.uri, a.publication_date DESC NULLS LAST
+        ) x ORDER BY x.publication_date DESC NULLS LAST
     """), bounds).mappings().all()]
 
     # Third-party coverage: everything matched that is not a vendor's own post.
@@ -160,7 +179,7 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
         WHERE ma.market_id = :m
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND a.publication_date >= :d0 AND a.publication_date <= :d1
-        ORDER BY a.uri, a.publication_date DESC
+        ORDER BY a.uri, a.publication_date DESC NULLS LAST
     """), bounds).mappings().all()]
 
     brief = mp.build_brief(conn, market, days=max(
@@ -215,7 +234,7 @@ def build_facts(conn, market: Dict[str, Any], start: date, end: date
     for i, c in enumerate(coverage, 1):
         c["cite_id"] = f"C{i}"
         citation_index[c["cite_id"]] = {
-            "uri": c["uri"], "title": c["title"], "source": c.get("news_source")}
+            "uri": c["uri"], "title": c["title"], "source": source_label(c.get("news_source"))}
 
     return {
         "market": market["name"],
@@ -271,7 +290,7 @@ def _render_facts(facts: Dict[str, Any]) -> str:
         for c in facts["coverage"]:
             date_part = (c.get("publication_date") or "")[:10]
             lines.append(f"- [{c.get('cite_id')}] [{date_part}] "
-                         f"{c.get('news_source') or 'unknown'}: {c['title']}")
+                         f"{source_label(c.get('news_source')) or 'unknown'}: {c['title']}")
 
     if facts["new_entrants"]:
         lines.append("\nNEW TO THE REGISTRY THIS PERIOD:")
@@ -386,7 +405,7 @@ def fallback_briefing(facts: Dict[str, Any], period_label: str) -> str:
         out.append(f"## Third-party coverage ({total})")
         out.append("")
         for c in facts["coverage"]:
-            out.append(f"- {c['title']} — {c.get('news_source') or 'unknown'}")
+            out.append(f"- {c['title']} — {source_label(c.get('news_source')) or 'unknown'}")
         out.append("")
 
     if facts["open_questions"]:
@@ -586,7 +605,18 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
         prompt = build_prompt(facts, period_label)
         try:
             from app.database import get_database_instance
-            persona = _org_persona_report_prefix(get_database_instance())
+            # The market picks its reader profile (config.foresight.profile_id);
+            # frame the briefing for that org, not the tenant's default profile
+            # (a cloned tenant's default is often a leftover from the source).
+            cfg = market.get("config") or {}
+            if isinstance(cfg, str):
+                try:
+                    cfg = json.loads(cfg)
+                except Exception:  # noqa: BLE001
+                    cfg = {}
+            profile_id = ((cfg.get("foresight") or {}).get("profile_id"))
+            persona = _org_persona_report_prefix(get_database_instance(),
+                                                 profile_id=profile_id)
         except Exception:  # noqa: BLE001 — a briefing without the persona is
             persona = ""    # still a briefing
         messages = [
@@ -631,7 +661,13 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
     if not store:
         return result
 
-    row = conn.execute(text("""
+    # The model call above can outlast the caller's connection idle timeout,
+    # dropping it so this INSERT failed with "SSL connection has been closed
+    # unexpectedly" — a generation the user never got back. Store on a fresh
+    # connection taken after the model call, not one held open across it.
+    from app.database import get_database_instance as _gdi
+    store_conn = _gdi()._temp_get_connection()
+    row = store_conn.execute(text("""
         INSERT INTO bw_market_briefings
             (market_id, period_start, period_end, period_label, title, facts,
              report_content, article_uris, model_used, generation, lint)
@@ -653,8 +689,9 @@ async def generate(conn, market: Dict[str, Any], *, start: date, end: date,
            "generation": generation,
            "lint": json.dumps(lint, default=str)}).scalar()
     # Back to draft means out of the feed until somebody approves this text.
-    _withdraw_from_feed(conn, market["id"], row)
-    conn.commit()
+    _withdraw_from_feed(store_conn, market["id"], row)
+    store_conn.commit()
+    store_conn.close()
     result["id"] = row
     result["stored"] = True
     return result

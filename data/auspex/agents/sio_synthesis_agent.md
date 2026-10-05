@@ -3,7 +3,7 @@ category: strategic_intelligence
 description: Synthesizes event analyses into actionable strategic intelligence briefing
 model_config:
   max_tokens: 10000
-  model: gpt-4.1
+  model: claude-sonnet-4-5
   temperature: 0.4
 name: sio_synthesis_agent
 output_format: markdown

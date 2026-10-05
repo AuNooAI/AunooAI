@@ -26,6 +26,20 @@ Selection criteria (the signature of a mid-pipeline drop):
                                  the business of reenrich_filtered_articles.py
   - news_source <> 'bluesky'  -- social posts are enriched on another path
 
+--status enrichment_failed selects the rows the ingest pipeline marked as
+failed instead of the NULL-status ones. A topic with an empty label list fails
+every article that way, and nothing retries them once the list is filled in
+(wileytest's intralogistics topic, 542 articles in 30 days, 1 Oct 2026).
+
+--uri-file PATH re-runs exactly the URIs listed in the file (one per line),
+whatever their category or status. It repairs rows whose labels came from
+another topic's analysis: the enrichment UPDATE wrote a second topic's
+labels onto a row still filed under the first until 67b32d38 (wileytest,
+1 Oct 2026). Each row is re-analysed against the topic it is filed under, or
+against the topic after a tab on its line ("<uri>\t<topic>"). The second form
+offers a row to a topic that wanted it: the pipeline refiles a row that is not
+approved when that topic approves it, and leaves it filed otherwise.
+
 Articles are grouped by their stored `topic` because the analysis ontology
 (categories, future signals, sentiments...) is resolved per topic.
 
@@ -38,6 +52,8 @@ Usage:
     python scripts/reenrich_parse_failures.py --since 2026-07-01
     python scripts/reenrich_parse_failures.py --topic "Brand Monitoring Wiley"
     python scripts/reenrich_parse_failures.py --limit 500 --rescrape
+    python scripts/reenrich_parse_failures.py --status enrichment_failed --topic "..."
+    python scripts/reenrich_parse_failures.py --uri-file uris.txt --dry-run
 """
 
 import argparse
@@ -64,19 +80,29 @@ COLUMNS = ['uri', 'title', 'summary', 'news_source', 'publication_date',
 
 
 def fetch_candidates(db: Database, since: str | None, topic: str | None,
-                     limit: int | None) -> List[Dict[str, Any]]:
-    """Pull rows that entered enrichment and never had fields written back."""
-    sql = """
+                     limit: int | None, status: str | None = None,
+                     uris: List[str] | None = None) -> List[Dict[str, Any]]:
+    """Pull rows that entered enrichment and never had fields written back,
+    or exactly the given URIs when ``uris`` is passed."""
+    params: Dict[str, Any] = {}
+    if uris:
+        names = [f"u{i}" for i in range(len(uris))]
+        params.update(zip(names, uris))
+        where = "uri IN (" + ", ".join(f":{n}" for n in names) + ")"
+    else:
+        where = ("category IS NULL AND "
+                 + ("ingest_status = :status" if status else "ingest_status IS NULL"))
+        if status:
+            params["status"] = status
+    sql = f"""
         SELECT uri, title, summary, news_source, publication_date,
                submission_date, topic
         FROM articles
-        WHERE category IS NULL
-          AND ingest_status IS NULL
+        WHERE {where}
           AND news_source <> 'bluesky'
           AND topic IS NOT NULL AND topic <> ''
           AND title IS NOT NULL AND title <> ''
     """
-    params: Dict[str, Any] = {}
     if since:
         sql += " AND submission_date >= :since"
         params["since"] = since
@@ -131,9 +157,14 @@ async def missing_ontology(ingest: AutomatedIngestService, topic: str) -> List[s
 
 
 async def reenrich(since: str | None, topic: str | None, limit: int | None,
-                   batch_size: int, rescrape: bool, dry_run: bool) -> None:
+                   batch_size: int, rescrape: bool, dry_run: bool,
+                   status: str | None = None, uris: List[str] | None = None,
+                   topic_for: Dict[str, str] | None = None) -> None:
     db = Database()
-    candidates = fetch_candidates(db, since, topic, limit)
+    candidates = fetch_candidates(db, since, topic, limit, status, uris)
+    for c in candidates:
+        if topic_for and c['uri'] in topic_for:
+            c['topic'] = topic_for[c['uri']]
 
     if not candidates:
         logger.info("No articles match the stuck-enrichment signature. Nothing to do.")
@@ -237,10 +268,28 @@ def main():
                         help="Fetch full article text instead of reusing the stored summary")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report the backlog without processing it")
+    parser.add_argument("--status", choices=["enrichment_failed"], default=None,
+                        help="Select rows with this ingest_status instead of NULL")
+    parser.add_argument("--uri-file", default=None,
+                        help="Re-run exactly these URIs (one per line), whatever their status")
     args = parser.parse_args()
+    if args.uri_file and args.status:
+        parser.error("--uri-file and --status select rows in different ways; pass one")
+    uris, topic_for = None, None
+    if args.uri_file:
+        uris, topic_for = [], {}
+        for line in Path(args.uri_file).read_text().splitlines():
+            uri, _, line_topic = line.strip().partition("\t")
+            if uri:
+                uris.append(uri)
+                if line_topic.strip():
+                    topic_for[uri] = line_topic.strip()
+        if not uris:
+            parser.error(f"{args.uri_file} lists no URIs")
 
     asyncio.run(reenrich(args.since, args.topic, args.limit,
-                         args.batch_size, args.rescrape, args.dry_run))
+                         args.batch_size, args.rescrape, args.dry_run, args.status, uris,
+                         topic_for))
 
 
 if __name__ == "__main__":

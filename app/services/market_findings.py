@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import text
 
 from app.services import market_metrics as mmet
+from app.services.report_corpus import is_wire_host
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ THEMES: List[Tuple[str, Tuple[str, ...]]] = [
                               "office_opening")),
     ("Leadership and strategy", ("leadership_change", "strategy_shift",
                                  "brand_identity_change", "rebrand")),
+    ("Research and evidence", ("research_finding",)),
     ("Attention and narrative", ("coverage_spike", "sentiment_shift")),
 ]
 
@@ -101,6 +103,9 @@ SELF_REPORTABLE = frozenset({
     "product_launch", "product_update", "certification", "integration",
     "leadership_change", "office_opening", "rebrand", "brand_identity_change",
     "hiring_spike", "headcount_change", "strategy_shift",
+    # A company is authoritative that it published a study. Whether the
+    # finding holds is a separate question this field does not answer.
+    "research_finding",
 })
 
 # Which evidence relationships count toward supporting a finding. The same set
@@ -506,7 +511,11 @@ def _dedupe_supporting(rows) -> List[Dict[str, Any]]:
         key = row.get("key") or row.get("uri") or ""
         if key in seen:
             continue
-        owned = str(key).startswith("owned:")
+        # Evidence stored before wires were keyed as the company's own voice
+        # still carries "domain:<wire>".
+        owned = str(key).startswith("owned:") or (
+            str(key).startswith(("domain:", "source:"))
+            and is_wire_host(str(key).split(":", 1)[1]))
         primary = str(key).startswith(("official:", "filing:", "sec:"))
         seen[key] = {
             "uri": row.get("uri"),

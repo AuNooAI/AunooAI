@@ -122,6 +122,48 @@ def fetch_candidates(db: Database, topic: str, min_embed: float, limit: int | No
     return [dict(zip(columns, r)) for r in rows]
 
 
+def fetch_brand_mention_candidates(db: Database, topic: str,
+                                   limit: int | None) -> List[Dict[str, Any]]:
+    """Rejected articles on a brand topic whose stored page text names the brand.
+
+    The quick relevance check scores whether an article is about the brand,
+    and a quote or a passing mention scores near zero, so these were dropped
+    before analysis (oviva, 1 Oct 2026: 19 for Oviva in 90 days). The verdict
+    comes from ``brand_mention_gate.judge``, the same check the pipeline now
+    applies, so only articles the pipeline would keep are sent back. Their
+    stored page text rides along as the body; without it the quick check
+    sees only the title and summary and rejects them again.
+    """
+    from app.services import brand_mention_gate
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                   a.keyword_relevance_score, a.topic_alignment_score, r.raw_markdown
+              FROM articles a LEFT JOIN raw_articles r ON r.uri = a.uri
+             WHERE a.ingest_status = 'filtered_relevance' AND a.topic = :topic
+             ORDER BY a.publication_date DESC
+        """, {"topic": topic})
+        rows = cursor.fetchall()
+    brand = brand_mention_gate.brand_for_topic(topic)
+    if not brand:
+        logger.warning(f"'{topic}' is not a brand topic with a bw_brands row")
+        return []
+    out = []
+    for r in rows:
+        c = dict(zip(['uri', 'title', 'summary', 'news_source', 'publication_date',
+                      'keyword_relevance_score', 'topic_alignment_score', 'content'], r))
+        body = "\n".join(str(c.get(k) or "") for k in ("title", "summary", "content"))
+        v = brand_mention_gate.judge(brand, body, c['uri'], c['news_source'] or "")
+        if v["verdict"] == "named":
+            c['content'] = (c['content'] or '')[:20000]
+            c['mention'] = v['snippet']
+            out.append(c)
+        if limit and len(out) >= limit:
+            break
+    return out
+
+
 def fetch_topic_keywords(db: Database, topic: str) -> List[str]:
     """Keywords for this topic (used for relevance scoring context)."""
     try:
@@ -135,10 +177,15 @@ async def reenrich(topic: str, min_embed: float, limit: int | None,
                    batch_size: int, dry_run: bool,
                    min_alignment: float | None = None,
                    include_unassessed: bool = False,
-                   in_market: int | None = None) -> None:
+                   in_market: int | None = None,
+                   brand_mentions: bool = False) -> None:
     db = Database()
-    candidates = fetch_candidates(db, topic, min_embed, limit, min_alignment,
-                                  include_unassessed, in_market)
+    if brand_mentions:
+        candidates = fetch_brand_mention_candidates(db, topic, limit)
+        logger.info(f"Topic '{topic}': {len(candidates)} rejected articles name the brand")
+    else:
+        candidates = fetch_candidates(db, topic, min_embed, limit, min_alignment,
+                                      include_unassessed, in_market)
 
     logger.info(f"Topic '{topic}': {len(candidates)} candidates for re-enrichment "
                 f"(ingest_status='filtered_relevance'"
@@ -153,10 +200,12 @@ async def reenrich(topic: str, min_embed: float, limit: int | None,
 
     if dry_run:
         logger.info("DRY RUN — sample candidates:")
-        for c in candidates[:10]:
+        for c in candidates[: 50 if brand_mentions else 10]:
             score = c['keyword_relevance_score']
             shown = f"{score:.2f}" if score is not None else "----"
             logger.info(f"  {shown}  {(c['title'] or '')[:80]}  {c['uri']}")
+            if c.get('mention'):
+                logger.info(f"        names it: {c['mention'][:110]}")
         logger.info(f"(total {len(candidates)} candidates; re-run without --dry-run to process)")
         return
 
@@ -184,7 +233,9 @@ async def reenrich(topic: str, min_embed: float, limit: int | None,
                 'summary': c['summary'] or '',
                 'news_source': c['news_source'] or '',
                 'publication_date': c['publication_date'] or '',
-                'content': '',      # triggers Firecrawl scrape in the pipeline
+                # Empty triggers a scrape in the pipeline; the brand-mention
+                # mode passes the stored page so the brand check can see it.
+                'content': c.get('content') or '',
                 'topic': topic,
                 'analyzed': False,
             })
@@ -230,6 +281,11 @@ def main():
     parser.add_argument("--include-unassessed", action="store_true",
                         help="Also take rows with a NULL ingest_status — collected "
                              "but never scored, so no score floor applies to them")
+    parser.add_argument("--brand-mentions", action="store_true",
+                        help="Brand topics: take the rejected articles whose stored "
+                             "page names the brand in its sense (brand_mention_gate), "
+                             "and pass that page as the body. Ignores the score floors. "
+                             "Needs BW_BRAND_MENTION_FLOOR set or they are rejected again.")
     args = parser.parse_args()
 
     asyncio.run(reenrich(
@@ -238,6 +294,7 @@ def main():
         min_alignment=args.min_alignment,
         include_unassessed=args.include_unassessed,
         in_market=args.in_market,
+        brand_mentions=args.brand_mentions,
         limit=args.limit,
         batch_size=args.batch_size,
         dry_run=args.dry_run,

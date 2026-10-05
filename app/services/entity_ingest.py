@@ -59,7 +59,8 @@ def link_content(conn, article_uri: str,
     """
     context = context or {}
     article = conn.execute(text("""
-        SELECT uri, title, summary, news_source, bias_source, social_meta
+        SELECT uri, title, summary, news_source, bias_source, social_meta,
+               topic
           FROM articles WHERE uri = :u
     """), {'u': article_uri}).mappings().first()
     if not article:
@@ -100,7 +101,8 @@ def link_content(conn, article_uri: str,
         # of which 51 were its own blog. A page on the entity's own domain is
         # owned_web for that entity — and still earned coverage for any other
         # vendor it names, which is why this sits inside the loop.
-        channel, owned = _channel_for(conn, brand_id, host, article_channel)
+        channel, owned = _channel_for(conn, brand_id, host, article_channel,
+                                      account_id)
         relationship = candidate.get('relationship') or (
             'owned' if owned else 'mentions')
         link_id = entity_content.link_content(
@@ -185,18 +187,82 @@ def _own_domain(conn, brand_id: int, host: str) -> bool:
     return False
 
 
-def _channel_for(conn, brand_id: int, host: str, article_channel: str):
+def _channel_for(conn, brand_id: int, host: str, article_channel: str,
+                 account_id: Optional[int] = None):
     """``(channel, owned)`` for one entity's link to one article.
 
     The article-level channel stands unless the page is on the entity's own
     domain, in which case it is the entity's own web content whatever the
-    source name says.
+    source name says, or the post came from an account verified as the
+    entity's own, in which case it is the entity's own social content.
     """
     if article_channel in _OWNED_CHANNELS:
         return article_channel, True
     if _own_domain(conn, brand_id, host):
         return 'owned_web', True
+    # The domain check alone let a company's own Instagram through as public
+    # opinion: on oviva, @oviva_uk and @oviva_de were all 7 Instagram posts
+    # in 30 days, and they set the network's net sentiment to +86.
+    if (account_id and article_channel in ('public_social', 'community')
+            and entity_identity.account_owner(conn, account_id) == brand_id):
+        return 'owned_social', True
     return article_channel, False
+
+
+def reattribute_owned_account(conn, brand_id: int,
+                              social_account_id: int) -> int:
+    """Move posts already ingested from a newly verified own account into the
+    owned lane, as ``link_content`` would have filed them had the account been
+    known at the time. Returns the number of mentions moved.
+
+    Updated in place rather than deleted and re-ingested, because mentions
+    carry event and narrative evidence that a delete would cascade away.
+    """
+    if entity_identity.account_owner(conn, social_account_id) != brand_id:
+        return 0
+    rows = conn.execute(text("""
+        SELECT m.id AS mention_id, l.id AS link_id,
+               l.metadata->>'matched_term' AS term,
+               a.social_meta
+          FROM bw_entity_content_links l
+          JOIN bw_entity_mentions m ON m.content_link_id = l.id
+          JOIN articles a ON a.uri = l.article_uri
+         WHERE l.brand_id = :b AND l.social_account_id = :acct
+           AND l.channel IN ('public_social', 'community')
+    """), {'b': brand_id, 'acct': social_account_id}).mappings().all()
+    moved = 0
+    for row in rows:
+        speaking = _is_company_speaking(row)
+        mention_type = 'owned_attribution' if speaking else 'explicit_name'
+        conn.execute(text("""
+            UPDATE bw_entity_content_links
+               SET channel = 'owned_social', relationship = 'owned'
+             WHERE id = :id
+               AND NOT EXISTS (
+                   SELECT 1 FROM bw_entity_content_links o
+                    WHERE o.brand_id = bw_entity_content_links.brand_id
+                      AND o.article_uri = bw_entity_content_links.article_uri
+                      AND o.relationship = 'owned'
+                      AND o.channel = 'owned_social')
+        """), {'id': row['link_id']})
+        conn.execute(text("""
+            UPDATE bw_entity_mentions
+               SET channel = 'owned_social', mention_type = :mt,
+                   stance = :stance, relevance = 1.0, status = 'accepted',
+                   evaluation_method = 'attribution', dedupe_hash = :hash
+             WHERE id = :id
+               AND NOT EXISTS (
+                   SELECT 1 FROM bw_entity_mentions o
+                    WHERE o.brand_id = bw_entity_mentions.brand_id
+                      AND o.article_uri = bw_entity_mentions.article_uri
+                      AND o.dedupe_hash = :hash)
+        """), {'id': row['mention_id'], 'mt': mention_type,
+               'stance': 'owned_claim' if speaking else 'not_applicable',
+               'hash': entity_content.dedupe_hash_for(
+                   mention_type=mention_type, matched_term=row['term'],
+                   channel='owned_social')})
+        moved += 1
+    return moved
 
 
 def _is_company_speaking(article) -> bool:
@@ -264,11 +330,39 @@ def _discover_candidates(conn, article, channel: str) -> List[Dict[str, Any]]:
     terms = entity_content.safe_terms_for(
         conn, _enabled_social_brands(conn) if channel in
         ('public_social', 'community') else _all_brands(conn))
+    if channel in ('public_social', 'community'):
+        # Listed first so the collecting brand wins candidates_from_terms'
+        # one-match-per-brand rule with its own name.
+        terms = _collecting_brand_terms(conn, article.get('topic')) + terms
     return [{'brand_id': c['brand_id'], 'query_term_id': c['query_term_id'],
              'term': c['term'], 'excerpt': c['excerpt'],
              'attribution_method': 'query_term',
              'mention_type': _mention_type(c['term_kind'])}
             for c in entity_content.candidates_from_terms(blob, terms)]
+
+
+def _collecting_brand_terms(conn, topic: Optional[str]) -> List[Dict[str, Any]]:
+    """Every enabled term of the brand whose own social group found this post.
+
+    A post under "Brand Monitoring Voy" came back from a search for Voy, so
+    the topic is the qualification a short or ordinary-word name otherwise
+    lacks. Safe terms alone never include "Voy" (three letters), so on oviva
+    on 1 Oct 2026 the 132 posts Voy's new social group collected, customers
+    on its Mounjaro programme among them, produced no mentions at all. The
+    same held for brands outside any market (Zanadio, HelloBetter), which
+    _enabled_social_brands never returns.
+    """
+    prefix = 'Brand Monitoring '
+    if not topic or not topic.startswith(prefix):
+        return []
+    rows = conn.execute(text("""
+        SELECT t.id, t.brand_id, t.term, t.normalized_term, t.term_kind
+          FROM bw_entity_query_terms t
+          JOIN bw_brands b ON b.id = t.brand_id
+         WHERE b.display_name = :name AND b.enabled AND t.enabled
+         ORDER BY length(t.normalized_term) DESC
+    """), {'name': topic[len(prefix):]}).mappings().all()
+    return [dict(r) for r in rows]
 
 
 def _mention_type(term_kind: str) -> str:

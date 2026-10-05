@@ -6,7 +6,7 @@ category: "research"
 description: "Writes professional research reports with proper citations and structure"
 
 model_config:
-  model: "gpt-4o"
+  model: claude-sonnet-4-5
   temperature: 0.5
   max_tokens: 8000
 

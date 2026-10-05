@@ -453,7 +453,7 @@ export interface KeywordSuggestionResult {
 export async function getKeywordSuggestions(
   keywordId: number,
   groupId: number,
-  model: string = 'gpt-4o-mini'
+  model: string = 'bedrock-kimi-k2-5'
 ): Promise<KeywordSuggestionResult> {
   return fetchJson(`${API_BASE}/keyword/${keywordId}/suggest-improvements?group_id=${groupId}&model=${model}`);
 }

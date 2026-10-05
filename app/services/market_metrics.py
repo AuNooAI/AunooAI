@@ -275,7 +275,7 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
                   or sch.PAUSED_SOURCES.get(source)
                   or "; ".join(reasons)
                   or (f"no vendor in this market has a "
-                      f"{sch.REQUIRED_IDENTIFIER.get(source, 'required identifier')}"))
+                      f"{sch.identifier_label(sch.REQUIRED_IDENTIFIER.get(source))}"))
         # The operator note above says why *we* have not wired this up. A
         # shared report needs the reader-facing half of that, which is simply
         # which source the figures beside it do not cover.

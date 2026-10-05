@@ -23,6 +23,7 @@ import urllib.parse
 from datetime import datetime
 
 from app.security.session import verify_session, verify_session_api
+from app.model_tiers import default_model
 from app.database import get_database_instance
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class AutoComposeRequest(BaseModel):
     min_alignment: float = Field(0.4, ge=0.0, le=1.0, description="Article topic_alignment_score floor (inclusive)")
     days_back: int = Field(7, ge=1, le=30, description="Look-back window in days")
     run_detection: bool = Field(False, description="Re-run Emerging Topics detection inline (slow; default reads recently-detected topics)")
-    model: str = Field("gpt-5.4", description="Model for detection")
+    model: str = Field(default_model("standard"), description="Model for detection")
     history_days: int = Field(7, ge=0, le=90, description="Skip items already shared in finalized briefings this many days back (0 = no historical dedup)")
 
 
@@ -180,9 +181,11 @@ class AddIncidentRequest(BaseModel):
 
 class FinalizeBriefingRequest(BaseModel):
     """Request model for finalizing a briefing."""
-    model: str = Field("gpt-5.4", description="AI model to use for synthesis")
+    model: str = Field(default_model("standard"), description="AI model to use for synthesis")
     organizational_profile: Optional[str] = Field(None, description="Organizational profile name for context")
     persona: Optional[str] = Field(None, description="Persona/role for tailored recommendations")
+    override_review: bool = Field(False, description="Finalize the stored draft that the reviewer blocked, recording who overrode it")
+    override_note: Optional[str] = Field(None, description="Why the reviewer findings were overridden")
 
 
 class UpdateSynthesisRequest(BaseModel):
@@ -311,7 +314,42 @@ def _compose_kwargs(request: "AutoComposeRequest") -> dict:
         "run_detection": request.run_detection,
         "model": request.model,
         "history_days": request.history_days,
+        # The page's model selector wins when it is sent; the tenant's pinned
+        # briefing model is the default for callers that send none.
+        "honor_model": "model" in request.model_fields_set,
     }
+
+
+def _resolve_org_profile(db, name: Optional[str]) -> Optional[dict]:
+    """The profile the page named, else the tenant default. Never raises."""
+    from app.services.daily_briefing_compose_service import _get_default_org_profile
+    if name:
+        from sqlalchemy import text
+        try:
+            conn = db._temp_get_connection()
+            try:
+                row = conn.execute(text("""
+                    SELECT id, name, industry, organization_type, key_concerns,
+                           strategic_priorities, competitive_landscape, regulatory_environment,
+                           custom_context, region, monitored_brands
+                    FROM organizational_profiles WHERE name = :name LIMIT 1
+                """), {"name": name}).mappings().first()
+            finally:
+                conn.close()
+            if row:
+                d = dict(row)
+                for f in ("key_concerns", "strategic_priorities", "competitive_landscape",
+                          "regulatory_environment", "monitored_brands"):
+                    v = d.get(f)
+                    if isinstance(v, str):
+                        try:
+                            d[f] = json.loads(v)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                return d
+        except Exception as e:
+            logger.warning(f"[finalize] profile '{name}' lookup failed: {e}")
+    return _get_default_org_profile(db)
 
 
 @router.post("/auto-compose")
@@ -453,13 +491,15 @@ async def save_compose_config(
     topics = [t for t in request.topics if t]
     conn = db._temp_get_connection()
     try:
+        # Pass the model on first creation: the column's schema default is an
+        # old alias name, and a fresh site would otherwise run detection on it.
         conn.execute(text("""
-            INSERT INTO emerging_topics_settings (id, daily_briefing_topics)
-            VALUES (1, CAST(:topics AS jsonb))
+            INSERT INTO emerging_topics_settings (id, daily_briefing_topics, model)
+            VALUES (1, CAST(:topics AS jsonb), :model)
             ON CONFLICT (id) DO UPDATE
                 SET daily_briefing_topics = CAST(:topics AS jsonb),
                     updated_at = NOW()
-        """), {"topics": json.dumps(topics)})
+        """), {"topics": json.dumps(topics), "model": default_model("fast")})
         conn.commit()
     finally:
         conn.close()
@@ -869,11 +909,22 @@ async def finalize_briefing(
     if briefing.get("status") == "finalized":
         raise HTTPException(400, "Briefing is already finalized")
 
-    # Pin the synthesis model server-side so the finalized briefing (and the
-    # model_used byline) is tenant-consistent, independent of the browser model
-    # dropdown. Falls back to the client-passed model when unset.
-    from app.services.daily_briefing_compose_service import _get_pinned_briefing_model
-    effective_model = _get_pinned_briefing_model(db) or request.model
+    # The page's model selector wins when it is sent. The tenant's pinned
+    # briefing model (emerging_topics_settings.model) is the default for callers
+    # that send none, so a scripted finalize stays tenant-consistent.
+    from app.services.daily_briefing_compose_service import (
+        _get_pinned_briefing_model, _get_default_org_profile, _profile_context,
+        _timeline_background)
+    if "model" in request.model_fields_set:
+        effective_model = request.model
+    else:
+        effective_model = _get_pinned_briefing_model(db) or request.model
+
+    # The synthesis used to get only the profile's NAME; concerns, priorities
+    # and competitors never reached it. Resolve the named profile (or the
+    # tenant default) and pass the same block the curator sees.
+    profile_row = _resolve_org_profile(db, request.organizational_profile)
+    profile_block = _profile_context(profile_row) or request.organizational_profile
 
     articles = briefing.get("articles", [])
     incidents = briefing.get("incidents", [])
@@ -881,34 +932,110 @@ async def finalize_briefing(
     if len(articles) == 0 and len(incidents) == 0:
         raise HTTPException(400, "Cannot finalize an empty briefing")
 
+    sse_headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+    }
+
+    # Override: finalize the draft the reviewer blocked, as stored, without
+    # regenerating (a regeneration could produce new errors). The override is
+    # recorded on the briefing so the audit trail shows who shipped it.
+    if request.override_review:
+        stored_meta = dict(briefing.get("metadata") or {})
+        stored_review = dict(stored_meta.get("review") or {})
+        if stored_review.get("status") != "revision_requested" or not briefing.get("synthesis"):
+            raise HTTPException(400, "Nothing to override: no reviewer-blocked draft is stored for this briefing")
+        stored_review["override"] = {
+            "by": username,
+            "at": datetime.utcnow().isoformat(),
+            "note": (request.override_note or "").strip() or None,
+        }
+        stored_meta["review"] = stored_review
+        ok = db.facade.finalize_desk_briefing(
+            briefing_id=briefing_id,
+            username=username,
+            synthesis=briefing.get("synthesis") or "",
+            themes=briefing.get("themes") or [],
+            priority_actions=briefing.get("priority_actions") or [],
+            metadata=stored_meta,
+            model_used=briefing.get("model_used") or effective_model,
+        )
+        if not ok:
+            raise HTTPException(500, "Failed to finalize briefing")
+        logger.info("Briefing %s finalized over %d reviewer errors by '%s'",
+                    briefing_id, (stored_review.get("summary") or {}).get("errors", 0), username)
+
+        async def stream_override():
+            yield "data: " + json.dumps({
+                "stage": "complete", "status": "success", "progress": 1.0,
+                "synthesis": briefing.get("synthesis"), "themes": briefing.get("themes"),
+                "priority_actions": briefing.get("priority_actions"), "review": stored_review,
+            }, default=str) + "\n\n"
+        return StreamingResponse(stream_override(), media_type="text/event-stream", headers=sse_headers)
+
     # Import the synthesis service
     from app.services.daily_report_service import get_daily_report_service
 
     async def stream_finalize():
         service = get_daily_report_service()
         try:
+            briefing_topics = []
+            for item in list(articles) + list(incidents):
+                t = item.get("topic")
+                if t and t not in briefing_topics:
+                    briefing_topics.append(t)
             async for update in service.generate_synthesis(
                 briefing_name=briefing.get("name"),
                 articles=articles,
                 incidents=incidents,
                 model=effective_model,
-                organizational_profile=request.organizational_profile,
-                persona=request.persona
+                organizational_profile=profile_block,
+                persona=request.persona,
+                timeline_context=_timeline_background(db, briefing_topics),
+                briefing_id=briefing_id,
             ):
-                event_data = json.dumps(update, default=str)
-                yield f"data: {event_data}\n\n"
-
-                # Save on completion
                 if update.get("stage") == "complete":
+                    # The reviewer's verdict decides whether this is a finalize
+                    # or a held draft. Error findings hold it (as the Wiley
+                    # bundle does); warnings and a failed review ship with the
+                    # findings attached so the reader can see them.
+                    review = update.get("review") or {}
+                    metadata = dict(update.get("metadata") or {})
+                    metadata["review"] = review
+                    blocked = review.get("status") == "revision_requested"
+                    if blocked:
+                        db.facade.save_desk_briefing_review_draft(
+                            briefing_id=briefing_id,
+                            username=username,
+                            synthesis=update.get("synthesis", ""),
+                            themes=update.get("themes", []),
+                            priority_actions=update.get("priority_actions", []),
+                            metadata=metadata,
+                            model_used=effective_model
+                        )
+                        logger.info("Briefing %s held as draft: reviewer found %d errors",
+                                    briefing_id, (review.get("summary") or {}).get("errors", 0))
+                        held = {
+                            "stage": "review_required", "status": "blocked", "progress": 1.0,
+                            "review": review, "synthesis": update.get("synthesis", ""),
+                            "themes": update.get("themes", []),
+                            "priority_actions": update.get("priority_actions", []),
+                        }
+                        yield f"data: {json.dumps(held, default=str)}\n\n"
+                        break
                     db.facade.finalize_desk_briefing(
                         briefing_id=briefing_id,
                         username=username,
                         synthesis=update.get("synthesis", ""),
                         themes=update.get("themes", []),
                         priority_actions=update.get("priority_actions", []),
-                        metadata=update.get("metadata", {}),
+                        metadata=metadata,
                         model_used=effective_model
                     )
+
+                event_data = json.dumps(update, default=str)
+                yield f"data: {event_data}\n\n"
 
                 if update.get("stage") in ["complete", "error"]:
                     break
@@ -922,15 +1049,7 @@ async def finalize_briefing(
             })
             yield f"data: {error_event}\n\n"
 
-    return StreamingResponse(
-        stream_finalize(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+    return StreamingResponse(stream_finalize(), media_type="text/event-stream", headers=sse_headers)
 
 
 @router.put("/{briefing_id}/synthesis")

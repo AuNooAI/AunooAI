@@ -119,7 +119,7 @@ class PAMEventExtractionService:
     """Service for extracting structured events from articles."""
 
     # Default model for extraction
-    DEFAULT_MODEL = "gpt-5.4-mini"
+    DEFAULT_MODEL = "bedrock-kimi-k2-5"
 
     def __init__(self, model: Optional[str] = None, keyword_preset: Optional[str] = None):
         self.db = get_database_instance()
@@ -237,7 +237,7 @@ class PAMEventExtractionService:
             AND publication_date IS NOT NULL
             AND publication_date != ''
             AND publication_date::date >= CURRENT_DATE - INTERVAL '{days_back} days'
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT {max_articles}
         """
 
@@ -432,7 +432,7 @@ Example output:
             AND publication_date IS NOT NULL
             AND publication_date != ''
             AND publication_date::date >= CURRENT_DATE - INTERVAL '{days_back} days'
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT {max_articles}
         """
 

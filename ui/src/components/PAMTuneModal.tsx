@@ -128,13 +128,16 @@ const ENTITY_TYPES = [
   { value: 'competitor', label: 'Competitor', description: 'Competitive entity' },
 ];
 
+// The models this site's yaml runs, under the names that run them. The old
+// list offered gpt-5.x (aliases for Sonnet) and two Claude 3.5 ids the yaml
+// does not know.
 const MODEL_OPTIONS = [
   { value: 'default', label: 'Default' },
-  { value: 'gpt-5.5', label: 'GPT-5.5 (flagship)' },
-  { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+  { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  { value: 'bedrock-kimi-k2-5', label: 'Kimi K2.5' },
+  { value: 'nova-pro', label: 'Nova Pro' },
+  { value: 'nova-lite', label: 'Nova Lite' },
 ];
 
 const CREATIVITY_PRESETS = [
@@ -255,7 +258,7 @@ export const PAMTuneModal: React.FC<PAMTuneModalProps> = ({
           const initModels: Record<string, string> = {};
           const initTemps: Record<string, string> = {};
           for (const p of promptsList) {
-            initModels[p.id] = p.model || 'gpt-5.4-mini';
+            initModels[p.id] = p.model || 'bedrock-kimi-k2-5';
             initTemps[p.id] = String(p.temperature || 0.3);
           }
           setEditedModels(initModels);

@@ -175,7 +175,7 @@ class SummarizationService:
                 if available and len(available) > 0:
                     configured_model = available[0].get('name')
                 else:
-                    configured_model = "gpt-5.4-mini"  # Ultimate fallback
+                    configured_model = "bedrock-kimi-k2-5"  # Ultimate fallback
 
             logger.info(f"Using fallback LLM for summarization: {configured_model}")
 
@@ -184,8 +184,11 @@ class SummarizationService:
             if len(content) > max_content:
                 content = content[:max_content] + "..."
 
+            # Direct litellm call: resolve the yaml name to its provider path
+            # and credentials, or a Bedrock name has no route.
+            from app.ai_models import resolve_litellm_call_params
             response = completion(
-                model=configured_model,
+                **resolve_litellm_call_params(configured_model),
                 messages=[
                     {"role": "user", "content": f"Summarize the following article in 2-3 concise sentences.\n\nTitle: {title}\n\nContent:\n{content}\n\nSummary:"}
                 ],

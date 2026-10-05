@@ -107,7 +107,7 @@ class KeywordMonitorSettings(BaseModel):
     min_relevance_threshold: float = 0.0
     quality_control_enabled: bool = True
     auto_save_approved_only: bool = False
-    default_llm_model: str = "gpt-5.4-mini"
+    default_llm_model: str = "bedrock-kimi-k2-5"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1000
     max_articles_per_run: int = 50
@@ -980,11 +980,20 @@ async def check_now(
 
             monitor = KeywordMonitor(db)
 
+            group_row = None
             if group_id:
-                logger.info(f"Calling monitor.check_keywords() for group {group_id}...")
+                # Same path as the scheduler: group providers, language, the
+                # social-only skip and the social evaluator all live there.
+                try:
+                    group_row = db.facade.get_keyword_group_with_settings(group_id)
+                except Exception as e:
+                    logger.warning(f"Could not read group {group_id} settings: {e}")
+            if group_row:
+                logger.info(f"Calling monitor.check_single_group() for group {group_id}...")
+                result = await monitor.check_single_group(group_row)
             else:
                 logger.info("Calling monitor.check_keywords()...")
-            result = await monitor.check_keywords(group_id=group_id)
+                result = await monitor.check_keywords(group_id=group_id)
             logger.info(f"Result from check_keywords(): {result}")
 
             # Update the global status so UI shows correct "Last check" time
@@ -3730,7 +3739,7 @@ Focus on making the patterns more specific to {request.topic} while excluding th
 async def suggest_keyword_improvements(
     keyword_id: int,
     group_id: int,
-    model: str = "gpt-5.4-mini",
+    model: str = "bedrock-kimi-k2-5",
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):

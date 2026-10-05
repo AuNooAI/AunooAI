@@ -3,7 +3,7 @@ category: executive_briefing
 description: Generates executive analysis for each selected article with takeaways and strategic relevance
 model_config:
   max_tokens: 6000
-  model: gpt-4.1-nano
+  model: bedrock-kimi-k2-5
   temperature: 0.4
 name: eb_analysis_agent
 output_schema:

@@ -70,7 +70,7 @@ const PAMApp: React.FC = () => {
       trendFocus: pamTrendFocus as ('T1' | 'T2' | 'T3' | 'T4' | 'T5')[],
       daysBack: pamDaysBack,
       articleLimit: pamArticleLimit,
-      model: 'gpt-5.4-mini',
+      model: 'bedrock-kimi-k2-5',
     });
   };
 

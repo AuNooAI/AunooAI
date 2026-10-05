@@ -8,6 +8,7 @@ from datetime import datetime
 from litellm import Router
 import logging
 from app.env_loader import ensure_model_env_vars
+from app.model_tiers import default_model
 from typing import Optional, Dict, Any
 from litellm import completion
 import litellm
@@ -27,6 +28,8 @@ from litellm import (
 from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
+from dataclasses import dataclass
+# Re-exported: callers pick a model by tier from here, not by a literal., check_tiers_resolve, TIERS  # noqa: F401
 
 
 def minimal_reasoning_effort(model_name: str) -> str:
@@ -38,13 +41,88 @@ def minimal_reasoning_effort(model_name: str) -> str:
     cost-saving "lowest effort" default keeps working across the family instead
     of breaking the call.
     """
-    name = str(model_name or "").split("/")[-1]  # tolerate a 'provider/' prefix
-    m = re.match(r"gpt-(\d+)(?:\.(\d+))?", name)
+    # Read the version off the model that runs, not the name asked for:
+    # wileytest's "openai-gpt-5.5" is gpt-5.5 and rejects 'minimal'.
+    name = model_caps(model_name).target.split("/")[-1]
+    m = re.search(r"gpt-(\d+)(?:\.(\d+))?", name)
     if m:
         major, minor = int(m.group(1)), int(m.group(2) or 0)
         if major > 5 or (major == 5 and minor >= 4):
             return "none"
     return "minimal"
+
+
+@dataclass(frozen=True)
+class ModelCaps:
+    """What the model behind a name can do. Read from the model that runs
+    (the yaml target), never from the name asked for, so an alias and its
+    real name always agree."""
+    name: str
+    target: str            # litellm provider path, e.g. bedrock/us.anthropic.claude-sonnet-4-5-...
+    family: str            # claude-sonnet-4-5 | claude-haiku-4-5 | claude-5 | kimi | nova | gpt-5 | gpt-4 | other
+    context: int           # input window, tokens
+    max_output: int        # largest max_tokens the provider accepts
+    reasoning: bool        # thinks before answering: needs the big output budget, no temperature
+    supports_temperature: bool
+    bedrock: bool
+
+
+# Facts about the models the yaml can route to, keyed by a substring of the
+# provider path. Numbers: Bedrock Claude 200k window / 64k output; Nova 300k /
+# 5k (litellm says 10k; keep the value the foresight tables ran on); Kimi
+# K2.5 256k window, 64k output kept (the endpoint accepted 128k on 25 Sep).
+# Claude 5 on Bedrock is unmapped in litellm; 200k / 64k until measured.
+# The last row is the floor for anything unknown, such as the ollama models
+# in litellm_config.yaml.local.
+_CAPS_TABLE = (
+    ("claude-sonnet-4-5", "claude-sonnet-4-5", 200_000, 64_000, False),
+    ("claude-haiku-4-5",  "claude-haiku-4-5",  200_000, 64_000, False),
+    ("claude-sonnet-5",   "claude-5",          200_000, 64_000, False),
+    ("claude-opus-5",     "claude-5",          200_000, 64_000, False),
+    ("claude-3-5-haiku",  "claude-3-5-haiku",  200_000, 8_192,  False),
+    ("kimi-k2",           "kimi",              256_000, 64_000, True),
+    ("nova-lite",         "nova",              300_000, 5_000,  False),
+    ("nova-pro",          "nova",              300_000, 5_000,  False),
+    ("gpt-5",             "gpt-5",             400_000, 128_000, True),
+    ("gpt-4",             "gpt-4",             128_000, 16_384, False),
+)
+_CAPS_DEFAULT = ("other", 32_768, 4_096, False)
+
+
+def model_caps(model_name: str) -> ModelCaps:
+    """Capabilities of the model a name routes to. Never raises: a name the
+    yaml does not know gets the conservative floor."""
+    name = str(model_name or "")
+    try:
+        cfg = load_model_config().get(name) or {}
+    except Exception:  # noqa: BLE001 - a broken yaml is reported elsewhere
+        cfg = {}
+    target = str(cfg.get("model") or name)
+    key = target.split("/")[-1].lower()
+    family, context, max_output, reasoning = _CAPS_DEFAULT
+    for needle, fam, ctx, out, reason in _CAPS_TABLE:
+        if needle in key:
+            family, context, max_output, reasoning = fam, ctx, out, reason
+            break
+    bedrock = target.startswith("bedrock/")
+    # An OpenAI gpt-5 name that the yaml sends to Bedrock is not a reasoning
+    # call: the yaml also drops reasoning_effort for that target.
+    if family == "gpt-5" and bedrock:
+        reasoning = False
+    dropped = cfg.get("additional_drop_params") or ()
+    return ModelCaps(
+        name=name, target=target, family=family, context=context,
+        max_output=max_output, reasoning=reasoning,
+        supports_temperature="temperature" not in dropped, bedrock=bedrock,
+    )
+
+
+def is_reasoning_model(model_name: str) -> bool:
+    """True when the call needs the reasoning shape: a large output budget
+    and no temperature. Decided by the model behind the name (model_caps):
+    Kimi, or a gpt-5 that really runs on OpenAI. A gpt-5 name the yaml sends
+    to Bedrock Claude is a plain model and gets the plain shape."""
+    return model_caps(str(model_name or "")).reasoning
 
 
 def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
@@ -189,6 +267,16 @@ def parse_stage_reply(response, key: str, *, stage: str, errors: Optional[list] 
     if errors is not None:
         errors.append(msg)
     raise StageReplyError(msg)
+
+
+def _remember_llm_caller() -> None:
+    """Record who is calling before the call moves to a worker thread, so the
+    usage ledger can name it (see llm_usage_logger.remember_caller)."""
+    try:
+        from app.services.llm_usage_logger import remember_caller
+        remember_caller()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── Global LLM concurrency gate ───────────────────────────────────────────
@@ -406,6 +494,7 @@ class AIModel:
     async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Async wrapper - runs sync LLM call in thread pool to avoid blocking
         the event loop, bounded by the global LLM concurrency semaphore."""
+        _remember_llm_caller()
         async with _get_llm_semaphore():
             return await asyncio.to_thread(
                 self.generate_sync, prompt,
@@ -471,6 +560,7 @@ class AIModel:
         blocking the event loop, bounded by the global LLM concurrency
         semaphore so cumulative background-service load can't saturate the
         executor."""
+        _remember_llm_caller()
         async with _get_llm_semaphore():
             return await asyncio.to_thread(self.generate_response, messages, **kwargs)
 
@@ -559,6 +649,8 @@ def load_model_config() -> Dict[str, Dict[str, Any]]:
                     # Store the raw litellm params so callers can access them
                     # when needed (e.g., api_key extraction).
                     **litellm_params,
+                    # legacy_alias and any other tags on the entry.
+                    "model_info": model_entry.get("model_info") or {},
                 }
 
         if _stamp is not None:
@@ -957,9 +1049,12 @@ class LiteLLMModel(AIModel):
             # default the gpt-5 family to 'minimal'; callers that genuinely need
             # deeper reasoning already pass reasoning_effort explicitly and are
             # left untouched.
+            # Only for a gpt-5 that really runs on OpenAI; the yaml drops the
+            # parameter for the Bedrock targets the gpt-5 aliases point at.
+            _caps = model_caps(self.model_name)
             if (
                 "reasoning_effort" not in call_kwargs
-                and str(self.model_name).startswith("gpt-5")
+                and _caps.reasoning and _caps.family == "gpt-5"
             ):
                 call_kwargs["reasoning_effort"] = minimal_reasoning_effort(self.model_name)
 
@@ -1412,20 +1507,21 @@ class AIModelFactory:
     Provides compatibility layer for services expecting AIModelFactory.get_model().
     """
 
-    _default_model = "gpt-5.4-mini"
+    _default_model: Optional[str] = None  # None = the fast tier
 
     @classmethod
     def get_model(cls, model_name: str = None) -> LiteLLMModel:
         """Get a LiteLLM model instance.
 
         Args:
-            model_name: Optional model name. Defaults to gpt-4o-mini.
+            model_name: Optional model name. Defaults to the fast tier
+                (app.model_tiers.default_model).
 
         Returns:
             LiteLLMModel instance for the specified model.
         """
         if model_name is None:
-            model_name = cls._default_model
+            model_name = cls._default_model or default_model("fast")
         return LiteLLMModel.get_instance(model_name)
 
     @classmethod

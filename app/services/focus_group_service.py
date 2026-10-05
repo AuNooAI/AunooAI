@@ -24,6 +24,7 @@ from enum import Enum
 import litellm
 
 from app.ai_models import resolve_litellm_call_params, parse_stage_reply
+from app.model_tiers import default_model
 from app.compliance.ai_disclosure import model_labels, response_model_id
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
@@ -218,10 +219,10 @@ class FGConfig:
     include_voice: bool = True  # For future LLM querying
 
     # Model settings
-    discovery_model: str = "gpt-5.4"
-    clustering_model: str = "gpt-5.4"
-    profiling_model: str = "gpt-5.4"
-    synthesis_model: str = "gpt-5.4"
+    discovery_model: str = default_model("standard")
+    clustering_model: str = default_model("standard")
+    profiling_model: str = default_model("standard")
+    synthesis_model: str = default_model("standard")
 
     # Temperature settings
     discovery_temp: float = 0.3

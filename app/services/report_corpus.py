@@ -38,6 +38,74 @@ _DEFAULT_BLOCKED_SOURCES = (
     "healthranger.com",
     "brighteon.com",
     "beforeitsnews.com",
+    # Same character as the rest of this list and a different domain from
+    # naturalnews.com, which is why it slipped through. It put two articles
+    # into a rebuilt United States deck for an oral-health customer.
+    "naturalhealth365.com",
+)
+
+
+# Aggregators and syndication portals. They are real domains in real countries,
+# so the publisher-country filter has no reason to drop them, but a row from
+# one is somebody else's story re-hosted: it credits the aggregator instead of
+# the newsroom, and it double-counts a story we often already hold from the
+# original. A market topic asking "what is the French press saying" is not
+# answered by a Google News entry. Override with REPORT_AGGREGATOR_BLOCKLIST;
+# set it empty to turn the whole rule off.
+_DEFAULT_AGGREGATOR_SOURCES = (
+    "news.google.com",
+    "headtopics.com",
+    "newsbreak.com",
+    "msn.com",
+    "flipboard.com",
+    "smartnews.com",
+    "inkl.com",
+    "apple.news",
+    "ground.news",
+    "dailyhunt.in",
+    "bundle.app",
+    "lomazoma.com",
+    "yahoo.com",
+    "yahoo.co.jp",
+    "smt.docomo.ne.jp",
+)
+
+
+# Press-release distribution services. A wire item is a company talking about
+# itself, carried verbatim: it is not a newsroom's judgement about the world,
+# and counting it as evidence lets anyone with a budget put a claim into a
+# customer's deck. Distinct from the aggregator list because the problem is
+# authorship, not re-hosting, and distinct from the blocklist because nobody is
+# alleging bad faith. Override with REPORT_WIRE_BLOCKLIST; empty turns it off.
+#
+# Grounded in what Sunstar actually collected: prtimes.jp (168 articles),
+# globenewswire.com (145), openpr.com (100), prnewswire.com (33),
+# businesswire.com (10), presseportal.de (5), prweb.com (3).
+#
+# NOT on this list, deliberately: europapress.es and its health vertical
+# infosalus.com match "press" by name but are Spain's second news agency, and
+# newsroom.heart.org is the American Heart Association publishing its own
+# research — a primary source, not a paid distribution channel.
+_DEFAULT_WIRE_SOURCES = (
+    "prnewswire.com",
+    "prnewswire.co.uk",
+    "businesswire.com",
+    "globenewswire.com",
+    "einpresswire.com",
+    "accesswire.com",
+    "prweb.com",
+    "prtimes.jp",
+    "openpr.com",
+    "presseportal.de",
+    "presseportal.ch",
+    "ots.at",
+    "24-7pressrelease.com",
+    "newsdirect.com",
+    "abnewswire.com",
+    "marketersmedia.com",
+    # Syndicates paid releases under a news masthead: Exotech's release was
+    # counted as independent coverage on aisocnews.com (25 Sep 2026).
+    "menafn.com",
 )
 
 
@@ -46,6 +114,41 @@ def blocked_sources() -> set:
     if raw is None:
         return set(_DEFAULT_BLOCKED_SOURCES)
     return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def aggregator_sources() -> set:
+    raw = _os.getenv("REPORT_AGGREGATOR_BLOCKLIST")
+    if raw is None:
+        return set(_DEFAULT_AGGREGATOR_SOURCES)
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def wire_sources() -> set:
+    raw = _os.getenv("REPORT_WIRE_BLOCKLIST")
+    if raw is None:
+        return set(_DEFAULT_WIRE_SOURCES)
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def is_wire_host(host: str) -> bool:
+    """True when ``host`` (or a publisher name) is a paid release channel.
+
+    A release on a wire is the company's own words, however the page looks.
+    Counted as a publisher, it made a single press release read "Also
+    reported independently" for BlueVoyant, Exotech, Hexnode and Globalgig.
+    """
+    h = (host or "").strip().lower()
+    if h.startswith("www."):
+        h = h[4:]
+    if not h:
+        return False
+    for wire in wire_sources():
+        if h == wire or h.endswith("." + wire):
+            return True
+        # A bare publisher name, as news_source often is: "PR Newswire".
+        if "." not in h and h.replace(" ", "") == wire.split(".")[0]:
+            return True
+    return False
 
 
 def _host(value: str) -> str:
@@ -95,6 +198,150 @@ def _title_key(title: str) -> str:
     return " ".join(t.split()[:12])
 
 
+# Tenants that predate per-group collection countries have no
+# ``keyword_groups.country`` column at all. Asking anyway makes the facade log
+# an ERROR for every topic of every report, on tenants where the answer can
+# only ever be "no country". Establish once whether the column exists.
+_HAVE_GROUP_COUNTRY: "bool | None" = None
+
+
+def _group_country_column_exists(db) -> bool:
+    global _HAVE_GROUP_COUNTRY
+    if _HAVE_GROUP_COUNTRY is None:
+        try:
+            # information_schema always exists, so this asks the question
+            # without provoking the error we are trying to avoid.
+            from sqlalchemy import text as _sa_text
+            row = db.facade._execute_with_rollback(_sa_text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'keyword_groups' AND column_name = 'country' "
+                "LIMIT 1"
+            )).fetchone()
+            _HAVE_GROUP_COUNTRY = row is not None
+        except Exception as e:
+            # Not cached: one failed query must not switch country filtering
+            # off for the life of the process. Ask again next time.
+            _log.warning("report corpus: could not inspect keyword_groups, "
+                         "not country-filtering this report: %s", e)
+            return False
+        if not _HAVE_GROUP_COUNTRY:
+            _log.info("report corpus: no keyword_groups.country on this tenant; "
+                      "country filtering is off, the other rules still apply")
+    return _HAVE_GROUP_COUNTRY
+
+
+# Tenants without the Forecast Tracker have no ``forecast_topic_metadata``
+# table. Same treatment as the country column: ask information_schema once.
+_HAVE_FORECAST_META: "bool | None" = None
+
+
+def _forecast_meta_table_exists(db) -> bool:
+    global _HAVE_FORECAST_META
+    if _HAVE_FORECAST_META is None:
+        try:
+            from sqlalchemy import text as _sa_text
+            row = db.facade._execute_with_rollback(_sa_text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'forecast_topic_metadata' LIMIT 1"
+            )).fetchone()
+            _HAVE_FORECAST_META = row is not None
+        except Exception as e:
+            # Not cached, for the same reason as the country column above.
+            _log.warning("report corpus: could not inspect forecast metadata, "
+                         "deck names will not resolve to a country this time: %s", e)
+            return False
+    return _HAVE_FORECAST_META
+
+
+def _unanimous_country(db, topics):
+    """The one country every collection group behind ``topics`` declares.
+
+    Unanimous or nothing. A market deck is backed by its market topic and
+    nothing else, so one dissenting group — or one topic with no group at all —
+    means we do not know what country this report is about and must not filter.
+
+    Two real cases this protects. The ``Oral-Systemic Health`` synthesis deck is
+    backed by nine source topics across seven countries, and holding it to one
+    of them would throw away most of its evidence. And a brand topic is often
+    carried by two groups, an English one declaring nothing and a Japanese one
+    declaring ``jp``; the old ``LIMIT 1`` picked whichever row came back and
+    would have filtered a global brand report to Japanese press alone.
+    """
+    from sqlalchemy import text as _sa_text
+    wanted = [t for t in (topics or []) if (t or "").strip()]
+    if not wanted:
+        return None
+    rows = db.facade._execute_with_rollback(_sa_text(
+        "SELECT topic, lower(trim(coalesce(country, ''))) AS country "
+        "FROM keyword_groups WHERE topic = ANY(:ts)"
+    ), {"ts": wanted}).fetchall()
+    if not rows:
+        return None
+    covered, seen = set(), set()
+    for r in rows:
+        d = dict(r._mapping)
+        covered.add(d.get("topic"))
+        seen.add((d.get("country") or "").strip())
+    if covered != set(wanted):
+        # A source topic with no collection group: we cannot vouch for it.
+        return None
+    if len(seen) != 1:
+        return None
+    return seen.pop() or None
+
+
+def _source_topics_for(db, topic: str):
+    """The collection topics behind a tracked (deck) topic name, or []."""
+    if not _forecast_meta_table_exists(db):
+        return []
+    from sqlalchemy import text as _sa_text
+    row = db.facade._execute_with_rollback(_sa_text(
+        "SELECT source_topics FROM forecast_topic_metadata WHERE topic = :t LIMIT 1"
+    ), {"t": topic}).fetchone()
+    if row is None:
+        return []
+    raw = dict(row._mapping).get("source_topics")
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [t.strip() for t in raw if isinstance(t, str) and t.strip()]
+
+
+def market_country_for_topic(topic: str):
+    """The ISO2 country a topic is supposed to be about, or None.
+
+    A market topic is one whose collection group declares a country —
+    "Oral Health & Whole-Body Health - France" carries ``fr``. Ordinary topics
+    declare nothing and are never country-filtered.
+
+    Callers pass two different kinds of name. The ingest-side ones pass a
+    collection topic, which names a group directly. The deck builders pass the
+    TRACKED topic — sunstar's decks are called "Oral-Systemic Health - France"
+    while the group's topic is "Oral Health & Whole-Body Health - France" — so
+    a direct lookup answered None for every deck and the country rule never
+    fired. A tracked name is resolved through its ``source_topics``.
+    """
+    if not topic:
+        return None
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        if not _group_country_column_exists(db):
+            return None
+        direct = _unanimous_country(db, [topic])
+        if direct:
+            return direct
+        return _unanimous_country(db, _source_topics_for(db, topic))
+    except Exception as e:
+        _log.debug("report corpus: country lookup failed for %s: %s", topic, e)
+        return None
+
+
 def filter_report_corpus(rows: list, *, topic: str = "") -> list:
     """Drop blocked publishers and near-duplicate headlines, in order.
 
@@ -105,15 +352,45 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
     if not rows:
         return []
     blocked = blocked_sources()
+
+    # A market topic must only cite its own country's press. Until Sep 2026 it
+    # could not: no collector honours a country filter, so "France" meant
+    # French-LANGUAGE press and a BBC Afrique story counted as French evidence.
+    # Publisher country is now resolved per domain and stamped on the article,
+    # so the corpus can simply require it.
+    want_country = market_country_for_topic(topic)
+    have_column = any(isinstance(r, dict) and "source_country" in r for r in rows)
+    if want_country and not have_column:
+        # The caller's SELECT does not fetch the column. Filtering on a key that
+        # is absent would discard the entire corpus, so decline and say so.
+        _log.warning("report corpus: topic %r wants country %s but rows carry no "
+                     "source_country; not country-filtering", topic, want_country)
+        want_country = None
+
+    aggregators = aggregator_sources()
+    wires = wire_sources()
+
     seen: set = set()
     out: list = []
     n_blocked = 0
     n_dupe = 0
+    n_country = 0
+    n_agg = 0
+    n_wire = 0
     for row in rows:
         if not isinstance(row, dict):
             continue
+        if want_country and (row.get("source_country") or "").lower() != want_country:
+            n_country += 1
+            continue
         if _is_blocked(row, blocked):
             n_blocked += 1
+            continue
+        if _is_blocked(row, aggregators):
+            n_agg += 1
+            continue
+        if _is_blocked(row, wires):
+            n_wire += 1
             continue
         key = _title_key(row.get("title") or "")
         if key and key in seen:
@@ -122,6 +399,14 @@ def filter_report_corpus(rows: list, *, topic: str = "") -> list:
         if key:
             seen.add(key)
         out.append(row)
+    if n_wire:
+        _log.info("report corpus: dropped %d press-release wire row(s) for topic %r",
+                  n_wire, topic)
+    if n_agg:
+        _log.info("report corpus: dropped %d aggregator row(s) for topic %r", n_agg, topic)
+    if n_country:
+        _log.info("report corpus: dropped %d article(s) not published in %s for topic %r",
+                  n_country, want_country, topic)
     if n_blocked or n_dupe:
         _log.info(
             "report corpus%s: dropped %d blocked-publisher and %d duplicate "

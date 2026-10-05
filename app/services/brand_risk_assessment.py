@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from app.services.social_sources import earned_news_sql
+
 logger = logging.getLogger(__name__)
 
 ISSUE_EXPIRY_DAYS = {"high": 28, "medium": 14, "low": 7}
@@ -39,7 +41,7 @@ SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2}
 AUTO_MERGE_SIM = 0.99      # cosine similarity: attach without asking (near-dupes only)
 CONFIRM_SIM = 0.85         # 0.85-0.99: ask the cheap LLM; below: new issue
 CANDIDATE_WINDOW_DAYS = 45  # only issues with coverage this recent are merge candidates
-CONFIRM_MODEL = "gpt-5.4-mini"
+CONFIRM_MODEL = "bedrock-kimi-k2-5"
 
 # Recurring same-source signal streams (not discrete events): all of a brand's
 # risk-flagged articles from such a source form ONE continuing issue,
@@ -55,7 +57,11 @@ ATTENTION_SPIKE_MULTIPLE = 2.0
 ATTENTION_SPIKE_MIN_COUNT = 3
 
 _SCORED = "COALESCE(a.sentiment, '') <> ''"
-_REL = "COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4"
+# On-brand AND earned: the company's own LinkedIn posts and website articles must not
+# open issues, count as attention spikes, or make a peer eligible (oviva, 18 Sep 2026:
+# 16 own posts in a week read as a 12.3x Media & Advertising spike with zero press).
+_REL = ("COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND "
+        + earned_news_sql("a"))
 
 
 def _day(date_str: str) -> str:
@@ -254,16 +260,30 @@ async def build_issues_for_brand(conn, brand_id: int) -> Dict[str, int]:
             stats["attached"] += 1
             continue
         cand = _best_embedding_candidate(conn, brand_id, uri, pub_date)
+        decision = "new_issue"
         if cand and cand["sim"] >= AUTO_MERGE_SIM:
             _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "embedding")
             stats["attached"] += 1
-        elif cand and cand["sim"] >= CONFIRM_SIM and \
-                await _llm_confirm_merge(title or "", summary or "", cand["title"]):
-            _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "llm_confirm")
-            stats["attached"] += 1
+            decision = "auto_merge"
+        elif cand and cand["sim"] >= CONFIRM_SIM:
+            if await _llm_confirm_merge(title or "", summary or "", cand["title"]):
+                _attach(conn, cand["issue_id"], brand_id, uri, cand["sim"], "llm_confirm")
+                stats["attached"] += 1
+                decision = "llm_confirm_yes"
+            else:
+                _new_issue(conn, brand_id, uri, title, pub_date)
+                stats["created"] += 1
+                decision = "llm_confirm_no"
         else:
             _new_issue(conn, brand_id, uri, title, pub_date)
             stats["created"] += 1
+        # Shadow: Jev's same-event judgment for the pair the builder looked at,
+        # recorded next to the decision above. Own thread; never changes it.
+        try:
+            from app.services import issue_merge_shadow
+            issue_merge_shadow.schedule(brand_id, uri, title, summary, pub_date, cand, decision)
+        except Exception as shadow_err:  # noqa: BLE001
+            logger.debug(f"merge shadow not scheduled: {shadow_err}")
     return stats
 
 

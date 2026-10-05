@@ -52,7 +52,7 @@ How relevant is this article to the monitoring topic? If the topic names a compa
 
 Respond with ONLY a number between 0.0 and 1.0."""
     try:
-        model = LiteLLMModel.get_instance("gpt-5.4-mini")
+        model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
         response = await model.agenerate_response(
             [{"role": "user", "content": prompt}], max_tokens=10, temperature=0.0)
         raw = extract_content(response).strip()
@@ -82,7 +82,7 @@ async def recover_foreign_articles(db, limit: int = 20) -> dict:
               -- Scope to Brand Watcher-relevant topics: an unscoped sweep over the
               -- whole firehose (>100k low-scored rows/30d) never converges.
               AND (topic LIKE 'Brand Monitoring %' OR topic ILIKE '%watch list%')
-            ORDER BY publication_date DESC
+            ORDER BY publication_date DESC NULLS LAST
             LIMIT 600
         """)).fetchall()
         summary["scanned"] = len(rows)
