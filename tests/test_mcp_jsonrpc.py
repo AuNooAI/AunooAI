@@ -35,6 +35,9 @@ def client(monkeypatch):
     async def boom(**_):
         raise RuntimeError("db down")
 
+    async def blocks(**_):
+        return {"__mcp_content__": [{"type": "image", "data": "aGk=", "mimeType": "image/png"}]}
+
     real_resolve = tools.resolve
 
     def fake_resolve(name):
@@ -43,6 +46,8 @@ def client(monkeypatch):
             return spec, fake_tool
         if name == "analyze_sentiment_trends":
             return tools.TOOLS["analyze_sentiment_trends"], boom
+        if name == "get_article_categories":
+            return tools.TOOLS["get_article_categories"], blocks
         return real_resolve(name)
 
     monkeypatch.setattr(transport, "authenticate", fake_authenticate)
@@ -124,6 +129,15 @@ def test_tools_call_coerces_and_wraps(client):
     assert payload["truncated"] is False
     assert payload["data"]["limit"] == 5
     assert client.calls[-1]["status"] == "ok" and client.calls[-1]["tool_name"] == "get_topic_articles"
+
+
+def test_tools_call_passes_native_content_blocks_through(client):
+    r = _rpc(client, {"jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                      "params": {"name": "get_article_categories", "arguments": {}}})
+    assert r.status_code == 200, r.text
+    content = r.json()["result"]["content"]
+    assert content == [{"type": "image", "data": "aGk=", "mimeType": "image/png"}]
+    assert client.calls[-1]["status"] == "ok"
 
 
 def test_tools_call_errors(client):

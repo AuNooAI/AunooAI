@@ -55,6 +55,20 @@ def _error_response(rpc_id: Any, exc: McpError) -> JSONResponse:
 
 
 def _tool_text_content(payload: dict[str, Any]) -> dict[str, Any]:
+    """Wrap a dispatcher payload as MCP ``content``.
+
+    A tool may return native MCP content blocks (an image, say) under a
+    ``__mcp_content__`` key; those go to the client as they are. The
+    dispatcher wraps every result as ``{"truncated": bool, "data": result}``,
+    so look under ``data`` first and at the top level second. Everything
+    else becomes one JSON text block. Same rule as the saas transport
+    (app/skills/mcp_http.py), which uses it for the horizons chart PNG.
+    """
+    inner = payload.get("data") if isinstance(payload, dict) else None
+    candidate = inner if isinstance(inner, dict) else payload
+    blocks = candidate.get("__mcp_content__") if isinstance(candidate, dict) else None
+    if isinstance(blocks, list) and blocks:
+        return {"content": blocks, "isError": False}
     return {
         "content": [{"type": "text", "text": json.dumps(payload, default=str, ensure_ascii=False)}],
         "isError": False,
