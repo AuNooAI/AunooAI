@@ -1,0 +1,10 @@
+{
+  "site": "oviva",
+  "written": "2026-10-06",
+  "why": "Oviva's own recipe and diet pages were approved as press (51 of 54 Oviva approvals in 30 days did not name Oviva). Owned domains move the brands' own pages to the owned bucket.",
+  "brands": {
+    "Oviva": {"config": {"owned_domains": ["oviva.com"]}},
+    "WeightWatchers": {"config": {"owned_domains": ["weightwatchers.com", "ww.com"]}},
+    "Noom": {"config": {"owned_domains": ["noom.com"]}}
+  }
+}

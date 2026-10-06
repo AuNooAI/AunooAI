@@ -480,3 +480,10 @@ sites (migration and regression only while stopped).
 | Date | Step | Result |
 |---|---|---|
 | 2026-10-06 | Spec adopted, inventory taken | This document |
+| 2026-10-06 | B1 storage | `br_001` on canonical; upgrade, downgrade, upgrade clean (`d43c27a5`) |
+| 2026-10-06 | B2 profile and mention check | `brand_profile.py`, 33 tests (`d43c27a5`; boundary fix for Latin names inside Japanese text in the B7 commit) |
+| 2026-10-06 | B3 decision path | `brand_decision.py`, `brand_decision_store.py`, ingest wiring behind `BRAND_RELATION_DECISIONS` (`2b87a341`) |
+| 2026-10-06 | B4 readers | `brand_coverage.py`; classification pass, 18 `_EARNED_NEWS` readers, risk, 5 sentiment alert/digest queries, coverage-split endpoint (`bfbf9771`) |
+| 2026-10-06 | B5 UI | Coverage breakdown panel in the Articles tab; UI rebuilt (`a5595cf2`) |
+| 2026-10-06 | B6 collectors and hardening | Profile keyword sync script, query provenance, brand-judgment retries, per-run judge budget, partial check status (`c87849d3`) |
+| 2026-10-06 | B7 validation | Captured fixtures from sunstar/oviva (12 tests), reviewed profile additions for sunstar and oviva, additive apply script, review-and-metrics script |

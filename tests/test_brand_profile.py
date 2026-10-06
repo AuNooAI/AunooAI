@@ -203,3 +203,16 @@ def test_collection_terms_skip_short_and_ambiguous_aliases():
 ])
 def test_evidence_quality(art, q):
     assert bp.evidence_quality(art) == q
+
+
+def test_latin_name_inside_japanese_text_matches():
+    hal = _row(3, "Haleon", kw=["Haleon", "Polident"])
+    m = bp.detect_mention(_p(hal), {"title": "【新製品】「ポリデントマウスピース用洗浄フォーム」発売 Haleonジャパン｜薬事日報"})
+    assert m.status == "title" and m.alias == "Haleon"
+
+
+def test_latin_name_inside_a_latin_word_does_not_match():
+    hal = _row(3, "Haleon", kw=["Haleon"])
+    assert bp.detect_mention(_p(hal), {"title": "Haleonx and Xhaleon are not the company"}).status == "none"
+    assert bp.detect_mention(_p(_row(4, "Lion Corporation", kw=["Lion Corporation"])),
+                             {"title": "Lion Corporationé results"}).status == "none"

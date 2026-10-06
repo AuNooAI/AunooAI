@@ -1,0 +1,109 @@
+{
+  "site": "sunstar",
+  "written": "2026-10-06",
+  "why": "Additions found by the 2026-10-06 review: Lion's Japanese company and product names were missing, so its Japanese press never matched; Colgate shares its name with Colgate University's sports teams; Haleon's Japanese press names Polident in katakana. Owned domains let the brands' own pages count as owned, not press.",
+  "brands": {
+    "Lion Corporation": {
+      "brand_keywords": [
+        "LION"
+      ],
+      "product_keywords": [
+        "クリニカ",
+        "Clinica",
+        "システマ",
+        "Systema",
+        "ブリリアントモア",
+        "Brilliant More",
+        "ハダカラ",
+        "hadakara"
+      ],
+      "config": {
+        "original_names": [
+          "ライオン",
+          "ライオン歯科材"
+        ],
+        "ambiguous_aliases": [
+          "LION"
+        ],
+        "exclude_context": [
+          "Lionsgate",
+          "sea lion",
+          "シーライオン",
+          "ライオンズ",
+          "西武",
+          "Lions Club",
+          "ライオンズクラブ"
+        ],
+        "owned_domains": [
+          "lion.co.jp"
+        ]
+      }
+    },
+    "Colgate-Palmolive": {
+      "config": {
+        "exclude_context": [
+          "university",
+          "Raiders",
+          "football",
+          "basketball",
+          "lacrosse",
+          "hockey",
+          "soccer",
+          "Hail Mary",
+          "NCAA",
+          "Patriot League",
+          "quarterback*",
+          "touchdown*",
+          "TDs",
+          "yards",
+          "rushing",
+          "Villanova",
+          "Lehigh",
+          "Bucknell",
+          "Lafayette",
+          "Holy Cross",
+          "Fordham",
+          "Harvard",
+          "Hamilton, N.Y."
+        ],
+        "owned_domains": [
+          "colgate.com",
+          "colgatepalmolive.com"
+        ]
+      }
+    },
+    "Haleon": {
+      "product_keywords": [
+        "ポリデント",
+        "パロドンタックス",
+        "シュミテクト"
+      ],
+      "config": {
+        "original_names": [
+          "ハレオン"
+        ],
+        "owned_domains": [
+          "haleon.com"
+        ]
+      }
+    },
+    "Sunstar": {
+      "config": {
+        "owned_domains": [
+          "sunstar.com",
+          "sunstargum.com",
+          "jp.sunstar.com"
+        ]
+      }
+    },
+    "P&G Oral-B": {
+      "config": {
+        "owned_domains": [
+          "oralb.com",
+          "pg.com",
+          "oralb.co.uk"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,1085 @@
+{
+ "captured": "2026-10-06",
+ "note": "Read-only capture from the sunstar and oviva databases for brand relevance regression tests. Brand rows are the sites' real profiles on that day.",
+ "brands": {
+  "sunstar": [
+   {
+    "id": 6,
+    "name": "haleon",
+    "display_name": "Haleon",
+    "brand_keywords": [
+     "Haleon",
+     "Sensodyne",
+     "Parodontax",
+     "Corsodyl",
+     "Biotene",
+     "Polident",
+     "シュミテクト",
+     "カムテクト"
+    ],
+    "product_keywords": [],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T12:00:36.677791+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Brian McNamara",
+       "name": "Haleon",
+       "rating": 3.3,
+       "industry": "Health Care Products Manufacturing",
+       "ceo_rating": 0.65,
+       "company_id": 7672306,
+       "company_size": "10000+ Employees",
+       "review_count": 1480,
+       "reviews_link": "https://www.glassdoor.com/Reviews/Haleon-Reviews-E7672306.htm",
+       "headquarters_location": "Weybridge, United Kingdom",
+       "business_outlook_rating": 0.44,
+       "senior_management_rating": 2.8,
+       "work_life_balance_rating": 3.3,
+       "culture_and_values_rating": 3.1,
+       "recommend_to_friend_rating": 0.53,
+       "career_opportunities_rating": 3,
+       "diversity_and_inclusion_rating": 3.6,
+       "compensation_and_benefits_rating": 3.8
+      },
+      "fetched_at": "2026-10-05T12:00:54.236377+00:00"
+     },
+     "glassdoor_company_id": "7672306",
+     "voices_customers_are_patients": false
+    },
+    "enabled": true
+   },
+   {
+    "id": 2,
+    "name": "lion-corporation",
+    "display_name": "Lion Corporation",
+    "brand_keywords": [
+     "Lion Corporation",
+     "Lion Corp",
+     "ライオン株式会社"
+    ],
+    "product_keywords": [
+     "Systema toothbrush",
+     "Clinica toothpaste",
+     "Dentor Systema",
+     "NONIO"
+    ],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T12:00:36.677791+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Anubha Sahasrabuddhe",
+       "name": "Lion",
+       "rating": 3.5,
+       "industry": "Food & Beverage Manufacturing",
+       "ceo_rating": 1,
+       "company_id": 8898,
+       "company_size": "1001 to 5000 Employees",
+       "review_count": 483,
+       "reviews_link": "https://www.glassdoor.com/Reviews/Lion-Reviews-E8898.htm",
+       "headquarters_location": "Sydney, Australia",
+       "business_outlook_rating": 0.58,
+       "senior_management_rating": 3,
+       "work_life_balance_rating": 4.1,
+       "culture_and_values_rating": 3.4,
+       "recommend_to_friend_rating": 0.74,
+       "career_opportunities_rating": 3.3,
+       "diversity_and_inclusion_rating": 4.1,
+       "compensation_and_benefits_rating": 3.3
+      },
+      "fetched_at": "2026-10-05T12:00:42.050368+00:00"
+     },
+     "glassdoor_company_id": "8898",
+     "voices_customers_are_patients": false
+    },
+    "enabled": true
+   },
+   {
+    "id": 4,
+    "name": "colgate-palmolive",
+    "display_name": "Colgate-Palmolive",
+    "brand_keywords": [
+     "Colgate-Palmolive",
+     "Colgate"
+    ],
+    "product_keywords": [
+     "Colgate Total",
+     "elmex",
+     "meridol",
+     "Colgate Optic White"
+    ],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T12:00:36.677791+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Noel Wallace",
+       "name": "Colgate-Palmolive",
+       "rating": 4,
+       "industry": "Consumer Product Manufacturing",
+       "ceo_rating": 0.84,
+       "company_id": 162,
+       "company_size": "10000+ Employees",
+       "review_count": 4773,
+       "reviews_link": "https://www.glassdoor.com/Reviews/Colgate-Palmolive-Reviews-E162.htm",
+       "headquarters_location": "New York, US",
+       "business_outlook_rating": 0.66,
+       "senior_management_rating": 3.5,
+       "work_life_balance_rating": 3.7,
+       "culture_and_values_rating": 4,
+       "recommend_to_friend_rating": 0.78,
+       "career_opportunities_rating": 3.6,
+       "diversity_and_inclusion_rating": 4.2,
+       "compensation_and_benefits_rating": 3.8
+      },
+      "fetched_at": "2026-10-05T12:00:47.537455+00:00"
+     },
+     "glassdoor_company_id": "162",
+     "voices_customers_are_patients": false
+    },
+    "enabled": true
+   },
+   {
+    "id": 1,
+    "name": "sunstar",
+    "display_name": "Sunstar",
+    "brand_keywords": [
+     "Sunstar",
+     "Sunstar Group",
+     "Sunstar Americas",
+     "Sunstar Europe",
+     "Sunstar Suisse",
+     "Sunstar GUM",
+     "GUM toothbrush",
+     "Ora2",
+     "BUTLER toothbrush",
+     "サンスター"
+    ],
+    "product_keywords": [],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T12:00:36.677791+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Hiroo Kaneda",
+       "name": "Sunstar Group",
+       "rating": 3.5,
+       "industry": "Health Care Products Manufacturing",
+       "ceo_rating": 0,
+       "company_id": 229340,
+       "company_size": "201 to 500 Employees",
+       "review_count": 161,
+       "reviews_link": "https://www.glassdoor.com/Reviews/Sunstar-Group-Reviews-E229340.htm",
+       "headquarters_location": "Schaumburg, US",
+       "business_outlook_rating": 0.66,
+       "senior_management_rating": 3.3,
+       "work_life_balance_rating": 3.8,
+       "culture_and_values_rating": 3.6,
+       "recommend_to_friend_rating": 0.66,
+       "career_opportunities_rating": 3.3,
+       "diversity_and_inclusion_rating": 3.7,
+       "compensation_and_benefits_rating": 3.7
+      },
+      "fetched_at": "2026-10-05T12:00:38.835558+00:00"
+     },
+     "glassdoor_company_id": "229340",
+     "news_keyword_excludes": [
+      "Merced Sun-Star",
+      "mercedsunstar",
+      "Sun-Star",
+      "SunStar Philippines",
+      "sunstar.com.ph",
+      "SunStar Cebu",
+      "SunStar Davao",
+      "hotel sunstar",
+      "sunstar hotel",
+      "sunstar hotels",
+      "sunstar resort",
+      "sunstarresort",
+      "sunstar beach",
+      "sunstarbeach",
+      "hotel_sunstar",
+      "サンスター文具",
+      "sun-star stationery",
+      "sunstar cmn",
+      "stationery",
+      "sunstar_now",
+      "bonbon drop",
+      "bon bon drop",
+      "bondoro",
+      "bon doro",
+      "eraser",
+      "pencil case",
+      "metal pencil",
+      "mechanical pencil",
+      "drafting pencil",
+      "sharpening",
+      "dr.grip",
+      "mono graph",
+      "ballpoint",
+      "ballpen",
+      "batten marker",
+      "kaoline",
+      "scent-infused marker",
+      "pen pouch",
+      "pen case",
+      "gumi guma",
+      "movie collaboration",
+      "pomegranate",
+      "espidofood",
+      "sunstar insurance",
+      "sunstarhotel",
+      "klosters",
+      "grindelwald",
+      "alanya",
+      "brake disc",
+      "disc rotor",
+      "brake rotor",
+      "front disc",
+      "rear disc",
+      "brake pad",
+      "sprocket",
+      "スプロケット",
+      "motorcycle",
+      "motorbike",
+      "バイク",
+      "🏍",
+      "#bike",
+      "moto guzzi",
+      "motoguzzi",
+      "webike",
+      "kunimicommerce",
+      "motogarage",
+      "pengereman",
+      "sunstar engineering",
+      "over racing",
+      "epta stage",
+      "the rotor",
+      "sunstar rotor",
+      "collaboration rotor"
+     ],
+     "voices_customers_are_patients": false
+    },
+    "enabled": true
+   }
+  ],
+  "oviva": [
+   {
+    "id": 1,
+    "name": "oviva",
+    "display_name": "Oviva",
+    "brand_keywords": [
+     "Oviva",
+     "Oviva AG",
+     "Oviva app",
+     "Oviva NHS",
+     "Oviva medication"
+    ],
+    "product_keywords": [
+     "Oviva app",
+     "Oviva programme",
+     "Oviva weight management",
+     "Oviva diabetes",
+     "Oviva GLP-1",
+     "Oviva Wegovy",
+     "Oviva Mounjaro",
+     "Oviva NHS",
+     "Oviva DiGA",
+     "Oviva Direkt"
+    ],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T11:51:08.158140+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor"
+     ],
+     "exclude_context": [
+      "antibiot*",
+      "osteomyel*",
+      "orthop*",
+      "ortho-ID",
+      "ortho ID",
+      "bone and joint",
+      "bone infection*",
+      "joint infection*",
+      "intravenous",
+      "oral versus intravenous",
+      "prosthetic joint*",
+      "Infektiolog*",
+      "infectious disease*",
+      "OVIVA_OVIVA"
+     ],
+     "mention_context": [
+      "app",
+      "apps",
+      "App",
+      "NHS",
+      "weight",
+      "Gewicht",
+      "abnehm*",
+      "Adipositas",
+      "obes*",
+      "diabet*",
+      "health*",
+      "Gesundheit*",
+      "digital*",
+      "DiGA",
+      "dietitian*",
+      "dietician*",
+      "Ernährung*",
+      "Diät*",
+      "therap*",
+      "programme*",
+      "program*",
+      "CEO",
+      "founder*",
+      "Gründer",
+      "Co-Founder",
+      "Unternehmen",
+      "company",
+      "startup*",
+      "Start-up*",
+      "Krankenkass*",
+      "insur*",
+      "patient*",
+      "Patient*",
+      "clinic*",
+      "Klinik*",
+      "medic*",
+      "Medizin*",
+      "ePA",
+      "telehealth",
+      "healthtech",
+      "portfolio",
+      "Salesforce",
+      "Agentforce",
+      "GLP-1",
+      "Wegovy",
+      "Mounjaro",
+      "Abnehmspritze",
+      "fat jab*",
+      "waiting list",
+      "waitlist"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Kai Eberhardt",
+       "name": "Oviva",
+       "rating": 4.2,
+       "industry": "Health Care Services & Hospitals",
+       "ceo_rating": 0.96,
+       "company_id": 2884029,
+       "company_size": "501 to 1000 Employees",
+       "review_count": 203,
+       "reviews_link": "https://www.glassdoor.com/Reviews/Oviva-Reviews-E2884029.htm",
+       "headquarters_location": "Zürich, United Kingdom",
+       "business_outlook_rating": 0.84,
+       "senior_management_rating": 4.2,
+       "work_life_balance_rating": 4.2,
+       "culture_and_values_rating": 4.4,
+       "recommend_to_friend_rating": 0.79,
+       "career_opportunities_rating": 3.8,
+       "diversity_and_inclusion_rating": 4.4,
+       "compensation_and_benefits_rating": 3.8
+      },
+      "fetched_at": "2026-10-05T11:51:10.172355+00:00"
+     },
+     "glassdoor_company_id": "2884029",
+     "news_keyword_excludes": [
+      "oviva therapeutics",
+      "oviva belt",
+      "ovivabelt"
+     ]
+    },
+    "enabled": true
+   },
+   {
+    "id": 7,
+    "name": "weightwatchers",
+    "display_name": "WeightWatchers",
+    "brand_keywords": [
+     "WeightWatchers",
+     "WW International",
+     "WeightWatchers Clinic",
+     "Weight Watchers"
+    ],
+    "product_keywords": [],
+    "config": {
+     "source_state": {
+      "glassdoor": {
+       "last_polled_at": "2026-10-05T12:17:23.410408+00:00"
+      },
+      "sec_edgar": {
+       "last_polled_at": "2026-10-05T12:32:35.559616+00:00"
+      }
+     },
+     "extra_sources": [
+      "glassdoor",
+      "sec_edgar"
+     ],
+     "mention_context": [
+      "app",
+      "apps",
+      "App",
+      "NHS",
+      "weight",
+      "Gewicht",
+      "abnehm*",
+      "Adipositas",
+      "obes*",
+      "diabet*",
+      "health*",
+      "Gesundheit*",
+      "digital*",
+      "DiGA",
+      "dietitian*",
+      "Ernährung*",
+      "Diät*",
+      "therap*",
+      "programme*",
+      "program*",
+      "CEO",
+      "founder*",
+      "company",
+      "Unternehmen",
+      "startup*",
+      "insur*",
+      "Krankenkass*",
+      "patient*",
+      "clinic*",
+      "medic*",
+      "telehealth",
+      "GLP-1",
+      "Wegovy",
+      "Mounjaro",
+      "Zepbound",
+      "Abnehmspritze",
+      "subscri*",
+      "membership",
+      "shares",
+      "stock",
+      "Nasdaq",
+      "NYSE",
+      "lawsuit",
+      "sued",
+      "suit",
+      "bankrupt*",
+      "Chapter 11",
+      "acquisition",
+      "acquire*",
+      "layoff*",
+      "users",
+      "members",
+      "diet*"
+     ],
+     "non_press_domains": [
+      "ww-recipes.net",
+      "skinnytaste.com"
+     ],
+     "glassdoor_overview": {
+      "data": {
+       "ceo": "Tara Comonte ",
+       "name": "WeightWatchers",
+       "rating": 3,
+       "industry": "Beauty & Wellness",
+       "ceo_rating": 0.48,
+       "company_id": 6970,
+       "company_size": "10000+ Employees",
+       "review_count": 1397,
+       "reviews_link": "https://www.glassdoor.com/Reviews/WeightWatchers-Reviews-E6970.htm",
+       "headquarters_location": "New York, US",
+       "business_outlook_rating": 0.24,
+       "senior_management_rating": 2.7,
+       "work_life_balance_rating": 3.6,
+       "culture_and_values_rating": 3.2,
+       "recommend_to_friend_rating": 0.31,
+       "career_opportunities_rating": 2.6,
+       "diversity_and_inclusion_rating": 3.5,
+       "compensation_and_benefits_rating": 3
+      },
+      "fetched_at": "2026-10-05T12:17:33.688936+00:00"
+     },
+     "glassdoor_company_id": "6970"
+    },
+    "enabled": true
+   }
+  ]
+ },
+ "cases": {
+  "lion_japanese_coverage": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://prtimes.jp/main/html/rd/p/000000310.000039983.html",
+     "title": "Potassium glycyrrhizinate suggests the potential to regulate the \"oral flora (※1) bacteria balance\" and prevent bad",
+     "summary": "Lion Corporation announced that potassium glycyrrhizinate shows potential for regulating oral flora bacterial balance and preventing bad breath.",
+     "original_title": "グリチルリチン酸ジカリウムが「口腔内細菌叢(※1)の菌のバランス」を整え、口臭を予防する可能性を示唆",
+     "original_summary": "グリチルリチン酸ジカリウムが「口腔内細菌叢(※1)の菌のバランス」を整え、口臭を予防する可能性を示唆 ライオン株式会社(広報部)のプレスリリース",
+     "news_source": "prtimes.jp",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.7
+    },
+    {
+     "uri": "https://ameblo.jp/rik01194/entry-12976410767.html",
+     "title": "[God's Whitening Toothpaste Ranking] If you want whiter teeth, use this! Investigating a divine work that surpasses 'Brilliant More W'!",
+     "summary": "Please cooperate by voting in the ranking once a day. ↓ Click to complete the vote ↓ Today's video!! ▶ [God's Whitening Toothpaste Ranking?...",
+     "original_title": "『【神の美白ハミガキランキング】歯白くしたい人コレ使って！『ブリリアントモアW』超えの神作を調査！』",
+     "original_summary": "一日一回のランキング投票にご協力ください。↓クリックで投票完了↓今日の動画です！！▶【神の美白ハミガキラン?...",
+     "news_source": "ameblo.jp",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.1
+    },
+    {
+     "uri": "https://nlab.itmedia.co.jp/research/articles/3954408/",
+     "title": "[Women's Choice] 'Toothpaste brand you have repurchased' ranking TOP 22! 1st place is 'Clinca (Lion)' [2026 latest survey results] (1/2)",
+     "summary": "A 2026 consumer survey reveals Japan's top repeat-purchase toothpaste brands among women, with Lion's Clinica ranking first. The study covers 22 brands based on consumer loyalty and purchasing habits.",
+     "original_title": "【女性が選ぶ】「リピートしたことがある歯みがき粉ブランド」ランキングTOP22！ 第1位は「クリニカ（ライオン）」【2026年最新調査結果】（1/2）",
+     "original_summary": null,
+     "news_source": "nlab.itmedia.co.jp",
+     "bias_source": "japantimes.co.jp",
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.1
+    },
+    {
+     "uri": "https://www.oscarpro.co.jp/news/entry/251364",
+     "title": "[Aoi Ueto] Appears in New LION \"Clinica\" CM!",
+     "summary": "Actress Ueto Aya will appear in a new commercial for LION's \"Clinica\" toothpaste, as announced by Oscar Promotion.",
+     "original_title": "【上戸彩】LION「クリニカ」新CM出演！",
+     "original_summary": "株式会社オスカープロモーションは、「美文化の創造」を、あらゆるエンターテイメント分野で具現化するプロ集団で?...",
+     "news_source": "oscarpro.co.jp",
+     "bias_source": "japantimes.co.jp",
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.7
+    },
+    {
+     "uri": "https://www.mylifenews.net/health-medical/128656/",
+     "title": "ライオン歯科材、プロフェッショナルケア用PMTCペースト「Brilliant PMTC」などを歯科医院に向けて発売",
+     "summary": "Lion Dental Materials launched two professional dental care products, \"Brilliant PMTC\" paste and \"Brilliant RICH\" whitening agent, for dental clinics, featuring formulations designed for enhanced efficacy and patient comfort.",
+     "original_title": "ライオン歯科材、プロフェッショナルケア用PMTCペースト「Brilliant PMTC」などを歯科医院に向けて発売",
+     "original_summary": null,
+     "news_source": "mylifenews.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.8
+    },
+    {
+     "uri": "https://prtimes.jp/main/html/rd/p/000000314.000039983.html",
+     "title": "Remove stains to make the tooth surface smooth with Brilliant (※1) PMTC (※2) paste \"PMTC\" removes stains and (※3)",
+     "summary": "Lion Corporation announced the release of \"RICH,\" a PMTC paste that removes stains, smooths tooth surfaces, prevents adhesion, and blocks stains using Brilliant PMTC technology.",
+     "original_title": "『Brilliant』からステインを浮かせて落としなめらかな歯面に仕上げる(※1)PMTC(※2)ペースト『PMTC』とステインを浮かせて落とし(※3)付着もブロック(※4)する歯磨剤『RICH』発売",
+     "original_summary": "『Brilliant』からステインを浮かせて落としなめらかな歯面に仕上げる(※1)PMTC(※2)ペースト『PMTC』とステインを浮かせて落とし(※3)付着もブロック(※4)する歯磨剤『RICH』発売 ライオン株式会社(広報部)のプレスリリース",
+     "news_source": "prtimes.jp",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.9
+    }
+   ]
+  },
+  "colgate_company_news": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://investor.colgatepalmolive.com/news-releases/news-release-details/colgate-declares-regular-quarterly-dividend-36",
+     "title": "Colgate Declares Regular Quarterly Dividend",
+     "summary": "Colgate-Palmolive's board declared a $0.53 quarterly cash dividend per share, payable August 14, 2026, to shareholders of record July 20, 2026. The company maintains its history of uninterrupted dividend payments.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "Colgate-Palmolive Company News Releases",
+     "bias_source": "owned:colgatepalmolive.com",
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.3
+    },
+    {
+     "uri": "https://www.reuters.com/world/colgate-palmolive-seeks-divest-some-personal-care-brands-sources-say-2026-09-11/",
+     "title": "Colgate-Palmolive seeks to divest some personal care brands, sources say",
+     "summary": null,
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "reuters.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "enrichment_failed",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "http://www.businesswire.com/news/home/20260916785260/en/Colgate-Palmolive-Declares-Regular-Quarterly-Dividend/",
+     "title": "Colgate-Palmolive Declares Regular Quarterly Dividend",
+     "summary": "Colgate-Palmolive Company announced a quarterly cash dividend of $0.53 per common share, payable November 13, 2026, to shareholders of record October 20, 2026. The company has paid uninterrupted dividends since 1895.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "businesswire.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    },
+    {
+     "uri": "https://www.thestreet.com/retail/colgate-palmolive-personal-care-brands-sale",
+     "title": "Consumer giant could sell major personal care brands",
+     "summary": "Colgate-Palmolive may divest several major personal care brands as part of a portfolio reshaping effort to address market weakness, according to a Street.com report.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "thestreet.com",
+     "bias_source": "thestreet.com",
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.9
+    },
+    {
+     "uri": "https://lufkindailynews.com/news_reuters/business/exclusive-colgate-palmolive-seeks-to-divest-some-personal-care-brands-sources-say/article_fd0ab4e6-f547-584c-a0a5-dbfdeb1082bf.html",
+     "title": "Exclusive-Colgate-Palmolive seeks to divest some personal care brands, sources say",
+     "summary": "Colgate-Palmolive is exploring the sale of mass-market personal care brands including Softsoap and Irish Spring, sources familiar with the matter said on Sept 11.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "lufkindailynews.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.8
+    },
+    {
+     "uri": "https://qz.com/colgate-palmolive-softsoap-irish-spring-speed-stick-sale-091126",
+     "title": "Colgate-Palmolive is exploring selling Softsoap, Irish Spring, and Speed Stick",
+     "summary": "Colgate-Palmolive is evaluating the sale of three personal care brands—Softsoap, Irish Spring, and Speed Stick—with Goldman Sachs advising on the potential divestiture, valued at over $1 billion.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "qz.com",
+     "bias_source": "qz.com",
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.89132315
+    }
+   ]
+  },
+  "colgate_university_collision": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://nypost.com/2026/10/04/sports/harvard-completes-crazy-hail-mary-play-to-stun-colgate/",
+     "title": "Harvard completes crazy Hail Mary play to stun Colgate",
+     "summary": "Harvard's undefeated season was about to come crashing down. But then a Hail Mary football prayer was answered.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "nypost.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "https://www.winnipegfreepress.com/uncategorized/2026/09/26/stearney-throws-for-3-tds-naumann-scores-rushing-td-to-send-colgate-over-villanova-28-21",
+     "title": "Stearney throws for 3 TDs, Naumann scores rushing TD to send Colgate over Villanova 28-21",
+     "summary": "VILLANOVA, Pa. (AP) — Jake Stearney threw for 158 yards and three touchdowns, Caleb Naumann had 66 yards rushing and a score, and Colgate held on to take down...",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "winnipegfreepress.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "https://www.foxnews.com/outkick-sports/harvard-football-outsmarts-colgate-hail-mary-attempt-win-game-final-seconds",
+     "title": "Harvard football outsmarts Colgate on Hail Mary attempt to win game in final seconds",
+     "summary": "Harvard pulled off a stunning college football finish, using a last-second lateral to beat Colgate 20-17 after a false start pushed the Crimson out of field goa...",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "foxnews.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.1
+    },
+    {
+     "uri": "https://www.winnipegfreepress.com/uncategorized/2026/10/03/smith-completes-hail-mary-to-bailey-on-the-final-play-to-lead-harvard-past-colgate-20-17",
+     "title": "Smith completes Hail Mary to Bailey on the final play to lead Harvard past Colgate 20-17",
+     "summary": "CAMBRIDGE, Mass. (AP) — Charlie Smith threw for 369 yards and two touchdowns and Harvard stunned Colgate 20-17 on the last play of the game on Saturday.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "winnipegfreepress.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.19870815
+    }
+   ]
+  },
+  "colgate_deal_listing": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://www.dealigg.com/story-Amazon-Save-10-when-you-spend-50-on-Household-Items-Cetaphil-Glade-Oral-B-Planters-More",
+     "title": "Best Deal: Amazon: Save $10 when you spend $50 on Household Items (Cetaphil, Glade, Oral-B, Planters & More)",
+     "summary": "Included Brands (select items on offer page only):\r\n    Aveeno\r\n    Cetaphil\r\n    Colgate\r\n    Degree\r\n    Glade\r\n    Huggies\r\n    Oral-B\r\n    Planters\r\n-- & Mo...",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "dealigg.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    },
+    {
+     "uri": "https://slickdeals.net/f/19885599-6-3oz-colgate-maxfresh-fluoride-anticavity-toothpaste-cool-mint-2",
+     "title": "6.3oz. Colgate MaxFresh Fluoride Anticavity Toothpaste (Cool Mint)",
+     "summary": "Amazon offers Colgate MaxFresh 6.3oz Cool Mint toothpaste for $1.99 after clipping a $2 coupon on the product page, reduced from $3.99.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "slickdeals.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.4
+    },
+    {
+     "uri": "https://slickdeals.net/f/19841598-ac-1-99-6-3-ounce-colgate-maxfresh-cool-mint-toothpaste-at-amazon",
+     "title": "6.3oz. Colgate MaxFresh Fluoride Anticavity Toothpaste (Cool Mint)",
+     "summary": "Amazon has 6.3oz. Colgate MaxFresh Fluoride Anticavity Toothpaste (Cool Mint) on sale for $3.96 - Extra $1.97 Off coupon found on product page = $1.99. Shipping...",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "slickdeals.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.4
+    }
+   ]
+  },
+  "colgate_valuation_page": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://www.gurufocus.com/news/9091990/cl-looks-87-undervalued-on-gf-value-as-dividend-sustainability-shines",
+     "title": "CL Looks 8.7% Undervalued on GF Value™ as Dividend Sustainability Shines",
+     "summary": "On September 22, 2026, Colgate-Palmolive Co (NYSE: CL) remains in focus amid ongoing crude oil market volatility, which indirectly impacts consumer sectors glob",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "gurufocus.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    },
+    {
+     "uri": "https://www.gurufocus.com/news/9077848/cl-looks-80-undervalued-on-gf-value-as-dividend-remains-attractive",
+     "title": "CL Looks 8.0% Undervalued on GF Value™ as Dividend Remains Attractive",
+     "summary": "On September 11, 2026, Colgate-Palmolive Co (NYSE: CL) announced it is exploring the sale of several mass-market personal care brands, including Softsoap, Irish",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "gurufocus.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    },
+    {
+     "uri": "https://www.gurufocus.com/news/9065123/cl-looks-53-undervalued-on-gf-value-as-dividend-remains-sustainable",
+     "title": "CL Looks 5.3% Undervalued on GF Value™ as Dividend Remains Sustainable",
+     "summary": "On September 02, 2026, amid rising crude oil prices driven by geopolitical tensions between the U.S. and Iran, Colgate-Palmolive Co (NYSE: CL) stands out as a c",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "gurufocus.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Colgate-Palmolive",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    }
+   ]
+  },
+  "haleon_japan_product": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://www.yakuji.co.jp/entry139052.html",
+     "title": "【新製品】「ポリデントマウスピース用洗浄フォーム」発売 Haleonジャパン｜薬事日報ウェブサイト",
+     "summary": "Haleon Japan announced the nationwide release of \"Polident Mouthpiece Cleaning Foam\" from the 7th, available at open price.",
+     "original_title": "【新製品】「ポリデントマウスピース用洗浄フォーム」発売 Haleonジャパン｜薬事日報ウェブサイト",
+     "original_summary": null,
+     "news_source": "yakuji.co.jp",
+     "bias_source": "japantimes.co.jp",
+     "topic": "Brand Monitoring Haleon",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.8
+    }
+   ]
+  },
+  "japan_phantom_match": {
+   "site": "sunstar",
+   "rows": [
+    {
+     "uri": "https://news.livedoor.com/article/detail/32483255/",
+     "title": "October food price hikes: Savings advisor explains key points for reviewing household budgets",
+     "summary": "\"Previously, April and October were the peaks for price adjustments, but this year, a major wave has already arrived from September, and it will continue into October.\" [Photo] Is it really this much!? Price increases on items that affect everyday life. Price hikes will not stop this autumn. Speaking of this is, a node",
+     "original_title": "10月の食品値上げ 節約アドバイザーが家計を見直すポイントを解説",
+     "original_summary": "「以前は4月と10月が価格改定の山でしたが、今年はすでに9月から大きな波が来ていて、10月もさらに続きます」【写真】こんなに！？身近な生活に関わる“値上がり”品目値上げはこの秋も止まらないこう話すのは、節",
+     "news_source": "news.livedoor.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "https://www.jprime.jp/articles/-/43793?display=b",
+     "title": "Price increase countermeasures: Over 3000 food items to increase in price from October, potential rise in living costs... Financial planner reveals points to review in your budget",
+     "summary": "Scheduled price increases for 3,033 food and grocery items in October. In addition to common food items such as seasonings, frozen foods, and snacks, some alcoholic beverages will also see increased costs. What household budget points need to be reviewed now to navigate this surge in prices.",
+     "original_title": "《値上げ対策》10月から食品・3000品目超の値上げで「生活費増の可能性」…FPが教える見直したい“家計”のポイント",
+     "original_summary": "10月に値上げ予定の飲食料品は3033品目。調味料や冷凍食品、お菓子など身近な食品に加え、一部の酒類も負担増に。値上げラッシュを乗り切るために、今こそ見直したい家計のポイントとは─。",
+     "news_source": "jprime.jp",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.1
+    },
+    {
+     "uri": "https://news.infoseek.co.jp/article/prtimes_000000584_000018984/",
+     "title": "Long-awaited reprint! Two popular candies inspired by Disney worlds re-released. Available nationwide starting October 1st.",
+     "summary": "CraftCandyTheater「PAPABUBBLE/パパブブレ」is a Disney movie \"Tim Burton Nightmare",
+     "original_title": "待望の復刻！ディズニー作品の世界観を表現した人気キャンディ2種を再販。10月1日より全国店舗にて発売",
+     "original_summary": "CraftCandyTheater「PAPABUBBLE/パパブブレ」は、ディズニー映画『ティム・バートンナイトメ",
+     "news_source": "infoseek.co.jp",
+     "bias_source": null,
+     "topic": "Brand Monitoring Lion Corporation",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    }
+   ]
+  },
+  "ww_fan_recipes": {
+   "site": "oviva",
+   "rows": [
+    {
+     "uri": "http://ww-recipes.net/weight-watchers-golden-squash-recipe-2-points/",
+     "title": "Weight Watchers Golden Squash Recipe • WW Recipes",
+     "summary": "A recipe website offers a Weight Watchers golden squash mash recipe, a 2-point fall side dish option for those following the WW program.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "ww-recipes.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "http://ww-recipes.net/weight-watchers-home-made-gnocchi-recipe-5-points/",
+     "title": "Weight Watchers Home Made Gnocchi Recipe • WW Recipes",
+     "summary": "Weight Watchers homemade gnocchi recipe offers a low-SmartPoints Italian pasta alternative for diet-conscious consumers seeking guilt-free meal options.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "ww-recipes.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0
+    },
+    {
+     "uri": "http://ww-recipes.net/weightwatchers-pineapple-coleslaw-recipe/",
+     "title": "Weight Watchers Pineapple Coleslaw Recipe • WW Recipes",
+     "summary": "The article presents a non-traditional Weight Watchers coleslaw recipe featuring dried cranberries and fresh pineapple as alternatives to standard coleslaw ingredients, suggesting use of pre-packaged cabbage blend for convenience.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "ww-recipes.net",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "filtered_relevance",
+     "topic_alignment_score": 0.3
+    }
+   ]
+  },
+  "ww_company_news": {
+   "site": "oviva",
+   "rows": [
+    {
+     "uri": "https://seekingalpha.com/article/4931566-ww-international-inc-ww-q2-2026-earnings-call-transcript",
+     "title": "WW International, Inc. (WW) Q2 2026 Earnings Call Transcript",
+     "summary": "WW International conducted its Q2 2026 earnings call on August 5, 2026, featuring company participants including COO and Interim Principal Jon Volkmann. The transcript documents executive discussions of financial results and operational updates.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "seekingalpha.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.9
+    },
+    {
+     "uri": "https://seekingalpha.com/article/4839652-ww-international-inc-ww-q3-2025-earnings-call-transcript",
+     "title": "WW International, Inc. (WW) Q3 2025 Earnings Call Transcript",
+     "summary": "WW International held its Q3 2025 earnings call on November 6, 2025. The company discussed financial results and business performance for the third quarter. The transcript captures management's presentation and responses to investor questions.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "seekingalpha.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.9
+    },
+    {
+     "uri": "https://seekingalpha.com/article/4900647-ww-international-inc-ww-q1-2026-earnings-call-transcript",
+     "title": "WW International, Inc. (WW) Q1 2026 Earnings Call Transcript",
+     "summary": "WW International held its Q1 2026 earnings call on May 7, 2026, with company executives including Director of Investor Relations David Helderman discussing financial performance. The transcript documents the proceedings of the investor call.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "seekingalpha.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.9
+    },
+    {
+     "uri": "https://seekingalpha.com/news/4572519-ww-international-ceo-departs",
+     "title": "WW International CEO departs (WW:NASDAQ)",
+     "summary": "WW International appoints an interim CEO after Tara Comonte resigns less than a year after becoming permanent chief executive. The leadership change follows a brief tenure at the weight management company.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "seekingalpha.com",
+     "bias_source": null,
+     "topic": "Brand Monitoring WeightWatchers",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.7
+    }
+   ]
+  },
+  "oviva_owned_content": {
+   "site": "oviva",
+   "rows": [
+    {
+     "uri": "https://oviva.com/uk/en/healthy-eating-plate/",
+     "title": "Healthy eating plate – an easy way to a balanced diet",
+     "summary": "Oviva UK introduces the \"healthy eating plate\" as a practical tool to help individuals achieve balanced nutrition through simple visual guidance.",
+     "original_title": null,
+     "original_summary": null,
+     "news_source": "Oviva UK",
+     "bias_source": "owned:oviva.com",
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.7
+    },
+    {
+     "uri": "https://oviva.com/de/de/cremiges-perlgraupen-risotto-mit-pilzen/",
+     "title": "Creamy pearl barley risotto with mushrooms",
+     "summary": "Oviva AG published a recipe for creamy pearl barley risotto with mushrooms on its website. The content appears to be a culinary resource, likely related to the company's nutrition and health coaching services.",
+     "original_title": "Cremiges Perlgraupen-Risotto mit Pilzen",
+     "original_summary": null,
+     "news_source": "Oviva AG",
+     "bias_source": "owned:oviva.com",
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.4
+    },
+    {
+     "uri": "https://oviva.com/de/de/saftiges-bananenbrot-mit-haferflocken/",
+     "title": "Juicy banana bread with oats",
+     "summary": "Oviva AG published a recipe for moist banana bread with oatmeal. The article contains no substantive business, financial, or strategic information.",
+     "original_title": "Saftiges Bananenbrot mit Haferflocken",
+     "original_summary": null,
+     "news_source": "Oviva AG",
+     "bias_source": "owned:oviva.com",
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.1
+    },
+    {
+     "uri": "https://oviva.com/de/de/die-4-phasen-der-wechseljahre/",
+     "title": "The 4 phases of menopause",
+     "summary": "Oviva AG published content explaining the four phases of menopause, likely as part of health education or nutrition counseling services. The article appears to focus on educational information about female hormonal changes and related health management.",
+     "original_title": "Die 4 Phasen der Wechseljahre",
+     "original_summary": null,
+     "news_source": "Oviva AG",
+     "bias_source": "owned:oviva.com",
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.4
+    }
+   ]
+  },
+  "oviva_sector_story": {
+   "site": "oviva",
+   "rows": [
+    {
+     "uri": "https://www.deutsche-startups.de/2026/02/06/12-millionenschwere-investments-die-lust-auf-mehr-machen/",
+     "title": "12 million-euro investments that make you want more",
+     "summary": "In January, German startups raised approximately 1.7 billion euros across 12 major funding rounds, including double-digit and triple-digit million euro investments.",
+     "original_title": "12 millionenschwere Investments, die Lust auf mehr machen",
+     "original_summary": null,
+     "news_source": "deutsche-startups.de",
+     "bias_source": null,
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.5
+    },
+    {
+     "uri": "https://www.netzwoche.ch/news/2026-07-08/salesforce-stellt-milliardeninvestition-in-der-schweiz-in-aussicht",
+     "title": "Salesforce is considering a billion-dollar investment in Switzerland",
+     "summary": "Salesforce plans to invest up to one billion US dollars over the next five years to expand its activities in Switzerland.",
+     "original_title": "Salesforce stellt Milliardeninvestition in der Schweiz in Aussicht",
+     "original_summary": null,
+     "news_source": "netzwoche.ch",
+     "bias_source": null,
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.5
+    },
+    {
+     "uri": "https://www.heise.de/hintergrund/Sicherheitsluecken-in-ePA-Clients-Die-Implementierungen-hatten-blinde-Flecken-11448680.html?wt_mc=rss.red.ho.themen.linux+und+open+source.beitrag.beitrag",
+     "title": "Security gaps in ePA clients: \"The implementations had blind spots\"",
+     "summary": "Security researchers identified and fixed critical vulnerabilities in ePA-Clients and Germany's telematics infrastructure. Dr. Simon Weber detailed technical implementation flaws in an interview with heise.de.\n---",
+     "original_title": "Sicherheitslücken in ePA-Clients: „Die Implementierungen hatten blinde Flecken\"",
+     "original_summary": "Sicherheitsforscher sorgten für Fixes kritischer Lücken in ePA-Clients und der Telematikinfrastruktur. Dr. Simon Weber erklärt die Details im Interview.",
+     "news_source": "heise.de",
+     "bias_source": null,
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.5
+    },
+    {
+     "uri": "https://www.berliner-kurier.de/article/waage-still-kalorien-grund-10333094",
+     "title": "The scale is not moving? Too many calories are not always the reason",
+     "summary": "Weight loss plateaus may result from factors beyond calorie surplus, including hidden dietary calories and hormonal influences on metabolism, suggesting multiple variables affect scale movement.",
+     "original_title": "Die Waage steht still? Nicht immer sind zu viele Kalorien der Grund",
+     "original_summary": "Sie ernähren sich ausgewogen und bewegen sich, doch die Waage steht still? Von versteckten Kalorien bis zu Hormonen: Diese Ursachen sind möglich.",
+     "news_source": "berliner-kurier.de",
+     "bias_source": null,
+     "topic": "Brand Monitoring Oviva",
+     "ingest_status": "approved",
+     "topic_alignment_score": 0.5
+    }
+   ]
+  }
+ }
+}

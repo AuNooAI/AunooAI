@@ -64,15 +64,21 @@ def _is_spaced_script(alias: str) -> bool:
     return True
 
 
+# Letters and digits of the scripts that separate words with spaces. A Latin
+# name is part of a longer word only when one of these touches it: "app"
+# inside "happens" is not the name, but "Haleon" in "Haleonジャパン" is, because
+# Japanese runs words together.
+_WORDCHAR = r"0-9A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF"
+_LB, _RB = rf"(?<![{_WORDCHAR}])", rf"(?![{_WORDCHAR}])"
+
+
 def _alias_pattern(alias: str) -> Optional[re.Pattern]:
     a = norm(alias).strip()
     if not a:
         return None
     esc = re.escape(a)
     if _is_spaced_script(a):
-        # Unicode-aware boundaries: a letter or digit on either side means the
-        # alias is part of a longer word ("app" inside "happens").
-        return re.compile(rf"(?<![^\W_]){esc}(?![^\W_])")
+        return re.compile(rf"{_LB}{esc}{_RB}")
     return re.compile(esc)
 
 
@@ -88,9 +94,9 @@ def _terms_pattern(terms: Iterable[str]) -> Optional[re.Pattern]:
         if not _is_spaced_script(t):
             parts.append(esc)
         elif stem:
-            parts.append(rf"(?<![^\W_]){esc}")
+            parts.append(rf"{_LB}{esc}")
         else:
-            parts.append(rf"(?<![^\W_]){esc}(?![^\W_])")
+            parts.append(rf"{_LB}{esc}{_RB}")
     if not parts:
         return None
     parts.sort(key=len, reverse=True)
