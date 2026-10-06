@@ -639,6 +639,7 @@ class KeywordMonitor:
         total_auto_ingest_processed = 0
         total_auto_ingest_saved = 0
         total_auto_ingest_errors = 0
+        auto_ingest_failed_batches = 0
         auto_ingest_ran = False
         detected_group_name = None  # Track the group name from keywords
 
@@ -933,6 +934,7 @@ class KeywordMonitor:
                             auto_ingest_results = await self.auto_ingest_pipeline(
                                 articles, topic, topic_keywords, suppress_notifications=True,
                                 group_id=group_id if group_id is not None else keyword.get('group_id'),
+                                collection_query=keyword_text,
                             )
                             logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
 
@@ -986,6 +988,8 @@ class KeywordMonitor:
 
                         except Exception as e:
                             logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
+                            total_auto_ingest_errors += 1
+                            auto_ingest_failed_batches += 1
 
                     # Update last checked timestamp
                     self.db.facade.update_monitored_keyword_last_checked((datetime.now().isoformat(), keyword_id))
@@ -1032,9 +1036,24 @@ class KeywordMonitor:
                 except Exception as notif_err:
                     logger.error(f"Failed to create auto-ingest completion notification: {notif_err}")
 
-            # Return summary results after processing all keywords
+            # Return summary results after processing all keywords. Work that
+            # failed inside the ingest pipeline makes the check partial, not a
+            # success: the group shows the count and the articles stay queued
+            # for retry (docs/BRAND_RELEVANCE_SPEC.md, "Other hardening").
+            if total_auto_ingest_errors:
+                return {
+                    "success": False,
+                    "status": "partial",
+                    "error": (f"Partial: {total_auto_ingest_errors} article(s) failed in processing"
+                              + (f", {auto_ingest_failed_batches} batch(es) failed outright" if auto_ingest_failed_batches else "")
+                              + "; they stay queued for retry."),
+                    "new_articles": new_articles_count,
+                    "keywords_processed": processed_keywords,
+                    "auto_ingest_errors": total_auto_ingest_errors,
+                }
             return {
                 "success": True,
+                "status": "ok",
                 "new_articles": new_articles_count,
                 "keywords_processed": processed_keywords
             }
@@ -1317,7 +1336,7 @@ class KeywordMonitor:
         seen.update(r["uri"] for r in kept)
         return kept
 
-    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False, group_id: Optional[int] = None) -> Dict[str, any]:
+    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False, group_id: Optional[int] = None, collection_query: Optional[str] = None) -> Dict[str, any]:
         """
         Run the auto-ingest pipeline on a batch of articles
 
@@ -1362,6 +1381,9 @@ class KeywordMonitor:
                     'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'opoint_entities': article.get('opoint_entities'),  # Preserve Opoint entity/topic enrichment
                     'social_meta': article.get('social_meta'),  # Preserve social media/engagement (xpoz)
+                    # The provider query that returned it: collection evidence for
+                    # the brand decision, never proof the page names the company.
+                    '_collection_query': collection_query,
                     'topic': topic,
                     'analyzed': False
                 }

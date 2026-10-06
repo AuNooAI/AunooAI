@@ -164,7 +164,10 @@ def match_failure_sql(uri: str, topic: str, d: bd.Decision) -> Tuple[str, tuple]
                          ensure_ascii=False, default=str)
     q = f"""
         UPDATE keyword_article_matches m
-           SET last_failure = ?::jsonb, scored_at = NOW(),
+           SET last_failure = ?::jsonb || jsonb_build_object(
+                   'attempts', COALESCE((m.last_failure->>'attempts')::int, 0) + 1,
+                   'at', to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+               scored_at = NOW(),
                relevance_status = CASE WHEN m.brand_relation IS NULL
                                        THEN 'relevance_check_failed' ELSE m.relevance_status END
           FROM keyword_groups g

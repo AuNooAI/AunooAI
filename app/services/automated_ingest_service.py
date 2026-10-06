@@ -56,6 +56,7 @@ class _BrandTitleOnly(Exception):
     """Internal signal: a headline-only brand item skips the analysis step."""
 from app.collectors.url_identity import is_redirect_wrapper, unwrap_redirect, canonical_url
 import asyncio
+import os
 import nest_asyncio
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
@@ -1051,14 +1052,28 @@ class AutomatedIngestService:
         if article.get("_scraped_content") and not view.get("content"):
             view["raw"] = article["_scraped_content"]
         judges = _bdec.configured_judges()
+        # Per-run spend bound: past the cap the judge is unavailable, which
+        # leaves the candidate retryable; a headline match still settles by rule.
+        cap = int(os.getenv("BRAND_JUDGE_MAX_CALLS_PER_RUN", "300") or 300)
+        used = getattr(self, "_brand_judge_calls", 0)
+        # Reserve one call before deciding: articles run concurrently, so a
+        # count taken afterwards would let a whole batch pass the cap.
+        self._brand_judge_calls = used + 1
+        if used >= cap:
+            def _over_budget(*_a):
+                raise _bdec.JudgeUnavailable(f"per-run brand judge budget of {cap} calls reached")
+            _over_budget.route = "budget"
+            judges = (_over_budget,)
         scorer = self._brand_topic_scorer(topic, keywords)
         d = await loop.run_in_executor(None, lambda: _bdec.decide(
             resolution, view, judges=judges, topic_scorer=scorer,
             reuse=_bstore.reuse_lookup_sync(uri), collection_query=article.get("_collection_query")))
         if d is None:
             return None
+        self._brand_judge_calls = getattr(self, "_brand_judge_calls", 0) + d.model_calls - 1
         self.logger.info(
-            f"Brand decision {topic!r} {uri[:80]}: outcome={d.outcome} relation={d.brand_relation} "
+            f"Brand decision {topic!r} {uri[:80]}: policy={_bprof.POLICY_VERSION}/{_bdec.RUBRIC_VERSION} "
+            f"outcome={d.outcome} relation={d.brand_relation} "
             f"source={d.source_relation} provenance={d.provenance} route={d.route} "
             f"calls={d.model_calls} admitted={d.admitted} earned={d.earned}"
             + (f" failure={d.failure[:160]}" if d.failure else ""))
@@ -1849,6 +1864,7 @@ class AutomatedIngestService:
         Returns:
             Processing results summary
         """
+        self._brand_judge_calls = 0  # per-run brand judge budget (BRAND_JUDGE_MAX_CALLS_PER_RUN)
         results = {
             "processed": 0,
             "enriched": 0,

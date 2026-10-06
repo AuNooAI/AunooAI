@@ -185,3 +185,14 @@ def test_theme_topics_are_untouched(env):
     a["topic"] = theme
     out = _run(svc.process_articles_batch([a], theme, ["AI"], route="manual"))
     assert out["saved"] == 1 and svc.score_calls == ["u10", "u10"] and calls == []
+
+
+def test_per_run_judge_budget_leaves_the_rest_retryable(env, monkeypatch):
+    svc, rec, state, set_judge, calls = env
+    monkeypatch.setenv("BRAND_JUDGE_MAX_CALLS_PER_RUN", "2")
+    set_judge("notable")
+    arts = [_art(f"b{i}", "Staples outlook", f"Colgate cut guidance, note {i}.") for i in range(5)]
+    out = _run(svc.process_articles_batch(arts, TOPIC, ["Colgate"], route="manual"))
+    assert len(calls) == 2 and out["saved"] == 2
+    over = [d for _, d in rec.rejections if d.outcome == "unavailable"]
+    assert len(over) == 3 and all("budget" in d.failure for d in over)

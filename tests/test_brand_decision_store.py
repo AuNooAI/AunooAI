@@ -229,3 +229,13 @@ def test_label_with_status_keeps_article_untouched(sandbox):
     r = _row(loop, conn, "u9")
     assert (r["brand_relation"], r["relevance_status"], r["ingest_status"]) == ("notable", "quality_failed", None)
     assert loop.run_until_complete(st.stored_state(adb, "u9", TOPIC))[0] == "label_done"
+
+
+def test_failure_attempts_are_counted(sandbox):
+    loop, adb, conn = sandbox
+    _seed(loop, conn, "u10")
+    for _ in range(2):
+        loop.run_until_complete(st.save_rejection(adb, {"uri": "u10", "title": "T"}, TOPIC,
+                                                  _dec(outcome="unavailable", failure="timeout")))
+    lf = json.loads(_row(loop, conn, "u10")["last_failure"])
+    assert lf["attempts"] == 2 and lf["at"].endswith("Z")
