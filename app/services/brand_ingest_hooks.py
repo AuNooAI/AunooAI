@@ -64,6 +64,19 @@ def _resolution(svc, topic: str, group_id: Optional[int]):
             pass
 
 
+def _threshold(svc, topic: str) -> float:
+    """The site's relevance threshold. Older ingest versions (wbm, wileytest,
+    wiley on 6 Oct) take no topic argument; calling them with one raised, and
+    every candidate without a brand mention ended "unavailable"."""
+    import inspect
+    fn = svc.get_relevance_threshold
+    try:
+        takes_topic = len(inspect.signature(fn).parameters) >= 1
+    except (TypeError, ValueError):
+        takes_topic = True
+    return float(fn(topic) if takes_topic else fn())
+
+
 def _topic_scorer(svc, topic: str, keywords: List[str]):
     """The site's existing topic rules for an article that does not name the
     brand: relevant (True), not (False) or unavailable (None)."""
@@ -76,7 +89,11 @@ def _topic_scorer(svc, topic: str, keywords: List[str]):
         val = (res or {}).get("relevance_score")
         if val is None:
             return None
-        return float(val) >= svc.get_relevance_threshold(topic)
+        try:
+            return float(val) >= _threshold(svc, topic)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("brand topic scorer: no relevance threshold for %r: %s", topic, e)
+            return None
     return score
 
 
@@ -176,7 +193,7 @@ def relevance_override(svc, article: Dict[str, Any], topic: str) -> Optional[Dic
     if d is None:
         return None
     try:
-        thr = float(svc.get_relevance_threshold(topic))
+        thr = _threshold(svc, topic)
     except Exception:  # noqa: BLE001
         thr = 0.0
     grade = d.grade if d.grade is not None else 0.0

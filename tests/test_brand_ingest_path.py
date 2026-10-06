@@ -262,3 +262,25 @@ def test_admitted_item_without_summary_uses_the_page_saved_this_run():
     d = bd.Decision("decided", "subject", "independent", evidence={"quality": "full"})
     out = _run(hooks.analyze_or_skip(svc, {"uri": "r4", "title": "Haleon growth", "summary": "", hooks.DECISION_KEY: d}, TOPIC))
     assert out["summary"] == "from content" and svc.seen[0]["content"].startswith("Haleon reported")
+
+
+
+def test_topic_scorer_works_with_old_and_new_threshold_signatures():
+    """6 Oct, wbm: the older ingest service's get_relevance_threshold takes no
+    topic; the hook called it with one and every no-mention candidate failed."""
+    from app.services import brand_ingest_hooks as hooks
+
+    class _Old:
+        def score_article_relevance(self, article, topic, keywords):
+            return {"relevance_score": 0.2}
+
+        def get_relevance_threshold(self):
+            return 0.5
+
+    class _New(_Old):
+        def get_relevance_threshold(self, topic=None):
+            return 0.1
+
+    assert hooks._topic_scorer(_Old(), TOPIC, [])({"uri": "x"}) is False
+    assert hooks._topic_scorer(_New(), TOPIC, [])({"uri": "x"}) is True
+    assert hooks._threshold(_Old(), TOPIC) == 0.5
