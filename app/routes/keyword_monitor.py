@@ -2756,9 +2756,15 @@ async def analyze_relevance(
         
         # Save results to database
         updated_count = 0
+        unavailable = []
 
         for analyzed_article in analyzed_articles:
             try:
+                if analyzed_article.get('relevance_status') == 'unavailable':
+                    # The judge did not answer for this one. Leave the row's
+                    # existing verdict alone and tell the caller.
+                    unavailable.append(analyzed_article['uri'])
+                    continue
                 # Convert lists to JSON strings for storage
                 extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
                 extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
@@ -2775,6 +2781,21 @@ async def analyze_relevance(
 
                 if updated_article_count > 0:
                     updated_count += 1
+                    # The request named a topic, so the verdict belongs to that
+                    # topic's match row as well as the shared article row.
+                    # Without this a rescore under topic B changed what every
+                    # topic's readers saw and left B's own verdict untouched.
+                    if request.topic:
+                        try:
+                            group_thr = db.facade.get_group_relevance_threshold(request.topic)
+                            if group_thr is None:
+                                group_thr = db.facade.get_min_relevance_threshold()
+                            score = analyzed_article.get('topic_alignment_score', 0.0)
+                            await AutomatedIngestService(db).async_db.record_group_relevance(
+                                analyzed_article['uri'], request.topic, score,
+                                'approved' if score >= (group_thr or 0.0) else 'filtered_relevance')
+                        except Exception as group_err:
+                            logger.debug(f"group verdict not recorded for {analyzed_article['uri']}: {group_err}")
                     logger.info(f"✅ Successfully updated article '{analyzed_article.get('title', 'Unknown')[:50]}...' - "
                                f"Topic: {analyzed_article.get('topic_alignment_score', 0.0):.2f}, "
                                f"Keywords: {analyzed_article.get('keyword_relevance_score', 0.0):.2f}, "
@@ -2792,9 +2813,11 @@ async def analyze_relevance(
         
         return {
             "success": True,
-            "analyzed_count": len(analyzed_articles),
+            "analyzed_count": len(analyzed_articles) - len(unavailable),
             "updated_count": updated_count,
-            "message": f"Successfully analyzed {len(analyzed_articles)} articles and updated {updated_count} records."
+            "unavailable": unavailable,
+            "message": (f"Analyzed {len(analyzed_articles) - len(unavailable)} articles and updated {updated_count} records."
+                        + (f" {len(unavailable)} could not be judged and were left unchanged." if unavailable else "")),
         }
         
     except HTTPException:
@@ -3118,6 +3141,18 @@ async def bulk_process_topic(
         from app.services.automated_ingest_service import AutomatedIngestService
         from app.services.async_db import initialize_async_db
 
+        # Settings the pipeline cannot honour are refused, not silently
+        # dropped: the caller must not believe quality control was off or a
+        # different model was used.
+        if not request.quality_control_enabled or request.llm_model_override:
+            raise HTTPException(
+                status_code=400,
+                detail="quality_control_enabled=false and llm_model_override are not supported by bulk processing")
+        if request.relevance_threshold_override is not None and not (
+                isinstance(request.relevance_threshold_override, (int, float))
+                and 0.0 <= float(request.relevance_threshold_override) <= 1.0):
+            raise HTTPException(status_code=400, detail="relevance_threshold_override must be between 0 and 1")
+
         # If dry_run, just return counts without processing
         if request.dry_run:
             logger.info(f"Dry run: Getting article counts for topic '{request.topic_id}'")
@@ -3205,14 +3240,17 @@ async def _background_bulk_process(job_id: str, request: BulkProcessRequest, db:
         
         logger.info(f"📊 Processing {len(articles_to_process)} articles for topic '{request.topic_id}'")
         
-        # Process articles progressively with WebSocket updates
+        # Process articles progressively with WebSocket updates. The request's
+        # threshold override goes with it; the route used to accept the field
+        # and then process at the default.
         final_results = None
         async for progress_update in service.process_articles_progressive(
             articles_to_process, 
             request.topic_id, 
             keywords,
             batch_size=3,  # Smaller batches for better responsiveness
-            job_id=job_id
+            job_id=job_id,
+            relevance_threshold_override=request.relevance_threshold_override,
         ):
             # Update job progress
             if progress_update.get("type") == "progress":

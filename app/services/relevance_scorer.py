@@ -7,10 +7,11 @@ ensuring only highly relevant articles contribute to the final research report.
 """
 
 import asyncio
+import math
 import json
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
 import litellm
@@ -27,6 +28,22 @@ logger = logging.getLogger(__name__)
 # high-volume path at Bedrock (where AWS credits apply) without any code
 # change, and keeps direct litellm.acompletion() calls consistent with the
 # Router's yaml routing. Unknown/concrete names pass through unchanged.
+
+
+def _unit(x: Any) -> Optional[float]:
+    """``x`` as a 0-1 float, or None for a bool, a non-number, NaN, inf or an
+    out-of-range value. ``float(True)`` is 1.0 and ``float("1.7")`` passes, so
+    the old ``float(...)`` coercion accepted both as top scores."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        return None
+    value = float(x)
+    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
+
+
+def _mark_unscored(article: Dict[str, Any], reason: str) -> None:
+    article["relevance_score"] = None
+    article["relevance_status"] = "unavailable"
+    article["relevance_reasoning"] = reason
 
 
 @dataclass
@@ -150,23 +167,26 @@ class RelevanceScorer:
         for i, result in enumerate(batch_results):
             if isinstance(result, Exception):
                 logger.warning(f"Batch {i} scoring failed: {result}")
-                # On failure, assign neutral score and keep articles
+                # A failed batch is unscored, not "0.5": the old default sat
+                # below the 0.6 filter, so a provider outage silently removed
+                # every article it touched from the synthesis.
                 for article in batches[i]:
-                    article["relevance_score"] = 0.5
-                    article["relevance_reasoning"] = "Scoring failed, using default"
+                    _mark_unscored(article, f"Scoring failed: {result}")
                     scored_articles.append(article)
             else:
                 scored_articles.extend(result)
 
-        # Sort by relevance score (highest first)
-        scored_articles.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+        # Sort by relevance score (highest first); unscored articles last
+        scored_articles.sort(key=lambda x: x.get("relevance_score") if x.get("relevance_score") is not None else -1.0, reverse=True)
 
-        # Apply filtering if requested
+        # Apply filtering if requested. Only a real score can fail the bar;
+        # unscored articles stay, flagged, so the caller can see them.
+        unscored = sum(1 for a in scored_articles if a.get("relevance_score") is None)
         if filter_below_threshold:
             original_count = len(scored_articles)
             scored_articles = [
                 a for a in scored_articles
-                if a.get("relevance_score", 0) >= self.config.relevance_threshold
+                if a.get("relevance_score") is None or a["relevance_score"] >= self.config.relevance_threshold
             ]
             filtered_count = original_count - len(scored_articles)
             if filtered_count > 0:
@@ -174,6 +194,8 @@ class RelevanceScorer:
                     f"Relevance filtering: {original_count} -> {len(scored_articles)} articles "
                     f"(removed {filtered_count} below threshold {self.config.relevance_threshold})"
                 )
+        if unscored:
+            logger.warning(f"Relevance scoring: {unscored} of {len(scored_articles)} articles have no score (provider failure); kept and flagged")
 
         # Log statistics
         self._log_statistics(scored_articles)
@@ -292,12 +314,15 @@ Score each article for relevance. Return JSON array with scores."""
             score_map = {s["idx"]: s for s in scores if isinstance(s, dict)}
 
             for i, article in enumerate(batch):
-                if i in score_map:
-                    article["relevance_score"] = float(score_map[i].get("score", 0.5))
+                value = _unit(score_map[i].get("score")) if i in score_map else None
+                if value is not None:
+                    article["relevance_score"] = value
                     article["relevance_reasoning"] = score_map[i].get("reasoning", "")
+                    article.pop("relevance_status", None)
+                elif i in score_map:
+                    _mark_unscored(article, f"Invalid score in reply: {score_map[i].get('score')!r}")
                 else:
-                    article["relevance_score"] = 0.5
-                    article["relevance_reasoning"] = "No score returned"
+                    _mark_unscored(article, "No score returned")
 
             logger.debug(f"Batch {batch_idx}: Scored {len(batch)} articles")
             return batch
@@ -305,8 +330,7 @@ Score each article for relevance. Return JSON array with scores."""
         except asyncio.TimeoutError:
             logger.warning(f"Batch {batch_idx} scoring timed out")
             for article in batch:
-                article["relevance_score"] = 0.5
-                article["relevance_reasoning"] = "Scoring timed out"
+                _mark_unscored(article, "Scoring timed out")
             return batch
 
         except Exception as e:
@@ -318,7 +342,10 @@ Score each article for relevance. Return JSON array with scores."""
         if not articles:
             return
 
-        scores = [a.get("relevance_score", 0) for a in articles]
+        scores = [a["relevance_score"] for a in articles if a.get("relevance_score") is not None]
+        if not scores:
+            logger.info(f"Relevance scoring complete: {len(articles)} articles, none scored")
+            return
         avg_score = sum(scores) / len(scores)
 
         high_relevance = sum(1 for s in scores if s >= self.config.high_relevance_threshold)

@@ -57,7 +57,7 @@ def log_run(mode, acc, prec, rec, cm, n):
     trended over time. Self-creating harness table (test tooling, not app schema),
     so it stays outside alembic. Never fails the test — logging is best-effort."""
     tp, fp, tn, fn = cm
-    passed = rec >= RECALL_MIN and prec >= PRECISION_MIN
+    passed = conclusive(acc, prec, rec) and rec >= RECALL_MIN and prec >= PRECISION_MIN
     try:
         conn = db_conn(); cur = conn.cursor()
         cur.execute("""CREATE TABLE IF NOT EXISTS relevance_test_runs (
@@ -67,7 +67,8 @@ def log_run(mode, acc, prec, rec, cm, n):
         cur.execute("""INSERT INTO relevance_test_runs
             (mode, n_items, acc, prec, rec, tp, fp, tn, fn, passed)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (mode, n, round(acc, 4), round(prec, 4), round(rec, 4), tp, fp, tn, fn, passed))
+            (mode, n, None if acc is None else round(acc, 4), None if prec is None else round(prec, 4),
+             None if rec is None else round(rec, 4), tp, fp, tn, fn, passed))
         conn.commit(); cur.close(); conn.close()
         log(f"  -> logged to relevance_test_runs (mode={mode}, passed={passed})")
     except Exception as e:
@@ -120,14 +121,25 @@ def nova_judge(topic, title, summary):
         log(f"  judge error: {str(e)[:60]}"); return None
 
 def metrics(pairs):
-    """pairs: list of (predicted_bool, truth_bool). Returns acc/precision/recall."""
+    """pairs: list of (predicted_bool, truth_bool). Returns acc/precision/recall.
+    A metric with no support (no predicted positives, no true positives, or no
+    pairs at all) is None, not 1.0: an empty run must read as inconclusive,
+    never as perfect."""
     tp=sum(1 for p,t in pairs if p and t); fp=sum(1 for p,t in pairs if p and not t)
     tn=sum(1 for p,t in pairs if not p and not t); fn=sum(1 for p,t in pairs if not p and t)
-    n=len(pairs) or 1
-    acc=(tp+tn)/n
-    prec=tp/(tp+fp) if (tp+fp) else 1.0
-    rec=tp/(tp+fn) if (tp+fn) else 1.0
+    n=len(pairs)
+    acc=(tp+tn)/n if n else None
+    prec=tp/(tp+fp) if (tp+fp) else None
+    rec=tp/(tp+fn) if (tp+fn) else None
     return acc, prec, rec, (tp,fp,tn,fn)
+
+
+def _fmt(x):
+    return "n/a" if x is None else f"{x:.0%}"
+
+
+def conclusive(acc, prec, rec):
+    return acc is not None and prec is not None and rec is not None
 
 def run_golden(svc):
     fixtures=[json.loads(l) for l in open(os.path.join(HERE,"fixtures.jsonl")) if l.strip()]
@@ -140,8 +152,10 @@ def run_golden(svc):
         if not ok:
             log(f"  MISMATCH exp={f['expected']} got={pred} ({score:.2f}) [{f.get('note','')}] {f['title'][:60]}")
     acc,prec,rec,cm=metrics(pairs)
-    log(f"accuracy={acc:.0%}  precision={prec:.0%}  recall={rec:.0%}  (tp,fp,tn,fn)={cm}")
+    log(f"accuracy={_fmt(acc)}  precision={_fmt(prec)}  recall={_fmt(rec)}  (tp,fp,tn,fn)={cm}")
     log_run("golden", acc, prec, rec, cm, len(fixtures))
+    if not conclusive(acc, prec, rec):
+        log("INCONCLUSIVE: the golden set has no support for one of the metrics")
     return acc,prec,rec
 
 def run_live(svc, n):
@@ -155,15 +169,26 @@ def run_live(svc, n):
     sample=cur.fetchall(); cur.close(); conn.close()
     log(f"\n=== LIVE drift check: {len(sample)} recent articles, judged by {JUDGE_MODEL} ===")
     pairs=[]
+    unjudged = 0
     for topic,title,summary in sample:
         pred,_,_ = pipeline_relevant(svc, topic, title, summary, resolve_thr(topic))
         truth = nova_judge(topic, title, summary)
-        if truth is None: continue
+        if truth is None:
+            unjudged += 1
+            continue
         pairs.append((pred, truth))
-    if not pairs: log("no judged samples"); return 1.0,1.0,1.0
+    # Count what the judge actually answered. A run where every judge call
+    # failed used to return 1.0/1.0/1.0 and pass.
+    log(f"judged {len(pairs)} of {len(sample)} samples ({unjudged} judge calls failed or unparsable)")
+    if not pairs:
+        log("INCONCLUSIVE: no judged samples")
+        log_run("live", None, None, None, (0,0,0,0), 0)
+        return None,None,None
     acc,prec,rec,cm=metrics(pairs)
-    log(f"pipeline-vs-{JUDGE_MODEL}: agreement={acc:.0%}  precision={prec:.0%}  recall={rec:.0%}  (tp,fp,tn,fn)={cm}")
+    log(f"pipeline-vs-{JUDGE_MODEL}: agreement={_fmt(acc)}  precision={_fmt(prec)}  recall={_fmt(rec)}  (tp,fp,tn,fn)={cm}")
     log_run("live", acc, prec, rec, cm, len(pairs))
+    if not conclusive(acc, prec, rec):
+        log("INCONCLUSIVE: the judged sample has no support for one of the metrics")
     return acc,prec,rec
 
 _SOCIAL_SQL = ("(a.news_source LIKE 'xpoz:%%' OR a.news_source ILIKE ANY (ARRAY["
@@ -364,6 +389,9 @@ def main():
     results=[]
     if args.live: results.append(run_live(svc, args.live))
     if args.golden or not args.live: results.append(run_golden(svc))
+    if not all(conclusive(*r) for r in results):
+        log("\nRESULT: INCONCLUSIVE  (a run had no judged samples or no support for a metric; nothing passed)")
+        sys.exit(2)
     ok = all(rec >= RECALL_MIN and prec >= PRECISION_MIN for _, prec, rec in results)
     worst_rec = min(rec for _, _, rec in results)
     worst_prec = min(prec for _, prec, _ in results)

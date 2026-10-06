@@ -45,11 +45,16 @@ def enabled() -> bool:
         "0", "false", "no", "off")
 
 
-def gate_version(terms: Iterable[str], threshold: Any, implementation: str = GATE_IMPLEMENTATION_VERSION) -> str:
+def gate_version(terms: Iterable[str], threshold: Any, implementation: str = GATE_IMPLEMENTATION_VERSION,
+                 model: str = "") -> str:
     """A short stable hash of what decides a rejection: the group's terms,
-    the threshold in force and the gate implementation."""
+    the threshold in force, the gate implementation and the model route
+    (inference mode, engines, fallback model and accept tiers). A saved
+    rejection is reused only while all of those are unchanged; switching a
+    model or a flag re-evaluates, and switching back reuses the old rows
+    again because the hash is the same."""
     norm = sorted({(t or "").strip().lower() for t in terms if t and str(t).strip()})
-    seed = f"{implementation}|{threshold}|" + "\x1f".join(norm)
+    seed = f"{implementation}|{threshold}|{model or ''}|" + "\x1f".join(norm)
     return implementation + ":" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
 
 

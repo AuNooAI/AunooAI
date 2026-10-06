@@ -296,48 +296,90 @@
       ]
     },
     {
-      "name": "Harm Reduction",
-      "description": "Harm Reduction International defines harm reduction as policies, programmes and practices that aim to minimise the negative health, social and legal impacts associated with drug use, drug policies and drug laws.\n\nHarm reduction is grounded in justice and human rights. It focuses on positive change and on working with people without judgement, coercion, discrimination, or requiring that people stop using drugs as a precondition of support.",
-      "categories": [],
-      "future_signals": [],
-      "sentiment": [],
-      "time_to_impact": [],
-      "driver_types": [],
-      "keywords": [
-        "Nonprofit",
-        "NGO",
-        "World Health Organization",
-        "WHO",
-        "Homeless",
-        "houseless",
-        "addiction",
-        "policy",
-        "laws",
-        "streets",
-        "mutual aid",
-        "needle sharing",
-        "medics",
-        "medicine",
-        "participatory health",
-        "preventative health",
-        "rehabilitation",
-        "recovery",
-        "uninsured",
-        "insurance",
-        "pharmaceutical",
-        "district",
-        "city",
-        "rural",
-        "urban",
-        "opiates",
-        "prison",
-        "police",
-        "racism",
-        "carceral",
-        "indigenous",
-        "diy",
-        "community"
+      "name": "EV Battery Industry",
+      "description": "PowerCo, Volkswagen Group's battery company, and the cell makers it competes or partners with, anywhere in the world: CATL, BYD, LG Energy Solution, Samsung SDI, SK On, Panasonic Energy, Gotion, CALB, EVE Energy, AESC, Northvolt, ACC (Automotive Cells Company) and Verkor. Covers their plants and capacity in any region (including PowerCo's Salzgitter, Valencia and St. Thomas sites), partnerships and joint ventures, customer and carmaker supply deals, battery chemistry and cost (LFP, NMC, LMR, sodium-ion, solid-state), raw materials and supply chain, recycling, and the trade and industrial policy that shapes battery production for Europe. Not relevant: consumer electronics and gadget batteries, home and grid storage products, and general stock-market reports.",
+      "categories": [
+        "Competitor Moves",
+        "Partnerships and Joint Ventures",
+        "Gigafactories and Capacity",
+        "Battery Chemistry and Technology",
+        "Raw Materials and Supply Chain",
+        "Industrial Policy and Trade",
+        "EV Demand",
+        "Battery Recycling",
+        "Other"
+      ],
+      "future_signals": [
+        "LFP becomes Europe's dominant EV chemistry",
+        "Chinese cell makers localise in Europe",
+        "European cell makers consolidate or fail",
+        "Next-generation chemistries reach mass production",
+        "Trade barriers reshape battery sourcing"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
       ]
+    },
+    {
+      "name": "Market Monitoring EV Battery Cells",
+      "description": "Market monitoring for EV battery cell makers relevant to PowerCo (Volkswagen Group's battery company): PowerCo itself and CATL, BYD, LG Energy Solution, Samsung SDI, SK On, Panasonic Energy, Gotion, CALB, EVE Energy, AESC, ACC (Automotive Cells Company), Verkor and others. Tracks their plants and capacity in any region, carmaker supply deals, partnerships, chemistry and cost, funding, hiring and leadership. Not relevant: consumer electronics and gadget batteries, home and grid storage products, and general stock-market reports.",
+      "categories": [
+        "Product & Innovation",
+        "Financial Performance",
+        "Leadership & Governance",
+        "Brand Sentiment & Perception",
+        "Competitive Landscape",
+        "Legal & Regulatory",
+        "Partnerships & Alliances",
+        "ESG & Social Responsibility",
+        "Customer & Product Issues",
+        "Market Strategy & Expansion",
+        "Media & Advertising"
+      ],
+      "future_signals": [
+        "Vendor gaining momentum",
+        "Vendor losing momentum",
+        "New entrant",
+        "Consolidation underway",
+        "Category boundary shifting",
+        "Funding cycle turning",
+        "Customer adoption accelerating",
+        "Competitive threat detected"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "include_press_releases": false
     }
   ],
   "ai_models": [

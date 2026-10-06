@@ -109,6 +109,7 @@ def make_service(topic_configs: Optional[Dict[str, Dict[str, Any]]] = None, *,
     svc._research = research
     svc._get_research = lambda model_name=None: research
     svc.get_llm_client = lambda model_override=None: "fake-model"
+    svc.get_inference_mode = lambda: "hybrid"
     svc.get_relevance_threshold = lambda topic=None: threshold
 
     svc.score_calls: List[str] = []

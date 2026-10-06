@@ -212,18 +212,31 @@ class BrandWatcherMonitor:
             # Run classification
             await _run_classification_task(run_id, brand_id, run_type, days_back, topics)
 
-            # Get the results
+            # Get the results, including the run's own terminal status. The
+            # task writes 'completed', 'failed' or 'skipped_overlap' to the
+            # run row and swallows its exception, so this is the only place
+            # the outcome is visible. Reading just the counts used to mark
+            # every run a success.
             conn = db._temp_get_connection()
             run_info = conn.execute(text("""
-                SELECT articles_processed, articles_categorized
+                SELECT articles_processed, articles_categorized, status, error_message
                 FROM bw_tracker_runs
                 WHERE id = :id
             """), {"id": run_id}).fetchone()
             conn.close()
 
+            run_status = None
+            run_error = None
             if run_info:
                 result["articles_processed"] = run_info[0] or 0
                 result["articles_categorized"] = run_info[1] or 0
+                run_status = run_info[2]
+                run_error = run_info[3]
+
+            if run_status not in ('completed', 'skipped_overlap'):
+                raise RuntimeError(
+                    f"classification run {run_id} ended with status {run_status!r}: "
+                    f"{(run_error or 'no error recorded')[:300]}")
 
             result["success"] = True
 

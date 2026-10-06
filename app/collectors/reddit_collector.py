@@ -66,6 +66,15 @@ def _entry_dt(entry) -> Optional[datetime]:
     return parse_date(parsed).value if parsed else None
 
 
+def _social_meta(external_id: Any, author: Optional[str], permalink: Optional[str],
+                 subreddit: Optional[str], created) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {"platform": "reddit", "external_id": str(external_id),
+                            "author": author, "subreddit": subreddit, "permalink": permalink}
+    if created is not None and created.known:
+        meta["created_at"] = created.iso()
+    return meta
+
+
 class RedditCollector(ArticleCollector):
     """Collector for Reddit posts via free RSS feeds (no credentials)."""
 
@@ -103,6 +112,10 @@ class RedditCollector(ArticleCollector):
         return feedparser.parse(text).entries or []
 
     # -- mapping ------------------------------------------------------------------
+    # social_meta is what the Social tab, the observers' social branch and the
+    # briefing key on. It carries the fields the product needs and only those
+    # the provider gave: author, permalink, timestamp, subreddit, and on the
+    # JSON route the engagement counts. A missing field stays missing.
 
     @staticmethod
     def _item(e, topic: Optional[str], *, route: str, inferred: bool) -> Optional[Dict[str, Any]]:
@@ -128,8 +141,7 @@ class RedditCollector(ArticleCollector):
             "url": url,
             "source": source_name,
             "topic": topic,
-            "social_meta": {"platform": "reddit", "external_id": str(ext),
-                            "author": e.get("author"), "subreddit": subreddit},
+            "social_meta": _social_meta(ext, e.get("author"), url, subreddit, pub),
             "raw_data": {
                 "platform": "reddit",
                 "external_id": str(ext),
@@ -344,6 +356,13 @@ class RedditCollector(ArticleCollector):
             body = post.get("selftext") or post.get("title", "")
             created = parse_date(post.get("created_utc"))
             parsed = urlparse(url)
+            meta = _social_meta(post.get("name") or post.get("id") or url, post.get("author"),
+                                post.get("permalink") and ("https://www.reddit.com" + post["permalink"]) or url,
+                                post.get("subreddit"), created)
+            # Engagement only as the provider gave it; the RSS route has none.
+            for key in ("score", "num_comments", "upvote_ratio"):
+                if post.get(key) is not None:
+                    meta[key] = post[key]
             return {
                 "title": post.get("title", ""),
                 "content": body,
@@ -352,6 +371,7 @@ class RedditCollector(ArticleCollector):
                 "published_date": created.iso(),
                 "url": url,
                 "source": parsed.netloc.replace("www.", "") or "reddit.com",
+                "social_meta": meta,
                 "raw_data": {"platform": "reddit", "subreddit": post.get("subreddit")},
             }
         except Exception as e:

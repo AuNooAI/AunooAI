@@ -1,5 +1,535 @@
 # Changes
 
+## 2026-10-05 — PoV sites brought to the wileytest standard; deal listings, phantom matches and reddit metadata fixed; relevance integrity patch live on all eight sites
+
+### Goal
+Oliver asked for a proof-of-value runbook for panaya, sunstar and oviva modelled on the
+wileytest daily briefing and observers, then to apply its fixes and give each site a solid
+observer set, then a data quality review with fixes, then a repeatable check, then the removal
+of retail deal listings from the pipeline. In the evening he pasted a relevance and validation
+specification written against GitHub `2f835015`; after a code-level review the spec author
+narrowed it to a focused integrity patch, and then to regression fixtures and decision reuse.
+Everything below is uncommitted in canonical unless marked otherwise; the site copies were
+applied by hand with backups beside each file.
+
+### Ops · PoV runbook and the three sites' setup (DB rows, briefing code copies, no canonical code)
+**`docs/POV_RUNBOOK_PANAYA_SUNSTAR_OVIVA.md`** (new) describes how the wileytest daily service
+works in practice: the platform mails only the internal mailbox `wiley@aunoo.ai` and Ryan, and
+Oliver forwards to the customer contacts by hand; the daily and weekly checklists follow from
+that. Per-site state recorded in the runbook and in the DBs now:
+- Observers (`signal_instructions`), all on `bedrock-kimi-k2-5`, daily, recipients the internal
+  pair: panaya 1 Adverse Media 08:00, 2 Competitor Activity 08:30, 3 Enterprise Application
+  Change demand signals 08:15 (new); sunstar 2 Evidence Watch 06:40, 3 Competitor moves 06:50,
+  4 adverse media 07:00, 5 Professional and policy momentum 06:55 (new); oviva 2 Adverse Media
+  08:00, 3 Competitor Monitoring 08:30, 5 GLP-1 access, policy and evidence 08:15 (new).
+- `emerging_topics_settings.model = claude-sonnet-4-5` on all three (the compose pin); briefing
+  topics: panaya 1, sunstar 14 (Italy, Spain, Brazil and Regenerative Dentistry added), oviva 9.
+- Briefing code copied from canonical to the three sites with `.bak-pov-20261005` backups:
+  `daily_report_service.py`, `daily_reports_routes.py`, `daily_briefing_compose_service.py`,
+  `data/auspex/agents/dr_reviewer_agent.md`; sunstar and oviva also needed
+  `daily_briefing_ranking.py` (an `ImportError` on `balance_across_groups` after the first copy)
+  and the two briefing shadow modules; oviva's facade got `save_desk_briefing_review_draft`.
+- Oviva keyword hygiene in `monitored_keywords`: group 12 lost the bare `"Second Nature"` and
+  `Juniper`, group 2 gained `"Second Nature" weight` and `"Second Nature" NHS`, group 7 gained
+  `"Weight Watchers"` and `"WW International"`; Noom RSS feeds 4 and 5 set inactive (403 since
+  weeks). Panaya market 1312 `config.follow_markers` set to testing terms; 322 stray tweets
+  deleted from panaya `social_accounts` by Oliver (the mass delete was refused to the agent).
+
+### Feature · Briefing Desk tab in dedicated (brand-watch) mode — oviva only
+**`ui/src/pages/NewsFeedPage.tsx`**: `DEDICATED_TABS` gains `briefing-desk`, and the tab button
+moves out of the `dedicatedMode === false` block so a dedicated site can run the reviewed daily
+briefing. Built in a scratch tree from `git archive HEAD` with the Swiss-election files and the
+fe3a48a0 hunk removed (that project never ships outside bugfixing), `SKIP_TYPECHECK=1
+deploy-react-ui.sh`, rsynced to oviva only (bundle `index-C4VEdyGh.js`, chunk
+`newsfeed-Ds5tI99-.js`). Not built for any other site.
+
+### Fix · TheNewsAPI phantom matches on Japanese groups (canonical + sunstar)
+A page sweep of sunstar's Japan topic found that 111 of 181 rows did not contain the search
+term anywhere on the page: TheNewsAPI's Japanese body index returns matches the page does not
+support, and the 0/181 approval rate was supply, not a scorer bug (German groups: 50/50 fine).
+**`app/tasks/keyword_monitor.py`** `_term_tokens`, `_tokens_missing`, `_page_carries_tokens`:
+for a new URI from `thenewsapi` in a `ja`/`zh`/`ko` group whose title and summary lack the term,
+the page is fetched once and the row dropped when the term is absent; a fetch failure keeps the
+row. Logs `Dropped N of M TheNewsAPI results for '<kw>' (ja): the search term is not on the page`.
+Applied to sunstar by Oliver via `sudo /var/tmp/apply_phantom_guard.sh` after the agent's edit
+was refused. `tests/test_phantom_guard.py` (new) uses the periodontal-disease term and a page
+from the sweep. Quoting the keywords instead was measured and rejected: 21 of 39 panaya and 17 of
+21 sunstar approved articles do not contain the exact phrase.
+
+### Fix · Retail deal listings never reach a brand feed (all eight sites)
+On sunstar, two thirds of the Colgate topic's approved press in September were price listings
+("Best Deal: 4-Pack 3.8-Oz Colgate Optic White…") that the brand judge approves because they are
+about the brand's products. **`app/services/deal_listing.py`** (new): 30 deal and coupon hosts
+plus title forms (best deal, promo code, coupon, N% off, a price with cents that is not a
+headline figure, N-pack toothpaste, Prime Day, Black Friday, "FREE x at Walmart"). Called at the
+top of `score_article_relevance` in **`app/services/automated_ingest_service.py`** before any
+model call; the row is rejected with explanation `Retail deal listing (…): not news` and the
+journal line `Deal listing rejected (…)`. Measured on 90 days of rows from the three PoV sites:
+every host hit was a deal page; the one title false-positive class (market-report wires quoting
+"$17.83 Billion") is excluded by the money pattern. Backfill flipped 35 sunstar and 2 oviva
+approved rows to `filtered_relevance`; Colgate's approved 14-day count went from 16 to 4.
+`tests/test_deal_listing.py` (new): twelve real deal pages, ten real approved news items; it
+failed first on moneysavingmom.com, now covered.
+
+### Fix · Sunstar reddit posts stored as news; reddit metadata (canonical, sunstar, abm)
+1,065 sunstar reddit rows had no `social_meta`, so they counted as news everywhere (observers'
+social branch, Social tab, briefing). sunstar's older `reddit_collector.py` was patched
+surgically (`.bak-socialmeta-20261005`) and the rows backfilled with platform, external id and
+subreddit from the URL (`backfilled = 2026-10-05`). Canonical's collector could not be copied:
+it needs `cdq` modules sunstar lacks. **`app/collectors/reddit_collector.py`** on canonical now
+records `permalink` and `created_at` in `social_meta`, and on the JSON route the score, comment
+count and upvote ratio when Reddit returns them; a missing field stays missing.
+`tests/test_reddit_metadata.py` (new) failed first on the missing permalink and timestamp.
+
+### Ops · Data quality review and a repeatable check
+**`docs/DATA_QUALITY_REVIEW_POV_SITES_2026-10-05.md`** (new): ranked, measured findings for the
+three sites. Panaya's vendor blogs and LinkedIn posts are deliberate competitor monitoring and
+are not flagged. **`scripts/data_quality_check.sh <site> [days]`** (new, run with sudo): one
+screen of counts from the site DB and journal: volume and outcomes, per topic, keywords
+producing rejected rows, social rows missing sentiment or author role, posts stored as news,
+duplicates and wires, deal listings rejected and slipped, approved domains, translation coverage,
+enrichment failures, observer pool, groups not checked, feed errors, collector errors, phantom
+guard drops, story labels. The runbook's weekly checklist starts with it.
+
+### Fix · Relevance integrity patch, round 1 (all eight sites)
+The pasted spec's P1 findings were checked against HEAD `d56e5e38` (its baseline `2f835015` is
+not in this tree). All held in source; measured live they had barely fired: 1,812 stored Jev
+readings since 4 Oct with none out of range, no engine load failures in 7 days, one swallowed
+insert error, no failed brand runs in 30 days, Jev accept live on bugfixing and panaya only
+(about 520 and 187 accepts a week). The author then agreed to a focused patch:
+- **`app/services/hybrid_relevance_service.py`**: `parse_unit_score` (reads "1e-3", ".2",
+  "Score: 0.85"; the old `(\d+\.?\d*)` read "1e-3" as 1), `unit_value` (rejects booleans, NaN,
+  inf, out of range; `max(0, min(1, nan))` is 1.0), the Jev parser validates Noul, ordinal
+  score against its rubric and confidence, `brand_name_from_topic` / `is_brand_topic` for both
+  naming conventions used by the classifier override, CE gate, LLM prompt and Jev question,
+  method `none` becomes confidence `medium` so fallbacks run, and the result carries
+  `status: ok | unavailable` with `relevant = None` when nothing answered.
+  `RelevanceUnavailableError`.
+- **`app/services/automated_ingest_service.py`**: the scorer gets the topic's own threshold (it
+  got the global one while the gates used the group's); an unavailable hybrid result tries the
+  full LLM judge, and a double failure raises so the row is filed `relevance_check_failed` with
+  no `filtered_relevance` write and no rejected-candidate ledger entry.
+- **`app/relevance.py`**: `_unit_score`; an unreadable reply raises `RelevanceCalculatorError`
+  instead of returning zeros; batch failures are marked `relevance_status: unavailable`.
+- **`app/services/relevance_scorer.py`**: failed or timed-out batches and invalid numbers mark
+  the article unscored; unscored articles stay in the result, sorted last, counted in a warning
+  (they used to get 0.5 and be removed by the 0.6 filter in Auspex deep research).
+- **`app/routes/keyword_monitor.py`**: bulk processing passes `relevance_threshold_override`
+  through and returns 400 for `quality_control_enabled=false` and `llm_model_override`, which
+  it silently ignored; manual rescore writes the verdict to the requested topic's match row via
+  `record_group_relevance`, skips articles the judge could not answer and lists them.
+- **`app/tasks/keyword_monitor.py`**: `_save_articles_batch` returns `(saved, failed)`; any
+  failed insert downgrades each provider's result to partial so `commit_interval` keeps the
+  interval (checkpoints exist on canonical and abm only).
+- **`app/tasks/brand_watcher_monitor.py`**: the scheduler reads the run's `status` and
+  `error_message` and raises unless `completed` or `skipped_overlap`; it used to mark success
+  from the counts alone.
+- **`eval/relevance_regression/run.py`**, **`cron.sh`**: precision and recall with no support are
+  `None`, a run with no judged samples is inconclusive, exit code 2, alert subject says so.
+Write-up: **`docs/RELEVANCE_INTEGRITY_PATCH_2026-10-05.md`** (new). Not done, on purpose: the
+spec's ledger, run policies, target snapshots, job leases, 2,000-pair benchmark and fetch
+hardening; a trained-topic manifest does not exist (the classifier takes the topic as text).
+
+### Fix · Relevance integrity patch, round 2: decision reuse keyed on the model route
+**`app/services/rejected_candidates.py`** `gate_version(terms, threshold, model=)`; the ingest
+passes `inference_mode | relevance_route_signature()` (embedding model, classifier weight,
+fallback model, CE and Jev tiers), so a model or tier switch re-evaluates saved rejections and
+switching back reuses them; a failed evaluation never records one. Three tests added to
+`tests/test_rejected_candidate_gate.py`; `tests/_cdq_ingest_fakes.py` fakes the inference mode.
+The plan's "make the annotation screen optional for model selection" does not apply: the
+monolith's model controls (`PUT /training/inference-mode`, group thresholds) read no labels.
+
+### Verification
+- `pytest` on `test_relevance_integrity.py` (64 cases, new), `test_deal_listing.py`,
+  `test_phantom_guard.py`, `test_reddit_metadata.py`, `test_rejected_candidate_gate.py`,
+  `test_keyword_monitor_outcomes.py`, `test_relevance_topic_scoping.py`,
+  `test_collection_health_route.py`, `test_collection_runs_db.py`: 119 passed, 5 skipped
+  (re-run before this entry). Eight failures in `test_relevance_complete.py`,
+  `test_relevance_implementation.py` and `test_relevance_scores_persistence.py` predate the
+  session: SQLite-era tests sending `PRAGMA` to PostgreSQL. The new fixture tests were run
+  against the old code first and failed on the defects (moneysavingmom, permalink, model route).
+- Golden harness on bugfixing after the patch: accuracy 79%, precision 71%, recall 83%, PASS,
+  the same figures as every run since 29 Sep.
+- `deal_listing.py` unit-checked on 12 cases including "$2.04 Billion", "$2.73m shares",
+  "goes on sale" (none matched).
+- Live after the restarts: bugfixing's first cycles rejected three deal listings (an ozbargain
+  Kindle deal, two Prime Day roundups) and reused 23 saved rejections; no article unavailable,
+  none filed as a failed check, no traceback on any of the eight sites. sunstar and abm had not
+  run a collection cycle by 22:30, so their reddit permalinks and deal rejections are unverified.
+
+### Propagation
+Both rounds are on all eight running sites (bugfixing, wiley, wileytest, panaya, sunstar, oviva,
+abm, wbm), applied by `patch` from unified diffs of the canonical files or, where a site's copy
+is older than canonical, by exact-string appliers (`/var/tmp/integrity_patches/apply_hybrid.py`,
+`apply_tasks_km.py`, `apply_round2.py`); backups `*.bak-integrity-20261005` and
+`*.bak-round2-20261005` beside each file. Round 1 restarts 21:04–21:14, round 2 21:42
+(bugfixing), 21:52 (sunstar), 22:20–22:25 (the rest), each by `scripts/restart_when_quiet.sh`,
+all with zero tracebacks. Known drift: wiley, wileytest, sunstar, oviva and wbm run a
+`hybrid_relevance_service.py` with no Jev tier (sunstar, oviva, wbm also without the market-topic
+regex), so their copies got the same edits on the older layout rather than the file; the
+checkpoint fix and the ledger changes apply to bugfixing and abm only, the only sites with the
+collector data-quality build; the harness fix went to the four sites with the regression cron.
+The deal-listing hook was new on wiley, wileytest, abm and wbm tonight. The phantom guard is on
+canonical and sunstar only. The sunstar reddit patch and the site DB rows are uncommittable:
+they live in the site trees and databases and a clone from canonical will not carry them.
+
+### Lessons
+- Insert module helpers above a `@dataclass` decorator, not between it and its class: the
+  decorator then wraps the function and the module fails to import. Caught by the test run, not
+  by `py_compile`.
+- Backups named by basename collide: `app/routes/keyword_monitor.py` overwrote
+  `app/tasks/keyword_monitor.py` in `/var/tmp` and produced a patch that failed on every site.
+- The permission classifier refused the multi-site apply and even the hand-off script twice;
+  Oliver's explicit "you have authorization" let the same command through. Ask once, plainly.
+- Measure before rewriting: the spec's rebuild was sized for failure modes that had fired zero
+  times; the three defects the week actually produced were none of them.
+
+## 2026-10-05 — MCP: saas and monolith servers compared and aligned; Trust Signals rated by saas; timeline tools committed
+
+### Goal
+Oliver asked for a comparison of the MCP servers on saas.aunoo.ai and bugfixing.aunoo.ai, then to
+align the parts that differed for no reason, to commit the timeline tools, and to find out whether
+foresight is on the monolith MCP and whether Trust Signals could come from saas. The saas UI is
+to be retired, so saas becomes a headless service the monolith sites query.
+
+### Comparison (no code)
+Both servers speak JSON-RPC 2.0 over plain POST, pin protocol 2024-11-05, and share one OAuth
+2.1 design (dynamic registration, S256 PKCE, HS256 access JWTs with `aud = <base>/mcp`, 1h
+access and 90-day refresh tokens). The monolith's `app/mcp_access/` was ported from saas's
+`app/skills/` + `app/oauth/` in September with the multi-tenant parts cut out. The canonical saas
+tree (`saasmvp-app`) and the prod deploy copy (`saas.aunoo.ai`) held byte-identical MCP files, so
+the comparison holds for both. Differences that matter: saas scopes a key to a tenant, a pack and
+a topic set, meters calls against a Stripe quota and runs tools under row-level security; the
+monolith resolves a key to a user and stops. saas awaits tools on the event loop with an 8 s
+budget; the monolith runs each tool in a worker thread (the Auspex tools do sync DB work) with a
+20 s budget and four concurrent slots. The catalogues overlap on eight topic tools and otherwise
+serve different products: saas has 35 tools (trust, validation, newsletters, foresight, social
+reach), the monolith 30 (brands, markets, Jev judgments, timeline mementos).
+
+No monolith site exposes the Forecast Tracker over MCP; the only horizon tool anywhere is the
+Market Monitor one. Oviva's catalogue is the same 24 topic/brand/market tools and oviva holds
+3 horizon runs, 0 scenarios and 0 assessments, so there is nothing to expose there yet.
+
+### Fix · Timeline tools committed (`3195682f`)
+**`app/mcp_access/timeline_tools.py`** had been imported by `tools.py` since 20 Sep but never
+committed, so a copy of canonical HEAD crash-looped any site that received `tools.py` (abm, 2 Oct).
+Committed as is; HEAD imports cleanly again.
+
+### Feature · Native MCP content blocks pass through (`96d8c33c`)
+**`app/mcp_access/transport.py`** `_tool_text_content` now returns a tool's `__mcp_content__`
+blocks (an image, say) as the MCP content instead of a JSON text dump, looking under the
+dispatcher's `data` wrapper first. Same rule as saas's `mcp_http.py`, which uses it for the
+horizons chart PNG. No monolith tool emits blocks yet; this is so a tool ported either way renders
+the same. Test added to `tests/test_mcp_jsonrpc.py`.
+
+### Feature · `get_trust_signals`, rated by the saas trust service (`d56e5e38`)
+The five Trust Signals (Source, Claims, Origin, Spread, Owner) need data only saas keeps current:
+the Media Bias/Fact Check record for 8,221 outlets (`mbfc_sources` on prod), the owner map,
+republication history and claim verdicts. Measured on bugfixing before building: of the 3,000
+most recent articles, 197 also exist in saas prod by URL (about one in fifteen), and 108 have the
+local `bias` / `factual_reporting` / `mbfc_credibility_rating` columns filled. An id-based call to
+saas could rate almost nothing, and the local columns cannot serve the Source station, so the
+tool is URL-based and the data stays in saas.
+
+**`app/mcp_access/trust_tools.py`** `get_trust_signals(uri | uris, window_hours)`: posts up to
+25 URIs to saas's Skills REST endpoint (`POST /api/v1/skills/workspace/run`, tool
+`get_trust_signals_for_urls`) with a saas workspace key, returns the ratings with this site's
+title attached (`local_article`) and the rating host (`rated_by`). Answers are cached an hour per
+URI in process. Remote HTTP and auth failures become `ToolError`s with the status code.
+**`app/mcp_access/config.py`**: `SAAS_SKILLS_URL`, `SAAS_SKILLS_KEY`, `saas_skills_configured()`.
+**`app/mcp_access/tools.py`**: `ToolSpec.needs_saas`; the tool is listed only when both variables
+are set, through the same `_offered()` gate as Google search. A station with tone `neutral` was not
+measured; for a URL saas does not hold that is Claims, Origin and Spread, and the entry says so.
+
+The saas side (`get_trust_signals_for_urls`, domain-keyed MBFC and owner resolvers, result gates)
+is in `saasmvp-app` commits `699db874`, `f51ae4f5`, `4053c473`, `1854eb47`; see that tree's
+`docs/changes.md` for the same date.
+
+### Verification
+- `tests/test_mcp_jsonrpc.py` + `tests/test_mcp_trust_tools.py`: 14 pass, 1 fails. The failure
+  (`test_prompts`) predates this session: it asserts the three-recipe prompt list from before
+  `voices_report` and `brand_briefing` were added.
+- Live on bugfixing after the restart: one-day key #9 minted, `tools/list` shows 31 tools
+  including `get_trust_signals`, `tools/call` on a Guardian URI returned Source "Mixed" (warn),
+  Owner "Guardian Media Group" (pass), Claims/Origin/Spread neutral, `in_corpus=false`, local
+  title attached; `mcp_tool_calls` row `get_trust_signals|ok|263 ms`. Key #9 revoked.
+- Same URI through saasmvp's REST directly: identical stations; an RT German mirror domain came
+  back Unrated, which is right for MBFC.
+
+### Propagation
+bugfixing only, by design (Oliver's ask; the other sites did not request it). bugfixing was
+restarted twice by `scripts/restart_when_quiet.sh` once its users had left: 17:24 CEST with the
+tool pointed at saasmvp (dev, key `api_keys.id=6`, still active there), and 20:10 CEST with
+`.env` repointed to saas prod (`SAAS_SKILLS_URL=http://127.0.0.1:10017`, prod key `api_keys.id=41`,
+tenant 1, pack ai-research). Confirmed after the second restart with one-day key #10 (revoked):
+`get_trust_signals` on a Guardian URI answered `rated_by 127.0.0.1:10017`, and saas prod's
+`mcp_tool_calls` holds the row `get_trust_signals_for_urls|ok|245 ms|aunoo-mcp/bugfixing.aunoo.ai`.
+Prod key rows 39 (plaintext lost, inactive) and 40 (active, minted outside this session at 17:33,
+never used by the env) can be deactivated. oviva/wiley/wileytest/wbm/sunstar/abm have none of
+today's three commits; abm still carries its local try/except guard around the timeline import,
+which is now redundant.
+
+### Lessons
+- Before copying canonical anywhere, check `git status --porcelain app/` for untracked modules
+  that HEAD imports. The timeline file sat untracked for two weeks and broke abm.
+- Do not pipe a key-minting script's output through `grep -v`; the plaintext line is the one
+  you need, and it is printed once.
+
+## 2026-10-05 — Panaya pre-PoV check: profile picker crash, News Feed showing rejected articles, market threshold below the floor, a stray followed account
+
+### Goal
+Oliver asked for a check of panaya.aunoo.ai before the Panaya proof of value: "we need to add a
+profile", any errors on `/explore`, and a data quality pass. The profile already existed but
+could not be listed. The Explore page itself loaded clean. The data quality pass found three
+problems, and Oliver asked for all three to be fixed.
+
+### Fix · The Explore profile picker was empty because one profile row was not JSON (panaya DB only)
+The only error in 24 hours of the panaya log was `Error fetching organizational profiles:
+Expecting value: line 1 column 1 (char 0)`, logged at 12:10 when the Explore page was opened.
+`organizational_profiles` stores `key_concerns`, `strategic_priorities`, `stakeholder_focus`,
+`competitive_landscape` and `regulatory_environment` as TEXT, but the list route
+(`trend_convergence_routes.get_organizational_profiles`), `auspex_service` and
+`news_feed_service` all run `json.loads()` on them. The "Panaya" profile (id 10, the tenant's
+default) had been seeded by SQL with paragraphs in all five, so the whole list failed and the
+picker showed nothing. We rewrote the five fields in place as JSON arrays of short items, with
+the same content, and left everything else on the row alone. No code change. oviva and sunstar's
+SQL-made profiles were checked and are arrays already.
+
+### Fix · The News Feed showed articles quality control had rejected (`86c04868`)
+**`app/database_query_facade.py`** — the four News Feed queries
+(`get_news_feed_articles_for_date_range`, its count, `get_news_feed_articles_chronological`,
+its count) required a category and a sentiment but never looked at the relevance verdict. Any
+row that had been through the AI analysis step showed, including rows the ingest gate later
+marked `filtered_relevance`. Each query now also carries `readable_clause(articles)`, the same
+0.4 topic-alignment floor every other reader uses since 14 Sep.
+
+Measured before the fix with a minted session against panaya's 7-day feed: 70 rows, of which 12
+were approved and at or above the floor, 32 approved below it, and 26 rejects with scores of
+0.0 to 0.1 (Nvidia's agent safety platform, Amazon drivers' AI glasses, Capcom). On bugfixing
+the same leak was 41 rejects plus 129 approved-below-floor out of 1,273 enriched rows in the
+week, about 13%. After the fix and restart, panaya's 7-day feed returns 12 rows, all approved
+and above the floor.
+
+### Ops · Panaya market group threshold 0.25 → 0.4, 196 rows re-gated (panaya DB only)
+Group 28 "Enterprise Test Automation - Market Watch" (and the disabled backfill group 30) had
+`min_relevance_threshold = 0.25`, below the platform's 0.4 readable floor, so the gate approved
+rows the UI then hid or, through the News Feed bug above, showed. 196 of 389 approved news rows
+sat at exactly 0.30, and 149 of those named no tracked vendor at all (generic AI coverage from
+Forbes, hackernoon, openpr). Both groups now read 0.4, and the 196 rows were set to
+`filtered_relevance`, keeping `analyzed = true` as labelled data. The market topic now has 193
+approved news rows. The 47 vendor-named rows among the 196 scored low because they were not
+about testing (UiPath's Dubai certification, PATH stock notes), which matches the "UiPath's
+testing line only" brief from the build.
+
+### Ops · Unfollowed @anton_chuvakin on panaya (panaya DB only)
+The clone from bugfixing carried `social_accounts.watchlisted = true` for the X account
+`anton_chuvakin`, a security analyst with no bearing on test automation. The follows collector
+had stored 322 of his tweets under the market topic, 308 of them still `pending_review` with an
+average alignment of 0.04, and the daily post-review pass was reading them. We set
+`watchlisted = false` and stripped `pending_review` from the 308 posts so they are not read
+again. The 14 posts the review had already attached were left alone. No other account is
+followed on panaya. Note that panaya's older tree keeps follows in `social_accounts.watchlisted`;
+canonical moved them to `market_follows` in `1ff17b72`.
+
+### Also seen, not changed
+- Explore loaded in a headless browser on panaya across Overview, News Feed, Brand Watcher,
+  Market Monitor, Emerging Topics and Timeline with no failed API calls and no console errors.
+- 357 vendor LinkedIn posts on panaya have `ingest_status` NULL and `analyzed = false` (owned
+  posts, alignment 1.0). Brand Watcher news cards skip them; Market Monitor's owned-post panels
+  read them. Left as is.
+- SmartBear (brand 49846) was added as a seventh market vendor on 22 Sep, after the build notes.
+
+### Verification
+- `curl /api/organizational-profiles` on panaya after the row fix: 200, seven profiles, Panaya
+  `is_default = true` with 5 key concerns. Re-checked at documentation time: the five fields hold
+  5 / 4 / 5 / 6 / 3 array items.
+- `py_compile` of the patched facade passed in all four trees.
+- panaya 7-day News Feed after restart: 12 rows, all `approved` and `topic_alignment_score >= 0.4`
+  (joined the returned URIs back to `articles`).
+- `keyword_groups` 28 and 30 read 0.4; market-topic news rows: 193 approved, 2,015
+  filtered_relevance, 1 enrichment_failed.
+- `social_accounts`: chuvakin `watchlisted = false`, 0 of his posts pending review.
+- Post-restart panaya log: only the pre-existing "NewsData.io API key not found" startup line.
+
+### Propagation
+- `86c04868` is committed in canonical (bugfixing) on branch `fix/market-monitor-voices-relevance`
+  with an explicit pathspec, since other sessions had work in the tree. The same four-block edit
+  was applied by hand to panaya, wiley and wileytest (their facade files drift from canonical by
+  100+ lines, so no wholesale copy). All four restarted via `restart_when_quiet.sh`: panaya
+  12:33, bugfixing 12:36, wiley 12:38, wileytest 12:59 (ingest only, nothing else running). No
+  tracebacks. Other monolith tenants (oviva, sunstar, abm, ibaset, pearson, bwtemplate) still
+  carry the leak.
+- The three DB changes live only in the `panaya` database. A tenant cloned from panaya inherits
+  them; nothing else does.
+
+### Lessons
+- When a tenant's profile picker is empty, grep the service log for "Error fetching
+  organizational profiles" before adding a profile. Seeding a profile by SQL means those five
+  fields are JSON arrays of strings, the rest plain text.
+- A keyword group's `min_relevance_threshold` below `RELEVANCE_FLOOR` (0.4) approves rows the
+  UI will hide. Market groups set up on this tenant defaulted to 0.25; check it at build time.
+- Cloning a tenant carries the follow list with it. Check `social_accounts.watchlisted` (or
+  `market_follows` on newer trees) after a clone.
+
+## 2026-10-02 — Oviva Social tab: why it went empty, a clearer empty state, a social backfill, and a UI rollback we caused and repaired
+
+### Goal
+Oliver asked why the Oviva Social tab now showed the "Social mentions… Add social monitoring"
+setup box. That led to:
+- a look at why Oviva's social posts had stopped;
+- a clearer empty state for the Social tab;
+- two manual collection runs;
+- a review of Juniper's zero-scored posts;
+- the fix for a recurring 404 on the Explore page.
+
+Along the way we rolled back Oviva's whole UI by mistake and repaired it.
+
+### Diagnosis · The Social tab was empty, not broken
+The intro box only shows when the feed returns zero posts
+(`!(social && social.total > 0)` in `BrandWatcherTab.tsx`). On the 7-day view Oviva had none.
+The newest relevant Oviva post was from 22 Sep, and the newest of any score from 27 Sep. The
+30-day view still returned 17. The "Oviva - Social" group (`keyword_groups` id 9, one keyword,
+"Oviva") had saved nothing since 27 Sep:
+
+| Run | X / Reddit / Instagram / TikTok (xpoz) | Bluesky |
+|---|---|---|
+| 28 Sep | 6 X posts, all already stored | 25 old posts, all already stored |
+| 29–30 Sep | "Usage limit exceeded" on X and Reddit | the same 25 old posts |
+| 1 Oct | X cut off at 25 s; the others returned 0 | the same 25 old posts |
+
+The competitors kept collecting because their groups run at other times of day.
+
+### Fix · Social tab says "no posts in this window" for monitored brands (`ca82706a`)
+**`ui/src/components/newsfeed/BrandWatcherTab.tsx`** now loads the selected brand's
+"{Brand} - Social" group through `getKeywordGroups()`:
+- **The group exists and the window is empty:** a grey note says "No posts about {brand} in the
+  last N days match the current filters. Social monitoring is on; the last collection ran …".
+- **No group:** the original intro box with "Add social monitoring".
+- **While the group is loading:** neither shows.
+
+`npm run typecheck` in the bugfixing tree was clean (no new errors).
+
+### Ops · Oviva X timeout raised to 40 s (Oviva `.env` only)
+`XPOZ_TWITTER_TIMEOUT=40` was added to Oviva's `.env`, which was backed up as
+`.env.bak-xtimeout-<stamp>`. The xpoz collector already reads a per-platform override
+(`_platform_timeout`), so this needed no code change. X searches on Oviva took 2–19 s on 1 Oct,
+which made the 25 s default too close. The platforms run one after another inside the keyword
+monitor's fixed 120 s per-keyword limit (`SEARCH_TIMEOUT_SECONDS`): 40 for X plus 3 × 25 for
+the others is 115 s. Oviva was restarted at 10:27.
+
+### Ops · Two manual Oviva social runs, and the hourly linking step run by hand
+Both runs called `KeywordMonitor.check_single_group` for group 9. That is the safe path for
+social posts (see the 14 Sep check-now fix).
+- **10:29:** 17 new posts, all from X. Three were real Oviva complaints; the rest were mostly a
+  Japanese account named "OVIVA". The Social tab reads `bw_entity_mentions`, so we ran
+  `entity_ingest.process_pending` and `evaluate_mentions_for_group` by hand. That linked 4
+  posts, and the 7-day view went from 0 to 3. That linking step normally runs every hour inside
+  the Brand Watcher monitor, not every 6 hours as we first said.
+- **16:24, the push:** 100 posts per platform, a 30-day window and 90 s timeouts, set only in
+  that one process (`SOCIAL_PAGE_SIZE`, `XPOZ_MAX_RESULTS`, `XPOZ_*_TIMEOUT`, and
+  `SEARCH_TIMEOUT_SECONDS` patched). The results:
+  - X 48, Bluesky 97, Instagram 16, Reddit 6, TikTok 0;
+  - 73 new articles, 67 mentions linked, 33 of them relevant;
+  - 32 of the relevant ones are Bluesky posts from Dec 2025 to Jun 2026, so the 30-day view
+    went from 20 to 21 and the 7-day view stayed at 3.
+
+The tenant-wide limits stay at 25. Raising them would have spent xpoz quota across all nine
+brands without finding more recent Oviva posts. Each manual run reset group 9's 24-hour
+schedule, so no run happened at 16:10 as planned.
+
+### Ops · One false positive flagged
+`https://x.com/OVIVA_OVIVA/status/2104896617468080366` ("I'm taking them along"), which scored
+1.00, is now `false_positive` for brand 1 in `bw_finding_reviews` and `bw_finding_review_log`
+(actor `claude`). It was never linked as a mention, so the flag only guards a later sweep.
+
+### Diagnosis · Juniper's zero-scored social posts (no change made)
+All 24 Juniper xpoz posts in the last 7 days were saved by one run at about 08:04 on 1 Oct, and
+all scored near 0. They are other Junipers: Juniper Networks and HPE, the Tesla Model Y
+"Juniper", a Nike shoe, a cat and a bakery. `XPOZ_TERM_MATCH=all` went into Oviva's `.env` at
+08:05 that day, and the service restarted at 08:12. So that run still used the default `root`
+mode, which only needs the word "juniper". Re-checked under `all`, none of the 24 would pass,
+and none of them was relevant. Since then, Juniper's run has saved 1 post. One Instagram post is
+about Juniper but scored 0: "AD … @my.juniper.uk", a paid influencer post that the scorer
+labelled `brand`. We left it, because counting a paid post as public opinion would be worse.
+
+### Incident · We rolled Oviva's UI back about a month, then restored it
+- **What we did:** we ran `ui/deploy-react-ui.sh` inside the Oviva tree to ship the Social-tab
+  change. Oviva's `ui/src` is stale: `NewsFeedPage.tsx` dates from 2 Sep and
+  `MarketMonitorTab.tsx` from 29 Aug. Its real bundle had been built on 24 Sep from bugfixing
+  and copied in. The script deletes the static folder first, so there was no backup.
+- **What broke:** Oliver saw Market Monitor and Voices changes missing.
+- **How we recovered:** a scratch build of bugfixing `8a47febc` reproduced Oviva's old file
+  names exactly (`index-CnWfeiSG.js`, `BrandWatcherTab-CaZhY-Ft.js`). We applied `ca82706a` on
+  top, built in scratch, and synced it to Oviva's static folder and its six `*_react.html`
+  templates.
+
+### Ops · Social-tab change shipped to abm and sunstar; Swiss Election Watch code kept off all three sites
+abm and sunstar both ran the same 16 Sep bundle, which no commit reproduces: `cacff3ce`,
+`dedf1cd6` and abm's own `ui/src` all failed, and abm's source doesn't even build. Oliver chose
+the Oviva base (`8a47febc`). Before deploying we checked that the new UI's endpoints exist on
+each server: the only new one, `/voices/profile-posters`, is in both.
+
+The first deploy carried the Swiss Election Watch UI, which a bugfixing-only project added on
+17 Sep. The tab was hidden everywhere, but Oliver did not want the code shipped. The final build
+for Oviva, abm and sunstar is `8a47febc` + `ca82706a`, minus:
+- all of `401cd693`;
+- the Swiss files (`SwissDisinfoTab`, `SwissDisinfoPanels`, `useSwissDisinfo`,
+  `swissDisinfoApi`) and the `NewsFeedPage.tsx` tab lines from `fe3a48a0`.
+
+We kept the non-Swiss Brand Watcher parts of `fe3a48a0`: the repost and "owned" badges, the
+owned count beside share of voice, Voices "Profile posters", and the Voices digest wording. All
+three sites load `newsfeed-Dkeve2jJ.js`, and their bundles contain no Swiss code. abm and panaya
+still carry the Swiss server module, switched off, and Oliver said to leave them.
+
+### Fix · Explore page 404 on brand-watch sites (`9766ef9a`)
+`POST /api/dashboard/article-insights/Brand%20Monitoring` returned 404 on every Explore load.
+The 404 itself is the route's intended "nothing cached" reply. The cause was that dedicated
+brand-watch sites keep a bare "Brand Monitoring" topic in `config.json` as the template new
+brand topics copy from. **`app/routes/topic_routes.py`** listed every topic starting with
+"Brand Monitoring", so the page asked for the template's narratives. The filter now requires
+"Brand Monitoring " with a trailing space. The template stays in `config.json`, where the
+add-brand route reads `config["topics"][0]`.
+
+**This stops new selections only.** The narrative panel (`useNarrativeExplorer.ts`) saves its
+selected topics in browser storage. Before this fix, its default was the first listed topic,
+which was the template. A browser that saved `["Brand Monitoring"]` keeps asking for it: Oliver's
+browser sent one more such request, which got a 404, at 16:52, after the fix. **Follow-up, `cf2934ed`:** **`ui/src/hooks/useNarrativeExplorer.ts`** now drops
+saved topics that are not on the list once the topic list loads. When none are left, it falls
+back to the first topic. If the list comes back empty because the fetch failed, it leaves the
+saved selection alone. `npm run typecheck` was clean. Oviva, abm and sunstar were rebuilt with
+it (`newsfeed-B9HG_Cwu.js`, HTTP 200). The next page load in a browser holding the stale topic
+is the real test; it has not happened yet.
+
+### Verification
+- **Oviva and abm:** calling `get_topics_unified()` returns only the real brand topics (9 on
+  each). The page code still sent one `article-insights/Brand%20Monitoring` request at 16:52,
+  after the 16:38 restart, from a selection saved in the browser (see the 404 fix above).
+- **7-day Social view on Oviva:** 3 posts, checked through `entity_social_read.social_feed`.
+- **Deployed bundles:** each serves `newsfeed-Dkeve2jJ.js` with HTTP 200, and `grep -il swiss`
+  finds 0 files.
+
+### Propagation
+- **Code:** both commits are in bugfixing. Bugfixing's own UI was not rebuilt, and its service
+  was not restarted for `9766ef9a`.
+- **`topic_routes.py`:** copied to oviva, abm, wbm, sunstar, bwtemplate, interroll, pbm and
+  ibaset; abbott got a one-line edit. Each has a `.bak-bmtemplate-20261002` backup. Oviva, abm,
+  wbm and sunstar were restarted. Before the wbm and sunstar restarts, Alembic was at head on
+  both.
+- **UI:** Oviva, abm and sunstar run the Swiss-free build, with `cf2934ed` added. Bugfixing's
+  own UI was not rebuilt. Wiley and wileytest are unchanged.
+  Scratchpad backups of the previous UIs exist for this session only.
+- **Oviva only:** the `XPOZ_TWITTER_TIMEOUT` line and the database rows above.
+
+### Lessons
+- **NEVER run `deploy-react-ui.sh` inside a customer-site tree.** Their `ui/src` is stale, and
+  the script deletes the old bundle. Build from a bugfixing commit in scratch. To find a site's
+  base, rebuild candidate commits until the entry file name in
+  `templates/explore_react.html.backup` matches.
+- **Any bugfixing build after 17 Sep carries Swiss Election Watch.** It is a bugfixing-only
+  project, so strip it before shipping a build to another site.
+- **A manual `check_single_group` run resets the group's 24-hour schedule.** Plan any follow-up
+  check around the new time.
+
 ## 2026-10-02 — aisocnews: large incumbents listed beside the map, 19 vendors added, add-vendor script and checklist
 
 ### Goal
@@ -148,6 +678,195 @@ the byline.
   name as a search name too if it should still be searched.
 - NEVER put the user's email address in a User-Agent or any other request header. One Wikimedia
   API request in this session carried it.
+
+## 2026-10-02 — PowerCo demo on bugfixing: "EV Battery Industry" topic tracks the competitors, new "EV Battery Cells" market; follows per market; annual-report headcounts on the map
+
+### Goal
+Oliver noticed that the PowerCo demo topic marked 93% of its articles irrelevant and did not
+track PowerCo's competitors, or PowerCo itself. He asked for Brand Watcher brands and a
+Market Monitor market for PowerCo and its competitors. Then, from what the new market showed,
+he asked for Bluesky top voices, follow lists kept per market, LinkedIn posts on, the LinkedIn
+pages fixed, and company sizes taken from annual reports.
+
+### Fix · The battery topic threw away PowerCo's and its competitors' news (config, bugfixing only)
+The topic's description said "the European EV battery industry". The AI relevance judge
+therefore scored non-European stories 0.1 to 0.3. Six copies of "Volkswagen subsidiary delays
+Ontario battery plant to 2029" were rejected, as were LG Energy Solution and GM's LMR cells.
+
+- **Description:** it now names PowerCo and 13 competitors "anywhere in the world", the
+  Salzgitter, Valencia and St. Thomas plants, and what to leave out (gadget batteries, home
+  storage, stock reports).
+- **Keywords (group 33):** we dropped "battery recycling Europe", which kept 4% of its
+  matches, and added SK On, Panasonic Energy, CALB, EVE Energy, AESC, Automotive Cells Company,
+  Verkor, Volkswagen battery plant, Salzgitter battery and St. Thomas battery plant. The group
+  has 24 keywords.
+- **Rename:** the description alone did not move the judge, because ordinary topics get a
+  strict prompt (`hybrid_relevance_service._compute_llm_score`) whose SCOPE rule reads a region
+  in the topic *name* as the topic's focus. We renamed "European Battery Industry" to **"EV
+  Battery Industry"** in `config.json` and in one transaction across 12 places: 334 articles,
+  330 raw articles, keyword group 33 (now "EV Battery Industry - News"), analysis versions and
+  run logs, the consensus and horizons runs and their 42 article links, 768 relevance readings
+  and 2 Auspex rows. We left the old name in 12 telemetry keys and inside the text of two stored
+  analysis outputs.
+- **Re-scoring:** three passes with `scripts/reenrich_filtered_articles.py` took the topic from
+  25 to 38 approved articles. Two copies of the Ontario delay now pass. BMW's Neue Klasse
+  battery plant and the other Ontario copies still score under 0.4, because the judge for
+  ordinary topics is a strict nova-lite prompt. Competitor news is reliably kept by the market
+  below, whose judge uses the lenient entity prompt.
+
+### Feature · Market 1830 "EV Battery Cells" with 14 companies (DB, bugfixing only)
+- **Market setup:** we set the market's vocabulary (`context_terms`), exclusions and
+  collection terms before its first collection run. Collection group 34 searches 10 market
+  phrases plus the 14 company names. `setup_market_collection` gave its topic "Market
+  Monitoring EV Battery Cells" a generic description, so we wrote a battery-specific one, and
+  set `include_press_releases: false` on it.
+- **Companies:** PowerCo, CATL, BYD, LG Energy Solution, Samsung SDI, SK On, Panasonic
+  Energy, Gotion High-Tech, CALB, EVE Energy, AESC, ACC, Verkor and Lyten (ex-Northvolt,
+  which Lyten bought in February 2026). We added each with `scripts/market_add_vendor.py`,
+  from spec files a research agent wrote (website, LinkedIn, Crunchbase, HQ, founded, funding,
+  logo colour). The script queues a LinkedIn post read regardless of the market's sources, and
+  it is another session's uncommitted file, so we ran it through a wrapper with a shorter
+  first-read list instead of editing it. Samsung SDI, SK On, EVE Energy and AESC have no logo.
+- **Brand Watcher:** all 14 are enabled brands, so they appear in Brand Watcher with their
+  colours. `brand_monitoring_enabled` is on, which gives each its own timeline. Social
+  collection per company is off.
+- **Coverage vocabulary:** the first vocabulary used single words ("cathode", "anode", "NMC",
+  "GWh"), and one body mention is enough to match. It pulled in 115 Semantic Scholar papers
+  about things like campus chillers and water electrolysis. We replaced it with 27 phrases
+  ("battery gigafactory", "sodium-ion battery", "cell-to-pack", "unified cell"), excluded
+  market-research releases ("CAGR", "Market Size", "Market Outlook" and similar), cleared 331
+  automatic matches, and rescanned. That gave 164 matches, of which 36 are papers, all about
+  battery cells. The 3 reviewed rows were kept.
+- **Briefing:** we regenerated the September briefing (id 26) from the cleaned set.
+- **LinkedIn posts:** we turned them on after the map turned out to need them (see below).
+  The market's monthly budget cap is $150, from `MARKET_MONTHLY_BUDGET_USD`.
+
+### Feature · Bluesky top voices for the battery market (DB, bugfixing only)
+Top voices is built from social posts in the market's own article set, and the market had
+none. Group 35, "EV Battery Cells - Social (Bluesky)", searches the 14 company names and six
+battery phrases daily. Its settings copy the AI-SOC market's group 32.
+
+The first run, through `check_single_group`, collected 177 new posts. The social relevance
+step evaluated 481 posts with Claude Haiku 4.5 (the existing default) and passed 264. After a
+corpus scan, Top voices shows 34 voices from 151 accounts, including InsideEVs, Electrek and
+Transport & Environment.
+
+### Fix · Follow lists are per market (`1ff17b72`, migration `mf_001`)
+The follow list was the site-wide `social_accounts.watchlisted` flag, which Brand Watcher's
+account watchlist also sets. So the battery market showed the AI-SOC market's analyst under
+"Accounts we follow" and read his timeline. On top of that, `collect_followed` filters posts
+with SOC words ("SOC", "SIEM", "detection") unless a market sets `follow_markers`, so it kept
+a SIEM tweet in the battery market's coverage.
+
+- **Data:** migration `mf_001` adds `market_follows (market_id, account_id)`. It copies the one
+  watchlisted account (anton_chuvakin) to market 2, the only market he was followed for.
+- **Code:** in **`app/services/market_follow.py`**, `followed`, `follow`, `unfollow` and
+  `collect_followed` all take the market. So do the routes and the market loop. A market
+  follow no longer touches `watchlisted`, which is left to Brand Watcher.
+- **Readers:** **`market_report_html._v2_tracked_voices`** now lists this market's follows
+  plus profiled practitioners who posted in this market. Before, it listed every profiled
+  account on the site. The voices `watchlisted` flag (`market_analysis.top_voices`) reads this
+  market's list.
+- **Filter:** market 1830 has battery `follow_markers`, and we removed the leaked SIEM post
+  from its coverage.
+
+### Feature · The map can size companies from annual reports (`1ff17b72`)
+The Maturity Map sizes companies by LinkedIn headcount, which counts the people who list the
+company. For these groups that is a small fraction: CATL showed 6,422 on LinkedIn against
+131,988 employees. Entering an annual figure as an ordinary LinkedIn snapshot would have caused
+three problems. The next LinkedIn read would replace it, it would expire as stale after two
+collection cycles, and momentum would read the jump as about 2,000% growth.
+
+- **Override:** in **`app/services/market_benchmark._headcount_values`**, a registry row can
+  carry `baseline.headcount_override {employees, as_of, basis, source_kind, source_url}`, used
+  for size only.
+- **Unmeasured:** `{"unmeasured": reason}` leaves size unmeasured with that reason shown.
+- **Momentum:** it keeps comparing LinkedIn readings with each other. Hand-entered
+  (`source='analyst'`) snapshots are excluded from the headcount series.
+
+Figures set on market 1830, with source and date on each row:
+
+| Company | Employees | Basis, as of, source |
+|---|---|---|
+| CATL | 131,988 | global, 31 Dec 2025, annual report |
+| Gotion High-Tech | 33,087 | global, 31 Dec 2025, annual report |
+| LG Energy Solution | 32,718 | global, 31 Dec 2025, 2025 ESG report |
+| EVE Energy | 31,213 | global, 31 Dec 2025, annual report |
+| Samsung SDI | 26,098 | global, 31 Dec 2025, Sustainability Report 2026 |
+| Panasonic Energy | 19,189 | Energy segment, 31 Mar 2026, Panasonic Holdings securities report |
+| CALB | 14,323 | global, 31 Dec 2025, annual report (HKEX) |
+| AESC | 7,000 | "over 7,000", undated, company site (a minimum) |
+| SK On | 3,822 | domestic only, 31 Dec 2025, DART business report |
+| ACC | 2,100 | 14 Apr 2025, CEO testimony to the French National Assembly |
+| PowerCo | 2,000 | ">2,000", undated, company site (a minimum, out of date) |
+| Verkor | 1,000 | "+1,000", undated, company site (a minimum) |
+| BYD | unmeasured | no figure for the battery business (FinDreams Battery). The group's 869,600 was removed at Oliver's request. |
+| Lyten | none | private; still sized by LinkedIn (526) |
+
+A search summary claimed "over 160,000 FinDreams staff at the end of 2022". The FinDreams
+recruitment brochure it seemed to come from quotes only a BYD group figure ("22万余人"), so we
+did not use it. EVE, Gotion and Panasonic Energy also got hand-entered LinkedIn follower counts
+(8,307, 5,558 and 9,863), because the reader returned nothing for their pages.
+
+### Ops · LinkedIn pages corrected
+- **Replaced:** we closed the old `linkedin_company_url` rows and added new ones with their
+  provenance. LG Energy Solution moved to `lgenergysolution` (from a wrong page), Gotion to the
+  group page 国轩高科 (from Gotion Inc.), CALB to `calb-technology` (from a guess), and Panasonic
+  Energy to `panasonicnv`, its North American EV cell business, since the parent has no page.
+- **Kept:** CATL's footer link is the group page despite "gmbh" in the address.
+- **Removed:** the old Panasonic (114) and Gotion (419) profile snapshots came from the wrong
+  pages. We deleted them, with a backup.
+
+### Incident · A restart killed 28 paid reads, and one slow crawl held up every market's collection
+- **Killed reads:** the 10:35 rename restart ran through `restart_when_quiet.sh`, which waits
+  for users, chats, jobs and long queries but not for BrightData reads in flight. All 14
+  LinkedIn profile and 14 Crunchbase reads for the new market were running. At startup they
+  were closed as "found running at startup with no provider job". We re-queued them. Later
+  restarts waited for `bw_collection_runs` with status `running` to reach zero first.
+- **Stalled loop:** after that restart, the market loop spent 10:37 to about 11:25 on the new
+  market's `vendor_web_discovery`. It probes many paths per site, each with a 20-second
+  timeout, and sites that block or hang (CATL and CALB took about 9 minutes each) add up. The
+  loop handles one job at a time, so no collection ran for any market meanwhile, including
+  market 2's queued reads. Not fixed.
+
+### Verification
+- **Follows:** the API showed market 2 following ['anton_chuvakin'] and market 1830 following
+  nobody. Called directly, tracked voices returned 20 rows for market 2 in 0.47 s and 0 for
+  market 1830.
+- **Map:** with the overrides it places 13 of 14 companies (map row 79, and map 81 from the live
+  server after the restart). BYD is unrated with
+  the stated reason.
+- **Bluesky:** the voices API for market 1830 returned 34 voices from 151 accounts.
+- **Topic:** 38 approved, 293 rejected, 3 failed. The market topic has 12 approved, 44
+  rejected and 481 social posts evaluated. The market article set holds 431 corpus and 4
+  collected rows.
+- **Reads:** 15 post, 19 profile and 15 Crunchbase reads succeeded. 14 profile and 14
+  Crunchbase reads failed when the restart cut them off.
+- **Code:** `py_compile` passes on all edited files. No new tests.
+
+### Propagation
+- **Committed and live:** `1ff17b72` on bugfixing. We restarted bugfixing at 13:24, after
+  waiting until no paid reads were running, so none were stranded and there were no tracebacks.
+  We then recomputed map 1830 through the live API (`POST /markets/1830/horizon/compute`). Map
+  81 places 13 companies, with BYD unrated.
+- **Database and config only (not in git):** market 1830, its 14 brands, overrides and
+  snapshots, groups 34 and 35, the topic rename and descriptions in `config.json`. These are
+  on bugfixing only. Migration `mf_001` is applied on bugfixing only. Other sites have no
+  second market and did not ask for this.
+
+### Lessons
+- **ALWAYS check `bw_collection_runs` for `status='running'` before a restart.**
+  `restart_when_quiet.sh` does not, and a restart strands paid reads.
+- **An ordinary topic's name is read as its scope.** A region in the name ("European")
+  outweighs the description, so name a topic for what it should keep.
+- **`setup_market_collection` writes a generic topic description.** Replace it before the
+  first collection, because the relevance judge reads it.
+- **Corpus vocabulary needs phrases, not single words.** One body mention is a match.
+- **Market topics show press releases by default.** Set `include_press_releases: false` where
+  vendors do not announce on wires.
+- **LinkedIn headcount is presence, not size, for Asian groups.** Use
+  `headcount_override` with a source, never a hand-entered snapshot.
+- **A new market's first website crawl can block the market loop for most of an hour.**
 
 ## 2026-10-01 — Collector data quality: 31 work packages implemented in the monolith and the SaaS tree; bugfixing restarted on them
 

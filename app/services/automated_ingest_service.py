@@ -23,7 +23,9 @@ from app.database_query_facade import DatabaseQueryFacade
 from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
-from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+from app.services.hybrid_relevance_service import (
+    get_hybrid_relevance_service, RelevanceUnavailableError, relevance_route_signature,
+)
 
 
 def _merge_matched_keyword_tags(article_data, tags):
@@ -529,6 +531,26 @@ class AutomatedIngestService:
             Dictionary containing relevance score and details
         """
         try:
+            # Retail deal listings ("Best Deal: 4-Pack Colgate Optic White ...") are
+            # never news for any topic, yet the brand judge approves them because
+            # they are about the brand's products. Recognised from the host and
+            # the title, before any model call. See app/services/deal_listing.py.
+            try:
+                from app.services.deal_listing import deal_listing_reason
+                _deal = deal_listing_reason(article_data.get('uri') or article_data.get('url') or '',
+                                            article_data.get('title') or '')
+            except Exception:
+                _deal = None
+            if _deal:
+                self.logger.info(f"Deal listing rejected ({_deal}): {(article_data.get('title') or '')[:80]}")
+                return {
+                    "relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "keyword_relevance_score": 0.0,
+                    "confidence_score": 1.0,
+                    "overall_match_explanation": f"Retail deal listing ({_deal}): not news"
+                }
+
             # Initialize hybrid relevance service if not already done
             if not self.hybrid_relevance_service:
                 self.hybrid_relevance_service = get_hybrid_relevance_service()
@@ -558,16 +580,26 @@ class AutomatedIngestService:
             use_local_llm = inference_mode == 'local'
 
             # Score using hybrid service (embedding + classifier + optional LLM fallback)
+            # The topic's own threshold, the same one the gates below compare
+            # against. The accept-only tiers raise the score to this value, so
+            # passing the global one let a Jev accept be rejected downstream
+            # by a group with a higher floor.
             hybrid_result = self.hybrid_relevance_service.score_relevance(
                 topic=topic,
                 title=title,
                 summary=article_content,
-                threshold=self.get_relevance_threshold(),
+                threshold=self.get_relevance_threshold(topic),
                 use_llm_fallback=use_llm_fallback,
                 force_llm=force_llm,
                 use_local_llm=use_local_llm,
                 keywords=keywords,
             )
+
+            if hybrid_result.get("status") == "unavailable":
+                # Neither local engine nor any fallback answered. The except
+                # below tries the full LLM judge; if that fails too the article
+                # is filed as relevance_check_failed, not rejected.
+                raise RelevanceUnavailableError("no local relevance engine and no fallback answered")
 
             # Map hybrid result to expected pipeline format
             relevance_result = {
@@ -648,14 +680,12 @@ class AutomatedIngestService:
                 topic_description=topic_description
             )
         except Exception as e:
+            # Every evaluator failed. A 0.0 here used to be read as a confident
+            # reject and written to the rejected-candidate ledger, so the
+            # article was never looked at again. Raise instead: the caller
+            # files it as relevance_check_failed and leaves the ledger alone.
             self.logger.error(f"LLM fallback also failed: {e}")
-            return {
-                "relevance_score": 0.0,
-                "topic_alignment_score": 0.0,
-                "keyword_relevance_score": 0.0,
-                "confidence_score": 0.0,
-                "overall_match_explanation": f"Error calculating relevance: {str(e)}"
-            }
+            raise RelevanceUnavailableError(f"no relevance evaluator answered: {e}") from e
     
     def quality_check_article(self, article_data: Dict[str, Any], content: str = None) -> Dict[str, Any]:
         """
@@ -749,7 +779,8 @@ class AutomatedIngestService:
         topic: str = None, 
         keywords: List[str] = None,
         batch_size: int = 5,
-        job_id: str = None
+        job_id: str = None,
+        relevance_threshold_override: Optional[float] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Process articles progressively with real-time updates
@@ -817,7 +848,9 @@ class AutomatedIngestService:
                 tasks = []
                 for article in batch:
                     task = asyncio.create_task(
-                        self._process_single_article_async(article, topic, keywords)
+                        self._process_single_article_async(
+                            article, topic, keywords,
+                            relevance_threshold_override=relevance_threshold_override)
                     )
                     tasks.append(task)
                 
@@ -1676,7 +1709,13 @@ class AutomatedIngestService:
                 if resolved_group is not None:
                     threshold = (relevance_threshold_override if relevance_threshold_override is not None
                                  else self.get_relevance_threshold(topic))
-                    version = _rejected.gate_version(keywords or [], threshold)
+                    # The model route is part of the key: a saved rejection is
+                    # reused only under the settings that produced it.
+                    try:
+                        route_sig = f"{self.get_inference_mode()}|{relevance_route_signature()}"
+                    except Exception:  # noqa: BLE001
+                        route_sig = "unknown"
+                    version = _rejected.gate_version(keywords or [], threshold, model=route_sig)
                     ledger = _rejected.RejectedCandidateLedger(self.db)
                     urls = [a.get("uri") for a in articles if isinstance(a, dict) and a.get("uri")]
                     try:
