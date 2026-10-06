@@ -162,6 +162,7 @@ class BrandProfile:
     owned_domains: Tuple[str, ...]
     non_press_domains: Tuple[str, ...]
     group_ids: Tuple[int, ...] = ()
+    collection_skip: Tuple[str, ...] = ()
     version: str = ""
     _patterns: Dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
@@ -172,9 +173,11 @@ class BrandProfile:
     def collection_terms(self) -> List[str]:
         """Names and products a collector can search for safely: every alias
         except short or ambiguous ones, which pull unrelated pages unless the
-        search engine can apply company context."""
+        search engine can apply company context, and names listed in
+        config.collection_skip (used to recognise mentions, too broad to search:
+        "ライオン" also finds the Lions baseball team)."""
         out = []
-        amb = {norm(a) for a in self.ambiguous}
+        amb = {norm(a) for a in self.ambiguous} | {norm(a) for a in self.collection_skip}
         for a in self.aliases:
             n = norm(a)
             if n in amb or (_is_spaced_script(n) and len(n.replace(" ", "")) <= _SHORT_ALIAS):
@@ -267,6 +270,7 @@ def build_profile(row: Dict[str, Any], registry_domains: Sequence[str] = ()) -> 
         owned_domains=tuple(sorted(set(owned))),
         non_press_domains=tuple(sorted(set(non_press))),
         group_ids=tuple(sorted(set(groups))),
+        collection_skip=uniq(_as_list(cfg.get("collection_skip"))),
         version=_version(payload),
     )
 

@@ -216,3 +216,11 @@ def test_latin_name_inside_a_latin_word_does_not_match():
     assert bp.detect_mention(_p(hal), {"title": "Haleonx and Xhaleon are not the company"}).status == "none"
     assert bp.detect_mention(_p(_row(4, "Lion Corporation", kw=["Lion Corporation"])),
                              {"title": "Lion Corporationé results"}).status == "none"
+
+
+def test_collection_skip_keeps_a_name_for_mentions_but_not_for_search():
+    row = _row(2, "Lion Corporation", kw=["ライオン株式会社"], products=["クリニカ"],
+               original_names=["ライオン"], collection_skip=["ライオン"])
+    p = _p(row)
+    assert "ライオン" not in p.collection_terms() and "ライオン株式会社" in p.collection_terms()
+    assert bp.detect_mention(p, {"title": "ライオンが新製品を発表"}).status == "title"

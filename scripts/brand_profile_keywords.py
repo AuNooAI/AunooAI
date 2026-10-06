@@ -11,7 +11,9 @@ and the missing names are proposed:
   English or unspecified groups; a brand with one group gets everything;
 - multi-word Latin names are quoted, because TheNewsAPI reads a space as AND
   and a proper noun should match as a phrase;
-- short or ambiguous names (BrandProfile.collection_terms) are never added.
+- short or ambiguous names (BrandProfile.collection_terms) are never added;
+- a name that contains an already-searched name as a whole word is skipped,
+  because the shorter search already returns it (quota matters).
 
 Nothing is removed. Default is a dry run; --apply inserts the proposed rows.
 Run from the site's tree so its .env names its database:
@@ -37,6 +39,19 @@ from app.services.brand_coverage import brand_topics  # noqa: E402
 
 def _bare(term: str) -> str:
     return bp.norm(term).strip().strip('"').strip()
+
+
+def _covered(term: str, existing) -> bool:
+    import re
+    for e in existing:
+        if not e or e == term:
+            continue
+        if bp._is_spaced_script(e):
+            if re.search(r"(?<![0-9a-z])" + re.escape(e) + r"(?![0-9a-z])", term):
+                return True
+        elif e in term:
+            return True
+    return False
 
 
 def _query_form(term: str) -> str:
@@ -71,6 +86,11 @@ def propose(conn, only_brand: str | None = None):
         other_groups = [g for g in groups if not (g["language"] or "en").lower().startswith("en")] or list(groups)
         for term in prof.collection_terms():
             if _bare(term) in all_existing:
+                continue
+            # A search for a name already covers longer names that contain it
+            # as a whole word ("Sunstar" returns "Sunstar Group"), so adding
+            # those only spends provider quota.
+            if _covered(_bare(term), all_existing):
                 continue
             targets = latin_groups if _is_latin(term) else other_groups
             if len(groups) == 1:

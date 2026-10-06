@@ -25,7 +25,7 @@ from sqlalchemy import text  # noqa: E402
 
 from app.services.brand_profile import norm  # noqa: E402
 
-LIST_CONFIG_KEYS = ("original_names", "aliases", "products", "ambiguous_aliases", "exclude_context",
+LIST_CONFIG_KEYS = ("original_names", "aliases", "products", "collection_skip", "ambiguous_aliases", "exclude_context",
                     "mention_context", "owned_domains", "non_press_domains", "news_keyword_excludes")
 
 

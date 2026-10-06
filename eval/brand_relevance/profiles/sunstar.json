@@ -36,6 +36,10 @@
           "Brilliant More",
           "ハダカラ",
           "hadakara"
+        ],
+        "collection_skip": [
+          "ライオン",
+          "Clinica"
         ]
       }
     },
