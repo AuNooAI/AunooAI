@@ -721,6 +721,14 @@ class RSSFeedMonitor:
         if not url:
             self._last_store_error = "entry has no URL"
             return STORE_FAILED
+        # rss: social-post links are not news
+        from urllib.parse import urlparse as _urlparse
+        _host = (_urlparse(url).hostname or '').lower()
+        _social = ('bsky.app', 'x.com', 'twitter.com', 'reddit.com', 'truthsocial.com', 'instagram.com',
+                   'tiktok.com', 'facebook.com', 'threads.net', 'mastodon.social')
+        if any(_host == h or _host.endswith('.' + h) for h in _social):
+            logger.info(f"RSS item skipped: {url[:120]} is a social post, not news")
+            return STORE_EXISTING
 
         conn = None
         try:

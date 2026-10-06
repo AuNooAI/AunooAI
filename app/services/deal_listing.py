@@ -31,7 +31,10 @@ DEAL_HOSTS = {
 # Title forms that only a price listing or a deals roundup uses. A plain price
 # with cents ("$5.04") counts; a headline figure ("$2.04 Billion", "$2.73m") does not.
 _TITLE_RE = re.compile(
-    r"(best deal|deal alert|deals? (we|you|worth|to shop|live|just dropped|are back)|promo codes?|coupon"
+    # "coupon" alone also matched bonds ("Fixing of coupon rates - Nykredit",
+    # wileytest 6 Oct): only a coupon code, or coupons not followed by a bond term.
+    r"(best deal|deal alert|deals? (we|you|worth|to shop|live|just dropped|are back)|promo codes?|coupon codes?"
+    r"|\bcoupons?\b(?!\s+(?:rate|payment|bond|reset|fixing|interest)s?\b)"
     r"|\d+ ?% off|\$\d+\.\d\d(?![\d,])(?!\s*(?:b|m|t|bn|k|billion|million|trillion)\b)"
     r"|\b\d+[- ]?(?:pk|pack|count|ct)\b[^|]*\b(?:toothpaste|toothbrush|floss|mouthwash|for \$)"
     r"|prime day|black friday|cyber monday|clearance sale"

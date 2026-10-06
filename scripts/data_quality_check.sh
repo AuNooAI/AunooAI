@@ -42,32 +42,43 @@ q "select k.keyword, count(*) rows, count(*) filter (where a.ingest_status='appr
   join monitored_keywords k on k.id = split_part(m.keyword_ids,',',1)::int
   where left(m.detected_at::text,10) >= $since and $news group by 1 order by 2 desc limit 10"
 
-hdr "Social rows missing metadata the product needs (platform / rows / without sentiment / without author role)"
+hdr "Social rows missing metadata the product needs (platform / rows / without sentiment / relevant posts without author role)"
+# Posts that never name the brand are settled at relevance 0 without a model
+# call and get no author role by design; only relevant posts (>= 0.4) need one.
 q "select coalesce(social_meta->>'platform','?') platform, count(*) rows,
-  count(*) filter (where sentiment is null) no_sentiment, count(*) filter (where author_role is null) no_role
+  count(*) filter (where sentiment is null) no_sentiment,
+  count(*) filter (where author_role is null and coalesce(topic_alignment_score,0) >= 0.4) no_role
   from articles where left(submission_date,10) >= $since and $social group by 1 order by 2 desc"
 
-hdr "Posts stored as news (reddit, x, bluesky URLs without social metadata) — should be 0"
-q "select count(*) from articles where left(submission_date,10) >= $since and $news and uri ~ '^(https?://)?(www\.)?(reddit\.com|x\.com|twitter\.com|bsky\.app)/'"
+hdr "Posts stored as news (reddit, x, bluesky, truth social URLs without social metadata) — should be 0"
+q "select count(*) from articles where left(submission_date,10) >= $since and $news and uri ~* '^(https?://)?([a-z0-9-]+\.)*(reddit\.com|x\.com|twitter\.com|bsky\.app|truthsocial\.com)/'"
 
-hdr "Duplicates: same title on different URLs (groups / extra rows) and press-release wires (rows / approved)"
-q "select (select count(*) from (select title from articles where left(submission_date,10) >= $since and $news and title is not null group by title having count(*)>1) d) dup_groups,
-  (select coalesce(sum(n-1),0) from (select count(*) n from articles where left(submission_date,10) >= $since and $news and title is not null group by title having count(*)>1) d) extra_rows,
+hdr "Duplicates: same title on different URLs that readers still show (groups / extra rows) and press-release wires (rows / approved)"
+# Rows already labelled as a copy (duplicate_of) are hidden by every reader, so
+# they are not counted (sites with the duplicates build).
+dupf=""
+if q "select 1 from information_schema.columns where table_name='articles' and column_name='duplicate_of'" | grep -q 1; then dupf="and duplicate_of is null"; fi
+q "select (select count(*) from (select title from articles where left(submission_date,10) >= $since and $news $dupf and title is not null group by title having count(*)>1) d) dup_groups,
+  (select coalesce(sum(n-1),0) from (select count(*) n from articles where left(submission_date,10) >= $since and $news $dupf and title is not null group by title having count(*)>1) d) extra_rows,
   (select count(*) from articles where left(submission_date,10) >= $since and $news and uri ~ '(prtimes|prnewswire|businesswire|globenewswire|presseportal|atpress|openpr|newswire)') wire_rows,
   (select count(*) from articles where left(submission_date,10) >= $since and $news and ingest_status='approved' and uri ~ '(prtimes|prnewswire|businesswire|globenewswire|presseportal|atpress|openpr|newswire)') wire_approved"
 
 hdr "Deal listings: rejected by the rule (last 7 days, journal) / still approved (should be 0)"
 printf '%s rejected | ' "$(sudo journalctl -u "$unit" --since "7 days ago" --no-pager 2>/dev/null | grep -c 'Deal listing rejected')"
-q "select count(*) from articles where left(submission_date,10) >= $since and $news and ingest_status='approved' and (uri ~* '(dealigg|slickdeals|dansdeals|ozbargain|hotukdeals|dealnews|bensbargains|mydealz|hip2save|9to5toys|retailmenot|couponfollow)' or title ~* '(best deal|deal alert|promo codes?|coupon|\\d+ ?% off)')"
+q "select count(*) from articles where left(submission_date,10) >= $since and $news and ingest_status='approved' and (uri ~* '(dealigg|slickdeals|dansdeals|ozbargain|hotukdeals|dealnews|bensbargains|mydealz|hip2save|9to5toys|retailmenot|couponfollow)' or title ~* '(best deal|deal alert|promo codes?|coupon codes?|\\mcoupons?\\M(?! (rate|payment|bond|reset|fixing|interest)s?)|\\d+ ?% off)')"
 
 hdr "Top source domains of approved news (owned vendor blogs show up here)"
 q "select split_part(regexp_replace(uri,'^https?://(www\.)?',''),'/',1) domain, count(*) approved
   from articles where left(submission_date,10) >= $since and $news and ingest_status='approved' group by 1 order by 2 desc limit 8"
 
 hdr "Non-English groups: rows / translated (title in English, original kept)"
+if q "select 1 from information_schema.columns where table_name='keyword_groups' and column_name='language'" | grep -q 1; then
 q "select a.topic, count(*) rows, count(*) filter (where original_title is not null) translated
   from articles a join keyword_groups g on g.topic=a.topic
   where g.language is not null and g.language<>'en' and left(a.submission_date,10) >= $since and $news group by 1 order by 2 desc limit 8"
+else
+  echo "(this site's keyword groups have no language column)"
+fi
 
 hdr "Enrichment failures and rows stuck without a status"
 q "select coalesce(ingest_status,'(null)') status, count(*) from articles where left(submission_date,10) >= $since and $news and (ingest_status is null or ingest_status not in ('approved','filtered_relevance')) group by 1 order by 2 desc"

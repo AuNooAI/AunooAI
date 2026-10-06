@@ -43,3 +43,22 @@ def test_brand_news_and_earned_mentions_pass(url, title):
 def test_empty_input_is_not_a_deal():
     assert deal_listing_reason(None, None) is None
     assert deal_listing_reason("", "") is None
+
+
+
+@pytest.mark.parametrize("title", [
+    "Fixing of coupon rates - Nykredit Realkredit A/S",
+    "Coupon rate fixing for floating-rate bonds",
+    "Notice of coupon payments on senior notes",
+])
+def test_bond_coupons_are_not_deal_listings(title):
+    assert deal_listing_reason("https://www.globenewswire.com/news-release/x", title) is None
+
+
+@pytest.mark.parametrize("title", [
+    "Colgate coupon: save $2 on Optic White",
+    "Best Crest coupons this week",
+    "Oral-B coupon code for 20% off",
+])
+def test_shopping_coupons_still_count(title):
+    assert deal_listing_reason("https://www.example-news.com/x", title) is not None
