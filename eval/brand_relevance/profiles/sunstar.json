@@ -68,11 +68,24 @@
           "Holy Cross",
           "Fordham",
           "Harvard",
-          "Hamilton, N.Y."
+          "Hamilton, N.Y.",
+          "Professor",
+          "professor of",
+          "students",
+          "student researchers",
+          "campus",
+          "alumni",
+          "faculty"
         ],
         "owned_domains": [
           "colgate.com",
           "colgatepalmolive.com"
+        ],
+        "news_keyword_excludes": [
+          "colgate.edu",
+          "Colgate University",
+          "Colgate Raiders",
+          "Colgate Rochester"
         ]
       }
     },
@@ -97,6 +110,18 @@
           "sunstar.com",
           "sunstargum.com",
           "jp.sunstar.com"
+        ],
+        "exclude_context": [
+          "Philippine*",
+          "Cebu",
+          "Davao",
+          "Manila",
+          "editor",
+          "columnist",
+          "newspaper",
+          "Ex-SunStar",
+          "SunStar Daily",
+          "SunStar Publishing"
         ]
       }
     },

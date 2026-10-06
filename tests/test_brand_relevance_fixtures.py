@@ -159,3 +159,12 @@ def test_oviva_sector_stories_are_sector_not_earned():
         if d.evidence.get("mention") in ("title", "body"):
             continue  # names Oviva in its text after all; the judge decides
         assert d.brand_relation == "sector" and not d.earned and judge.calls == [], r["title"]
+
+
+def test_same_name_entities_are_rejected_by_rule_without_a_model():
+    """The SunStar Philippines newspaper and Colgate University (colgate.edu):
+    rule decisions, no judge call (6 Oct rejection probe)."""
+    site, rows = _rows("sunstar_same_name_rejections")
+    for r in rows:
+        d, judge = _decide(site, r)
+        assert d.brand_relation == "other" and d.provenance == "rule" and judge.calls == [], (r["title"], d.evidence)
