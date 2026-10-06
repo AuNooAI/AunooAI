@@ -29,7 +29,7 @@ for f in $MOD; do [ -f "$T/$f" ] || { echo "missing $f"; exit 2; }; done
 mkdir -p "$P"
 for f in app/routes/brand_watcher_routes.py app/services/brand_risk_assessment.py; do
   git -C "$C" diff d43c27a5..HEAD -- "$f" > "$P/$(basename $f).patch"
-  if grep -q '_bcov' "$T/$f"; then echo "  $f: already patched"; continue; fi
+  if grep -q -E '_bcov|def _rel_sql' "$T/$f"; then echo "  $f: already patched"; continue; fi
   (cd "$T" && patch -p1 --dry-run --forward -s < "$P/$(basename $f).patch") >/dev/null || { echo "  $f: patch does not apply"; exit 2; }
   echo "  $f: patch applies"
 done
@@ -48,7 +48,7 @@ for f in $MOD $NEW; do [ -f "$T/$f" ] && (cd "$T" && cp --parents "$f" "$BK/"); 
 echo "== backup: $BK"
 for f in $NEW; do mkdir -p "$T/$(dirname $f)"; cp "$C/$f" "$T/$f"; done
 for f in app/routes/brand_watcher_routes.py app/services/brand_risk_assessment.py; do
-  grep -q '_bcov' "$T/$f" || (cd "$T" && patch -p1 --forward -s --no-backup-if-mismatch < "$P/$(basename $f).patch")
+  grep -q -E '_bcov|def _rel_sql' "$T/$f" || (cd "$T" && patch -p1 --forward -s --no-backup-if-mismatch < "$P/$(basename $f).patch")
 done
 python3 "$C/scripts/brand_rollout/transform_ingest.py" "$T" --apply | tail -1
 python3 "$C/scripts/brand_rollout/transform_alert_queries.py" "$T" app/tasks/brand_watcher_monitor.py --apply
