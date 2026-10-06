@@ -179,7 +179,7 @@ own voice as outside coverage.
   any restart.
 
 ### Propagation
-State at 17:09 on 6 October, from each site's `.env` and systemd:
+State on the evening of 6 October, from each site's `.env` and systemd:
 
 | Site | `br_001` | `BRAND_RELATION_DECISIONS` | Process started | Effective |
 |---|---|---|---|---|
@@ -190,12 +190,15 @@ State at 17:09 on 6 October, from each site's `.env` and systemd:
 | wbm | yes | 1 | 17:04 | yes |
 | wiley | yes | 1 | 17:04 | yes (no brands, so nothing changes today) |
 | panaya | yes (+ `bm_001`) | 1, `MARKET_VENDOR_DECISIONS=1` | 16:45 | yes (no brand-topic groups; the flag only moves alerts and digests to earned news) |
-| wileytest | yes | 1 (written 16:06) | 12:10 | **no: the restart is still pending** |
+| wileytest | yes | 1 (written 16:06) | 19:09 | yes, from 19:09 (see below) |
 | bwtemplate | yes | 1 (encrypted `.env`) | stopped | takes effect when started |
 
-- **wileytest:** its flag was set at 16:06 and the queued quiet-restart is no longer running.
-  The process started at 12:10 still has the flag off and lacks the 17:04 threshold fix. It
-  needs a restart when quiet. At 17:09 it had 6 active users and an ingest run going.
+- **wileytest:** its flag was written at 16:06, but the process started at 12:10 kept running
+  without it, and without the 17:04 threshold fix, because the earlier queued quiet-restart had
+  expired. Two further quiet-restart attempts followed. The first gave up after 60 minutes with 2
+  users still active. The second restarted it at 19:09, with only an ingest run going (which the
+  script waits out for a set time and then ignores), HTTP 307 on the health check and no
+  tracebacks. The flag and the threshold fix are live there from 19:09.
 - **Ten stopped sites** (abbott, helpnet, ibaset, interroll, opendemo, pbm, pearson, sage,
   skunkworkx, vc) lack helpers the new code imports. Several also lack the Brand Watcher
   modules. They need a general catch-up first, and that has not started.
