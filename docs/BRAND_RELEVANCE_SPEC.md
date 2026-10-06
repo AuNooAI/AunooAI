@@ -1,208 +1,482 @@
-# Brand topic relevance: spec
+# Brand relevance: implementation specification
 
-_2026-10-06 · status: draft for Oliver's review · scope: news rows on brand topics ("Brand Monitoring X")_
+_Adopted 2026-10-06. Replaces the 2026-10-06 draft (`ffd1249a`). Scope confirmed by Oliver on
+2026-10-06: every monolith site on the shared brand-news path, wileytest included. Appendix A holds
+the deployment inventory; Appendix B the build and rollout plan; Appendix C the progress log._
 
-## 1. The problem
+Fix brand relevance in the shared monolith and carry the fix from bugfixing to every related tenant.
+Genuine coverage must reach the right brand, sector stories and the brand's own content must remain
+available without inflating press counts, and failed model calls must stay visible and retryable.
 
-A brand topic should keep every news article that is coverage of the brand and nothing else. On the
-two proof-of-value sites that run brand monitoring it does neither reliably, and every fix so far has
-been a hand repair of one topic.
+This is an implementation specification. The scope includes collectors, relevance decisions, stored
+matches, every reader of those decisions, validation, tenant rollout and rollback. Sunstar and Oviva
+supply reported examples; they do not limit the rollout.
 
-Measured on 6 October over the last 30 days of news rows:
+## Scope and decisions
 
-| Topic | Rows | Approved | Rejected rows that name the brand in their title |
-|---|---|---|---|
-| Sunstar · Colgate-Palmolive | 251 | 18 | 40 |
-| Sunstar · Lion Corporation | 333 | 0, then 3 after a hand rescore | 12 |
-| Sunstar · P&G Oral-B | 160 | 6 | 10 |
-| Sunstar · Sunstar | 113 | 2 | 7 |
-| Oviva · Oviva | 60 | 54 | 0 |
+Bugfixing is the canonical validation site. Every related deployment using the shared brand-news path
+is in scope, including future tenants. Before implementation, produce the actual deployment inventory:
+site, source revision, database version, brand configuration, model route, enabled features and
+deployment owner. A site with no active brands still needs migration and regression checks.
 
-What those rows are, from samples:
+Apply the same coverage rules everywhere:
 
-- **Real coverage rejected.** Of 15 sampled Colgate rows that name the brand and were rejected, about
-  a third are real coverage: "Colgate-Palmolive explores sale of three personal care brands in $1 bn
-  plus deal" (0.40), "Colgate-Palmolive Declares Regular Quarterly Dividend" (0.40), a Barclays
-  conference transcript (0.30), and two title-only items marked failed. The rest are correct
-  rejections: Colgate University football, deal listings, stock-list mentions.
-- **Japanese coverage invisible.** Lion's topic approved nothing for a month. Lion Dental Materials'
-  product launch scored 0.10 and the Clinica advert 0.30. Today's judge scores them 0.8 to 0.9 with
-  the same inputs; the stored scores came from older pipeline versions and were never redone.
-- **Non-coverage approved.** Of Oviva's 54 approvals, 51 do not name Oviva. They are Oviva's own
-  recipe and diet blog posts, German weight-loss sector stories, and some noise ("ehex starts rollout
-  for HSM-B in TI-Gateway").
+| Content | Where it appears | Counts as earned brand coverage |
+| - | - | - |
+| A story about the brand or a meaningful contribution by it | Brand press view | Yes |
+| A genuine mention of the correct brand in a news headline | Brand press view | Yes |
+| A relevant sector story with no meaningful brand involvement | Separate sector filter | No |
+| The brand's own relevant content | Separate owned-content filter | No |
+| A passing body mention | Available in broader topic results where appropriate | No |
+| Wrong company, retail deal, fan recipe, unrelated or excluded content | Excluded from brand press | No |
 
-## 2. Why it fails
+A headline match must identify the correct company. Source and content exclusions still apply. A
+recipe page or shop listing does not become press because its title names a brand.
 
-1. **A coarse score meets a fine cut.** The judge answers in steps of 0.1 and the site cut is 0.45.
-   Its prompt puts "the brand is a notable part of the story" at 0.3 to 0.6, a band the cut splits.
-   A story about Colgate selling three brands lands at 0.40 and is rejected.
-2. **The judge learns who the brand is from the collector's search terms.** For Lion those were four
-   terms, none of them the Japanese company name or most product lines. The brand profile
-   (`bw_brands`) holds names, products and people, but the news judge never reads it.
-3. **Old verdicts are never redone.** The gate version stamp (`rejected_candidates.gate_version`)
-   decides whether a saved rejected *candidate* is re-judged on the next collection. Nothing
-   revisits stored articles when the judge, the model or the profile changes.
-4. **Title-only articles fail whatever they say.** The no-text guard in
-   `automated_ingest_service._process_single_article_async` marks a row `enrichment_failed` before
-   any relevance check, so "Colgate-Palmolive seeks to divest some personal care brands" never reaches
-   the judge.
-5. **Owned content and sector news count as brand coverage.** The brand prompt approves "the
-   industry/sector/policy it operates in" at 0.7 to 1.0 and has no notion of the brand's own site.
-6. **Nothing measures correctness.** `scripts/data_quality_check.sh` counts volumes. Whether a change
-   helped is answered by a hand sample each time.
+Keep theme, market and social scoring contracts intact. The separate SaaS implementation needs its
+own compatibility work; this specification does not authorize replacing either repository's
+architecture.
 
-## 3. What we build
+## Starting point
 
-One decision path for brand-topic news, in four steps. Theme and market topics keep the current path.
+Start from the current canonical source and each tenant's deployed version. The reviewed monolith
+snapshot is `644ceec6503131472c3ea4d92895432c638b5619` (on GitHub; not in the local canonical repo,
+whose HEAD was `f9d3b33f` on 2026-10-06). Its brand relevance draft is a starting point for the shared
+change.
 
-### 3.1 Brand identity comes from the brand profile
+Preserve and verify the existing integrity fixes and decision reuse. Patch remaining gaps rather than
+recreate working features. This specification replaces the draft's Sunstar-and-Oviva-only rollout,
+automatic historical resweep and large mandatory annotation programme.
 
-The profile in `bw_brands` becomes the single source of who the brand is, for collection, judging and
-display. Fields used:
+The reported Sunstar restores and stock-valuation reversions remain historical decisions. Deployment
+must not undo them.
 
-- `brand_keywords`, `product_keywords`: names in **every script the site covers**. Lion gains
-  ライオン, LION, ライオン歯科材, and its oral-care product lines in Japanese and Latin script.
-- `config.mention_context` and `config.exclude_context`: as in Oviva's mention gate today.
-  `exclude_context` is where collisions go: for Colgate, "university", "Raiders", "football",
-  "basketball", "lacrosse"; for Lion, "Lionsgate", "sea lion".
-- `config.owned_domains` (new): the brand's own sites (oviva.com, colgate.com, lion.co.jp).
-- `config.non_press_domains`: as today.
+## Brand identity and collection
 
-A site without a profile field falls back to the topic's search terms, so nothing breaks before the
-profiles are filled in. Filling them in for the 14 brands on Sunstar and Oviva is part of the work.
+Use one effective brand profile for collection, mention detection and every model route. It contains
+a stable brand identifier, canonical company identity, names and aliases, products, original-language
+names, context needed for ambiguous names, exclusions, owned domains and the existing non-press rules.
 
-### 3.2 A deterministic mention check runs first
+Use `bw_brands` and its existing keyword/configuration fields where possible. Generic defaults may
+fill absent fields; they must not overwrite explicit tenant rules. Record a normalized profile version
+so changes can invalidate future decision reuse.
 
-`brand_mention_gate.py` (on bugfixing and Oviva today, missing on Sunstar) is extended into a mention
-check that reads title, summary and the original-language title and summary, and returns one of:
+Resolve a topic to one enabled brand profile within its tenant and group. Display names are not
+unique identifiers. Multiple matching enabled profiles must produce a visible configuration error and
+an undecided candidate; do not merge their aliases or select the first row.
 
-- `title`: a brand or product name is in the title.
-- `body`: a name is in the summary or body only.
-- `none`: no name anywhere.
-- `same_name`: every match sits beside an `exclude_context` word.
+Match the original title, available summary and article text. Normalize Unicode consistently and
+support Japanese and other non-Latin names without applying English word boundaries to them. Short or
+common aliases need the configured company context. Literal matching confirms that a name occurs; it
+does not by itself prove which company the article means. Resolve known collisions with evidence and
+leave unresolved identity cases undecided. Record the matched alias, evidence field and a short
+evidence extract. A search query or a provider's claimed match is collection evidence, not proof that
+the article mentions the company.
 
-`same_name` rejects without a model call. The other three go to the judge with the result attached.
+Collectors must use the configured company names, products and language variants. Keep query
+provenance and pagination/checkpoint behavior. Deduplicate candidates without discarding their topic
+and keyword associations.
 
-### 3.3 The judge answers a category, not a number
+Fix the reported collector defects with captured payloads:
 
-For brand topics the judge is asked which of these describes the article, given the brand profile:
+- Phantom matches must retain the provider query and show whether the returned content actually
+  supports the match. Apply the topic's query semantics before presenting a verified brand mention.
+- Retail deals, valuation pages and fan content must follow the existing intended source/content
+  rules. Add positive examples so ordinary reporting on the company is retained.
+- Reddit mapping must preserve available author, permalink, publication time and engagement fields.
+  Missing fields stay missing.
 
-| Label | Meaning | Default outcome |
+## Decision order
+
+For each article and target brand, run these steps in order:
+
+1. Resolve the scoped profile and the actual evidence available.
+2. Apply entity-collision and existing source/content exclusions.
+3. Determine whether the publisher is owned by this target brand.
+4. Detect the verified company or product mention.
+5. Reuse a valid decision for exactly the same inputs, if one exists.
+6. If a brand mention is present, judge the article's relationship to the brand.
+7. Apply the verified headline rule, save the scoped decision and expose its provenance.
+
+Do not pay for a brand judge to decide an article with no verified mention. Route it through the
+existing sector/topic rules where applicable; otherwise it is outside brand coverage. Absence of a name
+is not enough to declare every article a sector story.
+
+Ownership is relative to the target brand. A publisher can be owned content for one brand and
+independent coverage of another. Use configured owned domains and existing EntityIntelligence domain
+identifiers, preserving supported legacy ownership tags. Match domain boundaries correctly; do not
+trust arbitrary URL substrings or content instructions.
+
+A correct company name in a genuine news headline guarantees coverage after exclusions. The judge may
+distinguish subject from notable, but cannot demote it to passing or other merely because the body is
+unavailable. If a conclusive headline or exclusion rule settles the decision, persist that rule
+decision with its evidence and provenance even if a separate model attempt fails; do not fabricate a
+successful model verdict.
+
+A title-only item with a verified headline mention enters the judge using its title. Store and display
+that limited-evidence status. Neither the prompt nor the saved reason may invent body content. An item
+with insufficient evidence and no qualifying headline follows the existing enrichment-failure path,
+remaining visible for retry.
+
+## Relationship labels and model contract
+
+The brand judge returns a category and a short reason:
+
+| Label | Meaning | Earned inclusion for an independent eligible source |
+| - | - | - |
+| subject | The brand is a main subject of the story | Include |
+| notable | The brand has a meaningful role, quotation, action or comparison | Include |
+| sector | Relevant market coverage without meaningful brand involvement | Exclude from earned counts |
+| passing | Incidental body mention | Exclude from earned counts |
+| other | Unrelated, wrong entity or otherwise outside the coverage rules | Exclude |
+
+Keep relationship and publisher ownership separate. A subject story published by the brand belongs in
+owned content rather than earned press.
+
+Categories express the coverage rules directly; they do not guarantee more stable model answers.
+Measure repeatability on a bounded set with fixed evidence, profile, rubric and model version,
+deliberately bypassing decision reuse only for that comparison. Report decision changes and failures.
+Ordinary processing continues to reuse valid decisions. A reported score change is evidence to
+investigate, not proof that every numeric approach or controlled rescore must fail.
+
+The internal decision must match a strict schema: one allowed label and one nonempty reason. Each
+provider adapter must first validate the provider's actual response contract, then construct that
+internal result. Reject missing fields, unknown labels, malformed JSON and unsupported values. Apply a
+bounded response size and existing timeout/retry limits. Article text is untrusted evidence;
+instructions embedded in it cannot change the rubric or response contract.
+
+A timeout, missing model, malformed result or exhausted fallback is an unavailable model judgment. It
+is not a relevance score of zero, a rejection, or a successful model decision. Use the configured
+fallback only through the same validation contract. If every route fails and no conclusive
+deterministic rule applies, record the failed attempt and leave the candidate retryable.
+
+For compatibility, the labels may map to existing numeric fields: subject 0.9, notable 0.7, sector
+0.5, passing 0.2 and other 0. These numbers are compatibility grades, not probabilities. The category
+determines brand inclusion. A numeric cutoff must not admit sector content or reject a valid
+categorical headline decision.
+
+Legacy numeric routes must validate finite numbers in the allowed range before coercion. Reject
+booleans, NaN, infinity and out-of-range values. Handle supported decimal and scientific notation
+consistently across local, LLM and Jev adapters.
+
+## Storage and decision reuse
+
+Extend the scoped `keyword_article_matches` record with nullable `brand_relation`, `judge_version` and
+`source_relation`. The scoped `source_relation` is owned, independent or unknown for this article and
+target brand; NULL belongs to legacy rows. New earned decisions require independent ownership
+classification. A new unknown classification remains deferred. Keep existing decision status, score
+and timestamp fields where they already serve the purpose, and retain evidence quality and provenance
+in compatible storage.
+
+The global `articles.bias_source` may remain a legacy display field, but it cannot determine ownership
+for every brand. Brand readers must use the scoped classification. Test one URI that is owned for
+brand A and independent coverage of brand B; its earned inclusion must differ correctly without
+changing either brand's other decisions.
+
+Keep three distinct outcomes: a valid included decision, a valid excluded decision and an unavailable
+judgment. Unknown or corrupt stored labels must be surfaced as invalid and omitted from new earned
+calculations; they must not fall back silently to a numeric score.
+
+Rows with no new label retain their legacy decision until an explicit evaluation occurs. Preserve
+operator overrides and restored historical decisions. A failed repeat must retain the previous valid
+verdict and record the failed attempt separately.
+
+Article and scoped-match updates must commit together wherever the operation changes both. A missing
+target row or zero affected rows is a failed save. Preserve other brands' and groups' decisions and
+all valid keyword associations.
+
+Reuse both valid included and excluded decisions only when all decision inputs match:
+
+- tenant, group/topic and canonical brand identity;
+- the article evidence actually judged, including title-only versus enriched content;
+- the effective profile and coverage policy;
+- the rubric/prompt version and resolved model route/version;
+- relevant source classification and explicit overrides.
+
+A URI or display name alone is insufficient. A failed attempt is never a cached negative decision.
+New or undecided candidates use the current inputs. Previously decided rows keep their verdict when
+collectors rediscover them, even if the current profile, model or prompt differs. Changed inputs
+invalidate reuse for an explicitly requested reevaluation; they do not authorize replacing an
+existing verdict. Reconsidering decided rows, including after enrichment, requires a bounded repair
+request or a deliberate operator action.
+
+## Every consumer must use the same inclusion rules
+
+Use one shared brand inclusion predicate in API and background readers. Apply it before pagination,
+totals and aggregations. Article lists, filters and exports must agree with the counts they show.
+
+Update the brand readers for article/category/time statistics, comparisons, share of voice,
+sentiment, perception, narratives, digests and alerts. Earned metrics and earned alerts use eligible
+independent subject/notable content. Sector and owned items remain separately accessible and clearly
+marked.
+
+Do not leave score-only queries such as `score >= 0.4` in brand calculations: the compatibility grade
+for sector would pass them. Keep legacy fallback only for genuinely unlabeled rows.
+
+Count a distinct article once per brand within the requested tenant/group/topic scope, even if
+several keywords or categories match it. Preserve the product's existing cross-brand comparison
+denominator and deduplication policy, documenting it in the metric response. One brand's decision must
+not alter another brand's coverage.
+
+The UI must show the relationship, ownership and limited-evidence/unavailable status where those
+affect interpretation. Reader-facing explanations use plain language. Missing measurements display as
+unavailable, not zero.
+
+## Jev and model selection
+
+Retain reversible per-tenant model settings and the existing fallback configuration. Do not switch all
+tenants to Jev as a side effect of this change. Comparison calls and discovery experiments remain
+opt-in, with explicit cost limits.
+
+Every adapter receives the same effective evidence, profile and rubric and produces the same internal
+decision contract. Prefer Jev Choice for the mutually exclusive relationship labels: it returns the
+selected option, the option probabilities and confidence. The adapter must supply the internal reason
+from actual match evidence when the provider does not return a rationale; it must not invent an
+explanation. (https://docs.typesafe.ai/primitives/choice)
+
+Jev Score is an expectation over ordered descriptive levels. Normalizing it does not turn it into
+relevance probability. Noul answers one yes/no proposition; it does not measure degree of relevance.
+A numerical rubric therefore needs an explicit mapping and separate validation before it can drive
+these categories. (https://docs.typesafe.ai/primitives/score, https://docs.typesafe.ai/primitives/noul)
+
+Pin an explicit supported model version and record the resolved model returned by the provider.
+Validate expected question IDs and answer types, exact category keys, finite numeric values,
+probability/confidence bounds and a probability sum near one using documented tolerances. The
+selected Choice option must be one of the highest-probability options. A Score adapter must also
+verify its level legend, range and weighted expectation. Follow the actual API schema rather than
+requiring an invented success field. (https://docs.typesafe.ai/models, https://docs.typesafe.ai/api)
+
+Authentication/request errors and missing or invalid answers remain unavailable judgments. Rate-limit
+and transient-service retries use bounded backoff and the run's time/cost limits. Keep provider errors
+separate from valid low relevance. (https://docs.typesafe.ai/api#errors)
+
+Model disagreement means a case needs investigation. Agreement does not establish accuracy. Jev
+confidence summarizes its returned distribution; it is not a guarantee of correctness. Do not display
+confidence or category probabilities as measured AuNoo accuracy without domain evaluation. Include
+ambiguous entities, adversarial article instructions and option-order changes in adapter validation.
+(https://docs.typesafe.ai/confidence, https://docs.typesafe.ai/model-jaggedness/jev-1.13)
+
+Model and threshold controls remain usable when there are no human labels. Configuration changes must
+have an immediate rollback. An empty comparison run is inconclusive; it cannot report a win, 100
+percent accuracy or a successful benchmark.
+
+## Other hardening requirements
+
+Apply these checks to all related tenant callers, including non-brand paths where the defect is shared:
+
+- Pass effective group thresholds and supported request overrides through processing. Preserve the
+  existing behavior of unrelated scoring paths.
+- Preserve research inputs when scoring is unavailable; do not silently filter them out.
+- Respect the status returned by called jobs. Failed, skipped and partial work cannot become a
+  successful parent result.
+- Advance checkpoints only after the associated durable writes succeed. Failed saves must leave work
+  replayable.
+- Bound retries, concurrency and per-run model spend; reuse decisions before calling a provider.
+- Keep tenant/group scope in queries, caches and update predicates. Prevent concurrent workers from
+  creating conflicting duplicate matches using existing database constraints or locking.
+- Record model route, policy version, reuse/new-call status, failure reason and resulting inclusion.
+  Keep secrets and unnecessary full article text out of routine logs.
+
+Verify already shipped protections with focused regression tests. Do not introduce a separate scoring
+service, mandatory ledger or broad database rebuild solely to deliver these fixes.
+
+## Validation without a large annotation project
+
+The agreed targets are precision and recall of 0.90: at least 90 percent of included items should be
+genuine coverage, and at least 90 percent of genuine coverage in the evaluated candidate population
+should be retained. These are separate measures, not a single accuracy score or a guarantee of finding
+every published story.
+
+Start with 20 reviewed rows per distinct brand identity and coverage policy as a diagnostic check.
+Reuse an existing reviewed set across tenants when the company identity and rules match. Targeted
+extra review is needed only for a different policy, ambiguous identity, language gap or a failing case.
+
+There is no mandatory fresh set per tenant and no hundreds-of-clicks gate on operational fixes or
+model controls. Shared automated fixtures and known reviewed examples support rollout. If there are no
+reviewed examples for an accuracy claim, show that the measurement is unavailable.
+
+The review question is plain: does this article belong in independent coverage of this brand? Also
+record sector, owned and cannot-tell cases so failures are not forced into yes/no answers. Include
+accepted and rejected candidates, headline and body mentions, limited text, original-language aliases,
+collisions, owned sources and excluded sources. Record how rows were sampled; use population weights
+when estimating rates from deliberately uneven samples.
+
+Report true positives, false positives, false negatives, sample support and unavailable judgments.
+Precision is TP/(TP+FP); recall is TP/(TP+FN). A missing denominator is unavailable. Report decision
+availability separately and show how failures affect end-to-end coverage rather than dropping them
+from the report.
+
+Recall measured on collected candidates does not measure stories the collectors never found. Check
+discovery coverage separately using known missed stories or an explicitly sampled discovery set. Do
+not label model-produced answers as human ground truth.
+
+Twenty rows expose obvious mistakes; they do not prove 0.90 performance across production. Replaying a
+fixed reviewed set checks regression on those examples; it must not be presented as the current week's
+feed accuracy or collection coverage. A claim about current production requires a suitable reviewed
+sample from the stated period, with its sampling method and uncertainty. That review is required for
+the claim, not for routine operation or access to model controls.
+
+Show uncertainty and the population covered. If measured results miss the target, investigate before
+enabling the changed automatic decision path for that affected configuration. Review and a recorded
+rollout decision replace a rigid automatic benchmark lock.
+
+## Required acceptance checks
+
+| Area | Passing behavior |
+| - | - |
+| Scope | Bugfixing and every inventoried related tenant have a recorded compatibility and rollout result |
+| Identity | Ambiguous names and duplicate profiles defer; multilingual and product aliases resolve with evidence |
+| Headlines | Correct-company news headlines remain coverage, including title-only cases; collisions and excluded pages do not |
+| Separation | Sector and owned content are visible separately and never inflate new earned counts or alerts; one URI can be owned for A and earned for B |
+| Failure | Invalid/provider-failed judgments stay unavailable and retryable; a previous valid verdict survives |
+| Reuse | Identical inputs avoid another paid call; changed content/profile/model does not reuse an incompatible verdict |
+| Persistence | Failed/zero-row saves fail the job, preserve scoped associations and do not advance checkpoints |
+| Consumers | Lists, exports, totals, narratives, digest and alerts apply the same rules without duplicate joins |
+| Controls | Model selection works with no labels; route and feature rollback restore the prior behavior |
+| History | Migration, startup, profile edits and rollout perform no automatic historical rescore |
+
+Use captured failing examples and representative positives as regression fixtures. Include the
+reported Sunstar multilingual/headline misses, ordinary independent company reporting, Oviva-owned and
+sector content, fan recipes, phantom search matches and incomplete Reddit payloads. Carry fixtures to
+canonical validation rather than requiring bugfixing to have the same live brands.
+
+Run schema migration and API/background/UI contract tests, strict-parser/provider-failure tests,
+scoped persistence/reuse tests and the relevant existing suite. Then run a per-tenant configuration
+smoke check and one representative collection cycle during implementation rollout.
+
+## Rollout and historical repair
+
+Ship a compatible database migration before enabling label-aware writers/readers. Keep legacy rows
+readable and categorical decisions disabled until the shared checks and tenant configuration review
+pass. Package backend, migration, API contract and UI changes together. Preserve tenant-specific
+features; older sites need a compatible patch rather than an unrelated wholesale replacement.
+
+Validate on bugfixing first. Then enable one representative affected tenant, inspect a collection
+cycle and expand in stages across the full inventory. Record revision, migration version, effective
+profile/model and validation result for each site. Newly provisioned tenants must receive the same
+contract.
+
+Observe decision failures, deferred identities, unavailable rates, earned/sector/owned counts,
+duplicate counts, reuse rate, new model calls, cost and latency per tenant. Stop expansion on a broken
+contract, unexplained lost decisions or cross-scope updates. Rollback must restore the previous
+route/read behavior while preserving stored labels and decisions.
+
+Historical repair is a separate action. Prepare a bounded list of article-brand rows with old and
+proposed decisions and reasons, review the changes, then use a controlled job with rate limits, stop
+controls and recoverable before-values. Never rescore old verdicts automatically because a model,
+prompt, profile or deployment version changed.
+
+Completion requires a passing shared implementation, compatible readers and configuration on every
+inventoried tenant, demonstrated rollback, and a documented result for the known failure cases.
+Accuracy claims require measured support; operational completion does not require a new annotation
+programme.
+
+---
+
+## Appendix A. Deployment inventory (2026-10-06)
+
+Read from each site's tree, database and `.env`. "Brand news" = news rows on `Brand Monitoring %`
+topics submitted in the last 30 days. "Verdict columns" = `keyword_article_matches` has
+`relevance_status`, `topic_alignment_score` and `scored_at` (migration `rel_001`). Tenant git HEADs are
+not a reliable source revision: sites are deployed by copying files, so most trees report the stale
+HEAD `3b383f7c` while running newer code. Per-site source state is established by a file-by-file
+comparison against canonical at rollout time (Appendix B, step R0).
+
+| Site | Service | Tree HEAD | Alembic | Enabled brands | Brand news | Verdict columns | Mention gate | Model route |
+|---|---|---|---|---|---|---|---|---|
+| bugfixing (canonical) | active | f9d3b33f | mf_001 | 66 | 25 | yes | yes | default; Jev accept on |
+| wileytest (Wiley prod) | active | 8ea95baf | si_001 | 4 | 5,897 | yes | no | default |
+| wbm | active | fadee135 | vp_001 | 5 | 4,768 | no | no | default |
+| oviva | active | 3b383f7c | mm_032 | 9 | 941 | no | yes (floor 0.5) | default |
+| abm | active | 3b383f7c | mf_001 | 9 | 940 | yes | yes | default |
+| sunstar | active | 3b383f7c | mm_032 | 5 | 913 | no | no | default |
+| panaya | active | 3b383f7c | mm_032 | 7 | 0 | yes | no | default; Jev accept on |
+| wiley | active | 9d05f5cb | si_001 | 0 | 0 | yes | no | default |
+| abbott | inactive | 3b383f7c | tl_001 | 8 | 0 | no | no | env encrypted |
+| bwtemplate | inactive | 3b383f7c | kg_lang_001 | 0 | 0 | no | no | env encrypted |
+| helpnet | inactive | d048c3d2 | bw_005 | 0 | – | no | no | env encrypted |
+| ibaset | inactive | 3b383f7c | bwr_001 | 5 | 0 | no | no | env encrypted |
+| interroll | inactive | 3b383f7c | bwr_001 | 14 | 0 | no | no | env encrypted |
+| opendemo | inactive | 68fb7619 | ti_001 | 3 | – | no | no | env encrypted |
+| pbm | inactive | 3b383f7c | tl_001 | 4 | 0 | no | no | env encrypted |
+| pearson | failed | 3b383f7c | emb_002 | 4 | – | no | no | env encrypted |
+| sage | inactive | 3b383f7c | emb_002 | 4 | – | no | no | env encrypted |
+| skunkworkx | inactive | e99a5495 | ti_001 | 1 | – | no | no | env encrypted |
+| vc | inactive | c5b8ff71 | bw_005 | 1 | – | no | no | env encrypted |
+
+Deployment owner for every site: Oliver Rochford. Wiley's rules apply on wileytest and wiley: no Jev
+(per-site model choice stays as it is), and bulk jobs need Oliver's go.
+
+## Appendix B. Build and rollout plan
+
+### How the code works today (read 2026-10-06)
+
+- **Brand topics are keyword groups** whose topic is "Brand Monitoring X" or "X - Brand Watch"
+  (`hybrid_relevance_service.brand_name_from_topic`). `keyword_groups` has no brand id; the topic name is
+  the only link to `bw_brands`, so a duplicate display name must defer, not merge.
+- **Ingest** (`automated_ingest_service._process_single_article_async`) scores twice: a quick check on
+  title and summary, then a full rescore after the AI analysis step, and approves on `score >= threshold`.
+  Oviva's `brand_mention_gate.apply` rewrites the brand score afterwards (non-press, same-name, mention floor).
+- **Per-topic verdicts** live on `keyword_article_matches` (one row per article and group, unique on
+  `(article_uri, group_id)`), written by `async_db.record_group_relevance` (migration `rel_001`).
+- **Brand Watcher readers** do not read those verdicts. A classification pass (`brand_watcher_routes`,
+  `_run_brand_tracker`) selects analysed articles from every topic whose title, summary, tags or keywords
+  name the brand, removes social posts and globally tagged owned publishing (`earned_news_sql`), and fills
+  `bw_article_categories`. About forty readers join that table. Digest, alert, risk and narrative paths read
+  the brand topic directly with score cut-offs (`topic_alignment_score >= 0.4`).
+
+### Design decisions taken in the build
+
+- **Where the label lives.** `keyword_article_matches` gains `brand_relation`, `source_relation`,
+  `judge_version`, `decision_evidence` (JSON: alias, field, extract, evidence quality, provenance, reason,
+  route, resolved model, profile and rubric versions, input key, collection query) and `last_failure`
+  (JSON, failed attempts recorded apart from the verdict). Migration `br_001` also adds the `rel_001`
+  columns where a site lacks them, so one migration serves every site.
+- **What each label does at ingest.** subject/notable + independent: approved, earned. sector (any
+  source), and owned subject/notable: approved so the row is analysed and visible, but never earned.
+  passing and other: `filtered_relevance` with the label kept. Same-name collisions and exclusions:
+  `filtered_relevance`, label `other`, provenance `rule`. No verified mention: the existing topic scorer
+  decides; relevant becomes `sector`, otherwise `other`; no brand-judge call is made. Unavailable judge
+  with no conclusive rule: `relevance_check_failed` (the existing retry path), failure recorded.
+  Duplicate profiles, unresolved identity, unknown ownership of an otherwise-earned item: status
+  `deferred` on the match row, article left undecided.
+- **One decision per article and brand.** The brand path decides at the quick check and the post-analysis
+  rescore reuses that decision; it never makes a second paid call.
+- **Reuse.** A match row that already carries a valid label, or a legacy verdict, keeps it when collectors
+  rediscover the article. Undecided rows (no verdict, failed, deferred) are decided with current inputs.
+  A decision for the same article and brand in another group is copied only when the input key matches:
+  canonical brand id, evidence hash and quality, profile version, policy and rubric version, resolved
+  route, source relation and overrides.
+- **The shared reader rule** (`app/services/brand_coverage.py`). A label veto: a row whose scoped match
+  in the brand's own topic carries a label is earned only if it is subject/notable and independent;
+  unknown labels count as invalid and are excluded. Unlabelled rows keep the reader's legacy condition.
+  The classification pass also admits labelled earned rows that the name filter misses (body mentions,
+  original-language names). Sector and owned items get their own endpoint and UI filter.
+- **Flags.** `BRAND_RELATION_DECISIONS` (default off) switches the ingest path. `BRAND_PROFILE_COLLECTION`
+  (default off) adds profile names and products to the brand groups' collection queries. The reader rule
+  is always on but is a no-op until labels exist, and it checks the columns exist so code copied ahead of
+  the migration cannot break a site. Model route: `BRAND_JUDGE_ROUTE` = `llm` (default, the site's
+  `HYBRID_RELEVANCE_LLM_MODEL`) or `jev` (Jev Choice, opt-in).
+
+### Phases
+
+- **B1 Storage.** Migration `br_001`.
+- **B2 Profile and mention check.** `app/services/brand_profile.py`.
+- **B3 Decision path.** `app/services/brand_decision.py` and the ingest integration.
+- **B4 Readers.** `app/services/brand_coverage.py`, the classification pass, digest, alerts, risk,
+  narratives; sector and owned endpoint.
+- **B5 UI.** Relationship, ownership and limited-evidence markers; sector and owned filters.
+- **B6 Collectors and hardening.** Profile-driven queries, query provenance, valuation-page rule, reddit
+  field check, checkpoint and status propagation audit.
+- **B7 Validation.** Fixtures from the reported cases; review-sheet and metrics script.
+
+Rollout, per site and in this order: R0 file comparison against canonical and patch plan; migration;
+code with the flag off; smoke check; flag on; one collection cycle inspected; result recorded in
+Appendix C. Order: bugfixing, sunstar, oviva, abm, wbm, wileytest, panaya and wiley, then the stopped
+sites (migration and regression only while stopped).
+
+## Appendix C. Progress log
+
+| Date | Step | Result |
 |---|---|---|
-| `subject` | The article is about the brand, its products, people or results | approve |
-| `notable` | The brand is a notable part of a wider story | approve |
-| `sector` | About the brand's market or policy area, brand not material | **decision 1** |
-| `passing` | The brand is named in passing | reject |
-| `other` | Unrelated, or a different thing with the same name | reject |
-
-The answer is JSON with the label and a one-line reason, parsed strictly. An unparseable or missing
-answer leaves the row `relevance_check_failed`, as the integrity patch already does.
-
-Two deterministic rules sit on top:
-
-- **Title floor.** A `title` mention that the judge labels `passing` becomes `notable`. A company
-  named in a headline is coverage of that company. Decision 2 confirms this.
-- **Owned content.** A row from an `owned_domains` host is labelled `owned` without a model call and
-  kept in its own bucket (see 3.5).
-
-The stored `topic_alignment_score` keeps working for every existing reader: `subject` 0.9,
-`notable` 0.7, `sector` 0.5, `passing` 0.2, `other` 0.0. The approval decision is made on the
-label, not on that number, so the 0.40-versus-0.45 split disappears.
-
-### 3.4 Title-only articles are judged on the title
-
-For brand topics the no-text guard moves after the mention check. A title-only row with a `title`
-mention is judged on its title; if approved, the AI analysis step runs on the title and the row is
-marked with a quality flag so readers know the summary is thin. A title-only row without a mention
-keeps today's `enrichment_failed` outcome.
-
-### 3.5 Where the label is stored
-
-An alembic migration adds two nullable columns to `keyword_article_matches`, which already holds the
-per-topic verdict (`topic_alignment_score`, `relevance_status`, `scored_at`):
-
-- `brand_relation` (text): `subject`, `notable`, `sector`, `passing`, `other`, `same_name`, `owned`.
-- `judge_version` (text): the brand judge's version plus a hash of the brand profile fields it read.
-
-Brand Watcher's news views count `subject` and `notable` as earned coverage, show `owned` separately,
-and show `sector` according to decision 1. The articles table is unchanged apart from the existing
-score and status fields.
-
-### 3.6 Old verdicts are redone automatically
-
-A background pass re-judges a brand topic's last 30 days of news when that topic's `judge_version`
-differs from the current one: after a deploy, after a model change, or after someone edits the brand
-profile. It runs at a fixed rate (default 1 row per 3 seconds), only on brand topics, and it calls the
-relevance step only; the AI analysis step runs only for rows that change from rejected to approved.
-It never re-analyses rows that stay approved. Today's hand rescore did, which is why it was slow.
-
-### 3.7 Correctness is measured
-
-- `scripts/brand_relevance_eval.py` draws 50 news rows per brand: a third approved, a third rejected
-  that name the brand, a third rejected that do not. It writes a small HTML page where each row gets
-  a yes/no "is this coverage of the brand" from a person.
-- The labels are stored (`brand_relevance_labels`, alembic) and the script reports precision and
-  recall per brand against them.
-- `data_quality_check.sh` gains a section that prints those two numbers for the last labelled set.
-
-Proposed targets for the proof-of-value sites: precision 0.90, recall 0.90 on rows that name the brand.
-Decision 4 confirms them.
-
-## 4. Out of scope
-
-- Social posts. They go through `social_eval_service.py`, which already has its own brand rules.
-- Theme and market topics. Their path is unchanged.
-- Collection keywords. Loose body matching stays; on 5 October quoting phrases was measured to lose
-  more than half of approved coverage.
-- Panaya. Its brand topics hold only vendor LinkedIn posts, no news.
-
-## 5. Rollout
-
-1. Build and test on canonical (bugfixing), which has no brand news of consequence, against copied
-   Sunstar and Oviva rows.
-2. Fill in the 14 brand profiles on Sunstar and Oviva (names in every script, collisions, owned sites).
-3. Oliver labels the first set: 50 rows times 14 brands is 700 yes/no clicks. A smaller first round of
-   20 per brand (280) is enough to see whether the change works.
-4. Deploy to Sunstar and Oviva: migration first, then code, then restart when quiet. Sunstar also
-   needs `brand_mention_gate.py`, which it lacks.
-5. The re-sweep runs; compare precision and recall before and after on the labelled set.
-
-Other brand-monitoring sites (wileytest, abm, bwtemplate) follow only if asked; this is a feature, and
-features go to the sites that requested them.
-
-## 6. Cost
-
-The judge is called once per brand-topic candidate, as now; `same_name` and `owned` rows skip it, so
-the count falls slightly. The re-sweep costs one judge call per row in the 30-day window per profile or
-version change: about 900 rows on Sunstar's five brand topics and 940 on Oviva's eight, at today's
-volumes. The AI analysis step runs only for rows newly approved. No new model; the judge stays on the
-site's configured relevance fallback model.
-
-## 7. Tests
-
-- Mention check: every script (Latin, Japanese, German), collisions, original-language fields,
-  owned domains.
-- Judge parsing: each label, malformed JSON, missing answer, an answer outside the label set.
-- Decision rule: the title floor, owned short-circuit, `same_name` short-circuit, each label's outcome.
-- Regression rows taken from this spec: the Colgate divestment, the dividend notice, Lion Dental
-  Materials, the Clinica advert, Colgate University football, the Lionsgate story, an Oviva recipe page.
-- Re-sweep: runs on a version change, skips unchanged topics, never re-analyses rows that stay approved.
-
-## 8. Decisions for Oliver
-
-1. **Sector stories.** Are articles about the brand's market that do not involve the brand coverage
-   of the brand? Recommendation: keep them, labelled `sector`, shown under a separate filter and left
-   out of brand counts and brand alerts. Oviva's numbers today include them as brand news.
-2. **Title floor.** Is a brand named in a headline always coverage? It would approve "The S&P 100 ETF
-   just dumped Nike and Colgate for 4 AI stocks". Recommendation: yes; an index change is news for
-   the company, and the label stays `notable`, not `subject`.
-3. **Owned content.** Should the brand's own site appear in the brand topic at all? Recommendation:
-   yes, labelled `owned` and shown apart from press, as social posts already are.
-4. **Targets and labelling.** Precision and recall of 0.90, measured on a first round of 20 rows per
-   brand labelled by you.
-
-## 9. Effort
-
-About a day of agent work for the code, migration and tests on canonical; an hour to fill in the 14
-brand profiles; deployment to the two sites in the same session once the labelled round is back.
+| 2026-10-06 | Spec adopted, inventory taken | This document |
