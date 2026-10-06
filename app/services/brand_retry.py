@@ -35,7 +35,7 @@ def brand_retry_cap() -> int:
     return _env_int("BRAND_RETRY_MAX_ATTEMPTS", 3)
 
 
-def _fetch_brand_retry_rows(db, limit: int) -> List[Dict[str, Any]]:
+def _fetch_brand_retry_rows(db, limit: int, include_pending: bool = False) -> List[Dict[str, Any]]:
     """Brand-topic candidates whose brand judgment was unavailable, under the
     attempt cap, newest first. Only with BRAND_RELATION_DECISIONS on. Each
     row carries its brand topic, which may differ from the article's own."""
@@ -54,12 +54,28 @@ def _fetch_brand_retry_rows(db, limit: int) -> List[Dict[str, Any]]:
               FROM keyword_article_matches m
               JOIN keyword_groups g ON g.id = m.group_id
               JOIN articles a ON a.uri = m.article_uri
-             WHERE m.relevance_status = 'relevance_check_failed' AND m.brand_relation IS NULL
+             WHERE ((m.relevance_status = 'relevance_check_failed' AND m.brand_relation IS NULL)
+                    OR (:pending AND m.relevance_status = 'pending' AND m.brand_relation IS NOT NULL
+                        AND a.ingest_status = 'enrichment_failed'))
                AND (g.topic LIKE 'Brand Monitoring %' OR g.topic LIKE '% - Brand Watch')
                AND COALESCE((m.last_failure->>'attempts')::int, 0) < :cap
              ORDER BY a.uri, a.submission_date DESC NULLS LAST
              LIMIT :limit
-        """), {"cap": brand_retry_cap(), "limit": int(limit)}).mappings().fetchall()
+        """), {"cap": brand_retry_cap(), "limit": int(limit), "pending": bool(include_pending)}).mappings().fetchall()
+        if include_pending and rows:
+            # An admitted item whose analysis failed keeps its label; nothing
+            # else counts its retries, so each attempt is counted here, before
+            # it runs, and the cap stops a permanently failing page.
+            conn.execute(text("""
+                UPDATE keyword_article_matches m
+                   SET last_failure = jsonb_set(COALESCE(m.last_failure, '{}'::jsonb), '{attempts}',
+                                                to_jsonb(COALESCE((m.last_failure->>'attempts')::int, 0) + 1))
+                  FROM keyword_groups g
+                 WHERE g.id = m.group_id AND m.article_uri = ANY(:uris)
+                   AND m.relevance_status = 'pending' AND m.brand_relation IS NOT NULL
+                   AND (g.topic LIKE 'Brand Monitoring %' OR g.topic LIKE '% - Brand Watch')
+            """), {"uris": [r["uri"] for r in rows]})
+            conn.commit()
         return sorted((dict(r) for r in rows), key=lambda r: r.get("submission_date") or "", reverse=True)
     except Exception as exc:  # noqa: BLE001 - columns absent before br_001
         logger.debug("enrichment retry sweep: brand retry query skipped: %s", exc)
@@ -79,10 +95,14 @@ def _article_dict(row: Dict[str, Any]) -> Dict[str, Any]:
             "summary": row.get("summary") or "", "topic": row.get("topic"), "analyzed": False}
 
 
-async def retry_brand_judgments(db, *, service=None, budget: int | None = None) -> Dict[str, Any]:
+async def retry_brand_judgments(db, *, service=None, budget: int | None = None,
+                                include_pending: bool = False) -> Dict[str, Any]:
+    """include_pending: also retry admitted items whose analysis failed (match
+    row 'pending', article enrichment_failed). Only the cron script asks for
+    it: where the enrichment sweep exists, the sweep retries those already."""
     budget = budget if budget is not None else _env_int("BRAND_RETRY_BUDGET", 25)
     loop = asyncio.get_event_loop()
-    rows = await loop.run_in_executor(None, _fetch_brand_retry_rows, db, budget)
+    rows = await loop.run_in_executor(None, _fetch_brand_retry_rows, db, budget, include_pending)
     out: Dict[str, Any] = {"selected": len(rows), "saved": 0, "decided_not_admitted": 0, "still_failed": 0,
                            "attempts_cap": brand_retry_cap(), "errors": [], "_service": service}
     if not rows:
@@ -100,7 +120,16 @@ async def retry_brand_judgments(db, *, service=None, budget: int | None = None) 
         except Exception:  # noqa: BLE001
             keywords = []
         try:
-            res = await service.process_articles_batch(articles, topic, keywords or [], route="brand_retry")
+            # Only the newest ingest versions take a route label; older site
+            # copies (sunstar, oviva, wiley-family on 6 Oct) do not.
+            extra = {}
+            try:
+                import inspect
+                if "route" in inspect.signature(service.process_articles_batch).parameters:
+                    extra["route"] = "brand_retry"
+            except (TypeError, ValueError):
+                pass
+            res = await service.process_articles_batch(articles, topic, keywords or [], **extra)
         except Exception as exc:  # noqa: BLE001
             out["errors"].append(f"{topic}: {exc}")
             logger.error("brand retry for '%s' failed: %s", topic, exc)

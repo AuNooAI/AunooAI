@@ -208,3 +208,57 @@ def test_judge_budget_leaves_the_rest_retryable(env, monkeypatch):
     assert len(calls) == 2 and out["saved"] == 2
     over = [d for _, d in rec.rejections if d.outcome == "unavailable"]
     assert len(over) == 3 and all("budget" in d.failure for d in over)
+
+
+class _AnalyzeSvc:
+    def __init__(self):
+        self.seen = []
+
+    async def _analyze_article_content_async(self, article, topic):
+        self.seen.append(dict(article))
+        if not (article.get("summary") or article.get("content")):
+            return dict(article, analyzed=False)   # the site's "insufficient content" path
+        return dict(article, analyzed=True, summary="from " + ("content" if article.get("content") else "summary"))
+
+
+def test_admitted_item_without_summary_is_analysed_from_its_scraped_page():
+    """6 Oct, sunstar: a Reuters Haleon story admitted as subject arrived with a
+    scraped page but no summary, and failed analysis as insufficient content."""
+    from app.services import brand_ingest_hooks as hooks
+    svc = _AnalyzeSvc()
+    d = bd.Decision("decided", "subject", "independent", evidence={"quality": "full"})
+    art = {"uri": "r1", "title": "Haleon posts sales growth", "summary": "", "_scraped_content": "Haleon said on Thursday...",
+           hooks.DECISION_KEY: d}
+    out = _run(hooks.analyze_or_skip(svc, art, TOPIC))
+    assert out["analyzed"] is True and out["summary"] == "from content"
+    assert "content" not in out and out[hooks.DECISION_KEY] is d
+    assert svc.seen[0]["content"].startswith("Haleon said")
+
+
+def test_admitted_item_with_no_text_at_all_is_not_given_an_invented_summary():
+    from app.services import brand_ingest_hooks as hooks
+    svc = _AnalyzeSvc()
+    d = bd.Decision("decided", "subject", "independent", evidence={"quality": "summary"})
+    art = {"uri": "r2", "title": "Haleon posts sales growth", "summary": "", hooks.DECISION_KEY: d}
+    out = _run(hooks.analyze_or_skip(svc, art, TOPIC))
+    assert out["analyzed"] is True and not out.get("summary") and svc.seen == []
+
+
+def test_non_brand_article_without_summary_keeps_the_site_behaviour():
+    from app.services import brand_ingest_hooks as hooks
+    svc = _AnalyzeSvc()
+    out = _run(hooks.analyze_or_skip(svc, {"uri": "r3", "title": "x", "summary": "", "_scraped_content": "page"}, TOPIC))
+    assert out["analyzed"] is False and "content" not in svc.seen[0]
+
+
+def test_admitted_item_without_summary_uses_the_page_saved_this_run():
+    from app.services import brand_ingest_hooks as hooks
+
+    class _Db:
+        async def get_raw_article_async(self, uri):
+            return {"uri": uri, "raw_markdown": "Haleon reported organic growth of 5%..."}
+
+    svc = _AnalyzeSvc(); svc.async_db = _Db()
+    d = bd.Decision("decided", "subject", "independent", evidence={"quality": "full"})
+    out = _run(hooks.analyze_or_skip(svc, {"uri": "r4", "title": "Haleon growth", "summary": "", hooks.DECISION_KEY: d}, TOPIC))
+    assert out["summary"] == "from content" and svc.seen[0]["content"].startswith("Haleon reported")

@@ -17,7 +17,9 @@ def main() -> int:
     load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
     from app.database import get_database_instance
     from app.services.brand_retry import retry_brand_judgments
-    out = asyncio.run(retry_brand_judgments(get_database_instance()))
+    # No enrichment sweep on these sites, so admitted items whose analysis
+    # failed are retried here too.
+    out = asyncio.run(retry_brand_judgments(get_database_instance(), include_pending=True))
     out.pop("_service", None)
     print(json.dumps(out, default=str))
     return 0

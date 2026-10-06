@@ -194,12 +194,42 @@ def title_only(article: Dict[str, Any]) -> bool:
     return bool(d is not None and d.evidence.get("quality") == "title_only" and not article.get("_scraped_content"))
 
 
+def _no_summary_text(article: Dict[str, Any]) -> bool:
+    return not (article.get("summary") or article.get("content"))
+
+
 async def analyze_or_skip(svc, article: Dict[str, Any], topic: str):
     """The analysis step, except for a headline-only brand item: its summary
-    would be generated from the headline, which is invented body text."""
+    would be generated from the headline, which is invented body text.
+
+    The analysis reads only 'summary' or 'content'. An admitted brand item
+    that arrived without a summary but with a scraped page (Reuters, 6 Oct)
+    is analysed from that page; with no text at all it is treated as
+    headline-only, instead of failing as "insufficient content"."""
     if title_only(article):
         article["analyzed"] = True
         return article
+    if article.get(DECISION_KEY) is not None and _no_summary_text(article):
+        page = (article.get("_scraped_content") or "").strip()
+        if not page:
+            # Scraped during this run but kept in a local variable of the
+            # pipeline; the pipeline saved it to raw_articles just before.
+            try:
+                raw = await svc.async_db.get_raw_article_async(article.get("uri") or "")
+                page = ((raw or {}).get("raw_markdown") or "").strip()
+            except Exception:  # noqa: BLE001 - older async_db without the reader
+                page = ""
+        if not page:
+            article["analyzed"] = True
+            return article
+        view = dict(article)
+        view["content"] = page[:20000]
+        out = await svc._analyze_article_content_async(view, topic)
+        if isinstance(out, dict):
+            out.pop("content", None)
+            out[DECISION_KEY] = article[DECISION_KEY]
+            return out
+        return out
     return await svc._analyze_article_content_async(article, topic)
 
 
