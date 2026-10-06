@@ -279,6 +279,87 @@ def reattribute_owned_account(conn, brand_id: int,
     return moved
 
 
+# Where a ``social_account`` identifier came from, and what that is worth as
+# proof the account is the vendor's own. A person typing it in, or copying it
+# from the vendor's site, is a person saying so. A Top Voices profile read
+# (``how='profile'``) is the model reading the account's bio as the vendor's
+# own account with the vendor's name in the handle or display name; the five
+# such reads on panaya were all right when checked by hand, so it verifies. A
+# handle that merely starts with the vendor's name (``how='name'``) is the
+# guess the identity rules forbid confirming — panaya0_0 starts with
+# "panaya" and is a Japanese parent — so it is only proposed.
+_PERSON_SOURCES = frozenset({'manual', 'analyst', 'market_add_vendor'})
+
+
+def register_identifier_account(conn, brand_id: int,
+                                normalized_value: str,
+                                provenance: Optional[Dict[str, Any]] = None,
+                                external_id: Optional[str] = None
+                                ) -> Dict[str, Any]:
+    """Map a vendor's recorded ``platform:handle`` to the account it names.
+
+    The handle on the vendor profile (``bw_vendor_identifiers``) and the
+    mapping the social feed reads (``bw_entity_social_identities``) were never
+    connected, so on panaya five recorded vendor accounts went on counting as
+    outside coverage of their own companies. Idempotent; once the mapping is
+    verified, posts already collected from the account move to the owned lane.
+    """
+    provenance = provenance or {}
+    platform, _, handle = (normalized_value or '').partition(':')
+    if not platform or not handle:
+        return {'status': 'skipped', 'reason': 'not platform:handle'}
+
+    account = entity_identity.upsert_account(
+        conn, platform=platform, handle=handle, platform_user_id=external_id)
+    source = provenance.get('source')
+    how = provenance.get('how')
+    if platform == 'bluesky' and _own_domain(conn, brand_id, handle):
+        method, verify = 'linked_from_domain', False   # verifies itself
+    elif source in _PERSON_SOURCES:
+        method, verify = 'manual', False
+    elif source == 'top_voices' and how == 'profile':
+        method, verify = 'content_inference', True
+    else:
+        method, verify = 'content_inference', False
+
+    outcome = entity_identity.propose_identity(
+        conn, brand_id=brand_id, social_account_id=account['account_id'],
+        relationship='owned_company', verification_method=method,
+        provenance={'identifier': normalized_value, **provenance},
+        actor=f"identifier:{source or 'unknown'}")
+    if verify and outcome.get('status') == 'proposed':
+        conn.execute(text("""
+            UPDATE bw_entity_social_identities
+               SET status = 'verified', verified_by = 'top_voices profile read',
+                   verified_at = NOW(), updated_at = NOW()
+             WHERE id = :id
+        """), {'id': outcome['identity_id']})
+        outcome['status'] = 'verified'
+    moved = reattribute_owned_account(conn, brand_id, account['account_id'])
+    return {**outcome, 'method': method, 'mentions_moved_to_owned': moved}
+
+
+def sync_identifier_accounts(conn) -> Dict[str, int]:
+    """``register_identifier_account`` for every live social identifier."""
+    rows = conn.execute(text("""
+        SELECT brand_id, normalized_value, provenance, external_id
+          FROM bw_vendor_identifiers
+         WHERE kind = 'social_account' AND valid_to IS NULL
+    """)).mappings().all()
+    counts: Dict[str, int] = {}
+    for r in rows:
+        prov = r['provenance'] if isinstance(r['provenance'], dict) else {}
+        out = register_identifier_account(
+            conn, int(r['brand_id']), r['normalized_value'], prov,
+            r['external_id'])
+        key = out.get('status') or 'unchanged'
+        counts[key] = counts.get(key, 0) + 1
+        counts['mentions_moved_to_owned'] = (
+            counts.get('mentions_moved_to_owned', 0)
+            + out.get('mentions_moved_to_owned', 0))
+    return counts
+
+
 def _is_company_speaking(article) -> bool:
     """Whether an owned-channel post is really the company's own words.
 

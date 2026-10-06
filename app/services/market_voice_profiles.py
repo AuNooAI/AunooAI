@@ -135,13 +135,19 @@ def link_vendor_accounts(db, market_id: int, days: Optional[int] = None) -> Dict
             continue
         if tag.get("linked"):
             continue
+        normalized = man.social_identifier(v.get("platform"), v.get("author"))
+        provenance = {"source": "top_voices", "how": tag.get("source"),
+                      "market_id": market_id, "at": _now()}
         _upsert_identifier(
             conn, brand_id=int(tag["brand_id"]), kind=man.SOCIAL_IDENTIFIER_KIND,
-            normalized=man.social_identifier(v.get("platform"), v.get("author")),
+            normalized=normalized,
             display=v.get("profile_url") or f"@{v.get('author')}",
             external_id=str(acct["account_id"]) if acct.get("account_id") else None,
-            provenance={"source": "top_voices", "how": tag.get("source"),
-                        "market_id": market_id, "at": _now()})
+            provenance=provenance)
+        # The social feed reads account ownership from its own table; without
+        # this the vendor's posts keep counting as outside coverage of it.
+        from app.services.entity_ingest import register_identifier_account
+        register_identifier_account(conn, int(tag["brand_id"]), normalized, provenance)
         added += 1
     try:
         conn.commit()

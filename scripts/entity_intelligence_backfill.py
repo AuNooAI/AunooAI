@@ -51,6 +51,7 @@ from app.services import (                                     # noqa: E402
 )
 from app.services.social_sources import classify_source        # noqa: E402
 from app.services import entity_dual_read                      # noqa: E402
+from app.services import entity_ingest                         # noqa: E402
 from app.services.entity_observations import (                 # noqa: E402
     NormalizationError, mint_source_record_id, normalize_snapshot,
     pending_snapshot_ids, record_observation,
@@ -627,6 +628,10 @@ def cmd_social_identities(conn, args) -> Dict[str, Any]:
         if outcome['identity_id']:
             proposed += 1
 
+    # Social handles recorded on vendor profiles, from before the writers
+    # registered them as the vendor's own accounts.
+    from_identifiers = entity_ingest.sync_identifier_accounts(conn)
+
     if args.dry_run:
         conn.rollback()
     else:
@@ -636,6 +641,7 @@ def cmd_social_identities(conn, args) -> Dict[str, Any]:
     return {'subcommand': 'social-identities', 'dry_run': args.dry_run,
             'accounts_created': accounts, 'renames_observed': renamed,
             'identities_verified': proposed,
+            'from_identifiers': from_identifiers,
             'accounts_total': _scalar(conn, 'SELECT count(*) FROM social_accounts')}
 
 

@@ -276,6 +276,10 @@ def add(spec: dict, apply: bool) -> int:
         for url in spec.get("social") or []:
             if _identifier(conn, brand_id, "social_account", _social_key(url), url, prov):
                 added.append("social_account")
+            # Mark the account as the vendor's own, so its posts are not
+            # counted as outside coverage of the vendor.
+            from app.services.entity_ingest import register_identifier_account
+            register_identifier_account(conn, brand_id, _social_key(url), prov)
         print(f"identifiers: {', '.join(added) or 'none new'}")
 
         # 4. Logo and colour.

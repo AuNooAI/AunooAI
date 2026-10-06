@@ -675,3 +675,53 @@ def test_a_verified_own_account_moves_every_mention_of_its_posts(conn, brands):
     assert len(channels) == 2
     assert set(channels) == {'owned_social'}
     assert moved == 2
+
+
+def _identity_status(conn, brand_id, platform, handle):
+    return conn.execute(text("""
+        SELECT i.status FROM bw_entity_social_identities i
+          JOIN social_accounts a ON a.id = i.social_account_id
+         WHERE i.brand_id = :b AND a.platform = :p AND a.handle_canonical = :h
+           AND i.valid_to IS NULL
+    """), {'b': brand_id, 'p': platform, 'h': handle}).scalar()
+
+
+def test_a_handle_a_person_recorded_is_the_vendors_own_account(conn, brands):
+    """The vendor profile listed @pytest_ingest_a and the feed still counted
+    its posts as outside coverage, because nothing copied it across."""
+    from app.services import entity_ingest
+
+    out = entity_ingest.register_identifier_account(
+        conn, brands[0], 'twitter:pytest_ingest_a', {'source': 'manual'})
+    assert out['status'] == 'verified'
+    assert _identity_status(conn, brands[0], 'twitter',
+                            'pytest_ingest_a') == 'verified'
+
+
+def test_a_profile_read_verifies_and_a_name_prefix_only_proposes(conn, brands):
+    """panaya0_0 starts with "panaya" and is a parent in Japan."""
+    from app.services import entity_ingest
+
+    read = entity_ingest.register_identifier_account(
+        conn, brands[0], 'twitter:pytest_profile_read',
+        {'source': 'top_voices', 'how': 'profile'})
+    guess = entity_ingest.register_identifier_account(
+        conn, brands[0], 'twitter:pytest_ingest_a0_0',
+        {'source': 'top_voices', 'how': 'name'})
+    assert read['status'] == 'verified'
+    assert guess['status'] == 'proposed'
+
+
+def test_registering_twice_changes_nothing(conn, brands):
+    from app.services import entity_ingest
+
+    entity_ingest.register_identifier_account(
+        conn, brands[0], 'twitter:pytest_twice', {'source': 'manual'})
+    again = entity_ingest.register_identifier_account(
+        conn, brands[0], 'twitter:pytest_twice', {'source': 'manual'})
+    assert again['identity_id'] is None
+    assert conn.execute(text("""
+        SELECT count(*) FROM bw_entity_social_identities i
+          JOIN social_accounts a ON a.id = i.social_account_id
+         WHERE i.brand_id = :b AND a.handle_canonical = 'pytest_twice'
+    """), {'b': brands[0]}).scalar() == 1
