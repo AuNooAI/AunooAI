@@ -30,6 +30,7 @@ Usage:
 """
 
 import logging
+import math
 import os
 import random
 import re
@@ -116,6 +117,77 @@ _BRAND_TOPIC_RE = re.compile(r'^Brand Monitoring\s+|\s-\sBrand Watch$', re.I)
 # prefix (Iran-war coverage came out at 0.99 for the SOC Automation market). They
 # get the same treatment as brand topics: the LLM stays the arbiter.
 _MARKET_TOPIC_RE = re.compile(r'^Market Monitoring\s+(.+)$', re.I)
+_BRAND_NAME_RE = re.compile(r'^Brand Monitoring\s+(.+?)$|^(.+?)\s-\sBrand Watch$', re.I)
+
+
+def brand_name_from_topic(topic: Optional[str]) -> Optional[str]:
+    """The brand a brand-monitoring topic watches, or None for a theme or a market.
+
+    Both naming conventions are live: "Brand Monitoring Wiley" and
+    "Wiley - Brand Watch". Every tier that treats brand topics differently (the
+    classifier override, the LLM prompt, the Jev question) resolves through
+    here, so a topic cannot be a brand to one tier and a theme to another. The
+    LLM prompt used to recognise only the first form, which gave the second
+    form theme instructions (found 5 Oct 2026).
+    """
+    m = _BRAND_NAME_RE.match((topic or '').strip())
+    if not m:
+        return None
+    return (m.group(1) or m.group(2) or '').strip() or None
+
+
+def is_brand_topic(topic: Optional[str]) -> bool:
+    return brand_name_from_topic(topic) is not None
+
+
+# A number as a model writes it: "0.2", ".2", "1e-3", "Score: 0.85". The old
+# pattern (\d+\.?\d*) read "1e-3" as 1 and ".2" as 2, then clamped both to 1.0.
+_UNIT_NUMBER_RE = re.compile(r'[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?')
+
+
+def parse_unit_score(text: Optional[str]) -> Optional[float]:
+    """The first number in a model reply when it is a valid 0-1 score, else None.
+
+    Out-of-range and non-finite values are not clamped: a reply we cannot read
+    is no verdict, and the caller keeps whatever evidence it already had.
+    """
+    m = _UNIT_NUMBER_RE.search(text or '')
+    if not m:
+        return None
+    try:
+        value = float(m.group(0))
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
+
+
+def unit_value(x: Any, upper: float = 1.0) -> Optional[float]:
+    """``x`` as a float in [0, upper]; None for a bool, a non-number, NaN, inf or
+    an out-of-range value. ``max(0, min(1, nan))`` returns 1.0, which is why the
+    old clamps let NaN through as a perfect score."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        return None
+    value = float(x)
+    return value if math.isfinite(value) and 0.0 <= value <= upper else None
+
+
+def relevance_route_signature() -> str:
+    """The settings that decide a relevance verdict, as one string. The
+    rejected-candidate ledger keys on it, so a changed model or tier
+    re-evaluates saved rejections and an unchanged one reuses them."""
+    g = globals()  # older site copies of this module lack the Jev tier constants
+    return "|".join([
+        g.get("EMBEDDING_MODEL", ""), f"cw={g.get('CLASSIFIER_WEIGHT', '')}",
+        f"llm={os.getenv('HYBRID_RELEVANCE_LLM_MODEL', 'nova-lite')}",
+        f"ce={int(bool(g.get('USE_CE_TIER', False)))}:{g.get('CE_HIGH', '')}",
+        f"jev={int(bool(g.get('JEV_ACCEPT', False)))}:{g.get('JEV_ACCEPT_MIN', '')}",
+    ])
+
+
+class RelevanceUnavailableError(RuntimeError):
+    """No evaluator produced a usable verdict. Callers must not treat this as
+    a low score: the article is neither accepted nor rejected, and it must not
+    enter the rejected-candidate ledger."""
 
 
 class HybridRelevanceService:
@@ -399,8 +471,7 @@ class HybridRelevanceService:
         """
         # Internal monitor labels ("Brand Monitoring <X>") describe an entity watch,
         # not a subject — judge relevance against the entity + its keywords instead.
-        brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
-        entity = brand_match.group(1).strip() if brand_match else None
+        entity = brand_name_from_topic(topic)
         market_match = _MARKET_TOPIC_RE.match(topic or '')
         market = market_match.group(1).strip() if market_match else None
         kw_line = f"\nKey entities / search terms for this topic: {', '.join(keywords[:20])}" if keywords else ""
@@ -507,14 +578,11 @@ Score:"""
             )
 
             response_text = response.choices[0].message.content.strip()
-            # Extract first number from response
-            match = re.search(r'(\d+\.?\d*)', response_text)
-            if match:
-                score = float(match.group(1))
-                score = max(0.0, min(1.0, score))
+            score = parse_unit_score(response_text)
+            if score is not None:
                 logger.info(f"🏠 Local Qwen relevance score: {score:.3f}")
                 return score
-            logger.warning(f"Could not parse local LLM score: {response_text}")
+            logger.warning(f"Could not parse local LLM score: {response_text!r}")
             return None
 
         except Exception as e:
@@ -544,12 +612,10 @@ Score:"""
             # models often prefix text ("Score: 0.2"), and a parse failure
             # here becomes score None upstream — silently dropping the LLM
             # verdict. Mirrors _compute_local_llm_score.
-            match = re.search(r'(\d+\.?\d*)', response_text)
-            if not match:
+            score = parse_unit_score(response_text)
+            if score is None:
                 logger.warning(f"Could not parse external LLM score: {response_text!r}")
                 return None
-            score = float(match.group(1))
-            score = max(0.0, min(1.0, score))
             logger.info(f"☁️ External GPT relevance score: {score:.3f}")
             return score
 
@@ -582,7 +648,7 @@ Score:"""
 
         if not typesafe_client.is_configured():
             return None
-        brand_match = re.match(r'^Brand Monitoring\s+(.+)$', topic or '')
+        brand_name = brand_name_from_topic(topic)
         market_match = _MARKET_TOPIC_RE.match(topic or '')
         kw = [k for k in (keywords or []) if k][:20]
         if market_match:
@@ -595,8 +661,8 @@ Score:"""
             )
             secondary = f"{name} or one of its vendors is a secondary element of a story mainly about something else"
             unrelated = "an unrelated subject that only shares a word with a vendor name or search term"
-        elif brand_match:
-            name = brand_match.group(1).strip()
+        elif brand_name:
+            name = brand_name
             definition = (
                 f'The organisation "{name}": its products and services, its named competitors, '
                 f"and the industry, sector or policy it operates in, even when {name} is not named."
@@ -641,14 +707,21 @@ Score:"""
             return None
         try:
             answers = out["answers"]
-            on_topic = float(answers["on_topic"]["noul"])
+            on_topic = unit_value(answers["on_topic"]["noul"])
             align = answers["alignment"]
             levels = max(1, len(questions["alignment"]["criteria"]) - 1)
-            score = max(0.0, min(1.0, float(align["score"]) / levels))
-            confidence = float(align.get("confidence", 0.0))
+            raw_score = unit_value(align["score"], upper=float(levels))
+            confidence = unit_value(align.get("confidence", 0.0))
         except (KeyError, TypeError, ValueError) as e:
             logger.warning(f"Jev shadow: could not read answers ({e}): {str(out)[:200]}")
             return None
+        # A Noul is a probability and an ordinal Score lies on its rubric. A
+        # value outside that range, a NaN, an infinity or a boolean is a broken
+        # reply, not evidence: it must never clear JEV_ACCEPT_MIN.
+        if on_topic is None or raw_score is None or confidence is None:
+            logger.warning(f"Jev shadow: answer out of range, ignored: {str(answers)[:200]}")
+            return None
+        score = raw_score / levels
         return {"jev_on_topic": on_topic, "jev_score": score, "jev_confidence": confidence}
 
     def score_relevance(
@@ -774,11 +847,18 @@ Score:"""
         # scores real brand coverage ~0.03), so the LLM remains the arbiter there.
         # Market-monitoring topics are exempt for the same reason: the classifier
         # never trained on a market label and rates general news as relevant.
-        is_brand_topic = bool(re.match(r'^Brand Monitoring\s+', topic or ''))
+        topic_is_brand = is_brand_topic(topic)
         is_market_topic = bool(_MARKET_TOPIC_RE.match(topic or ''))
-        if (not is_brand_topic and not is_market_topic
+        if (not topic_is_brand and not is_market_topic
                 and classifier_score is not None and classifier_score >= 0.90):
             result["confidence"] = "high"
+
+        # No engine produced a score: the 0.0 above is an absence, not a
+        # verdict. The score-position rule just called it "high" confidence,
+        # which skipped every fallback and rejected the article at any positive
+        # threshold. Mark it uncertain so the fallbacks get their turn.
+        if result["method"] == "none":
+            result["confidence"] = "medium"
 
         # Cross-encoder tier: for borderline cases, try the CE before paying
         # for an LLM call. Populates ce_score either way when enabled so we
@@ -799,7 +879,7 @@ Score:"""
         # volume), which that predicate misses — so the CE gate uses its own,
         # covering both. Left the narrower one alone rather than silently
         # changing which topics the classifier-confidence guard applies to.
-        is_brand_like = bool(_BRAND_TOPIC_RE.search(topic or '')) or bool(_MARKET_TOPIC_RE.match(topic or ''))
+        is_brand_like = topic_is_brand or is_market_topic
         result["ce_score"] = None
         if USE_CE_TIER and result["confidence"] == "medium" and not is_brand_like:
             ce_score = self._compute_cross_encoder_score(topic, title, summary)
@@ -849,8 +929,15 @@ Score:"""
                 result["method"] = f"{result['method']}+{'local_llm' if use_local_llm else 'llm'}_fallback"
                 result["confidence"] = "high"
 
-        # Make binary decision
-        result["relevant"] = result["score"] >= threshold
+        # Make binary decision. With no engine and no fallback there is no
+        # evidence either way; say so instead of rejecting at score 0.0.
+        if result["method"] == "none":
+            result["status"] = "unavailable"
+            result["relevant"] = None
+            logger.warning(f"Relevance unavailable for '{(title or '')[:60]}': no local engine and no fallback answered")
+        else:
+            result["status"] = "ok"
+            result["relevant"] = result["score"] >= threshold
 
         # Shadow tier: record what Jev would have said. Runs AFTER the decision
         # and touches none of score / relevant / method / confidence.

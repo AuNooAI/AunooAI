@@ -229,6 +229,8 @@ led to a rule:
 | "Radware Reports Second Quarter 2026 Financial Results" and PTC Therapeutics' release with the same wording (86% contained) | Press releases only link when the titles are equal. |
 | "Israel strikes Hezbollah targets in Lebanon" and a different strike story | A near match needs at least 6 significant words, not 5. |
 | Two Bluesky accounts posting the same Swiss news | Social posts link on URL only, never on title. Two accounts are two voices. |
+| Two Surrey course pages, "… Electronic Engineering with AI" and "… Mechanical Engineering" (wileytest) | A near match on a title under 8 significant words needs every word. |
+| "Progress on share buyback programme" twice on GlobeNewswire (wileytest) | Press releases link only across different sites. One wire repeating a title means two releases. |
 
 The third sample of 50 (seed 23) had no wrong links. Result on bugfixing: of 237,632 rows,
 14,799 are copies (6%) and 8,392 are press releases. A full relabel takes about 22 minutes.
@@ -253,3 +255,8 @@ Tests: `tests/test_story_identity.py`.
 - **`.env` is rebuilt at every start** from `.env.encrypted` by `env_encryption.py decrypt`. A
   setting added to `.env` must be re-encrypted (`env_encryption.py encrypt <site>`, which deletes
   the plain file) before the restart, or the restart wipes it.
+
+Rollout finished the same day. wileytest's backfill ran on four workers split by topic, because
+copies only match within a topic. Its first sample (seed 59) failed with 2 wrong links, which led
+to the last two rows of the table above. `--recheck` then cleared the links the new rule no longer
+makes on all three sites, and the next sample (seed 83) had 0 of 50 wrong.

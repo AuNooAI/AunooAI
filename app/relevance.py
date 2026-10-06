@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 from app.analyzers.prompt_templates import PromptTemplates, PromptTemplateError
 from app.ai_models import get_ai_model, LiteLLMModel
@@ -7,6 +8,23 @@ from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
 import litellm
 
 logger = logging.getLogger(__name__)
+
+def _unit_score(result: Dict, field: str, default: Optional[float] = None) -> float:
+    """``result[field]`` as a float in [0, 1]. ``default`` applies only when the
+    field is absent; a present value that is not a finite number in range
+    raises ValueError, which the caller treats as an unreadable reply."""
+    if field not in result:
+        if default is None:
+            raise ValueError(f"missing {field}")
+        return default
+    value = result[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} is not a number: {value!r}")
+    value = float(value)
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise ValueError(f"{field} out of range: {value!r}")
+    return value
+
 
 class RelevanceCalculatorError(Exception):
     """Custom exception for relevance calculation errors."""
@@ -203,20 +221,21 @@ class RelevanceCalculator:
                 json_str = response_text[start_idx:end_idx]
                 result = json.loads(json_str)
                 
-                # Validate required fields and provide defaults
+                if not isinstance(result, dict):
+                    raise ValueError("response JSON is not an object")
+
+                # Validate required fields. A missing, boolean, NaN, infinite
+                # or out-of-range score is a broken reply, not a 0.0 or a 1.0:
+                # max(0, min(1, nan)) returns 1.0, which is how the old clamp
+                # turned NaN into a perfect score.
                 validated_result = {
-                    "topic_alignment_score": float(result.get("topic_alignment_score", 0.0)),
-                    "keyword_relevance_score": float(result.get("keyword_relevance_score", 0.0)),
+                    "topic_alignment_score": _unit_score(result, "topic_alignment_score"),
+                    "keyword_relevance_score": _unit_score(result, "keyword_relevance_score"),
                     "overall_match_explanation": str(result.get("overall_match_explanation", "No explanation provided")),
-                    "confidence_score": float(result.get("confidence_score", 0.0)),
+                    "confidence_score": _unit_score(result, "confidence_score", default=0.0),
                     "extracted_article_topics": result.get("extracted_article_topics", []),
                     "extracted_article_keywords": result.get("extracted_article_keywords", [])
                 }
-                
-                # Ensure scores are within valid range [0.0, 1.0]
-                for score_field in ["topic_alignment_score", "keyword_relevance_score", "confidence_score"]:
-                    score = validated_result[score_field]
-                    validated_result[score_field] = max(0.0, min(1.0, score))
                 
                 # Calculate combined relevance score (average of topic and keyword scores)
                 topic_score = validated_result["topic_alignment_score"]
@@ -233,20 +252,12 @@ class RelevanceCalculator:
                 
                 return validated_result
                 
-            except (json.JSONDecodeError, ValueError, KeyError) as parse_error:
+            except (json.JSONDecodeError, ValueError, KeyError, TypeError) as parse_error:
                 logger.error(f"Failed to parse LLM response as JSON: {str(parse_error)}")
-                logger.error(f"Raw response: {response_text}")
-                
-                # Return default values if parsing fails
-                return {
-                    "topic_alignment_score": 0.0,
-                    "keyword_relevance_score": 0.0,
-                    "overall_match_explanation": f"Failed to parse analysis response: {str(parse_error)}",
-                    "confidence_score": 0.0,
-                    "extracted_article_topics": [],
-                    "extracted_article_keywords": [],
-                    "relevance_score": 0.0
-                }
+                logger.error(f"Raw response: {response_text[:500]}")
+                # A reply we cannot read is no verdict. Returning zeros here
+                # made every parse failure a confident reject.
+                raise RelevanceCalculatorError(f"Unreadable relevance reply: {parse_error}")
 
         # Handle PipelineError (fatal errors from LLM)
         except PipelineError as e:
@@ -297,16 +308,15 @@ class RelevanceCalculator:
                 
             except Exception as e:
                 logger.error(f"Failed to analyze article {i+1}: {str(e)}")
-                # Add the article with default relevance scores
+                # Keep the article in the batch, marked unavailable and with
+                # no scores, so the caller can report it instead of writing
+                # zeros over whatever verdict the row already carries.
                 result = article.copy()
                 result.update({
-                    "topic_alignment_score": 0.0,
-                    "keyword_relevance_score": 0.0,
+                    "relevance_status": "unavailable",
                     "overall_match_explanation": f"Analysis failed: {str(e)}",
-                    "confidence_score": 0.0,
                     "extracted_article_topics": [],
                     "extracted_article_keywords": [],
-                    "relevance_score": 0.0
                 })
                 results.append(result)
         

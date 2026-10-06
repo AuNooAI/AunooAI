@@ -56,6 +56,7 @@ if [ "$CODE" -ne 0 ]; then
   if [ -n "${RESEND_API_KEY:-}" ]; then
     BODY=$(printf '%s\n%s' "$TS" "$OUT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
     SUBJ="relevance regression ($MODE)"; [ "$MODE" = "audit" ] && SUBJ="brand data audit findings"
+    [ "$CODE" -eq 2 ] && SUBJ="relevance regression ($MODE) INCONCLUSIVE: judge or fixtures produced nothing"
     curl -s -X POST https://api.resend.com/emails \
       -H "Authorization: Bearer $RESEND_API_KEY" -H "Content-Type: application/json" \
       -H "User-Agent: aunoo-relevance-cron/1.0" \

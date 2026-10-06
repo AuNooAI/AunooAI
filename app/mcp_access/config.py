@@ -85,3 +85,17 @@ def google_search_configured() -> bool:
     key = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_SEARCH_API_KEY")
     cse = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
     return bool(key and cse)
+
+
+def saas_skills_url() -> str:
+    """Base URL of the saas Skills API that rates outlets and articles for this
+    site (Trust Signals). Empty when the site has no saas key."""
+    return (os.getenv("SAAS_SKILLS_URL") or "").strip().rstrip("/")
+
+
+def saas_skills_key() -> str:
+    return (os.getenv("SAAS_SKILLS_KEY") or "").strip()
+
+
+def saas_skills_configured() -> bool:
+    return bool(saas_skills_url() and saas_skills_key())

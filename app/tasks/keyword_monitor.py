@@ -6,6 +6,7 @@ to global defaults.
 """
 
 import os
+import re
 import logging
 import asyncio
 import inspect
@@ -13,10 +14,47 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
-from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, ERR_QUOTA
+from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, ERR_QUOTA, STATUS_PARTIAL
 from app.database import Database
 from app.services.collection_runs import claim_interval, commit_interval, record_run
 import uuid
+
+
+# --- Phantom matches from TheNewsAPI's CJK body index -------------------------
+# Measured on sunstar, 2026-10-05: of 181 Japanese articles TheNewsAPI returned
+# for the oral-health keywords in one week, 111 pages (61%) did not contain the
+# search term anywhere, not even in a sidebar. The provider's main_text index
+# matches Japanese loosely. German and Italian body matches were all genuine.
+# So for CJK-language groups only: when the term is missing from the title and
+# summary the provider gave us, fetch the page once and drop the article if the
+# term is not on it. A fetch failure keeps the article (the relevance gate still
+# runs). Only new URIs reach this check, so the cost is a few dozen fetches a day.
+_CJK_LANGS = {"ja", "zh", "ko"}
+
+
+def _term_tokens(keyword_text: str) -> List[str]:
+    """The words of a monitor keyword, quotes stripped, two characters or more."""
+    return [t for t in (keyword_text or "").replace('"', "").split() if len(t) >= 2]
+
+
+def _tokens_missing(text: str, tokens: List[str]) -> List[str]:
+    low = (text or "").lower()
+    return [t for t in tokens if t.lower() not in low]
+
+
+def _page_carries_tokens(url: str, tokens: List[str], timeout: float = 10.0) -> Optional[bool]:
+    """True/False when the page could be read, None when it could not."""
+    try:
+        import requests
+        import html as _html
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AunooCollector/1.0"})
+        if resp.status_code != 200 or not resp.text:
+            return None
+        page = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", resp.text, flags=re.S | re.I)
+        text = _html.unescape(re.sub(r"<[^>]+>", " ", page))
+        return not _tokens_missing(text, tokens)
+    except Exception:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -793,8 +831,14 @@ class KeywordMonitor:
                     # FIRST: Process each article and save to database
                     # Run in thread to avoid blocking the event loop during sync DB calls
                     def _save_articles_batch(articles_to_save, save_topic, save_keyword_id):
-                        """Save articles to DB in a thread (sync DB calls)."""
+                        """Save articles to DB in a thread (sync DB calls).
+                        Returns (saved_count, failed_count). A failed insert is
+                        counted, not hidden: the caller must not move the
+                        provider checkpoint past an interval whose items are
+                        not all on disk."""
                         saved_count = 0
+                        failed_count = 0
+                        phantom_dropped: List[str] = []
                         for article in articles_to_save:
                             try:
                                 article_url = article['url'].strip()
@@ -807,19 +851,48 @@ class KeywordMonitor:
                                 article_exists = self.db.facade.article_exists((article_url,))
                                 if article_exists:
                                     logger.debug(f"Article already exists: {article_url}")
+                                if (not article_exists
+                                        and getattr(self, "language", "en") in _CJK_LANGS
+                                        and article.get("collector_source") == "thenewsapi"):
+                                    missing = _tokens_missing(
+                                        f"{article.get('title', '')} {article.get('summary', '')}",
+                                        _term_tokens(keyword_text))
+                                    if missing and _page_carries_tokens(article_url, missing) is False:
+                                        phantom_dropped.append(article_url)
+                                        continue
                                 (inserted_new_article, alert_inserted, match_updated) = self.db.facade.create_article(article_exists, article_url, article, save_topic, save_keyword_id)
                                 if inserted_new_article or alert_inserted or match_updated:
                                     saved_count += 1
                                     logger.info(f"Added/updated article: {article_url}")
                             except Exception as e:
+                                failed_count += 1
                                 logger.error(f"Error processing article {article.get('url', 'unknown')}: {str(e)}")
                                 continue
-                        return saved_count
+                        if phantom_dropped:
+                            logger.info(
+                                f"Dropped {len(phantom_dropped)} of {len(articles_to_save)} TheNewsAPI results for "
+                                f"'{keyword_text}' ({getattr(self, 'language', '?')}): the search term is not on the page")
+                        return saved_count, failed_count
 
                     loop = asyncio.get_event_loop()
-                    new_articles_count += await loop.run_in_executor(
+                    saved_now, failed_now = await loop.run_in_executor(
                         None, _save_articles_batch, articles, topic, keyword_id
                     )
+                    new_articles_count += saved_now
+                    if failed_now:
+                        # Not every item reached the database, so no provider's
+                        # interval is complete: downgrade each successful result
+                        # to partial so commit_interval keeps the interval for
+                        # the next cycle instead of advancing coverage past it.
+                        logger.warning(
+                            f"{failed_now} of {len(articles)} results for '{keyword_text}' failed to save; "
+                            f"checkpoints stay put so the interval is collected again")
+                        for _prov, _res in outcomes.items():
+                            if _res.may_advance_checkpoint:
+                                _res.status = STATUS_PARTIAL
+                                _res.coverage_complete = False
+                                _res.truncated_reason = _res.truncated_reason or "persist_failed"
+                            _res.diagnostics["persist_failed"] = failed_now
                     # The items are persisted; now the checkpoints may move
                     # and the run records say what each provider did.
                     await loop.run_in_executor(None, _finish_runs)

@@ -225,7 +225,7 @@ export function NewsFeedPage() {
   const EXPLORE_TABS: ExploreTab[] = ['overview', 'feed', 'emerging', 'agents', 'saved', 'briefing-desk', 'policy', 'geopolitical', 'science', 'brand_watcher', 'threat_intel', 'swiss_disinfo', 'timeline'];
   // Restore the last-viewed Explore tab across page loads.
   // Tabs a dedicated Brand Watcher tenant exposes (agents are topic-restricted there)
-  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'market_monitor', 'agents', 'timeline'];
+  const DEDICATED_TABS: ExploreTab[] = ['brand_watcher', 'market_monitor', 'agents', 'briefing-desk', 'timeline'];
   const [currentTab, setCurrentTab] = useState<ExploreTab>(() => {
     try {
       const saved = localStorage.getItem('explore_last_tab');
@@ -1009,6 +1009,20 @@ export function NewsFeedPage() {
             Timeline
           </button>
           )}
+          {/* Briefing Desk: available in dedicated mode too, so a brand-watch
+              site can run the reviewed daily briefing */}
+          {dedicatedMode !== null && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'briefing-desk' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('briefing-desk')}
+          >
+            <Newspaper className="w-4 h-4" />
+            Briefing Desk
+            {draftBriefingsCount > 0 && (
+              <span className="explore-tab-badge">{draftBriefingsCount}</span>
+            )}
+          </button>
+          )}
           {dedicatedMode === false && (<>
           <button
             className={`explore-tab-btn ${currentTab === 'saved' ? 'active' : ''}`}
@@ -1018,16 +1032,6 @@ export function NewsFeedPage() {
             Saved
             {starredArticles.length > 0 && (
               <span className="explore-tab-badge">{starredArticles.length}</span>
-            )}
-          </button>
-          <button
-            className={`explore-tab-btn ${currentTab === 'briefing-desk' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('briefing-desk')}
-          >
-            <Newspaper className="w-4 h-4" />
-            Briefing Desk
-            {draftBriefingsCount > 0 && (
-              <span className="explore-tab-badge">{draftBriefingsCount}</span>
             )}
           </button>
 

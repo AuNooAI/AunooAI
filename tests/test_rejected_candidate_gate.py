@@ -55,7 +55,8 @@ def test_ledger_miss_scores_and_records_the_rejection(monkeypatch):
     assert len(ledger.records) == 1
     rec_url, group_id, version, score, threshold = ledger.records[0]
     assert (rec_url, group_id, score, threshold) == (url, 7, 0.1, 0.5)
-    assert version == rc.gate_version(["alpha", "beta"], 0.5)
+    from app.services.hybrid_relevance_service import relevance_route_signature
+    assert version == rc.gate_version(["alpha", "beta"], 0.5, model="hybrid|" + relevance_route_signature())
 
 
 def test_version_changes_when_terms_or_threshold_change():
@@ -108,3 +109,42 @@ def test_ledger_disabled_means_no_lookup(monkeypatch):
 
     assert FakeLedger.instances == []
     assert svc.score_calls == ["https://example.com/a"]
+
+
+def test_version_changes_when_the_model_route_changes():
+    base = rc.gate_version(["alpha"], 0.5, model="hybrid|nova-lite")
+    assert rc.gate_version(["alpha"], 0.5, model="hybrid|nova-lite") == base
+    assert rc.gate_version(["alpha"], 0.5, model="external|nova-lite") != base   # inference mode
+    assert rc.gate_version(["alpha"], 0.5, model="hybrid|kimi-k2.5") != base     # fallback model
+    assert rc.gate_version(["alpha"], 0.5) != base                               # no route at all
+
+
+def test_ingest_version_carries_the_live_model_route(monkeypatch):
+    monkeypatch.setattr(ais._rejected, "RejectedCandidateLedger", lambda db: FakeLedger(db))
+    svc = make_service({"T": full_topic()}, score=0.1, threshold=0.5)
+    svc.get_inference_mode = lambda: "hybrid"
+    monkeypatch.setattr(ais, "relevance_route_signature", lambda: "emb|llm-x", raising=False)
+
+    _run(svc.process_articles_batch([article("https://example.com/m")], "T", ["alpha"], group_id=7))
+
+    version = FakeLedger.instances[0].records[0][2]
+    assert version == rc.gate_version(["alpha"], 0.5, model="hybrid|emb|llm-x")
+    assert version != rc.gate_version(["alpha"], 0.5, model="external|emb|llm-x")
+
+
+def test_failed_evaluation_is_not_recorded_as_a_rejection(monkeypatch):
+    """A provider outage files the row as relevance_check_failed and leaves the
+    ledger alone, so the next poll evaluates the URL again."""
+    monkeypatch.setattr(ais._rejected, "RejectedCandidateLedger", lambda db: FakeLedger(db))
+    svc = make_service({"T": full_topic()})
+    svc.get_inference_mode = lambda: "hybrid"
+
+    async def _down(article, topic, keywords):
+        raise ais.RelevanceUnavailableError("no evaluator answered")
+    svc._score_article_relevance_async = _down
+
+    out = _run(svc.process_articles_batch([article("https://example.com/retry")], "T", ["alpha"], group_id=7))
+
+    assert svc.async_db.saved_below[0]["ingest_status"] == "relevance_check_failed"
+    assert FakeLedger.instances[0].records == []
+    assert out["already_rejected"] == 0
