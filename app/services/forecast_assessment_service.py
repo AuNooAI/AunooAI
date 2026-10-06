@@ -139,7 +139,8 @@ def load_original_scenarios_for_run(db, run_id):
             raw = {}
     topic = forecast.get("topic") or (raw or {}).get("topic")
     return build_original_scenarios(
-        run_id, (raw or {}).get("scenarios") or [], _load_deck_overlay(topic),
+        run_id, (raw or {}).get("scenarios") or [],
+        _load_deck_overlay(topic, (raw or {}).get("scenarios") or []),
         topic=topic,
     )
 
@@ -197,7 +198,7 @@ async def assess_run(
 
     forecast_iso = _to_iso(generated_at)
     forecast_date = _parse_date(forecast_iso)
-    deck_overlay = _load_deck_overlay(topic)
+    deck_overlay = _load_deck_overlay(topic, db_scenarios)
 
     # Resolve which article topics back this (possibly decoupled) tracked topic.
     # The Add-Topic wizard persists source_topics when the deck name differs from
@@ -1452,22 +1453,49 @@ def _build_sibling_digest(scenarios: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _load_deck_overlay(topic: str) -> dict:
-    """Scan the overlay directory for a JSON whose ``topic`` matches.
+def _load_deck_overlay(topic: str, scenarios: Optional[list] = None) -> dict:
+    """Find the deck overlay for ``topic``.
 
     Each overlay file declares its own ``topic`` field; we don't rely on
     filenames so adding a new topic only needs dropping the file in place.
+
+    Several files can claim one topic: a regenerated overlay sits beside the
+    hand-written one it replaced. This used to return the first by filename,
+    so on wileytest a May overlay for an old run shadowed the current one for
+    Open Science, mapped 0 of 13 scenario titles, and every assessment fell
+    back to the raw scenarios (6 Oct 2026). Now, given the run's
+    ``scenarios``, the overlay that maps the most of their titles wins; ties,
+    and callers without scenarios, get the newest file.
     """
     if not DECK_OVERLAY_DIR.exists():
         return {}
-    for path in sorted(DECK_OVERLAY_DIR.glob("*_deck_overlay.json")):
+    candidates = []
+    for path in DECK_OVERLAY_DIR.glob("*_deck_overlay.json"):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            mtime = path.stat().st_mtime
         except Exception:
             continue
         if data.get("topic") == topic:
-            return data
-    return {}
+            candidates.append((path, data, mtime))
+    if not candidates:
+        return {}
+
+    titles = {s.get("title") for s in (scenarios or []) if isinstance(s, dict) and s.get("title")}
+
+    def _rank(c):
+        mapped = len(titles & set((c[1].get("scenario_title_to_deck_key") or {}).keys()))
+        return (mapped, c[2])
+
+    best = max(candidates, key=_rank)
+    if len(candidates) > 1:
+        logger.warning(
+            "%d deck overlays claim topic %r; using %s (maps %d of %d scenario "
+            "titles), ignoring %s. Retire the stale ones.",
+            len(candidates), topic, best[0].name, _rank(best)[0], len(titles),
+            ", ".join(c[0].name for c in candidates if c is not best),
+        )
+    return best[1]
 
 
 def source_topic_for_display_name(display_name: str) -> Optional[str]:
