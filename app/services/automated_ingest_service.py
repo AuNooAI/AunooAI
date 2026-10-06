@@ -47,16 +47,9 @@ from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.analyzers.article_analyzer import ArticleAnalyzer, ConfigurationFault
 from app.ai_models import LiteLLMModel, get_available_models
 from app.services import rejected_candidates as _rejected
-from app.services import brand_decision as _bdec
-from app.services import brand_decision_store as _bstore
-from app.services import brand_profile as _bprof
-
-
-class _BrandTitleOnly(Exception):
-    """Internal signal: a headline-only brand item skips the analysis step."""
 from app.collectors.url_identity import is_redirect_wrapper, unwrap_redirect, canonical_url
 import asyncio
-import os
+from app.services import brand_ingest_hooks as _bhooks  # brand-hook
 import nest_asyncio
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
@@ -982,116 +975,6 @@ class AutomatedIngestService:
                 except Exception as e:
                     self.logger.warning(f"Failed to send WebSocket error update: {e}")
 
-    # ── Brand relevance path (docs/BRAND_RELEVANCE_SPEC.md) ────────────────
-    # Off unless BRAND_RELATION_DECISIONS is set. Returns None to leave the
-    # article on the existing path, {"action": "return", "result": ...} when
-    # the brand path has settled it, or {"action": "admit", "decision": d}
-    # when it should be analysed and saved as admitted.
-
-    def _brand_resolution(self, topic: str, group_id: Optional[int]):
-        conn = self.db._temp_get_connection()
-        try:
-            return _bprof.resolve_for_topic(conn, topic, group_id)
-        finally:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _brand_topic_scorer(self, topic: str, keywords: List[str]):
-        """The existing topic rules for an article that does not name the
-        brand: relevant (True), not (False) or unavailable (None)."""
-        def score(article: Dict[str, Any]) -> Optional[bool]:
-            try:
-                res = self.score_article_relevance(article, topic, keywords)
-            except RelevanceUnavailableError:
-                return None
-            except Exception as e:  # noqa: BLE001
-                self.logger.debug(f"brand topic scorer failed: {e}")
-                return None
-            val = res.get("relevance_score")
-            if val is None:
-                return None
-            return float(val) >= self.get_relevance_threshold(topic)
-        return score
-
-    async def _brand_path(self, article: Dict[str, Any], topic: str, keywords: List[str],
-                          ledger_ctx: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        if not _bdec.enabled() or not topic or not _bprof.brand_name_for_topic(topic):
-            return None
-        uri = article.get("uri") or ""
-        try:
-            state, stored, art_status = await _bstore.stored_state(self.async_db, uri, topic)
-        except Exception as e:  # noqa: BLE001 - e.g. the br_001 columns are missing
-            self.logger.warning(f"Brand path unavailable for {uri[:80]} ({type(e).__name__}); existing path used")
-            return None
-        if state == "no_row":
-            return None
-        loop = asyncio.get_event_loop()
-        group_id = (ledger_ctx or {}).get("group_id")
-        resolution = await loop.run_in_executor(None, self._brand_resolution, topic, group_id)
-        if resolution.profile is None and not resolution.error:
-            return None
-        settled = {"action": "return", "result": {"status": "filtered", "uri": uri, "reason": "already_decided"}}
-        if state in ("label_done", "legacy"):
-            return settled
-        if state == "invalid":
-            self.logger.warning(f"Invalid stored brand label for {uri[:80]} under '{topic}'; left for repair")
-            return settled
-        if state == "label_retry":
-            # The keyword route leaves analysis retries to the enrichment sweep.
-            if ledger_ctx is not None and art_status == "enrichment_failed":
-                return settled
-            if stored.admitted:
-                return {"action": "admit", "decision": stored}
-            await _bstore.save_article_verdict_only(self.async_db, article, topic, stored)
-            return settled
-
-        # Undecided: decide now, with the page text when the batch scraped it.
-        view = dict(article)
-        if article.get("_scraped_content") and not view.get("content"):
-            view["raw"] = article["_scraped_content"]
-        judges = _bdec.configured_judges()
-        # Per-run spend bound: past the cap the judge is unavailable, which
-        # leaves the candidate retryable; a headline match still settles by rule.
-        cap = int(os.getenv("BRAND_JUDGE_MAX_CALLS_PER_RUN", "300") or 300)
-        used = getattr(self, "_brand_judge_calls", 0)
-        # Reserve one call before deciding: articles run concurrently, so a
-        # count taken afterwards would let a whole batch pass the cap.
-        self._brand_judge_calls = used + 1
-        if used >= cap:
-            def _over_budget(*_a):
-                raise _bdec.JudgeUnavailable(f"per-run brand judge budget of {cap} calls reached")
-            _over_budget.route = "budget"
-            judges = (_over_budget,)
-        scorer = self._brand_topic_scorer(topic, keywords)
-        d = await loop.run_in_executor(None, lambda: _bdec.decide(
-            resolution, view, judges=judges, topic_scorer=scorer,
-            reuse=_bstore.reuse_lookup_sync(uri), collection_query=article.get("_collection_query")))
-        if d is None:
-            return None
-        self._brand_judge_calls = getattr(self, "_brand_judge_calls", 0) + d.model_calls - 1
-        self.logger.info(
-            f"Brand decision {topic!r} {uri[:80]}: policy={_bprof.POLICY_VERSION}/{_bdec.RUBRIC_VERSION} "
-            f"outcome={d.outcome} relation={d.brand_relation} "
-            f"source={d.source_relation} provenance={d.provenance} route={d.route} "
-            f"calls={d.model_calls} admitted={d.admitted} earned={d.earned}"
-            + (f" failure={d.failure[:160]}" if d.failure else ""))
-        if d.outcome == "decided" and d.admitted:
-            return {"action": "admit", "decision": d}
-        saved = await _bstore.save_rejection(self.async_db, article, topic, d)
-        if d.outcome == "unavailable":
-            result = {"status": "error", "uri": uri, "reason": "relevance_check_failed",
-                      "error": f"brand judgment unavailable: {d.failure}"}
-        elif d.outcome == "deferred":
-            result = {"status": "filtered", "uri": uri, "reason": "deferred", "detail": d.reason}
-        else:
-            result = {"status": "filtered", "uri": uri, "reason": "brand_relation",
-                      "brand_relation": d.brand_relation, "relevance_score": d.grade}
-        if saved == "concurrent":
-            result = {"status": "filtered", "uri": uri, "reason": "already_decided"}
-        return {"action": "return", "result": result}
-
     async def _process_single_article_async(
         self,
         article: Dict[str, Any],
@@ -1128,6 +1011,10 @@ class AutomatedIngestService:
 
         try:
             self.logger.debug(f"🔄 Processing article: {article_title}")
+            # brand-hook: settle decided rows, decide undecided ones once (BRAND_RELATION_DECISIONS)
+            _bh = await _bhooks.pre_decide(self, article, topic, keywords, locals().get("ledger_ctx"))
+            if _bh is not None and _bh.get("action") == "return":
+                return _bh["result"]
             self.logger.debug(f"📝 Original title: {original_title[:100]}")
 
             # Step 0: UNKNOWN-TOPIC GUARD (before any LLM work).
@@ -1208,18 +1095,6 @@ class AutomatedIngestService:
                     "topic": topic,
                 }
 
-            # Step 0a: BRAND PATH (flagged). Settles decided rows without a
-            # new judgment and decides undecided ones once.
-            brand_decision = None
-            _brand = await self._brand_path(article, topic, keywords, ledger_ctx)
-            if _brand is not None:
-                if _brand["action"] == "return":
-                    return _brand["result"]
-                brand_decision = _brand["decision"]
-            brand_title_only = bool(brand_decision is not None
-                                    and brand_decision.evidence.get("quality") == "title_only"
-                                    and not article.get("_scraped_content"))
-
             # Step 0b: NO-TEXT GUARD. Enrichment reads only the collector's
             # summary/content (scraped text is stored raw, never analysed), so
             # an article with a title and nothing else can only end in
@@ -1228,7 +1103,7 @@ class AutomatedIngestService:
             # and each one used to cost a relevance embedding and a bias call
             # per cycle before failing with no status written (sunstar: 60 such
             # papers cycling 2026-08-31 to 09-07). Mark terminally and stop.
-            if brand_decision is None and (not (article.get('summary') or article.get('content')) or not article.get('title')):
+            if not article.get('_brand_decision') and (not (article.get('summary') or article.get('content')) or not article.get('title')):  # brand-hook
                 self.logger.info(
                     f"⛔ Article {article_uri}: no usable text (title only) — "
                     f"marking enrichment_failed, no model calls made"
@@ -1262,7 +1137,7 @@ class AutomatedIngestService:
             # route already scored this URL under the same terms, threshold
             # and gate version and rejected it. Its filtered_relevance row is
             # still there from that first rejection; do not embed it again.
-            if ledger_hit is not None and brand_decision is None:
+            if ledger_hit is not None and not article.get('_brand_decision'):  # brand-hook
                 self.logger.debug(
                     f"Article {article_uri} already rejected by group "
                     f"{(ledger_ctx or {}).get('group_id')} (score {ledger_hit.score}, "
@@ -1280,15 +1155,10 @@ class AutomatedIngestService:
             # Use only title and existing summary to save costs
             try:
                 # Do a quick relevance check with just title + summary (no scraping/LLM yet)
-                if brand_decision is not None:
-                    # The brand path already decided: admitted, by label, not by score.
-                    quick_relevance_score = brand_decision.grade
-                    quick_relevance_result = {"relevance_score": quick_relevance_score}
-                else:
-                    quick_relevance_result = await self._score_article_relevance_async(
-                        article, topic, keywords
-                    )
-                    quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
+                quick_relevance_result = await self._score_article_relevance_async(
+                    article, topic, keywords
+                )
+                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
                 relevance_threshold = (
                     relevance_threshold_override
                     if relevance_threshold_override is not None
@@ -1298,7 +1168,7 @@ class AutomatedIngestService:
                 self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
 
                 # If article fails relevance threshold, stop processing immediately
-                if brand_decision is None and quick_relevance_score < relevance_threshold:
+                if quick_relevance_score < relevance_threshold:
                     self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
 
                     # Save with minimal data to database
@@ -1423,14 +1293,8 @@ class AutomatedIngestService:
 
             # Step 3: LLM analysis with timeout (only for relevant articles)
             try:
-                if brand_title_only:
-                    # Only the headline is known. The analysis step would write a
-                    # generated summary, which would be invented body text, so it is
-                    # skipped; the row is marked analysed with no generated fields.
-                    enriched_article["analyzed"] = True
-                    raise _BrandTitleOnly()
                 enriched_article = await asyncio.wait_for(
-                    self._analyze_article_content_async(enriched_article, topic),
+                    _bhooks.analyze_or_skip(self, enriched_article, topic),  # brand-hook
                     timeout=60  # 1 minute timeout
                 )
                 self.logger.debug(f"🧠 LLM analysis completed for {article_uri}")
@@ -1442,8 +1306,6 @@ class AutomatedIngestService:
                 enriched_article['news_source'] = enriched_article.get('news_source') or original_source
                 enriched_article['publication_date'] = enriched_article.get('publication_date') or original_pub_date
 
-            except _BrandTitleOnly:
-                pass
             except asyncio.TimeoutError:
                 self.logger.warning(f"LLM analysis timed out for {article_uri}")
                 enriched_article["analysis_error"] = "LLM analysis timed out"
@@ -1453,19 +1315,9 @@ class AutomatedIngestService:
 
             # Step 4: Final relevance scoring with full content
             try:
-                if brand_decision is not None:
-                    # One decision per article and brand: no second judgment.
-                    relevance_result = {
-                        "relevance_score": brand_decision.grade,
-                        "topic_alignment_score": brand_decision.grade,
-                        "keyword_relevance_score": brand_decision.grade,
-                        "confidence_score": 1.0,
-                        "overall_match_explanation": brand_decision.explanation()[:1000],
-                    }
-                else:
-                    relevance_result = await self._score_article_relevance_async(
-                        enriched_article, topic, keywords
-                    )
+                relevance_result = await self._score_article_relevance_async(
+                    enriched_article, topic, keywords
+                )
                 enriched_article.update(relevance_result)
                 self.logger.debug(f"🎯 Final relevance scoring completed for {article_uri}")
             except Exception as e:
@@ -1494,16 +1346,10 @@ class AutomatedIngestService:
                     and (topic or "").startswith("Brand Monitoring ")):
                 relevance_threshold = relevance_threshold_override
 
-            if brand_decision is not None or relevance_score >= relevance_threshold:
+            if relevance_score >= relevance_threshold:
                 # Step 5: Quality check (simplified for async)
                 try:
-                    if brand_title_only:
-                        # The quality check reads body text for paywalls and cookie
-                        # notices; a headline-only item has none to read.
-                        quality_result = {"approved": True, "quality_score": None,
-                                          "quality_issues": "headline only: body text not available"}
-                    else:
-                        quality_result = await self._quality_check_article_async(enriched_article)
+                    quality_result = await _bhooks.quality_or_skip(self, enriched_article)  # brand-hook
                     enriched_article.update(quality_result)
                     self.logger.debug(f"🔍 Quality check completed for {article_uri}")
                 except Exception as e:
@@ -1561,11 +1407,6 @@ class AutomatedIngestService:
                                 ),
                             })
                             await self.async_db.save_below_threshold_article(enriched_article)
-                            if brand_decision is not None:
-                                # Keep the label so the retry sweep reuses it
-                                # instead of judging again.
-                                await _bstore.save_label_with_status(self.async_db, article_uri, topic,
-                                                                     brand_decision, "enrichment_failed")
                         except Exception as mark_err:
                             self.logger.error(
                                 f"Could not mark {article_uri} enrichment_failed: {mark_err}"
@@ -1583,28 +1424,12 @@ class AutomatedIngestService:
                             "auto_ingested": True
                         })
                         
-                        if brand_decision is not None:
-                            # The article and its scoped match rows commit together;
-                            # a save that touches no row fails the article.
-                            from app.services.async_db import build_enrichment_update as _beu
-                            enriched_article["topic"] = topic
-                            try:
-                                saved = await _bstore.save_admitted(
-                                    self.async_db, _beu(enriched_article), article_uri, topic, brand_decision)
-                                success = True
-                                if saved == "concurrent":
-                                    return {"status": "filtered", "uri": article_uri, "reason": "already_decided"}
-                            except _bstore.SaveFailed as save_err:
-                                self.logger.error(f"Brand save failed for {article_uri}: {save_err}")
-                                success = False
-                        else:
-                            success = await self.async_db.update_article_with_enrichment(enriched_article)
+                        success = await _bhooks.save_enriched(self, enriched_article, topic)  # brand-hook
 
-                        if success and brand_decision is None:
+                        if success:
                             await self.async_db.record_group_relevance(
                                 article_uri, topic, enriched_article.get("topic_alignment_score"),
                                 "approved")
-                        if success:
                             # Another route (RSS, manual, retry) accepted it: a
                             # stale keyword rejection must not shadow it later.
                             if ledger_ctx is None and _rejected.enabled():
@@ -1644,12 +1469,6 @@ class AutomatedIngestService:
                             "error": f"Database operation failed: {str(e)}"
                         }
                 else:
-                    if brand_decision is not None:
-                        try:
-                            await _bstore.save_label_with_status(self.async_db, article_uri, topic,
-                                                                 brand_decision, "quality_failed")
-                        except Exception as bq_err:
-                            self.logger.warning(f"Brand label not saved after quality failure for {article_uri}: {bq_err}")
                     return {
                         "status": "filtered",
                         "uri": article_uri,
@@ -1813,6 +1632,9 @@ class AutomatedIngestService:
         keywords: List[str]
     ) -> Dict[str, Any]:
         """Async version of relevance scoring"""
+        _bh_ov = _bhooks.relevance_override(self, article_data, topic)  # brand-hook
+        if _bh_ov is not None:
+            return _bh_ov
         # For now, this wraps the sync version in a thread executor
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.score_article_relevance, article_data, topic, keywords)
@@ -1864,7 +1686,6 @@ class AutomatedIngestService:
         Returns:
             Processing results summary
         """
-        self._brand_judge_calls = 0  # per-run brand judge budget (BRAND_JUDGE_MAX_CALLS_PER_RUN)
         results = {
             "processed": 0,
             "enriched": 0,
@@ -1873,8 +1694,6 @@ class AutomatedIngestService:
             "saved": 0,
             "vector_indexed": 0,
             "already_rejected": 0,
-            "already_decided": 0,
-            "brand_deferred": 0,
             "configuration_blocked": 0,
             "extraction": {},
             "errors": []
@@ -2040,13 +1859,6 @@ class AutomatedIngestService:
                                 if result.get("reason") == "already_rejected":
                                     # Answered by the ledger: neither scored nor enriched.
                                     results["already_rejected"] += 1
-                                    continue
-                                if result.get("reason") == "already_decided":
-                                    # Settled by a stored brand decision: no new judgment.
-                                    results["already_decided"] += 1
-                                    continue
-                                if result.get("reason") == "deferred":
-                                    results["brand_deferred"] += 1
                                     continue
                                 results["enriched"] += 1
                                 # Article was filtered out by relevance or quality

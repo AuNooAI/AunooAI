@@ -116,47 +116,6 @@ def _fetch_waiting_rows(db, limit: int) -> List[Dict[str, Any]]:
                 pass
 
 
-def brand_retry_cap() -> int:
-    return _env_int("BRAND_RETRY_MAX_ATTEMPTS", 3)
-
-
-def _fetch_brand_retry_rows(db, limit: int) -> List[Dict[str, Any]]:
-    """Brand-topic candidates whose brand judgment was unavailable, under the
-    attempt cap, newest first. Only with BRAND_RELATION_DECISIONS on. Each
-    row carries its brand topic, which may differ from the article's own."""
-    try:
-        from app.services.brand_decision import enabled
-        if not enabled():
-            return []
-    except Exception:  # noqa: BLE001
-        return []
-    conn = None
-    try:
-        conn = db._temp_get_connection()
-        rows = conn.execute(text("""
-            SELECT DISTINCT ON (a.uri) a.uri, a.title, a.news_source, a.publication_date, a.summary,
-                   g.topic, a.submission_date
-              FROM keyword_article_matches m
-              JOIN keyword_groups g ON g.id = m.group_id
-              JOIN articles a ON a.uri = m.article_uri
-             WHERE m.relevance_status = 'relevance_check_failed' AND m.brand_relation IS NULL
-               AND (g.topic LIKE 'Brand Monitoring %' OR g.topic LIKE '% - Brand Watch')
-               AND COALESCE((m.last_failure->>'attempts')::int, 0) < :cap
-             ORDER BY a.uri, a.submission_date DESC NULLS LAST
-             LIMIT :limit
-        """), {"cap": brand_retry_cap(), "limit": int(limit)}).mappings().fetchall()
-        return sorted((dict(r) for r in rows), key=lambda r: r.get("submission_date") or "", reverse=True)
-    except Exception as exc:  # noqa: BLE001 - columns absent before br_001
-        logger.debug("enrichment retry sweep: brand retry query skipped: %s", exc)
-        return []
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
-
-
 def select_candidates(rows: List[Dict[str, Any]], configs: Dict[str, Dict[str, Any]],
                       budget: int, attempts_cap: Optional[int] = None):
     """(selected, deferred_count, reasons). Rows are already newest first."""
@@ -244,37 +203,12 @@ async def sweep_once(db, *, budget: Optional[int] = None, service=None,
     # error). The batch reports those as filtered, not as errors, so count
     # them here or a tick that fixed nothing reads as "0 failed".
     # Brand judgments that were unavailable: retried through the same
-    # pipeline, which judges them again (docs/BRAND_RELEVANCE_SPEC.md).
-    brand_budget = _env_int("BRAND_RETRY_BUDGET", 25)
-    brand_rows = await loop.run_in_executor(None, _fetch_brand_retry_rows, db, brand_budget)
-    brand_saved = brand_filtered = brand_failed = 0
-    if brand_rows:
-        if service is None:
-            from app.services.automated_ingest_service import AutomatedIngestService
-            service = AutomatedIngestService(db)
-        by_brand_topic: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        for r in brand_rows:
-            by_brand_topic[r.get("topic")].append(_article_dict(r))
-        for topic, articles in by_brand_topic.items():
-            try:
-                keywords = await loop.run_in_executor(
-                    None, db.facade.get_monitored_keywords_for_topic, (topic,))
-            except Exception:  # noqa: BLE001
-                keywords = []
-            try:
-                out = await service.process_articles_batch(articles, topic, keywords or [], route="brand_retry")
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{topic}: {exc}")
-                logger.error("enrichment retry sweep: brand retry for '%s' failed: %s", topic, exc)
-                continue
-            brand_saved += int(out.get("saved") or 0)
-            brand_failed += len(out.get("errors") or [])
-            brand_filtered += max(0, int(out.get("processed") or 0) - int(out.get("saved") or 0)
-                                  - len(out.get("errors") or []))
-            errors.extend(str(e) for e in (out.get("errors") or [])[:5])
-    result.diagnostics["brand_retry"] = {"selected": len(brand_rows), "saved": brand_saved,
-                                         "decided_not_admitted": brand_filtered, "still_failed": brand_failed,
-                                         "attempts_cap": brand_retry_cap()}
+    # pipeline, which judges them again (app/services/brand_retry.py).
+    from app.services.brand_retry import retry_brand_judgments
+    brand_out = await retry_brand_judgments(db, service=service)
+    service = brand_out.pop("_service", service)
+    errors.extend(brand_out.pop("errors", []))
+    result.diagnostics["brand_retry"] = brand_out
 
     still_failed = max(0, len(selected) - enriched - quarantined - already_rejected)
     result.counts.add(inserted=enriched, quarantined=quarantined, already_rejected=already_rejected,

@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from app.services import automated_ingest_service as ais
+from app.services import brand_ingest_hooks as bh
 from app.services import brand_decision as bd
 from app.services import brand_profile as bp
 from tests._cdq_ingest_fakes import make_service, full_topic
@@ -57,12 +58,12 @@ def env(monkeypatch):
         rec.article_only.append((article["uri"], d))
         return 1
 
-    monkeypatch.setattr(ais._bstore, "stored_state", stored_state)
-    monkeypatch.setattr(ais._bstore, "save_rejection", save_rejection)
-    monkeypatch.setattr(ais._bstore, "save_admitted", save_admitted)
-    monkeypatch.setattr(ais._bstore, "save_label_with_status", save_label_with_status)
-    monkeypatch.setattr(ais._bstore, "save_article_verdict_only", save_article_verdict_only)
-    monkeypatch.setattr(ais._bstore, "reuse_lookup_sync", lambda uri: (lambda key: None))
+    monkeypatch.setattr(bh._bstore, "stored_state", stored_state)
+    monkeypatch.setattr(bh._bstore, "save_rejection", save_rejection)
+    monkeypatch.setattr(bh._bstore, "save_admitted", save_admitted)
+    monkeypatch.setattr(bh._bstore, "save_label_with_status", save_label_with_status)
+    monkeypatch.setattr(bh._bstore, "save_article_verdict_only", save_article_verdict_only)
+    monkeypatch.setattr(bh._bstore, "reuse_lookup_sync", lambda uri: (lambda key: None))
 
     judge_calls = []
 
@@ -74,10 +75,21 @@ def env(monkeypatch):
             return label, "because", "fake-1"
         j.route = "llm:fake"
         monkeypatch.setattr(bd, "configured_judges", lambda: (j,))
-        monkeypatch.setattr(ais._bdec, "configured_judges", lambda: (j,))
 
     svc = make_service({TOPIC: full_topic(TOPIC)}, score=0.9, threshold=0.45)
-    svc._brand_resolution = lambda topic, group_id: bp.resolve([COLGATE], topic, group_id)
+    monkeypatch.setattr(bh, "_resolution", lambda svc_, topic, group_id: bp.resolve([COLGATE], topic, group_id))
+    bh._budget.update(window_start=0.0, used=0)
+
+    # The harness replaces the scoring method with a fake; put the brand hook
+    # in front of it, where transform_ingest puts it in the real method.
+    _fake_score = svc._score_article_relevance_async
+
+    async def scored(article, topic, keywords):
+        ov = bh.relevance_override(svc, article, topic)
+        if ov is not None:
+            return ov
+        return await _fake_score(article, topic, keywords)
+    svc._score_article_relevance_async = scored
 
     async def quality(article):
         svc.quality_calls = getattr(svc, "quality_calls", []) + [article.get("uri")]
@@ -89,7 +101,6 @@ def env(monkeypatch):
 def test_flag_off_keeps_the_existing_path(env, monkeypatch):
     svc, rec, state, set_judge, calls = env
     monkeypatch.setattr(bd, "enabled", lambda: False)
-    monkeypatch.setattr(ais._bdec, "enabled", lambda: False)
     set_judge("subject")
     out = _run(svc.process_articles_batch([_art("u1", "Colgate cuts guidance", "Body")], TOPIC, ["Colgate"], route="manual"))
     assert out["saved"] == 1 and svc.score_calls == ["u1", "u1"] and calls == [] and rec.admitted == []  # old path scores twice
@@ -103,6 +114,7 @@ def test_earned_body_mention_one_judgment_no_numeric_rescore(env):
     assert out["saved"] == 1 and len(calls) == 1 and svc.score_calls == []
     uri, d, q = rec.admitted[0]
     assert d.earned and d.brand_relation == "notable" and svc.analyze_calls == ["u2"]
+    assert rec.labels == [("u2", d, "pending")]
     assert "UPDATE articles SET" in q[0]
 
 
@@ -134,7 +146,7 @@ def test_legacy_and_settled_rows_are_left_alone(env):
               ("invalid", None, "approved")):
         state["value"] = s
         out = _run(svc.process_articles_batch([_art("u5", "Colgate results", "Body")], TOPIC, ["Colgate"], route="manual"))
-        assert out["already_decided"] == 1
+        assert out["saved"] == 0
     assert calls == [] and rec.admitted == [] and rec.rejections == [] and svc.score_calls == []
 
 
@@ -187,9 +199,9 @@ def test_theme_topics_are_untouched(env):
     assert out["saved"] == 1 and svc.score_calls == ["u10", "u10"] and calls == []
 
 
-def test_per_run_judge_budget_leaves_the_rest_retryable(env, monkeypatch):
+def test_judge_budget_leaves_the_rest_retryable(env, monkeypatch):
     svc, rec, state, set_judge, calls = env
-    monkeypatch.setenv("BRAND_JUDGE_MAX_CALLS_PER_RUN", "2")
+    monkeypatch.setenv("BRAND_JUDGE_MAX_CALLS_PER_HOUR", "2")
     set_judge("notable")
     arts = [_art(f"b{i}", "Staples outlook", f"Colgate cut guidance, note {i}.") for i in range(5)]
     out = _run(svc.process_articles_batch(arts, TOPIC, ["Colgate"], route="manual"))

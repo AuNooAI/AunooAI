@@ -134,7 +134,13 @@ def reuse_lookup_sync(uri: str):
 # Saving
 # ---------------------------------------------------------------------------
 
-_UNDECIDED = "(m.brand_relation IS NULL OR COALESCE(m.relevance_status, '') IN ('relevance_check_failed', 'deferred'))"
+# Rows this save may write: undecided ones, rows still in flight for this
+# pipeline ('pending', or an analysis that failed and is being retried), and
+# rows that already carry exactly this decision (same input key). A different
+# stored verdict is never overwritten.
+_WRITABLE = ("(m.brand_relation IS NULL"
+             " OR COALESCE(m.relevance_status, '') IN ('relevance_check_failed', 'deferred', 'pending', 'enrichment_failed')"
+             " OR m.judge_version = ?)")
 
 
 def match_decision_sql(uri: str, topic: str, d: bd.Decision) -> Tuple[str, tuple]:
@@ -151,10 +157,11 @@ def match_decision_sql(uri: str, topic: str, d: bd.Decision) -> Tuple[str, tuple
                scored_at = NOW(), below_threshold = ?,
                last_failure = COALESCE(?::jsonb, m.last_failure)
           FROM keyword_groups g
-         WHERE g.id = m.group_id AND g.topic = ? AND m.article_uri = ? AND {_UNDECIDED}
+         WHERE g.id = m.group_id AND g.topic = ? AND m.article_uri = ? AND {_WRITABLE}
     """
     params = (d.brand_relation if d.outcome == "decided" else None, d.source_relation, d.judge_version,
-              evidence, status, grade, 0 if status == "approved" else 1, failure, topic, uri)
+              evidence, status, grade, 0 if status == "approved" else 1, failure, topic, uri,
+              d.judge_version or "")
     return q, params
 
 
