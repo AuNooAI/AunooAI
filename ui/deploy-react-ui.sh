@@ -257,6 +257,14 @@ if [ -f "$STATIC_DIR/index-pam.html" ]; then
             sed -i "s|/static/trend-convergence/assets/pam-PLACEHOLDER\.js|/static/trend-convergence/assets/$PAM_JS|" "$PAM_TEMPLATE"
         fi
 
+        # The shared usePAM chunk is preloaded too. Without this line its
+        # hash went stale whenever only that chunk changed, and every PAM
+        # page load requested a file that no longer existed (404).
+        USEPAM_JS=$(grep -oP 'usePAM-[^.]+\.js' "$STATIC_DIR/index-pam.html" | head -1)
+        if [ -n "$USEPAM_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/usePAM-[^.]*\.js|/static/trend-convergence/assets/$USEPAM_JS|" "$PAM_TEMPLATE"
+        fi
+
         # Also update shared CSS (index.css)
         if [ -n "$INDEX_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$PAM_TEMPLATE"

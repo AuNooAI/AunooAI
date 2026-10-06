@@ -25,8 +25,8 @@ from sqlalchemy import text  # noqa: E402
 
 from app.services.brand_profile import norm  # noqa: E402
 
-LIST_CONFIG_KEYS = ("original_names", "aliases", "ambiguous_aliases", "exclude_context", "mention_context",
-                    "owned_domains", "non_press_domains", "news_keyword_excludes")
+LIST_CONFIG_KEYS = ("original_names", "aliases", "products", "ambiguous_aliases", "exclude_context",
+                    "mention_context", "owned_domains", "non_press_domains", "news_keyword_excludes")
 
 
 def _list(v):
@@ -50,6 +50,8 @@ def merge(current, additions):
 def plan_for(row, spec):
     changes = {}
     for col in ("brand_keywords", "product_keywords"):
+        # These columns feed the legacy name filter and other modules; new
+        # names belong in config.aliases / config.products instead.
         if spec.get(col):
             new, added = merge(_list(row[col]), spec[col])
             if added:

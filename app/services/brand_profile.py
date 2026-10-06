@@ -4,8 +4,9 @@ One profile per enabled ``bw_brands`` row drives collection, mention detection
 and every model route for that brand (docs/BRAND_RELEVANCE_SPEC.md, "Brand
 identity and collection"). It is built from fields the row already carries:
 
-``display_name``, ``brand_keywords``, ``product_keywords``    names and products
-``config.aliases``, ``config.original_names``                  extra and original-language names
+``display_name``, ``brand_keywords``, ``product_keywords``    names and products (shared with legacy readers)
+``config.aliases``, ``config.original_names``                  extra and original-language names (profile only)
+``config.products``                                            extra products (profile only)
 ``config.mention_context``                                     words that must sit near a mention
 ``config.ambiguous_aliases``                                   names that always need that context
 ``config.exclude_context``                                     words that mark a same-name subject
@@ -217,7 +218,11 @@ def build_profile(row: Dict[str, Any], registry_domains: Sequence[str] = ()) -> 
     display = (row.get("display_name") or row.get("name") or "").strip()
     names = [display, *_as_list(row.get("brand_keywords")), *_as_list(cfg.get("aliases")),
              *_as_list(cfg.get("original_names"))]
-    products = _as_list(row.get("product_keywords"))
+    # config.products / config.aliases hold names only the brand profile reads.
+    # The legacy Brand Watcher name filter and five other modules match
+    # brand_keywords and product_keywords as substrings, so new or ambiguous
+    # names go to config, never to those columns.
+    products = [*_as_list(row.get("product_keywords")), *_as_list(cfg.get("products"))]
     owned = [d for d in (_domain_of(x) for x in [*_as_list(cfg.get("owned_domains")), *registry_domains]) if d]
     non_press = [d for d in (_domain_of(x) for x in _as_list(cfg.get("non_press_domains"))) if d]
     groups = []
