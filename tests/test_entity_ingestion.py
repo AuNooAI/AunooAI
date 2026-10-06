@@ -625,3 +625,53 @@ def test_short_name_links_on_its_own_brand_social_topic(conn):
     assert brand not in [c['brand_id'] for c in
                          entity_ingest._discover_candidates(
                              conn, elsewhere, 'public_social')]
+
+
+def test_a_verified_own_account_moves_every_mention_of_its_posts(conn, brands):
+    """A post matched by the name and by an alias has two mentions. Moving the
+    first gives it the owned hash, so the second could not take the same hash
+    and stayed public; the feed shows one row per post and prefers the
+    explicit-name one, so four vendor posts on panaya still read as outside
+    coverage after their accounts were verified."""
+    import json
+
+    from app.services import entity_identity, entity_ingest
+
+    uri = 'pytest://owned/verified-account-two-mentions'
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              social_meta, publication_date)
+        VALUES (:u, 'Pytest-Ingest-A ships agents', 'body', 'xpoz:twitter',
+                'https://x/4', CAST(:meta AS JSONB), '2026-09-20T00:00:00')
+    """), {'u': uri, 'meta': json.dumps({'platform': 'twitter',
+                                         'author': 'pytest_ingest_a'})})
+    conn.execute(text("""
+        INSERT INTO bw_article_categories (article_uri, brand_id, category)
+        VALUES (:u, :b, 'Product & Innovation')
+    """), {'u': uri, 'b': brands[0]})
+    entity_ingest.link_content(conn, uri)
+    link_id = conn.execute(text("""
+        SELECT id FROM bw_entity_content_links WHERE article_uri = :u
+    """), {'u': uri}).scalar()
+    entity_content.record_mention(
+        conn, brand_id=brands[0], article_uri=uri, mention_type='alias',
+        channel='public_social', platform='twitter', content_link_id=link_id,
+        matched_term='PIA', relevance=0.9, status='accepted')
+
+    account = entity_identity.upsert_account(conn, platform='twitter',
+                                             handle='pytest_ingest_a')
+    entity_identity.propose_identity(
+        conn, brand_id=brands[0], social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='manual',
+        actor='pytest')
+
+    moved = entity_ingest.reattribute_owned_account(conn, brands[0],
+                                                    account['account_id'])
+
+    channels = [r[0] for r in conn.execute(text("""
+        SELECT channel FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).fetchall()]
+    assert len(channels) == 2
+    assert set(channels) == {'owned_social'}
+    assert moved == 2

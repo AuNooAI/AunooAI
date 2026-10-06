@@ -228,12 +228,13 @@ def reattribute_owned_account(conn, brand_id: int,
           JOIN bw_entity_mentions m ON m.content_link_id = l.id
           JOIN articles a ON a.uri = l.article_uri
          WHERE l.brand_id = :b AND l.social_account_id = :acct
-           AND l.channel IN ('public_social', 'community')
+           AND m.channel IN ('public_social', 'community')
     """), {'b': brand_id, 'acct': social_account_id}).mappings().all()
     moved = 0
     for row in rows:
-        speaking = _is_company_speaking(row)
-        mention_type = 'owned_attribution' if speaking else 'explicit_name'
+        stance = 'owned_claim' if _is_company_speaking(row) else 'not_applicable'
+        mention_type = ('owned_attribution' if stance == 'owned_claim'
+                        else 'explicit_name')
         conn.execute(text("""
             UPDATE bw_entity_content_links
                SET channel = 'owned_social', relationship = 'owned'
@@ -245,7 +246,7 @@ def reattribute_owned_account(conn, brand_id: int,
                       AND o.relationship = 'owned'
                       AND o.channel = 'owned_social')
         """), {'id': row['link_id']})
-        conn.execute(text("""
+        res = conn.execute(text("""
             UPDATE bw_entity_mentions
                SET channel = 'owned_social', mention_type = :mt,
                    stance = :stance, relevance = 1.0, status = 'accepted',
@@ -256,12 +257,25 @@ def reattribute_owned_account(conn, brand_id: int,
                     WHERE o.brand_id = bw_entity_mentions.brand_id
                       AND o.article_uri = bw_entity_mentions.article_uri
                       AND o.dedupe_hash = :hash)
-        """), {'id': row['mention_id'], 'mt': mention_type,
-               'stance': 'owned_claim' if speaking else 'not_applicable',
+        """), {'id': row['mention_id'], 'mt': mention_type, 'stance': stance,
                'hash': entity_content.dedupe_hash_for(
                    mention_type=mention_type, matched_term=row['term'],
                    channel='owned_social')})
-        moved += 1
+        if res.rowcount == 0:
+            # A post matched by two terms has two mentions, and the first one
+            # moved already holds the owned hash. The second still has to
+            # leave the public lane: the feed shows one row per post and
+            # prefers an explicit-name mention, so on panaya four vendor posts
+            # stayed outside coverage. Its type and hash are kept, which the
+            # unique key allows.
+            res = conn.execute(text("""
+                UPDATE bw_entity_mentions
+                   SET channel = 'owned_social', stance = :stance,
+                       relevance = 1.0, status = 'accepted',
+                       evaluation_method = 'attribution'
+                 WHERE id = :id
+            """), {'id': row['mention_id'], 'stance': stance})
+        moved += res.rowcount
     return moved
 
 
