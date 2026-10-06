@@ -1,0 +1,93 @@
+{
+  "site": "wbm",
+  "written": "2026-10-06",
+  "why": "Reviewed 2026-10-06 for the brand relevance rollout. The publishers' own domains, including their journal platforms (ScienceDirect, Wiley Online Library, SpringerLink, SAGE Journals, Nature), are owned: a journal article on the publisher's own platform is its output, as the existing Publications bucket already treats it. Same-name subjects: Sage Group's accounting software, Axel Springer (which owns Politico, Bild, Die Welt, Business Insider) and Jerry Springer, Toronto Pearson airport. All config-only; no Jev on Wiley sites (the route stays llm).",
+  "brands": {
+    "Wiley": {
+      "config": {
+        "owned_domains": [
+          "wiley.com",
+          "onlinelibrary.wiley.com",
+          "wileyonlinelibrary.com",
+          "newsroom.wiley.com"
+        ]
+      }
+    },
+    "Elsevier": {
+      "config": {
+        "owned_domains": [
+          "elsevier.com",
+          "sciencedirect.com",
+          "relx.com",
+          "cell.com",
+          "thelancet.com"
+        ],
+        "exclude_context": [
+          "Elsevier Street"
+        ]
+      }
+    },
+    "Pearsons Education": {
+      "config": {
+        "owned_domains": [
+          "pearson.com",
+          "plc.pearson.com"
+        ],
+        "exclude_context": [
+          "airport",
+          "Toronto Pearson",
+          "Lester B. Pearson",
+          "Pearson International",
+          "Pearson Field",
+          "Pearson Ford"
+        ]
+      }
+    },
+    "SAGE Publishing": {
+      "config": {
+        "owned_domains": [
+          "sagepub.com",
+          "journals.sagepub.com",
+          "us.sagepub.com",
+          "uk.sagepub.com"
+        ],
+        "exclude_context": [
+          "Sage Group",
+          "accounting software",
+          "Sage Intacct",
+          "Sage 50",
+          "Sage X3",
+          "payroll",
+          "herb",
+          "rosemary",
+          "thyme",
+          "sage green",
+          "Sage Hill",
+          "Sage Steele",
+          "Sage Kotsenburg"
+        ]
+      }
+    },
+    "Springer": {
+      "config": {
+        "owned_domains": [
+          "springer.com",
+          "springernature.com",
+          "link.springer.com",
+          "nature.com",
+          "biomedcentral.com"
+        ],
+        "exclude_context": [
+          "Axel Springer",
+          "Jerry Springer",
+          "spaniel",
+          "Springer Spaniel",
+          "Politico",
+          "Bild",
+          "Die Welt",
+          "Business Insider"
+        ]
+      }
+    }
+  }
+}

@@ -80,13 +80,20 @@ def _is_latin(term: str) -> bool:
 
 def propose(conn, only_brand: str | None = None):
     rows, registry = bp.load_rows(conn)
+    # Older sites have no keyword_groups.language column: every group is then
+    # "language unspecified" and takes Latin-script names.
+    has_language = bool(conn.execute(text("""
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'keyword_groups' AND column_name = 'language'
+           AND table_schema = ANY(current_schemas(false))""")).first())
     plan = []
     for r in rows:
         if only_brand and bp.norm(r["display_name"]) != bp.norm(only_brand):
             continue
         prof = bp.build_profile(r, registry.get(int(r["id"]), ()))
-        groups = conn.execute(text("""
-            SELECT id, name, topic, language FROM keyword_groups WHERE topic = ANY(:t) ORDER BY id
+        lang = "language" if has_language else "NULL AS language"
+        groups = conn.execute(text(f"""
+            SELECT id, name, topic, {lang} FROM keyword_groups WHERE topic = ANY(:t) ORDER BY id
         """), {"t": brand_topics(prof.display_name)}).mappings().all()
         if not groups:
             continue
