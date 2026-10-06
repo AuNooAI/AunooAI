@@ -14,6 +14,7 @@ caller that has to remember to ask for it will forget.
 Nothing here calls a model or a provider. It reads rows.
 """
 
+import json
 import logging
 import os
 import re
@@ -1863,6 +1864,40 @@ def collection_started(conn, market_id: int):
     return row
 
 
+def vendor_decisions_since(conn, market_id: int):
+    """When brand decisions started gating this market's vendor links
+    (``config.vendor_decisions_since``, docs/BRAND_RELEVANCE_MARKET_VENDORS.md),
+    as a timezone-aware datetime, or None."""
+    from datetime import datetime, timezone
+
+    cfg = conn.execute(text("SELECT config FROM bw_markets WHERE id = :m"), {"m": market_id}).scalar()
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    raw = (cfg or {}).get("vendor_decisions_since") if isinstance(cfg, dict) else None
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def comparison_baseline(conn, market_id: int):
+    """The earliest start a comparison window may have: the later of
+    collection_started and vendor_decisions_since. Vendor counts before the
+    switch-on were made under the looser name match, so a fall across that
+    date is a change of rule, not of coverage."""
+    started = collection_started(conn, market_id)
+    since = vendor_decisions_since(conn, market_id)
+    if started is None:
+        return since
+    return max(started, since) if since else started
+
+
 def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]:
     """This reporting period against the immediately preceding one, same length.
 
@@ -1932,8 +1967,10 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
     deltas = {k: current.get(k, 0) - previous.get(k, 0) for k in all_keys}
 
     started = collection_started(conn, market_id)
-    comparable = bool(started) and prev_start_dt >= started
-    comparable_from = (started + timedelta(days=days * 2)) if started else None
+    baseline = comparison_baseline(conn, market_id)
+    since = vendor_decisions_since(conn, market_id)
+    comparable = bool(baseline) and prev_start_dt >= baseline
+    comparable_from = (baseline + timedelta(days=days * 2)) if baseline else None
 
     return {
         "days": days,
@@ -1944,6 +1981,7 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
         "deltas": deltas,
         "comparable": comparable,
         "collection_started": started.isoformat() if started else None,
+        "vendor_decisions_since": since.isoformat() if since else None,
         "comparable_from": (comparable_from.date().isoformat()
                             if comparable_from else None),
     }

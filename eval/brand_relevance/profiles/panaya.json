@@ -1,0 +1,19 @@
+{
+  "site": "panaya",
+  "written": "2026-10-06",
+  "why": "Market Monitor vendors (docs/BRAND_RELEVANCE_MARKET_VENDORS.md). UiPath's generic product names (Test Suite, Test Manager, Test Cloud) matched developer posts about testing; with UiPath as required context they count only when UiPath is named nearby.",
+  "brands": {
+    "UiPath": {
+      "config": {
+        "ambiguous_aliases": [
+          "Test Suite",
+          "Test Manager",
+          "Test Cloud"
+        ],
+        "mention_context": [
+          "UiPath"
+        ]
+      }
+    }
+  }
+}

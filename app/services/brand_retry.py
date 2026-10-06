@@ -89,6 +89,36 @@ def _fetch_brand_retry_rows(db, limit: int, include_pending: bool = False) -> Li
 
 
 
+def _retry_market_vendor_decisions(db, budget: int):
+    """Market Monitor vendor decisions that were unavailable
+    (docs/BRAND_RELEVANCE_MARKET_VENDORS.md); None with the flag off."""
+    try:
+        from app.services import market_vendor_decisions as mvd
+        if not mvd.enabled():
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    conn = None
+    try:
+        conn = db._temp_get_connection()
+        res = mvd.retry_unavailable(conn, budget)
+        conn.commit()
+        return res
+    except Exception as exc:  # noqa: BLE001 - table absent before bm_001
+        logger.warning("market vendor decision retry skipped: %s", exc)
+        try:
+            conn is not None and conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"error": str(exc)[:200]}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _article_dict(row: Dict[str, Any]) -> Dict[str, Any]:
     return {"uri": row.get("uri"), "url": row.get("uri"), "title": row.get("title") or "",
             "news_source": row.get("news_source") or "", "publication_date": row.get("publication_date"),
@@ -102,9 +132,12 @@ async def retry_brand_judgments(db, *, service=None, budget: int | None = None,
     it: where the enrichment sweep exists, the sweep retries those already."""
     budget = budget if budget is not None else _env_int("BRAND_RETRY_BUDGET", 25)
     loop = asyncio.get_event_loop()
+    market = await loop.run_in_executor(None, _retry_market_vendor_decisions, db, budget)
     rows = await loop.run_in_executor(None, _fetch_brand_retry_rows, db, budget, include_pending)
     out: Dict[str, Any] = {"selected": len(rows), "saved": 0, "decided_not_admitted": 0, "still_failed": 0,
                            "attempts_cap": brand_retry_cap(), "errors": [], "_service": service}
+    if market is not None:
+        out["market_vendor"] = market
     if not rows:
         return out
     if service is None:

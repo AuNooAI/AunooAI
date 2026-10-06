@@ -201,25 +201,45 @@ def coverage_split(conn, display_name: str, days: int = 30, relation: Optional[s
           ELSE m.brand_relation
         END
     """
+    # Market Monitor vendor decisions (docs/BRAND_RELEVANCE_MARKET_VENDORS.md)
+    # live in their own table, one row per article and vendor; mapped to the
+    # match-row shape so one bucket rule serves both.
+    market_rows = ""
+    if conn.execute(text("SELECT to_regclass('brand_article_decisions') IS NOT NULL")).scalar():
+        market_rows = """
+          UNION ALL
+          SELECT d.article_uri, d.brand_relation, d.source_relation,
+                 CASE d.outcome WHEN 'unavailable' THEN 'relevance_check_failed'
+                                WHEN 'deferred' THEN 'deferred' END,
+                 d.decision_evidence, d.decided_at
+            FROM brand_article_decisions d
+           WHERE d.brand_id IN (SELECT id FROM bw_brands WHERE display_name = :n)
+        """
     base = f"""
         SELECT DISTINCT ON (m.article_uri) m.article_uri AS uri, {bucket} AS bucket,
                m.brand_relation, m.source_relation, m.relevance_status, m.decision_evidence,
                a.title, a.news_source, a.publication_date, a.submission_date
-          FROM keyword_article_matches m
-          JOIN keyword_groups g ON g.id = m.group_id
+          FROM (
+          SELECT km.article_uri, km.brand_relation, km.source_relation, km.relevance_status,
+                 km.decision_evidence, km.scored_at
+            FROM keyword_article_matches km
+            JOIN keyword_groups g ON g.id = km.group_id
+           WHERE g.topic = ANY(:t)
+          {market_rows}
+          ) m (article_uri, brand_relation, source_relation, relevance_status, decision_evidence, scored_at)
           JOIN articles a ON a.uri = m.article_uri
-         WHERE g.topic = ANY(:t)
-           AND (a.social_meta IS NULL OR a.social_meta::text = 'null')
+         WHERE (a.social_meta IS NULL OR a.social_meta::text = 'null')
            AND COALESCE(m.scored_at, NOW()) >= NOW() - make_interval(days => :d)
          ORDER BY m.article_uri, m.scored_at DESC NULLS LAST
     """
+    params = {"t": topics, "d": int(days), "n": display_name}
     counts = {r["bucket"]: int(r["n"]) for r in conn.execute(text(
-        f"SELECT bucket, count(*) AS n FROM ({base}) x GROUP BY bucket"), {"t": topics, "d": int(days)}).mappings()}
+        f"SELECT bucket, count(*) AS n FROM ({base}) x GROUP BY bucket"), params).mappings()}
     rows: List[Dict[str, Any]] = []
     if relation:
         for r in conn.execute(text(
                 f"SELECT * FROM ({base}) x WHERE bucket = :b ORDER BY submission_date DESC NULLS LAST LIMIT :l"),
-                {"t": topics, "d": int(days), "b": relation, "l": int(limit)}).mappings():
+                dict(params, b=relation, l=int(limit))).mappings():
             ev = r["decision_evidence"] or {}
             if isinstance(ev, str):
                 import json

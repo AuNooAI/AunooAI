@@ -1,9 +1,10 @@
 # Brand decisions for market vendors
 
-Status: draft for review, 2026-10-06. Extends `docs/BRAND_RELEVANCE_SPEC.md`
-(the adopted brand relevance spec) to articles that reach a vendor through a
-Market Monitor rather than through a brand topic. Requested by Oliver for
-panaya ("option 2"); nothing here is built yet.
+Status: adopted and built 2026-10-06; live on panaya only (switched on 14:45 UTC).
+Extends `docs/BRAND_RELEVANCE_SPEC.md` (the adopted brand relevance spec) to
+articles that reach a vendor through a Market Monitor rather than through a
+brand topic. Requested by Oliver for panaya ("option 2"). Oliver's answers to
+section 10: yes to all three.
 
 ## 1. Why
 
@@ -221,3 +222,28 @@ about 40 a day (1,231 links in 30 days, before owned pages are set aside). Same 
 2. **Existing links stay as they are** until the audit report is read.
    Recommended: yes.
 3. **Panaya only for now.** Recommended: yes; aisocnews last and separately.
+
+## 11. Built (2026-10-06)
+
+- `alembic/versions/bm_001_brand_article_decisions.py`: the table, with a
+  `linked` column recording whether the vendor link was written.
+- `app/services/market_vendor_decisions.py`: flag, profiles by vendor id
+  (enabled or not), stored-decision check (a decided pair is settled, an
+  unavailable one retried under the cap, a deferred one waits for a profile
+  change), reuse across both stores, decide, save, retry.
+- `market_corpus.attribute_vendors`: with the flag on, decides each news pair
+  and writes the link only when earned (`write_vendor_link`, which also makes
+  the entity link). Social posts keep today's rule. The result carries
+  `vendor_decisions` counts and `not_earned`.
+- `brand_retry`: also retries unavailable market decisions.
+- `brand_coverage.coverage_split`: merges the table into the buckets.
+- `market_analysis.comparison_baseline` and `vendor_decisions_since`; the
+  period comparison and the publish step's "Who moved" gate use the baseline.
+- `scripts/market_vendor_decisions_audit.py`: dry run over existing links.
+- Tests: `tests/test_market_vendor_decisions.py` (13).
+
+Panaya audit with the judge, before switch-on, on its 111 news links: 22 kept
+as earned, 86 on vendors' own sites (already excluded by readers, and linked
+as owned by the owned-page pass), 3 dropped as independent but not coverage
+(two UiPath false matches, one valuation page). Existing links unchanged.
+Report: `/var/tmp/brand_rollout/panaya_market_audit_2026-10-06.json`.

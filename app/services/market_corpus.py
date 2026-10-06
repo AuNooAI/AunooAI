@@ -616,6 +616,30 @@ def _link_entity(conn, uri: str, brand_id: int, term: str,
         logger.exception("entity link failed for %s / brand %s", uri, brand_id)
 
 
+def write_vendor_link(conn, uri: str, brand_id: int, title: str, summary: str,
+                      term: str) -> bool:
+    """Write the vendor link (``bw_article_categories``, method
+    ``market_name_match``) and the matching entity-layer link, unless any
+    method already linked this article to this vendor. True when written."""
+    from app.services.market_collect import _categorize
+
+    cats = _categorize(title or "", summary or "")
+    category = cats[0] if cats else "Media & Advertising"
+    wrote = conn.execute(text("""
+        INSERT INTO bw_article_categories
+            (article_uri, brand_id, category, classification_method,
+             confidence)
+        SELECT :uri, :bid, :cat, :method, 1.0
+         WHERE NOT EXISTS (
+             SELECT 1 FROM bw_article_categories x
+              WHERE x.article_uri = :uri AND x.brand_id = :bid)
+    """), {"uri": uri, "bid": int(brand_id), "cat": category,
+           "method": NAME_MATCH_METHOD}).rowcount
+    if wrote:
+        _link_entity(conn, uri, int(brand_id), term)
+    return bool(wrote)
+
+
 def attribute_vendors(conn, market_id: int, *,
                       topic_name: Optional[str] = None,
                       days: Optional[int] = None,
@@ -663,6 +687,8 @@ def attribute_vendors(conn, market_id: int, *,
         params["since"] = _iso_days_ago(days)
     rows = conn.execute(text(f"""
         SELECT a.uri, a.title, a.summary, a.topic, a.news_source,
+               a.original_title, a.original_summary, a.bias_source,
+               (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null') AS is_social,
                COALESCE(a.publication_date, a.submission_date) AS published
           FROM articles a
          WHERE {' AND '.join(where)}
@@ -676,6 +702,13 @@ def attribute_vendors(conn, market_id: int, *,
     domains = vendor_domains(conn, market_id)
     topic = topic_name or ""
     matched = attributed = already = without_context = corpus_added = 0
+    # Brand decisions for vendor links (docs/BRAND_RELEVANCE_MARKET_VENDORS.md):
+    # with MARKET_VENDOR_DECISIONS on, only an earned decision writes the link.
+    from app.services import market_vendor_decisions as mvd
+    decisions_on = mvd.enabled() and not dry_run
+    profiles = mvd.profiles_by_id(conn, [v["brand_id"] for v in vendors]) if decisions_on else {}
+    not_earned = 0
+    decision_counts: Dict[str, int] = {}
     samples: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
     per_vendor: Dict[str, int] = {}
@@ -715,21 +748,23 @@ def attribute_vendors(conn, market_id: int, *,
                                 "vendor": vendor["vendor"], "term": term})
             if dry_run:
                 continue
-            cats = _categorize(row["title"] or "", row["summary"] or "")
-            category = cats[0] if cats else "Media & Advertising"
-            wrote = conn.execute(text("""
-                INSERT INTO bw_article_categories
-                    (article_uri, brand_id, category, classification_method,
-                     confidence)
-                SELECT :uri, :bid, :cat, :method, 1.0
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM bw_article_categories x
-                      WHERE x.article_uri = :uri AND x.brand_id = :bid)
-            """), {"uri": row["uri"], "bid": vendor["brand_id"],
-                   "cat": category, "method": NAME_MATCH_METHOD}).rowcount
+            # Social posts keep today's rule (spec section 4): the brand
+            # decision is for news, and the market reads discussion as its
+            # own channel.
+            if decisions_on and not row["is_social"]:
+                d = mvd.decide_and_save(conn, market_id, profiles.get(int(vendor["brand_id"])),
+                                        int(vendor["brand_id"]), dict(row))
+                key = d.brand_relation if d.outcome == "decided" else d.outcome
+                decision_counts[key] = decision_counts.get(key, 0) + 1
+                if not d.earned:
+                    not_earned += 1
+                    continue
+            wrote = write_vendor_link(conn, row["uri"], int(vendor["brand_id"]),
+                                      row["title"] or "", row["summary"] or "", term)
+            if decisions_on and not row["is_social"]:
+                mvd.mark_linked(conn, row["uri"], int(vendor["brand_id"]))
             if wrote:
                 attributed += 1
-                _link_entity(conn, row["uri"], vendor["brand_id"], term)
             else:
                 already += 1
         if dry_run:
@@ -757,6 +792,8 @@ def attribute_vendors(conn, market_id: int, *,
         "already_linked": already,
         "without_context": without_context,
         "corpus_added": corpus_added,
+        "vendor_decisions": decision_counts if decisions_on else None,
+        "not_earned": not_earned,
         "truncated": len(rows) >= int(limit),
         "dry_run": dry_run,
         "by_vendor": dict(sorted(per_vendor.items(), key=lambda kv: -kv[1])),

@@ -719,7 +719,7 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
     """
     from datetime import datetime, timedelta, timezone
 
-    from app.services.market_analysis import _POST_BRANDS, collection_started
+    from app.services.market_analysis import _POST_BRANDS, collection_started, comparison_baseline
     from app.services.market_corpus import earned_sql, _iso_days_ago
 
     movers: List[Dict[str, Any]] = []
@@ -729,8 +729,11 @@ def market_movers(conn, market: Dict[str, Any], *, days: int = 30,
     # risers on a market eight days old. The earlier window was one nothing
     # was collecting in, so the zero was never a measurement.
     started = collection_started(conn, market["id"])
+    # Vendor counts before brand decisions gated the links were made under the
+    # looser name match (docs/BRAND_RELEVANCE_MARKET_VENDORS.md).
+    baseline = comparison_baseline(conn, market["id"])
     prev_window_start = datetime.now(timezone.utc) - timedelta(days=days * 2)
-    coverage_comparable = bool(started) and prev_window_start >= started
+    coverage_comparable = bool(baseline) and prev_window_start >= baseline
 
     # --- Headcount -----------------------------------------------------
     head = headcount_market(conn, market)
