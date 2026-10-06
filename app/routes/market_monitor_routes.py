@@ -650,6 +650,11 @@ async def add_vendor(market_id: int, payload: AddVendor,
                     """), {"b": brand_id, "d": domain,
                            "p": json.dumps({"source": "manual"})})
 
+            # The names the mention linker looks for; without them the vendor
+            # is never matched in any post or article. Idempotent.
+            from app.services.entity_content import seed_query_terms
+            seed_query_terms(conn, brand_id)
+
             conn.commit()
 
             # Search for the new vendor by name from the next cycle. A failure

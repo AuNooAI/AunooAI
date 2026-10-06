@@ -78,6 +78,17 @@ def link_content(conn, article_uri: str,
 
     if candidates is None:
         candidates = _discover_candidates(conn, article, channel)
+        # The posting account, when verified as a company's own, is the
+        # strongest evidence of all, and the routes above never consult it.
+        # A company's own post often names it only in a hashtag
+        # (#TricentisTransform) or not at all ("our new whitepaper"), so on
+        # 6 Oct 2026 95 own-account posts across four sites were linked to
+        # nobody.
+        owner = (entity_identity.account_owner(conn, account_id)
+                 if account_id else None)
+        if owner and all(int(c['brand_id']) != owner for c in candidates):
+            candidates = [{'brand_id': owner, 'attribution_method': 'handle',
+                           'mention_type': 'explicit_name'}] + list(candidates)
 
     # Social lanes are gated separately from the rest of the layer, because
     # they are the expensive half: term matching over public posts feeds a
@@ -213,7 +224,8 @@ def reattribute_owned_account(conn, brand_id: int,
                               social_account_id: int) -> int:
     """Move posts already ingested from a newly verified own account into the
     owned lane, as ``link_content`` would have filed them had the account been
-    known at the time. Returns the number of mentions moved.
+    known at the time, and link the account's posts that were never linked to
+    the company. Returns the number of mentions moved or created.
 
     Updated in place rather than deleted and re-ingested, because mentions
     carry event and narrative evidence that a delete would cascade away.
@@ -276,6 +288,29 @@ def reattribute_owned_account(conn, brand_id: int,
                  WHERE id = :id
             """), {'id': row['mention_id'], 'stance': stance})
         moved += res.rowcount
+
+    # Posts from the account that were never linked to the company at all,
+    # because they name it only in a hashtag or not at all. link_content
+    # now finds the owner from the account itself.
+    account = conn.execute(text("""
+        SELECT platform, handle_canonical FROM social_accounts WHERE id = :a
+    """), {'a': social_account_id}).mappings().first()
+    if account:
+        unlinked = conn.execute(text("""
+            SELECT a.uri FROM articles a
+             WHERE jsonb_typeof(a.social_meta) = 'object'
+               AND lower(ltrim(a.social_meta->>'author', '@')) = :h
+               AND coalesce(a.social_meta->>'platform',
+                            CASE WHEN lower(a.news_source) LIKE 'xpoz:%'
+                                 THEN split_part(lower(a.news_source), ':', 2)
+                            END) = :p
+               AND NOT EXISTS (SELECT 1 FROM bw_entity_content_links l
+                                WHERE l.article_uri = a.uri
+                                  AND l.brand_id = :b)
+        """), {'h': account['handle_canonical'], 'p': account['platform'],
+               'b': brand_id}).fetchall()
+        for (uri,) in unlinked:
+            moved += link_content(conn, uri)['mentions']
     return moved
 
 

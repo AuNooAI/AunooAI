@@ -282,6 +282,12 @@ def add(spec: dict, apply: bool) -> int:
             register_identifier_account(conn, brand_id, _social_key(url), prov)
         print(f"identifiers: {', '.join(added) or 'none new'}")
 
+        # The names the mention linker looks for in posts and articles. Only
+        # the backfill script wrote these, so 37 vendors added from 21 Sep to
+        # 2 Oct 2026 had none and were never matched anywhere.
+        from app.services.entity_content import seed_query_terms
+        print(f"query terms: {seed_query_terms(conn, brand_id)}")
+
         # 4. Logo and colour.
         if logo_uri:
             conn.execute(text("""

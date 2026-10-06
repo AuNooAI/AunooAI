@@ -725,3 +725,63 @@ def test_registering_twice_changes_nothing(conn, brands):
           JOIN social_accounts a ON a.id = i.social_account_id
          WHERE i.brand_id = :b AND a.handle_canonical = 'pytest_twice'
     """), {'b': brands[0]}).scalar() == 1
+
+
+def _own_account_post(conn, brand_id, uri, handle, text_):
+    import json
+
+    from app.services import entity_identity
+
+    conn.execute(text("""
+        INSERT INTO articles (uri, title, summary, news_source, url,
+                              social_meta, publication_date, topic)
+        VALUES (:u, :t, :t, 'xpoz:twitter', 'https://x/5',
+                CAST(:meta AS JSONB), '2026-09-20T00:00:00',
+                'Market Monitoring Pytest')
+    """), {'u': uri, 't': text_,
+           'meta': json.dumps({'platform': 'twitter', 'author': handle})})
+    account = entity_identity.upsert_account(conn, platform='twitter',
+                                             handle=handle)
+    entity_identity.propose_identity(
+        conn, brand_id=brand_id, social_account_id=account['account_id'],
+        relationship='owned_company', verification_method='manual',
+        actor='pytest')
+    return account['account_id']
+
+
+def test_a_post_from_a_verified_own_account_links_without_naming_it(
+        conn, brands):
+    """Tricentis writes "Our NEW whitepaper" and #TricentisTransform; neither
+    names the company where a term can match, and both are its own posts."""
+    from app.services import entity_ingest
+
+    uri = 'pytest://owned/account-route'
+    _own_account_post(conn, brands[0], uri, 'pytest_acct_route',
+                      'Our NEW whitepaper is out #PytestTransform')
+    entity_ingest.link_content(conn, uri)
+
+    row = conn.execute(text("""
+        SELECT l.channel, l.attribution_method, m.stance
+          FROM bw_entity_content_links l
+          JOIN bw_entity_mentions m ON m.content_link_id = l.id
+         WHERE l.article_uri = :u AND l.brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).mappings().first()
+    assert row is not None, 'the own-account post should be linked'
+    assert row['channel'] == 'owned_social'
+    assert row['attribution_method'] == 'handle'
+    assert row['stance'] == 'owned_claim'
+
+
+def test_verifying_an_account_links_its_posts_that_were_never_linked(
+        conn, brands):
+    from app.services import entity_ingest
+
+    uri = 'pytest://owned/never-linked'
+    account_id = _own_account_post(conn, brands[0], uri, 'pytest_never',
+                                   'Meet us at booth 206')
+    assert entity_ingest.reattribute_owned_account(conn, brands[0],
+                                                   account_id) == 1
+    assert conn.execute(text("""
+        SELECT channel FROM bw_entity_mentions
+         WHERE article_uri = :u AND brand_id = :b
+    """), {'u': uri, 'b': brands[0]}).scalar() == 'owned_social'

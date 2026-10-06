@@ -809,6 +809,10 @@ def commit_import(conn, *, market_id: int, parsed: ParsedWorkbook) -> dict[str, 
                                normalized=former.lower(), display=former,
                                external_id=None, provenance=prov)
             identifiers += 1
+        # The names the mention linker looks for; without them the vendor is
+        # never matched in any post or article. Idempotent.
+        from app.services.entity_content import seed_query_terms
+        seed_query_terms(conn, brand_id)
 
         # Baseline measurements, recorded as observations with a source and a
         # date rather than as live readings — the workbook is a point in time.
