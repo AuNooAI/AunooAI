@@ -3123,15 +3123,19 @@ async def get_stats(
                 FROM bw_article_categories bac
                 JOIN articles a2 ON bac.article_uri = a2.uri
                 WHERE COALESCE(bac.relevance_score, a2.topic_alignment_score) >= 0.4
+                -- earned coverage only: social posts and the brand's own publishing
+                -- are excluded here. The article list is deliberately wider (it keeps
+                -- owned rows, flagged), so these counts can sit below the list length;
+                -- owned_articles below says by how much. Applied inside the
+                -- subquery, where the classification row (bac) is in scope: the
+                -- brand-scoped rule reads bac.brand_id (6 Oct: the outer
+                -- placement failed with "missing FROM-clause entry for table bac"
+                -- once brand labels were active).
+                AND {_bcov.earned_news_scoped_sql('a2', 'bac')}
                 {brand_filter}
                 GROUP BY bac.article_uri
             ) cc ON a.uri = cc.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-              -- earned coverage only: social posts and the brand's own publishing
-              -- are excluded here. The article list is deliberately wider (it keeps
-              -- owned rows, flagged), so these counts can sit below the list length;
-              -- owned_articles below says by how much.
-              AND {_EARNED_NEWS}
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
