@@ -226,3 +226,15 @@ def test_collection_skip_keeps_a_name_for_mentions_but_not_for_search():
     p = _p(row)
     assert "ライオン" not in p.collection_terms() and "ライオン株式会社" in p.collection_terms()
     assert bp.detect_mention(p, {"title": "ライオンが新製品を発表"}).status == "title"
+
+
+def test_fan_sites_are_recognised_and_do_not_move_other_profiles_versions():
+    base = {"id": 9, "name": "ww", "display_name": "WeightWatchers", "brand_keywords": ["WeightWatchers"],
+            "product_keywords": [], "config": {}}
+    plain = bp.build_profile(dict(base))
+    fan = bp.build_profile(dict(base, config={"fan_domains": ["ww-recipes.net"]}))
+    assert plain.fan_domains == () and fan.fan_domains == ("ww-recipes.net",)
+    assert plain.version != fan.version
+    assert bp.fan_site_reason(fan, {"uri": "https://ww-recipes.net/2026/09/gnocchi"})
+    assert bp.fan_site_reason(fan, {"uri": "https://www.reuters.com/x"}) is None
+    assert bp.fan_site_reason(plain, {"uri": "https://ww-recipes.net/x"}) is None

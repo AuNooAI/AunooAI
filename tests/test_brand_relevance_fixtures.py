@@ -124,7 +124,7 @@ def test_deal_listings_go_to_the_judge_marked_promotional():
 
 
 @pytest.mark.parametrize("case,kind", [("colgate_valuation_page", "valuation_page"),
-                                       ("ww_fan_recipes", "non_press")])
+                                       ])
 def test_excluded_pages_are_not_coverage(case, kind):
     site, rows = _rows(case)
     for r in rows:
@@ -177,3 +177,24 @@ def test_same_name_entities_are_rejected_by_rule_without_a_model():
     for r in rows:
         d, judge = _decide(site, r)
         assert d.brand_relation == "other" and d.provenance == "rule" and judge.calls == [], (r["title"], d.evidence)
+
+
+def test_ww_recipe_sites_are_a_fan_group_never_earned():
+    """Oliver, 6 Oct: WeightWatchers recipe and meal-plan sites are kept as
+    their own group, shown but never earned. The captured rows came from a
+    config that listed them as non-press; the current one lists them as fan sites."""
+    site, rows = _rows("ww_fan_recipes")
+    profs = _profiles(site)
+    for p in profs:
+        cfg = p.get("config") if isinstance(p.get("config"), dict) else json.loads(p.get("config") or "{}")
+        if p["display_name"] == "WeightWatchers":
+            cfg["non_press_domains"] = [x for x in cfg.get("non_press_domains") or [] if x not in ("ww-recipes.net", "skinnytaste.com")]
+            cfg["fan_domains"] = ["ww-recipes.net", "skinnytaste.com"]
+            p["config"] = cfg
+    for r in rows:
+        res = bp.resolve(profs, r["topic"])
+        judge = _passing()
+        d = bd.decide(res, r, judges=(judge,), topic_scorer=lambda a: True)
+        if d.evidence.get("mention") in ("title", "body"):
+            assert (d.brand_relation, d.provenance) == ("sector", "rule") and d.evidence.get("fan_content"), r["title"]
+            assert d.admitted and not d.earned and judge.calls == []

@@ -16,9 +16,10 @@ import { getCoverageSplit, BWCoverageBucket, BWCoverageSplit, Brand } from '../.
 const BUCKETS: { key: BWCoverageBucket; label: string; hint: string }[] = [
   { key: 'earned', label: 'Earned coverage', hint: 'Independent sources where the brand is the subject or plays a real part. Only these count in metrics and alerts.' },
   { key: 'owned', label: "Brand's own content", hint: "Published on the brand's own sites. Shown here, never counted as press." },
+  { key: 'fan', label: 'Fan and recipe sites', hint: 'Independent fan and recipe sites built around the brand. Shown here, never counted as press.' },
   { key: 'sector', label: 'Sector stories', hint: "About the brand's market without the brand playing a part. Not counted as brand coverage." },
   { key: 'passing', label: 'Passing mentions', hint: 'The brand is named only in passing.' },
-  { key: 'other', label: 'Not coverage', hint: 'Unrelated, a different company with the same name, a deal listing or a valuation page.' },
+  { key: 'other', label: 'Not coverage', hint: 'Unrelated, a different company with the same name, or an automated valuation page.' },
   { key: 'deferred', label: 'Waiting', hint: 'Not decided yet: the company identity or the publisher could not be settled.' },
   { key: 'unavailable', label: 'Judgment unavailable', hint: 'The model did not answer. The article stays in the queue and is retried.' },
   { key: 'unlabelled', label: 'Decided before labels', hint: 'Decided under the earlier scoring. Not reclassified automatically.' },

@@ -13,6 +13,7 @@ identity and collection"). It is built from fields the row already carries:
 ``config.news_keyword_excludes``                               phrases for other entities of the same name
 ``config.owned_domains`` + ``bw_vendor_identifiers`` domains   the brand's own publishing
 ``config.non_press_domains``                                   sites whose pages are never this brand's press
+``config.fan_domains``                                         fan and recipe sites: kept as their own group, never earned
 ``config.group_ids``                                           explicit topic-group scope (optional)
 
 Nothing here calls a model or writes to the database. Each function is pure
@@ -161,6 +162,7 @@ class BrandProfile:
     collision_phrases: Tuple[str, ...]
     owned_domains: Tuple[str, ...]
     non_press_domains: Tuple[str, ...]
+    fan_domains: Tuple[str, ...] = ()
     group_ids: Tuple[int, ...] = ()
     collection_skip: Tuple[str, ...] = ()
     version: str = ""
@@ -228,6 +230,7 @@ def build_profile(row: Dict[str, Any], registry_domains: Sequence[str] = ()) -> 
     products = [*_as_list(row.get("product_keywords")), *_as_list(cfg.get("products"))]
     owned = [d for d in (_domain_of(x) for x in [*_as_list(cfg.get("owned_domains")), *registry_domains]) if d]
     non_press = [d for d in (_domain_of(x) for x in _as_list(cfg.get("non_press_domains"))) if d]
+    fan = [d for d in (_domain_of(x) for x in _as_list(cfg.get("fan_domains"))) if d]
     groups = []
     for g in _as_list(cfg.get("group_ids")):
         try:
@@ -257,6 +260,8 @@ def build_profile(row: Dict[str, Any], registry_domains: Sequence[str] = ()) -> 
         "non_press": sorted(set(non_press)),
         "groups": sorted(set(groups)),
     }
+    if fan:   # only when set, so profiles without fan sites keep their version
+        payload["fan"] = sorted(set(fan))
     return BrandProfile(
         brand_id=int(row.get("id") or 0),
         slug=(row.get("name") or "").strip(),
@@ -269,6 +274,7 @@ def build_profile(row: Dict[str, Any], registry_domains: Sequence[str] = ()) -> 
         collision_phrases=uniq(_as_list(cfg.get("news_keyword_excludes"))),
         owned_domains=tuple(sorted(set(owned))),
         non_press_domains=tuple(sorted(set(non_press))),
+        fan_domains=tuple(sorted(set(fan))),
         group_ids=tuple(sorted(set(groups))),
         collection_skip=uniq(_as_list(cfg.get("collection_skip"))),
         version=_version(payload),
@@ -529,6 +535,19 @@ def exclusion(profile: BrandProfile, article: Dict[str, Any]) -> Optional[Tuple[
     val = valuation_page_reason(url, article.get("title") or title)
     if val:
         return "valuation_page", val
+    return None
+
+
+def fan_site_reason(profile: BrandProfile, article: Dict[str, Any]) -> Optional[str]:
+    """Why the page comes from a listed fan or recipe site, else None.
+    Oliver, 6 Oct 2026: such pages are kept as their own group, shown but
+    never counted as earned coverage (WeightWatchers recipe sites)."""
+    if not profile.fan_domains:
+        return None
+    url = article.get("uri") or article.get("url") or ""
+    host, src = host_of(url), _domain_of(article.get("news_source") or "")
+    if host_in(host, profile.fan_domains) or host_in(src, profile.fan_domains):
+        return f"{host or src} is a fan or recipe site for {profile.display_name}"
     return None
 
 

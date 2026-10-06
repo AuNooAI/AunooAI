@@ -181,7 +181,7 @@ def coverage_split(conn, display_name: str, days: int = 30, relation: Optional[s
     """Counts per coverage bucket for one brand, and the rows of one bucket.
 
     Buckets: earned (independent subject/notable), owned (the brand's own
-    relevant content), sector, passing, other, deferred, unavailable. One
+    relevant content), fan (listed fan and recipe sites), sector, passing, other, deferred, unavailable. One
     article counts once per brand. Rows decided before labels existed are
     reported as 'unlabelled', not guessed.
     """
@@ -196,6 +196,7 @@ def coverage_split(conn, display_name: str, days: int = 30, relation: Optional[s
           WHEN m.brand_relation IS NULL THEN 'unlabelled'
           WHEN m.brand_relation NOT IN ('subject','notable','sector','passing','other') THEN 'invalid'
           WHEN m.source_relation = 'owned' AND m.brand_relation IN ('subject','notable','sector') THEN 'owned'
+          WHEN m.decision_evidence ? 'fan_content' THEN 'fan'
           WHEN m.brand_relation IN ('subject','notable') AND m.source_relation = 'independent' THEN 'earned'
           ELSE m.brand_relation
         END

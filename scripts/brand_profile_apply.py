@@ -4,7 +4,7 @@
 Reads eval/brand_relevance/profiles/<site>.json and, for each brand named
 there by display name, adds the listed brand_keywords, product_keywords and
 config list entries (original_names, aliases, ambiguous_aliases,
-exclude_context, mention_context, owned_domains, non_press_domains,
+exclude_context, mention_context, owned_domains, non_press_domains, fan_domains,
 news_keyword_excludes). Only adds: an entry already present (compared after
 normalisation) is skipped and nothing is removed or replaced, so explicit
 tenant rules are never overwritten. Default is a dry run; --apply writes.
@@ -26,7 +26,7 @@ from sqlalchemy import text  # noqa: E402
 from app.services.brand_profile import norm  # noqa: E402
 
 LIST_CONFIG_KEYS = ("original_names", "aliases", "products", "collection_skip", "ambiguous_aliases", "exclude_context",
-                    "mention_context", "owned_domains", "non_press_domains", "news_keyword_excludes")
+                    "mention_context", "owned_domains", "non_press_domains", "fan_domains", "news_keyword_excludes")
 
 
 def _list(v):

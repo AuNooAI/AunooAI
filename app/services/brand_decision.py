@@ -399,6 +399,13 @@ def decide(resolution: bp.ProfileResolution, article: Dict[str, Any], *,
     evidence.update({"mention": mention.status, "alias": mention.alias, "field": mention.field,
                      "extract": mention.extract})
     key = input_key(profile, article, quality, route, src_rel)
+    fan = bp.fan_site_reason(profile, article)
+    if fan and mention.status in ("title", "body"):
+        # A listed fan or recipe site naming the brand: kept as its own group
+        # (sector label, marked fan_content), never earned. No model call.
+        evidence["fan_content"] = fan
+        return Decision("decided", "sector", src_rel, "rule", fan[:MAX_REASON_CHARS], evidence, route=route,
+                        judge_version=key)
     if mention.status == "same_name":
         return Decision("decided", "other", src_rel, "rule",
                         f"Names \"{mention.alias}\" only as a different subject with the same name.",

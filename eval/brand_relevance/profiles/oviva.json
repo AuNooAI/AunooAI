@@ -15,6 +15,10 @@
         "owned_domains": [
           "weightwatchers.com",
           "ww.com"
+        ],
+        "fan_domains": [
+          "ww-recipes.net",
+          "skinnytaste.com"
         ]
       }
     },

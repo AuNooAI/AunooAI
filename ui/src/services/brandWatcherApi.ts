@@ -1594,7 +1594,7 @@ export async function getSignalsDetail(articleUri: string, brandId: number): Pro
 // --- Coverage split (brand labels, docs/BRAND_RELEVANCE_SPEC.md) ---
 
 export type BWCoverageBucket =
-  | 'earned' | 'owned' | 'sector' | 'passing' | 'other'
+  | 'earned' | 'owned' | 'fan' | 'sector' | 'passing' | 'other'
   | 'deferred' | 'unavailable' | 'unlabelled' | 'invalid';
 
 export interface BWCoverageRow {
