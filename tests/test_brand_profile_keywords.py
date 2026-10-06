@@ -64,3 +64,14 @@ def test_proposals_route_by_script_and_skip_known_and_ambiguous(db):
     assert "LION" not in keywords                      # ambiguous
     assert "クリニカ" not in keywords and "NONIO" not in keywords  # already searched
     assert not any("Systema" in k for k in keywords)   # existing, quoted form
+
+
+def test_narrowed_names_are_not_proposed_bare(db):
+    conn, text = db
+    conn.execute(text("""INSERT INTO bw_brands (id, name, display_name, enabled, brand_keywords, product_keywords, config)
+        VALUES (7, 'second-nature', 'Second Nature', true, '["Second Nature"]', '[]', '{}')"""))
+    g = conn.execute(text("INSERT INTO keyword_groups (name, topic, source, is_active) VALUES "
+                          "('SN', 'Brand Monitoring Second Nature', 'news', true) RETURNING id")).scalar()
+    conn.execute(text("""INSERT INTO monitored_keywords (group_id, keyword) VALUES (:g, '"Second Nature" weight')"""), {"g": g})
+    conn.commit()
+    assert _script().propose(conn) == []

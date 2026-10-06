@@ -13,7 +13,9 @@ and the missing names are proposed:
   and a proper noun should match as a phrase;
 - short or ambiguous names (BrandProfile.collection_terms) are never added;
 - a name that contains an already-searched name as a whole word is skipped,
-  because the shorter search already returns it (quota matters).
+  because the shorter search already returns it (quota matters);
+- a name the site searches only inside a longer qualified term is skipped:
+  that narrowing is an explicit tenant rule.
 
 Nothing is removed. Default is a dry run; --apply inserts the proposed rows.
 Run from the site's tree so its .env names its database:
@@ -50,6 +52,17 @@ def _covered(term: str, existing) -> bool:
             if re.search(r"(?<![0-9a-z])" + re.escape(e) + r"(?![0-9a-z])", term):
                 return True
         elif e in term:
+            return True
+    return False
+
+
+def _narrowed(term: str, existing) -> bool:
+    import re
+    pat = re.compile(r"(?<![0-9a-z])" + re.escape(term) + r"(?![0-9a-z])") if bp._is_spaced_script(term) else None
+    for e in existing:
+        if not e or e == term or len(e) <= len(term):
+            continue
+        if (pat.search(e) if pat else term in e):
             return True
     return False
 
@@ -91,6 +104,11 @@ def propose(conn, only_brand: str | None = None):
             # as a whole word ("Sunstar" returns "Sunstar Group"), so adding
             # those only spends provider quota.
             if _covered(_bare(term), all_existing):
+                continue
+            # The site already searches this name only inside a longer,
+            # qualified term ('"Second Nature" weight'): a deliberate narrowing,
+            # an explicit tenant rule the bare name must not undo.
+            if _narrowed(_bare(term), all_existing):
                 continue
             targets = latin_groups if _is_latin(term) else other_groups
             if len(groups) == 1:
