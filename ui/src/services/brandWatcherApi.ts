@@ -1590,3 +1590,44 @@ export async function getSignalsDetail(articleUri: string, brandId: number): Pro
   if (!res.ok) throw new Error(`Failed to fetch Five Signals detail: ${res.status}`);
   return res.json();
 }
+
+// --- Coverage split (brand labels, docs/BRAND_RELEVANCE_SPEC.md) ---
+
+export type BWCoverageBucket =
+  | 'earned' | 'owned' | 'sector' | 'passing' | 'other'
+  | 'deferred' | 'unavailable' | 'unlabelled' | 'invalid';
+
+export interface BWCoverageRow {
+  uri: string;
+  title: string | null;
+  source: string | null;
+  published: string | null;
+  bucket: BWCoverageBucket;
+  relation: string | null;
+  source_relation: string | null;
+  limited_evidence: boolean;
+  reason: string | null;
+  matched: string | null;
+  evidence_field: string | null;
+  provenance: string | null;
+}
+
+export interface BWCoverageSplit {
+  available: boolean;
+  reason?: string;
+  brand?: string;
+  days?: number;
+  counts: Partial<Record<BWCoverageBucket, number>>;
+  rows: BWCoverageRow[];
+  note?: string;
+}
+
+export async function getCoverageSplit(
+  brandId: number, daysBack: number = 30, bucket?: BWCoverageBucket, limit: number = 50,
+): Promise<BWCoverageSplit> {
+  const params = new URLSearchParams({ days: String(daysBack), limit: String(limit) });
+  if (bucket) params.set('bucket', bucket);
+  const res = await fetch(`${BASE}/brands/${brandId}/coverage-split?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get coverage split: ${res.status}`);
+  return res.json();
+}

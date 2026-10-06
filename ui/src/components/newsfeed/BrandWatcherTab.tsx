@@ -16,6 +16,7 @@ import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import { BrandWatcherOnboarding } from './BrandWatcherOnboarding';
 import { BrandWatcherPerception } from './BrandWatcherPerception';
 import { BrandWatcherVoices } from './BrandWatcherVoices';
+import { BrandWatcherCoverage } from './BrandWatcherCoverage';
 import { useModules } from '../../hooks/useModules';
 import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
@@ -5906,6 +5907,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         <div className={`space-y-4 ${exportingReport ? 'order-6' : ''}`}>
           {exportingReport && (
             <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">5. Articles</h2>
+          )}
+          {/* Coverage breakdown under the brand labels (hidden during export) */}
+          {!exportingReport && selectedBrands.length <= 1 && (
+            <BrandWatcherCoverage brand={selectedBrand} daysBack={config.daysBack} />
           )}
           {/* Category filter chips (hidden during export) */}
           {!exportingReport && (
