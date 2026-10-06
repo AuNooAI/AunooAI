@@ -238,3 +238,20 @@ def test_fan_sites_are_recognised_and_do_not_move_other_profiles_versions():
     assert bp.fan_site_reason(fan, {"uri": "https://ww-recipes.net/2026/09/gnocchi"})
     assert bp.fan_site_reason(fan, {"uri": "https://www.reuters.com/x"}) is None
     assert bp.fan_site_reason(plain, {"uri": "https://ww-recipes.net/x"}) is None
+
+
+def test_a_short_name_with_a_digit_needs_no_context():
+    """6 Oct: Sunstar's "Ora2" fell under the short-name rule and every post
+    naming only Ora² was rejected. "GUM" still needs context; a digit name
+    listed as ambiguous still does too."""
+    row = {"id": 3, "name": "sunstar", "display_name": "Sunstar", "brand_keywords": ["Sunstar", "Ora2", "GUM"],
+           "product_keywords": [], "config": {"aliases": ["オーラツー"]}}
+    p = bp.build_profile(row)
+    assert bp.detect_mention(p, {"uri": "https://x.test/a", "title": "Ora² Feels: new flavours",
+                                 "summary": "Three new flavours."}).status == "title"
+    assert bp.detect_mention(p, {"uri": "https://x.test/b", "title": "オーラツーの新作が出た",
+                                 "summary": "かわいい"}).status == "title"
+    assert bp.detect_mention(p, {"uri": "https://x.test/c", "title": "Chewing GUM sales rise",
+                                 "summary": "Candy makers report growth."}).status == "weak"
+    amb = bp.build_profile(dict(row, config={"ambiguous_aliases": ["Ora2"]}))
+    assert amb.needs_context("Ora2")

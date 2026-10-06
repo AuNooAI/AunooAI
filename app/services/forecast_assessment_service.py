@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -53,6 +54,20 @@ DIRECTIONAL_RATE_OFFTRACK: float = -0.2
 # 6 is the smallest sample where a directional rate is interpretable; below
 # that we still emit Inconclusive regardless of rate.
 INCONCLUSIVE_MIN_ARTICLES: int = 6
+
+# A verdict other than Inconclusive needs this many distinct stories that
+# move the scenario one way or the other, and this long since the forecast.
+# Measured 6 Oct 2026: with 2 supporting articles 15 days in, one flipped
+# judgment turned "Off-track" into "Accelerating" between two runs on the
+# same articles.
+MIN_DIRECTIONAL_STORIES: int = 5
+MIN_ELAPSED_DAYS: int = 28
+
+# Which judge labels each (scenario, article) pair: "jev" (TypeSafe, falls
+# back to the LLM when the call fails or no key is set) or "llm". Measured
+# 6 Oct 2026 on 56 pairs asked three times: Kimi gave the same answer on
+# 66-77% of pairs, Jev on 93%, at under a cent per assessment.
+FORECAST_JUDGE: str = os.getenv("FORECAST_JUDGE", "jev").strip().lower()
 
 DECK_OVERLAY_DIR = Path("data/wiley_horizons")
 
@@ -271,6 +286,29 @@ async def assess_run(
             started, max_articles, margin, note="No candidate articles found",
         )
 
+    # Two caps on the pool before the reranker sees it. First, the reranker
+    # scores articles x scenarios and refuses anything over RERANK_MAX_PAIRS,
+    # leaving every article unassigned (on CPU that is 1,500 pairs, so 2,000
+    # articles x 5 scenarios matched nothing). Second, the placebo is only a
+    # fair baseline at the same size as the live pool. Both caps take an even
+    # spread across the window rather than the newest rows, so a sample still
+    # covers the whole period.
+    from app.retrieval.reranker import RERANK_MAX_PAIRS
+    pool_before_sampling = len(pool)
+    target = RERANK_MAX_PAIRS // max(len(scenarios), 1)
+    if mode == "placebo":
+        live_pool = await _fetch_window_articles(
+            eval_topics=eval_topics, forecast_iso=forecast_iso, mode="live",
+            limit=max_articles, window_weeks=window_weeks,
+        )
+        if live_pool:
+            target = min(target, len(live_pool))
+    if len(pool) > target:
+        pool = _even_sample(pool, target)
+        _emit(progress_callback, 20,
+              f"Sampled {len(pool)} of {pool_before_sampling} articles "
+              f"across the window")
+
     # ── Stage B + C: exclusive assignment via cross-encoder ───────────────
     from app.retrieval.reranker import assign_exclusive, is_enabled
     if not is_enabled():
@@ -311,25 +349,53 @@ async def assess_run(
         else:
             ambiguous.append((art, assign))
 
+    # Syndicated copies of one story arrive as separate rows under the same
+    # headline. Judge each story once per scenario, or one borderline story
+    # counts three times (seen on Sunstar, 6 Oct 2026).
+    duplicates_collapsed = 0
+    for s_idx, bucket in scenario_buckets.items():
+        seen_keys: set = set()
+        kept = []
+        for art, assign in bucket:
+            key = _story_key(art.get("title") or "")
+            if key and key in seen_keys:
+                duplicates_collapsed += 1
+                continue
+            if key:
+                seen_keys.add(key)
+            kept.append((art, assign))
+        scenario_buckets[s_idx] = kept
+
     assigned_total = sum(len(b) for b in scenario_buckets.values())
     _emit(progress_callback, 35,
-          f"Bucketing: {assigned_total} assigned, {len(ambiguous)} ambiguous")
+          f"Bucketing: {assigned_total} assigned ({duplicates_collapsed} "
+          f"syndicated copies merged), {len(ambiguous)} ambiguous")
 
-    # ── Stage D: LLM classify each (scenario, article) ────────────────────
+    # ── Stage D: judge each (scenario, article) ───────────────────────────
     sem = asyncio.Semaphore(STAGE_D_CONCURRENCY)
     processed = {"n": 0}
+    judged_by = {"jev": 0, "llm": 0}
 
     async def _classify_one(art, assign, s_idx):
         async with sem:
             scenario = scenarios[s_idx]
-            verdict = await _classify_with_llm(
-                model_name=classify_model,
-                topic=topic,
-                forecast_iso=forecast_iso,
-                scenario=scenario,
-                sibling_digest=sibling_digest,
-                article=art,
-            )
+            verdict = None
+            if FORECAST_JUDGE == "jev":
+                verdict = await _classify_with_jev(
+                    forecast_iso=forecast_iso, scenario=scenario, article=art,
+                )
+            if verdict is not None:
+                judged_by["jev"] += 1
+            else:
+                judged_by["llm"] += 1
+                verdict = await _classify_with_llm(
+                    model_name=classify_model,
+                    topic=topic,
+                    forecast_iso=forecast_iso,
+                    scenario=scenario,
+                    sibling_digest=sibling_digest,
+                    article=art,
+                )
             processed["n"] += 1
             if processed["n"] % 5 == 0:
                 pct = 35 + int(45 * processed["n"] / max(assigned_total, 1))
@@ -445,7 +511,10 @@ async def assess_run(
         "assessed_at": datetime.utcnow().isoformat(),
         "elapsed_days": elapsed_days,
         "evidence_pool": len(pool),
+        "evidence_pool_before_sampling": pool_before_sampling,
         "assigned": assigned_total,
+        "duplicates_collapsed": duplicates_collapsed,
+        "judged_by": judged_by,
         "classified": len(classified),
         "ambiguous": len(ambiguous),
         "unrelated": len(unrelated),
@@ -475,7 +544,7 @@ async def assess_run(
         surprises=surprises,
         summary=summary,
         mode=mode,
-        model_used=classify_model,
+        model_used=_judge_label(judged_by, classify_model),
         runtime_seconds=time.time() - started,
         config={
             "max_articles": max_articles,
@@ -613,6 +682,20 @@ async def _fetch_window_articles(
     return [dict(r) for r in rows]
 
 
+def _even_sample(rows: list, k: int) -> list:
+    """Pick ``k`` rows spread evenly through ``rows``, keeping their order.
+
+    The window query returns newest first, so this keeps the sample spread
+    across the whole period instead of only its last few days.
+    """
+    if k <= 0:
+        return []
+    if len(rows) <= k:
+        return rows
+    step = len(rows) / k
+    return [rows[int(i * step)] for i in range(k)]
+
+
 async def _ann_search(
     probe: str,
     *,
@@ -736,6 +819,110 @@ async def _classify_with_llm(
     return _parse_classifier_json(text_out)
 
 
+_JEV_RULES = (
+    "- Judge the scenario's central claim (its title), not every detail of its description.\n"
+    "- If the scenario says something stays as it is (a status quo persists), evidence that it "
+    "is changing makes the scenario LESS likely; evidence that change is stalling or being "
+    "blocked makes it MORE likely.\n"
+    "- Opinion, advice, explainers, marketing, and restatements of things already known count "
+    "as no bearing, however on-topic.\n"
+    "- Being on the same topic is not evidence. Something must have happened."
+)
+
+_JEV_QUESTIONS = {
+    "effect": {
+        "type": "choice",
+        "instructions": (
+            "Does `article` report something that has actually happened (an event, decision, "
+            "study result, launch, policy, deal or published figure) that makes `scenario` more "
+            "likely to come true, less likely, or that has no bearing on it?\n" + _JEV_RULES
+        ),
+        "criteria": {
+            "more_likely": "The article reports a concrete development that moves things toward the scenario's central claim",
+            "less_likely": "The article reports a concrete development that moves things away from the scenario's central claim",
+            "no_bearing": "Commentary, advice, background, marketing or mere topical overlap; nothing has happened that changes the scenario's odds",
+        },
+    },
+    "evidence_type": {
+        "type": "choice",
+        "instructions": "What kind of evidence does `article` offer about `scenario`?",
+        "criteria": {
+            "milestone": "A specific, dated, named event: a policy passed, a study published, a product launched, an organisation collapsed",
+            "leading_indicator": "An early measurable signal: a statistic moving, a new entrant, a budget shift",
+            "commentary": "Opinion or analysis without new facts",
+            "anecdote": "A single example or case, suggestive but not general",
+        },
+    },
+}
+
+_JEV_TO_VERDICT = {
+    "more_likely": "supports_trajectory",
+    "less_likely": "contradicts",
+    "no_bearing": "neutral_context",
+}
+
+
+async def _classify_with_jev(*, forecast_iso: str, scenario: dict, article: dict) -> Optional[dict]:
+    """Judge one (scenario, article) pair with Jev. Returns the same shape as
+    the LLM classifier, or None when Jev is unavailable so the caller can
+    fall back to the LLM."""
+    from app.services import typesafe_client
+    if not typesafe_client.is_configured():
+        return None
+    state = {
+        "forecast_written": (forecast_iso or "")[:10],
+        "scenario": {
+            "horizon": scenario.get("type", "h1"),
+            "title": scenario.get("title", ""),
+            "description": (scenario.get("description") or "")[:1500],
+            "timeframe": scenario.get("timeframe", ""),
+        },
+        "article": {
+            "title": (article.get("title") or "")[:300],
+            "date": (article.get("submission_date") or article.get("publication_date") or "")[:10],
+            "summary": (article.get("summary") or "")[:1500],
+        },
+    }
+    out = await asyncio.to_thread(
+        typesafe_client.system_one, state, _JEV_QUESTIONS,
+        use_case="services.forecast_assessment_service:_classify_with_jev",
+        timeout_s=20,
+    )
+    try:
+        effect = out["answers"]["effect"]
+        choice = effect["choice"]
+        probs = effect.get("probabilities") or {}
+        ev = out["answers"].get("evidence_type") or {}
+    except (TypeError, KeyError):
+        return None
+    if choice not in _JEV_TO_VERDICT:
+        return None
+    return {
+        "verdict": _JEV_TO_VERDICT[choice],
+        "evidence_type": ev.get("choice"),
+        "confidence": float(probs.get(choice, 0.0)),
+        "best_alt_scenario_idx": None,
+        "rationale": (
+            "Jev: more likely {:.2f}, less likely {:.2f}, no bearing {:.2f}".format(
+                float(probs.get("more_likely", 0.0)),
+                float(probs.get("less_likely", 0.0)),
+                float(probs.get("no_bearing", 0.0)),
+            )
+        ),
+    }
+
+
+def _judge_label(judged_by: dict, classify_model: str) -> str:
+    """What to record as the assessment's model: Jev, the LLM, or both."""
+    from app.services import typesafe_client
+    jev, llm = judged_by.get("jev", 0), judged_by.get("llm", 0)
+    if jev and not llm:
+        return typesafe_client.model_name()
+    if jev and llm:
+        return f"{typesafe_client.model_name()}+{classify_model}"
+    return classify_model
+
+
 def _parse_classifier_json(text_out: str) -> dict:
     """Tolerant JSON extraction. The classifier sometimes wraps JSON in ```.
     Falls back to a neutral verdict if parsing fails."""
@@ -827,6 +1014,8 @@ def _aggregate_scenario(
         coverage=coverage,
         state_only=state_only,
         supports=supports,
+        directional_stories=supports + eff_contra,
+        elapsed_days=elapsed_days,
     )
 
     # Top supporting + top contradicting article snippets (for UI)
@@ -930,8 +1119,16 @@ def _decide_verdict_label(
     coverage: float,
     state_only: int,
     supports: int,
+    directional_stories: Optional[int] = None,
+    elapsed_days: Optional[int] = None,
 ) -> str:
     if n_confident < INCONCLUSIVE_MIN_ARTICLES:
+        return "Inconclusive"
+    # Too little evidence, or too soon, for a judgment to mean anything: a
+    # handful of articles a fortnight in can swing between opposite labels.
+    if directional_stories is not None and directional_stories < MIN_DIRECTIONAL_STORIES:
+        return "Inconclusive"
+    if elapsed_days is not None and elapsed_days < MIN_ELAPSED_DAYS:
         return "Inconclusive"
 
     # Off-track first — strong evidence against the trajectory wins

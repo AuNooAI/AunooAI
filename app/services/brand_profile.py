@@ -32,7 +32,8 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-POLICY_VERSION = "brand-coverage-1"
+# brand-coverage-2 (6 Oct 2026): a short name containing a digit ("Ora2") no longer needs context.
+POLICY_VERSION = "brand-coverage-2"
 _WINDOW = 200          # characters either side of a mention that count as its context
 _EXTRACT = 140         # characters of evidence kept with a decision
 _SHORT_ALIAS = 4       # a Latin alias this short needs company context
@@ -193,6 +194,12 @@ class BrandProfile:
             return True
         if n in {norm(a) for a in self.ambiguous}:
             return True
+        # A short name with a digit in it cannot be an ordinary word: "Ora2"
+        # (Sunstar's Ora²) needed context words Sunstar's profile does not
+        # have, so every post naming only Ora² failed (6 Oct social audit).
+        # List such a name in ambiguous_aliases if it ever does need context.
+        if re.search(r"\d", n):
+            return False
         return _is_spaced_script(n) and len(n.replace(" ", "")) <= _SHORT_ALIAS
 
     def patterns(self) -> Dict[str, Any]:

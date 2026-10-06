@@ -1,5 +1,223 @@
 # Changes
 
+## 2026-10-06 — Brand relevance: one labelled decision per article and brand, on every running site; vendors' own accounts recognised
+
+### Goal
+A hand rescore of Sunstar's brand topics showed the brand relevance score was unstable. The same
+article scored 0.89 on one run and 0.3 on the next, either side of the 0.45 cut-off. The score
+dropped real Colgate and Haleon coverage and promoted stock-valuation pages. Oliver undid that
+rescore with `/var/tmp/sunstar_restore.sh` (9 restored, 4 reverted); those restores are
+historical decisions the new path must not undo. He then adopted an implementation spec,
+`docs/BRAND_RELEVANCE_SPEC.md`, and confirmed the scope as every monolith site on the shared
+brand-news path, wileytest included. This overrides the usual rule that features go only to the
+site that asked. The spec's Appendix C is the step-by-step progress log; this entry is the
+session record.
+
+The morning commit `ffd1249a` also committed the 5 October relevance integrity patch and the
+PoV data-quality fixes, which had been live but uncommitted. Those are documented in the
+5 October entries.
+
+### Feature · A labelled decision instead of a score (B1–B3)
+Each article in a brand topic now gets one decision per brand, with a label instead of a
+number:
+- **subject:** the article is about the brand;
+- **notable:** the brand plays a real part in it;
+- **sector:** the article is about the brand's industry, but not the brand;
+- **passing:** the brand is one name in a list;
+- **other:** anything else, including a different company with the same name.
+
+Only subject or notable coverage from an independent source counts as earned press. Sector
+stories and the brand's own content are kept and shown, but never counted as press.
+
+- **Storage (`d43c27a5`):** migration `br_001` adds the label, the source relation, the judge
+  version, the evidence and any failed attempt to `keyword_article_matches`. It also adds the
+  older `rel_001` verdict columns where a site lacked them, so one migration serves every site.
+- **Profile (`d43c27a5`):** `app/services/brand_profile.py` holds one profile per brand
+  (names, aliases, products, original-language names, context for ambiguous names, exclusions,
+  owned domains). Collection, the mention check and the judge all use it. It has 33 tests.
+- **Decision path (`2b87a341`):** `app/services/brand_decision.py` and
+  `brand_decision_store.py`, wired into ingest behind `BRAND_RELATION_DECISIONS`, which
+  defaults to off. The brand is decided once, at the quick check, and the later rescore reuses
+  that decision instead of paying for a second model call.
+- **Failures and reuse:** a failed model call is stored as "unavailable" and retried. It is
+  never treated as a rejection. A stored decision is reused only when every input matches:
+  brand, evidence, profile version, rubric version and model route.
+- **Same-name rules:** clear same-name cases are decided by rule without a model call. Examples
+  are the SunStar Philippines newspaper, Colgate University (by its domain, colgate.edu), and
+  for Lion the manga 3月のライオン, El Sistema and RFE/RL's "Systema" unit.
+
+### Feature · Every Brand Watcher reader uses one rule (B4–B5)
+- **One rule (`bfbf9771`):** `app/services/brand_coverage.py` holds the inclusion rule. A row
+  that carries a label counts as earned only if it is subject or notable and independent.
+  Unlabelled rows keep each reader's old condition, so the rule changes nothing until labels
+  exist.
+- **Readers moved onto it:** the classification pass, 18 earned-news readers, the risk
+  calculation and 5 sentiment alert and digest queries. A new coverage-split endpoint feeds the
+  panel below.
+- **UI (`a5595cf2`):** the Articles tab has a coverage breakdown panel that shows sector,
+  owned, promotional and fan items apart from press.
+
+### Feature · Collection and hardening (B6–B7)
+- **`c87849d3`:** the brand profile can feed collection search terms, through
+  `scripts/brand_profile_keywords.py`. Each article records which search found it. There is a
+  `brand_retry` cron for sites without the enrichment sweep, and a per-run budget for judge
+  calls.
+- **`2105b3b4`:** the search-term script never proposes a bare name a site has deliberately
+  narrowed. For example, Oviva searches "Second Nature" only as part of longer terms.
+- **`677e6160`:** reviewed profile additions for wileytest (35 entries) and wbm (48). These are
+  config only: the publishers' own journal domains and their large same-name subjects (Sage
+  Group, Jerry Springer, Toronto Pearson airport). We added no search terms there, because the
+  proposals included a misspelling and generic phrases. They are saved for review in
+  `/var/tmp/brand_rollout/search_term_proposals_{wileytest,wbm}.txt`.
+- **`78aa36ec`:** regression cases captured from Sunstar and Oviva (12 tests), plus a
+  review-and-metrics script.
+
+### Feature · Judge rubric and policy (v2, v3)
+- **Rubric v2 (`958f9dc0`):** a brand named only in an advert, a shopping link or page clutter
+  is "other". A probe of 20 rejected body mentions on Sunstar found an Ohtani story labelled
+  notable because of an embedded NONIO toothpaste advert. Moving to `brand-judge-2` means
+  nothing decided under v1 is reused.
+- **Rubric v3 (`52597c8f`), from Oliver's answers to three questions:**
+  1. A deal or product listing for the brand's own product counts as coverage ("it is
+     advertising really"). It goes to the judge and is marked `evidence.promotional`, so
+     readers can split it out. A roundup of several brands is sector.
+  2. Automated valuation pages stay excluded.
+  3. An article that never names the brand is capped at sector.
+- **Fan and recipe sites (`28c4d770`):** these are now their own group, shown but never earned.
+  This was Oliver's middle option. A new profile field, `config.fan_domains`, lists the sites.
+  A page from a listed site that names the brand is decided by rule as `sector` with
+  `evidence.fan_content`. On Oviva, ww-recipes.net and skinnytaste.com moved from
+  WeightWatchers' non-press list to its fan list.
+
+### Feature · Brand decisions for Market Monitor vendor links (`49b3ab18`, `7e74f4e6`)
+`docs/BRAND_RELEVANCE_MARKET_VENDORS.md` was adopted and built. With `MARKET_VENDOR_DECISIONS`
+on, a news article that reaches a vendor through the market's name match gets the same brand
+decision. The vendor link and entity link are written only when the decision is earned. Every
+decision is stored in a new `brand_article_decisions` table (migration `bm_001`), and the
+article still enters the market corpus. Social posts keep the existing rule, and with the flag
+off nothing changes.
+- **Where it runs:** bm_001 is on bugfixing and panaya, and the flag is on for panaya only.
+  aisocnews.com, which runs from bugfixing, is unchanged.
+- **Panaya audit:** an audit run with the judge over panaya's 111 news links gave 22 earned, 86
+  vendor-owned and 3 dropped. UiPath's generic product names now need "UiPath" nearby.
+- **Site differences:** `market_analysis.py` and `market_publish.py` differ per site, so those
+  changes travel as `/var/tmp/brand_rollout/patches/market_vendor_baseline.patch`.
+
+### Feature · A vendor's own social accounts are recognised (`6d3841f7`, `f9d3b33f`, `06f4acd3`)
+This is separate from the decision path, but it fixes the same mistake: counting a company's
+own voice as outside coverage.
+- **`f9d3b33f`:** vendor X, Bluesky and Reddit handles recorded on a profile were never copied
+  to `bw_entity_social_identities`, which is what the social feed reads to tell a company's own
+  posts apart. They now are. How much a handle proves depends on where it came from. A Top
+  Voices handle-prefix match is only proposed, because `panaya0_0` is not Panaya. On bugfixing
+  this verified 27 accounts, proposed 2 and moved 21 posts.
+- **`6d3841f7`:** when a post matched two search terms, moving it to the owned lane moved only
+  the first mention, so the post still read as outside coverage. Now every mention moves.
+- **`06f4acd3`:** a post from a verified own account now links to its company, even when the
+  text names the company only in a hashtag or not at all. The 37 vendors added to bugfixing
+  between 21 September and 2 October had no search terms, because only a backfill script
+  wrote them. The add-vendor route, the workbook import and `market_add_vendor.py` now seed
+  them. On bugfixing this added 125 terms, reopened 3,366 examinations and made 309 new links.
+
+### Incident · Problems we introduced and fixed the same day
+- **Search term "Brilliant More" (`49b3ab18`):** we added it to Sunstar group 9 in the morning,
+  from Lion's product list. The provider matches the two words anywhere, so it collected 51 of
+  Lion's 66 unrelated articles. We deleted it (row backed up to `/var/tmp/brand_rollout/`) and
+  added it to Lion's `collection_skip`. The Japanese term ブリリアントモア stays.
+- **University words in Colgate's context list (`d5a0e6da`):** we added generic words
+  (students, campus, faculty, professor, alumni) to Colgate's same-name context. They would
+  have marked a school oral-screening story as a different company. Oliver's review caught it
+  before any live decision was affected. We replaced them with colgate.edu and "Colgate
+  University".
+- **brand_retry never worked on most sites (`c7ff2029`):** the cron passed a `route` argument
+  that the ingest versions on sunstar, oviva and the Wiley-family sites reject, so no retry had
+  run. It now passes the argument only where the site accepts it. It also retries admitted
+  items whose analysis failed. Two Haleon stories (Reuters, investing.com) were stuck because
+  their collector gave no summary; `analyze_or_skip` now analyses such items from the scraped
+  page, and both were approved on retry.
+- **Threshold call on older ingest versions:** wbm, wileytest and wiley run an ingest version
+  whose `get_relevance_threshold` takes no topic. The new hook passed one, outside the scorer's
+  error handling, so every brand candidate without a verified mention ended "unavailable". On
+  wbm four "SAGE" rows hit the attempt cap at 16:30 ("sage advice", a person, a street).
+  `_threshold` now calls whichever form the site has, and a test was added. We deployed the fix
+  to all sites, and wbm and wiley were restarted at 17:04. The four wbm rows (backed up) had
+  their attempt count reset, and the retry decided them `other`.
+
+### Verification
+- **Tests:** 163 brand tests pass as of `52597c8f`. `tests/test_brand_retry.py` runs against
+  PostgreSQL in a throwaway schema.
+- **Repeatability (`724406fe`):** `scripts/brand_judge_repeatability.py` ran on Sunstar
+  (nova-lite): 20 cases that reach the judge, 3 runs each, inputs fixed and reuse bypassed.
+  Result: 0 label changes and 0 failed calls. All 20 cases are coverage-positive, so this shows
+  stability on coverage, not on rejections.
+- **Sunstar, hand review (`d5a0e6da`, `52597c8f`):** Oliver labelled 82 of 84 sampled articles.
+  - On the reviewer's own answers, the old path is right 93% of the time when it says
+    "coverage" and finds 60% of real coverage. The new path is also right 93% of the time and
+    finds 65%. Haleon gains the most.
+  - Scored under the three policy answers, the old path is right 64% of the time and finds
+    58%. The new path is right 86% of the time and finds all of it.
+  - All five new-path misfires are single-brand deal listings that the reviewer answered
+    differently from policy answer 1. Oliver confirmed afterwards that the policy is the one he
+    wants.
+- **Oviva, hand review (`182d5556`):** Oliver labelled 74 of 125 so far. Under the policy, the
+  old path is right 25% of the time when it says "coverage"; most of its 21 misfires are
+  weight-loss stories that never name the brand. The new path is right 83% of the time (5 right,
+  1 wrong). It finds fewer real items, 38% against 54%. Seven of its eight misses were
+  WeightWatchers recipe pages, which are now the fan group above, shown but not counted. Second
+  Nature now needs weight-loss context nearby: a Harper's Bazaar fashion spread titled "Second
+  Nature" had been judged notable.
+- **Reader check at deploy:** with the flag off, scoped and legacy reader counts matched for
+  all 5 Sunstar brands and all 34 brands on the other sites.
+- **Stored decisions at 17:09:**
+  - **Sunstar:** 145 stored decisions in `keyword_article_matches`. Admitted: subject 6,
+    notable 24, sector 6. Filtered out: passing 26, other 83. No failures.
+  - **wbm:** the 4 SAGE rows, all `other`.
+  - **No decisions yet:** oviva, abm, panaya, wiley and wileytest.
+  - **Vendor decisions:** the `brand_article_decisions` table is empty on panaya and bugfixing,
+    so the panaya figures above come from the audit run, not stored rows.
+- **Services:** each running site was restarted when quiet. The log shows no tracebacks after
+  any restart.
+
+### Propagation
+State at 17:09 on 6 October, from each site's `.env` and systemd:
+
+| Site | `br_001` | `BRAND_RELATION_DECISIONS` | Process started | Effective |
+|---|---|---|---|---|
+| bugfixing (canonical) | yes | off | 12:02 | off; validated by test cases only (its two brand groups are social-only) |
+| sunstar | yes | 1 | 14:20 | yes |
+| oviva | yes | 1 | 14:20 | yes |
+| abm | yes | 1 | 15:43 | yes |
+| wbm | yes | 1 | 17:04 | yes |
+| wiley | yes | 1 | 17:04 | yes (no brands, so nothing changes today) |
+| panaya | yes (+ `bm_001`) | 1, `MARKET_VENDOR_DECISIONS=1` | 16:45 | yes (no brand-topic groups; the flag only moves alerts and digests to earned news) |
+| wileytest | yes | 1 (written 16:06) | 12:10 | **no: the restart is still pending** |
+| bwtemplate | yes | 1 (encrypted `.env`) | stopped | takes effect when started |
+
+- **wileytest:** its flag was set at 16:06 and the queued quiet-restart is no longer running.
+  The process started at 12:10 still has the flag off and lacks the 17:04 threshold fix. It
+  needs a restart when quiet. At 17:09 it had 6 active users and an ingest run going.
+- **Ten stopped sites** (abbott, helpnet, ibaset, interroll, opendemo, pbm, pearson, sage,
+  skunkworkx, vc) lack helpers the new code imports. Several also lack the Brand Watcher
+  modules. They need a general catch-up first, and that has not started.
+- **Deploy tools:** `scripts/brand_rollout/deploy_site.sh` and `build_site_ui.sh`. Backups are
+  under `/var/tmp/brand_rollout/backup/`.
+- **Outside git:** the per-site UI patches (`ui_coverage_fan.patch`) and the market-vendor
+  patch live only in `/var/tmp/brand_rollout/patches/`. A later site UI build needs the panel
+  patch and then the fan patch.
+- **Crons:** every site without the enrichment sweep has a `brand_retry` cron every 30 minutes.
+- **History:** nothing was rescored. Existing rows keep their old verdicts until a collector
+  rediscovers them.
+
+### Lessons
+- NEVER call a site's scorer helpers with the canonical signature. Sites run different ingest
+  versions, so check the site's signature, or call both forms, inside the error handling.
+- A two-word search term from a product list can be AND-of-words at the provider. Check a new
+  term's hit count before leaving it running.
+- Context words for a same-name rule must be specific to the other entity (a domain, a full
+  name). Generic words like "students" exclude real coverage.
+- After setting a flag in `.env`, confirm the process actually restarted after that time.
+  A queued quiet-restart can expire.
+
 ## 2026-10-05 — PoV sites brought to the wileytest standard; deal listings, phantom matches and reddit metadata fixed; relevance integrity patch live on all eight sites
 
 ### Goal
