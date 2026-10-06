@@ -1103,6 +1103,19 @@ class AutomatedIngestService:
             # and each one used to cost a relevance embedding and a bias call
             # per cycle before failing with no status written (sunstar: 60 such
             # papers cycling 2026-08-31 to 09-07). Mark terminally and stop.
+            # no-text-guard: scraped page fallback
+            # A scraped page counts as text (6 Oct 2026): use it before giving up.
+            if article.get('title') and not (article.get('summary') or article.get('content')):
+                _page = (article.get('_scraped_content') or '').strip()
+                if not _page:
+                    try:
+                        _raw = await self.async_db.get_raw_article_async(article_uri)
+                        _page = ((_raw or {}).get('raw_markdown') or '').strip()
+                    except Exception:
+                        _page = ''
+                if len(_page) >= 200:
+                    article['content'] = _page[:20000]
+                    self.logger.info(f"📄 Article {article_uri}: no summary, using the scraped page ({len(_page)} chars)")
             if not article.get('_brand_decision') and (not (article.get('summary') or article.get('content')) or not article.get('title')):  # brand-hook
                 self.logger.info(
                     f"⛔ Article {article_uri}: no usable text (title only) — "
