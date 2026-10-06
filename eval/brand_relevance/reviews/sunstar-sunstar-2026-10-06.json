@@ -1,0 +1,174 @@
+{
+ "site": "sunstar",
+ "brand": "Sunstar",
+ "brand_id": 1,
+ "profile_version": "e3c79439a42a63f0",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 18,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 2,
+  "rejected_unnamed": 122,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.theguardian.com/society/2026/sep/22/the-rise-of-big-toothbrush",
+   "title": "The rise of Big Toothbrush: how did our mouths become such a lucrative market?",
+   "title_en": "The rise of Big Toothbrush: how did our mouths become such a lucrative market?",
+   "summary": "UK interest in oral health has surged, driving premium products like £600 electric toothbrushes with AI and cameras from brands including Dyson and Philips Sonicare, despite a simultaneous national dental crisis.",
+   "source": "theguardian.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://gekiyasu-lab.net/sunstar-1982635865638609100/",
+   "title": "ガム・プレミアム デンタルペースト トータルケアEX 試供品がフォロー&リポストで200名に当たる。",
+   "title_en": "Gum Premium Dental Paste Total Care EX free samples can be won by following and reposting, 200 winners.",
+   "summary": "Sunstar promotes its flagship GUM Premium Dental Paste Total Care EX toothpaste through an X lottery campaign, offering free trial samples to 200 winners who follow and repost.",
+   "source": "gekiyasu-lab.net",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://starherald.com/article_018c05b3-c34e-5f06-ba3a-b760fb148e71.html",
+   "title": "GUARD YOUR GUMS",
+   "title_en": "GUARD YOUR GUMS",
+   "summary": "Gum disease is a serious condition, with advanced stages causing bone and tooth loss that impair eating, speaking, and socializing. Even early stages carry risks, elevating chances of developing other health conditions.",
+   "source": "starherald.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.naturalhealth365.com/blood-pressure-drops-after-fixing-a-problem-most-people-ignore.html",
+   "title": "Gum Disease Linked To Blood Pressure Issues",
+   "title_en": "Gum Disease Linked To Blood Pressure Issues",
+   "summary": "Nearly half of American adults have gum disease. New analysis indicates treating gum disease lowers blood pressure, suggesting a connection between oral health and cardiovascular health.",
+   "source": "naturalhealth365.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://martinsvillebulletin.com/article_6a63b5dc-6d0d-5585-9c1e-c4012345e177.html",
+   "title": "GUARD YOUR GUMS",
+   "title_en": "GUARD YOUR GUMS",
+   "summary": "Gum disease poses serious health risks, with advanced stages causing bone and tooth loss that impair eating, speaking, and socializing. Early stages also carry risks, increasing susceptibility to other health conditions.",
+   "source": "martinsvillebulletin.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://siouxcityjournal.com/article_6e11e5cc-6780-56ba-837a-b790eaa69ee9.html",
+   "title": "GUARD YOUR GUMS",
+   "title_en": "GUARD YOUR GUMS",
+   "summary": "Gum disease poses serious health risks, with advanced stages causing bone and tooth loss that impair eating, speaking, and socializing. Even early stages are dangerous, increasing risks of developing additional health conditions. Prevention and awareness are emphasized.",
+   "source": "siouxcityjournal.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://news.yahoo.co.jp/articles/acf24726224f42c3f98425af2d1b909c8753e564",
+   "title": "喜びよりも、理想情は「凪」? Z世代の感情に寄り添う「お守りコスメ」(WWDJAPAN.com)",
+   "title_en": "More than joy, the ideal emotion is \"calm\"? \"Guardian cosmetics\" that resonates with Generation Z emotions (WWDJAPAN.com)",
+   "summary": "When it comes to cosmetics carried out, a generation ago, the mainstream was \"appearance-enhancing items\" such as lip or foundation. However, recently, there has been a change in the cosmetics carried by young people. Sunstar Group conducted a survey and found that...",
+   "source": "news.yahoo.co.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.wwdjapan.com/articles/2493818",
+   "title": "喜びよりも、理想情は「凪」? Z世代の感情に寄り添う「お守りコスメ」",
+   "title_en": "More than joy, the ideal emotion is \"calm\"? \"Guardian Cosmetics\" for Generation Z's feelings",
+   "summary": "When it comes to cosmetics to carry out, the mainstream used to be \"things that fix your appearance\" such as lip or foundation. However, recently, there has been a change in the cosmetics carried by young people. According to a survey conducted by Sunstar Group and a youth research [...] The post Happiness is not everything, the ideal state is \"calm\"? \"Guardian cosmetics\" that resonates with the emotions of Generation Z appeared first on WWDJAPAN - Latest Fashion & Beauty News Information.",
+   "source": "wwdjapan.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dailymail.com/health/article-16111919/mouthwash-oral-health-risk.html",
+   "title": "The daily hygiene habit practiced by millions that may actually be harming your health",
+   "title_en": "The daily hygiene habit practiced by millions that may actually be harming your health",
+   "summary": "Experts are warning that, for most people, the habit is unnecessary, and may even be doing more harm than good.",
+   "source": "dailymail.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.huffpost.com/entry/philips-sonicare-1100-amazon-sale_l_6aa80b92e4b0781f96936f5d",
+   "title": "This Electric Toothbrush Is Just $15, And Reviewers Say It Cleans Every ‘Nook And Cranny’",
+   "title_en": "This Electric Toothbrush Is Just $15, And Reviewers Say It Cleans Every ‘Nook And Cranny’",
+   "summary": "“My father was a dentist from 1943 to 1980. When I use the Sonicare 1100, my teeth feel as if my father just professionally cleaned them.”",
+   "source": "huffpost.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.mic.com/shopping/weird-as-hell-things-under-20-on-amazon-that-are-so-damn-genius",
+   "title": "130 weird-as-hell things under $20 on Amazon that are so damn genius",
+   "title_en": "130 weird-as-hell things under $20 on Amazon that are so damn genius",
+   "summary": "These admittedly strange things can upgrade your life in the most practical ways.",
+   "source": "mic.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dailymail.com/lifestyle/article-16119369/Dentist-habits-healthy-60s-avoid-decay-gums-saliva.html",
+   "title": "I'm a dentist and these are the weird things I do to stay healthy in my 60s: 'I only ever order the cheese plate'",
+   "title_en": "I'm a dentist and these are the weird things I do to stay healthy in my 60s: 'I only ever order the cheese plate'",
+   "summary": "After going decades without developing a new cavity, Dr Burhenne has now revealed the simple rules he follows himself.",
+   "source": "dailymail.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.techradar.com/live/news/amazon-prime-big-deal-days-australia-best-offers-1",
+   "title": "The 80+ best Amazon Prime Big Deal Days offers to shop today",
+   "title_en": "The 80+ best Amazon Prime Big Deal Days offers to shop today",
+   "summary": "Amazon's second Prime Day sale has kicked off with massive savings on products from big brands like Apple, Bose, Breville, Sennheiser and more.",
+   "source": "techradar.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.nine.com.au/australia-news/jake-dyson-interview-dyson-chief-engineer-says-home-robots-are-coming-way-sooner-than-you-think-20260927-p610re.html",
+   "title": "Dyson’s chief engineer says home robots are coming way sooner than you think",
+   "title_en": "Dyson’s chief engineer says home robots are coming way sooner than you think",
+   "summary": "Jake Dyson says fully capable home help robots are no longer a distant idea and estimates they’ll arrive into many home in the next decade.",
+   "source": "nine.com.au",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

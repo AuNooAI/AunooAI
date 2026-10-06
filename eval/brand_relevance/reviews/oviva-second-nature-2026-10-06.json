@@ -1,0 +1,141 @@
+{
+ "site": "oviva",
+ "brand": "Second Nature",
+ "brand_id": 2,
+ "profile_version": "cc0b9e8a8cb8eb54",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 0,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 1,
+  "rejected_unnamed": 460,
+  "undecided": 0
+ },
+ "sampling": "up to 10 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.harpersbazaar.com/fashion/photography/a73395079/second-nature/",
+   "title": "Second Nature",
+   "title_en": "Second Nature",
+   "summary": "Bold silhouettes. Scarves worn as tights. Sweaters tied around coats. Binx Walton showcases the season’s most beguiling fashion—with a series of unexpected ...",
+   "source": "harpersbazaar.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://economictimes.indiatimes.com/ai/ai-insights/anthropic-ceo-dario-amodei-calls-for-slower-ai-progress-warns-of-catastrophic-risks/articleshow/134142323.cms",
+   "title": "Anthropic CEO Dario Amodei calls for slower AI progress, warns of 'catastrophic' risks",
+   "title_en": "Anthropic CEO Dario Amodei calls for slower AI progress, warns of 'catastrophic' risks",
+   "summary": "Anthropic CEO Dario Amodei advocates for a more measured pace in artificial intelligence development. He warns that rapid progress could outpace our understanding and control of advanced systems. Amodei proposes a three-step framework to manage frontier AI development responsibly. This includes embedded safety evaluators and international coordination on standards.",
+   "source": "economictimes.indiatimes.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.pocketgamer.com/roblox/elemental-dungeons-tier-list/",
+   "title": "Roblox: Elemental Dungeons tier list - The Best (and worst) elements",
+   "title_en": "Roblox: Elemental Dungeons tier list - The Best (and worst) elements",
+   "summary": "Updated on October 2nd, 2026 Thanks to an ever-changing meta, creating an Elemental Dungeons tier list isn’t as easy as it is for most Roblox experiences. New elements get added regularly, and old ones are dumped into oblivion. On top of all that, elements getting nerfed or buffed in an update is quite common. While no one likes this much uncertainty surrounding one of the most important aspects of the game, it is what it is. Those who love crawling through the elemental dungeons have already made peace with it. So, it’s about time someone made an Elemental Dungeons elements tier list and kept",
+   "source": "pocketgamer.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://us.headtopics.com/news/postnatal-depression-and-mounjaro-a-mother-s-story-87990953",
+   "title": "Postnatal Depression and Mounjaro: A Mother's Story",
+   "title_en": "Postnatal Depression and Mounjaro: A Mother's Story",
+   "summary": "Rose Stokes shares her experience of postnatal depression and anxiety after starting Mounjaro (tirzepatide) nine months after her second child's birth.",
+   "source": "us.headtopics.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://us.headtopics.com/news/should-kids-learn-to-drive-earlier-uk-survey-says-yes-88072529",
+   "title": "Should Kids Learn to Drive Earlier? UK Survey Says Yes",
+   "title_en": "Should Kids Learn to Drive Earlier? UK Survey Says Yes",
+   "summary": "Most British driving instructors surveyed believe teens develop stronger driving skills by starting younger, though the findings stop short of proving it makes safer drivers.",
+   "source": "us.headtopics.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.globenewswire.com/news-release/2026/09/11/3360201/8255/en/hooker-furnishings-reports-profitable-quarter-and-first-half.html",
+   "title": "Hooker Furnishings Reports Profitable Quarter and First Half",
+   "title_en": "Hooker Furnishings Reports Profitable Quarter and First Half",
+   "summary": "MARTINSVILLE, Va., Sept. 11, 2026 (GLOBE NEWSWIRE) -- Hooker Furnishings Corporation (NASDAQ-GS: HOFT) (“Hooker” or the “Company”), a global leader in home furnishings, today reported its operating results for its fiscal 2027 second quarter ended August 2, 2026.",
+   "source": "globenewswire.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://spacedaily.com/t-chicxulub-dust-heat-pulse-impact-winter-survival/",
+   "title": "Life on Earth 66 million years ago may have faced two disasters back-to-back: new modelling suggests impact dust trapped a heat pulse that gave exposed land animals up to 17 times the thermal dose lethal to humans within hours, then helped block sunlight for years—giving burrowers and aquatic animals an early advantage, though shelter alone could not guarantee survival through the famine that followed.",
+   "title_en": "Life on Earth 66 million years ago may have faced two disasters back-to-back: new modelling suggests impact dust trapped a heat pulse that gave exposed land animals up to 17 times the thermal dose lethal to humans within hours, then helped block sunlight for years—giving burrowers and aquatic animals an early advantage, though shelter alone could not guarantee survival through the famine that followed.",
+   "summary": "A new Chicxulub model adds fine silicate dust to the returning-ejecta heat pulse, then follows the same dust into the prolonged darkness that battered surviving food webs. The post Life on Earth 66 million years ago may have faced two disasters back-to-back: new modelling suggests impact dust trapped a heat pulse that gave exposed land animals up to 17 times the thermal dose lethal to humans within hours, then helped block sunlight for years—giving burrowers and aquatic animals an early advantage, though shelter alone could not guarantee survival through the famine that followed. appeared firs",
+   "source": "spacedaily.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.theinertia.com/mountain/helmet-use-at-all-time-high/",
+   "title": "Helmet Use at All-Time High Among U.S. Snowboarders and Skiers",
+   "title_en": "Helmet Use at All-Time High Among U.S. Snowboarders and Skiers",
+   "summary": "According to a new report by the National Ski Areas Association (NSAA), American skiers and snowboarders are wearing helmets in record numbers.",
+   "source": "theinertia.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.inverse.com/shopping/wacky-things-that-are-actually-so-freaking-useful",
+   "title": "60 wacky things that are actually so freaking useful",
+   "title_en": "60 wacky things that are actually so freaking useful",
+   "summary": "Whether its a set of metal cooling balls for your morning coffee or a portable egg carrier, some of the things that seem the silliest are actually pretty handy.",
+   "source": "inverse.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://timesofindia.indiatimes.com/religion/rituals-puja/why-is-ganeshas-idol-immersed-what-visarjan-is-really-saying/articleshow/134147601.cms",
+   "title": "Why is Ganesha's idol immersed? What visarjan is really saying",
+   "title_en": "Why is Ganesha's idol immersed? What visarjan is really saying",
+   "summary": "The immersion of Ganesha idols is a significant moment, as priests ceremonially release the deity from the murti. Made from shadu mitti, these traditional idols dissolve back into nature. This ritual resonates with the festival's deeper meanings. Growing environmental awareness has spurred a trend towards smaller clay idols and at-home immersions. The grandeur of public celebrations dates back to Bal Gangadhar Tilak's initiatives in 1893.",
+   "source": "timesofindia.indiatimes.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.gurufocus.com/news/9076549/blackrock-inc-adds-25-million-sun-communities-inc-sui-shares-stock-looks-8-undervalued-on-gf-value",
+   "title": "BlackRock, Inc. Adds 2.5 Million Sun Communities Inc (SUI) Shares -- Stock Looks 8% Undervalued on GF Value",
+   "title_en": "BlackRock, Inc. Adds 2.5 Million Sun Communities Inc (SUI) Shares -- Stock Looks 8% Undervalued on GF Value",
+   "summary": "BlackRock, Inc. (Trades, Portfolio) expanded its position in Sun Communities Inc (SUI) on Aug. 31, 2026, acquiring an additional 2,503,702 shares at a traded pr",
+   "source": "gurufocus.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

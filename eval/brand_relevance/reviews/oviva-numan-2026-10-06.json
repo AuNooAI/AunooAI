@@ -1,0 +1,196 @@
+{
+ "site": "oviva",
+ "brand": "Numan",
+ "brand_id": 3,
+ "profile_version": "49ee5753183a2550",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 6,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 0,
+  "rejected_unnamed": 19,
+  "undecided": 0
+ },
+ "sampling": "up to 10 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.dailymail.com/health/article-15956505/Half-overweight-Brits-cancel-plans-fears-wont-fit-seats-amid-seat-anxiety-epidemic.html",
+   "title": "Half of overweight Brits cancel plans over fears they won't fit into seats amid 'seat anxiety' epidemic",
+   "title_en": "Half of overweight Brits cancel plans over fears they won't fit into seats amid 'seat anxiety' epidemic",
+   "summary": "Researchers from online healthcare provider Numan report that approximately half of overweight UK adults avoid major events due to concerns about seat comfort, describing a phenomenon termed \"seat anxiety.\"",
+   "source": "dailymail.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://us.headtopics.com/news/half-of-overweight-britons-cancel-plans-due-to-seat-85302488",
+   "title": "Half of overweight Britons cancel plans due to 'seat anxiety', study finds",
+   "title_en": "Half of overweight Britons cancel plans due to 'seat anxiety', study finds",
+   "summary": "A Numan study reveals 50% of overweight Britons cancel plans due to \"seat anxiety\"—concerns about fitting into seats. Based on a survey of 3,000 adults, it documents impacts on travel, social events, and healthcare, with estimated £1.4 billion economic cost from paid upgrades and risks of social isolation.",
+   "source": "us.headtopics.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.boredpanda.com/women-learned-about-female-body-wish-knew-earlier/",
+   "title": "53 Things Women Wish Someone Had Explained To Them Before They Had To Figure It Out Themselves",
+   "title_en": "53 Things Women Wish Someone Had Explained To Them Before They Had To Figure It Out Themselves",
+   "summary": "Women shared online the anatomical and health facts they wished they had learned earlier, highlighting ongoing gaps in female-focused medical education. Responses addressed menstruation, body image, and commonly misunderstood biological signals, reflecting historical scientific neglect of women's health.",
+   "source": "boredpanda.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://us.headtopics.com/news/millions-of-overweight-britons-have-cancelled-plans-due-to-85303063",
+   "title": "Millions of overweight Britons have cancelled plans due to 'seat anxiety'",
+   "title_en": "Millions of overweight Britons have cancelled plans due to 'seat anxiety'",
+   "summary": "A study by online healthcare provider Numan found that millions of overweight Britons have cancelled social plans due to \"seat anxiety,\" fearing they will not fit into seats or be comfortable in public venues.",
+   "source": "us.headtopics.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dailymail.com/lifestyle/article-16013521/bizarre-diet-hacks-decades-retro.html",
+   "title": "Which decade has the best diet: From 'fat-burning' grapefruit in the 1920s to the noughties' Special K plan, nutritionists reveal the retro food trends that CAN help you lose weight - and what to avoid",
+   "title_en": "Which decade has the best diet: From 'fat-burning' grapefruit in the 1920s to the noughties' Special K plan, nutritionists reveal the retro food trends that CAN help you lose weight - and what to avoid",
+   "summary": "Nutritionists Zoe Griffiths of Numan and Melissa Jaeger of MyFitnessPal evaluated retro diet trends from the 1920s to the 2000s, identifying which historical weight-loss methods remain effective and which to avoid.",
+   "source": "dailymail.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.glasgowlive.co.uk/news/glasgow-news/glasgow-mum-who-feared-plane-34361990",
+   "title": "Glasgow mum who feared plane and Disney rides because of weight drops 42lbs",
+   "title_en": "Glasgow mum who feared plane and Disney rides because of weight drops 42lbs",
+   "summary": "Glasgow resident Diane Reddington lost 42 pounds after considering weight loss surgery, enabling her to overcome fears about airplane seats and theme park rides. She began her transformation last September.",
+   "source": "glasgowlive.co.uk",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.huffingtonpost.co.uk/entry/shut-down-manosphere-doctor-comment_uk_6a2fc52fe4b04478a06115f5",
+   "title": "I'm A Doctor, We Need To Crack Down On The 'Manosphere' Before It's Too Late",
+   "title_en": "I'm A Doctor, We Need To Crack Down On The 'Manosphere' Before It's Too Late",
+   "summary": "We need to crack down on the manosphere, writes the author. For the young men of 2026, the internet has become a dangerous soup of misinformation and misogyny repackaged as self-improvement tips peddled by bad actors. Across all platforms, a growing ecosystem of ‘ manosphere ’ influencers are promoting harmful and extreme “health” trends to millions of people too young to know the difference between clickbait and genuine advice. Content in this space normally begins innocently: advice on fitness, dating, and socialising, for instance. However it can quickly spiral into darker themes. The promo",
+   "source": "huffingtonpost.co.uk",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.tori.ng/news/323509/nihsa-issues-fresh-flood-alert-for-13-states.html",
+   "title": "NIHSA Issues Fresh Flood Alert for 13 States",
+   "title_en": "NIHSA Issues Fresh Flood Alert for 13 States",
+   "summary": "A new flood warning has put several Nigerian states on high alert as authorities predict rising water levels in the coming days.",
+   "source": "tori.ng",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://economictimes.indiatimes.com/industry/healthcare/biotech/pharmaceuticals/uk-approves-novo-weight-loss-pill-to-edge-open-european-market/articleshow/131672686.cms",
+   "title": "UK approves Novo weight-loss pill to edge open European market",
+   "title_en": "UK approves Novo weight-loss pill to edge open European market",
+   "summary": "Britain's medicine regulator has approved Novo Nordisk's weight-loss pill. This makes the UK the first European market for the oral treatment. Over 10 million people with obesity in the UK now have an alternative to injections. Drugmakers are racing to expand use of these transformative medicines. The market is expected to reach over 100 billion dollars by 2030.",
+   "source": "economictimes.indiatimes.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://martechseries.com/content/email-mktg/warmysender-ai-outreach-lets-marketers-run-cold-email-linkedin-and-instagram-outreach-on-autopilot-with-ai-agents-such-as-chatgpt-and-claude/",
+   "title": "WarmySender AI Outreach Lets Marketers Run Cold-Email, LinkedIn, and Instagram Outreach on Autopilot With AI Agents Such as ChatGPT and Claude",
+   "title_en": "WarmySender AI Outreach Lets Marketers Run Cold-Email, LinkedIn, and Instagram Outreach on Autopilot With AI Agents Such as ChatGPT and Claude",
+   "summary": "Let ChatGPT, Claude, and other MCP-compatible assistants build, launch, and adjust cold-email, LinkedIn, and Instagram campaigns within safe sending limits — and new platform data shows the approach pays: verifying recipients before sending cuts bounce rates by more than 96.67%%. WarmySender, the all-in-one outreach platform, today detailed how marketers can run their outreach on autopilot [...]",
+   "source": "martechseries.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://au.investing.com/news/transcripts/earnings-call-transcript-vnv-global-q2-2026-nav-steady-as-shares-slip-93CH-4532621",
+   "title": "Earnings call transcript: VNV Global Q2 2026 NAV steady as shares slip",
+   "title_en": "Earnings call transcript: VNV Global Q2 2026 NAV steady as shares slip",
+   "summary": "Earnings call transcript: VNV Global Q2 2026 NAV steady as shares slip",
+   "source": "au.investing.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.globenewswire.com/fr/news-release/2026/08/03/3337821/0/en/WarmySender-AI-Outreach-Lets-Marketers-Run-Cold-Email-LinkedIn-and-Instagram-Outreach-on-Autopilot-With-AI-Agents-Such-as-ChatGPT-and-Claude.html",
+   "title": "WarmySender AI Outreach Lets Marketers Run Cold-Email, LinkedIn, and Instagram Outreach on Autopilot With AI Agents Such as ChatGPT and Claude",
+   "title_en": "WarmySender AI Outreach Lets Marketers Run Cold-Email, LinkedIn, and Instagram Outreach on Autopilot With AI Agents Such as ChatGPT and Claude",
+   "summary": "Let ChatGPT, Claude, and other MCP-compatible assistants build, launch, and adjust cold-email, LinkedIn, and Instagram campaigns within safe sending limits — and new platform data shows the approach pays: verifying recipients before sending cuts bounce rates by more than 96.67%%. Let ChatGPT, Claude, and other MCP-compatible assistants build, launch, and adjust cold-email, LinkedIn, and Instagram campaigns within safe sending limits — and new platform data shows the approach pays: verifying recipients before sending cuts bounce rates by more than 96.67%%.",
+   "source": "globenewswire.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.kansascity.com/living/article316703853.html",
+   "title": "Patients discuss their testosterone replacement therapy experiences, including changes in libido",
+   "title_en": "Patients discuss their testosterone replacement therapy experiences, including changes in libido",
+   "summary": "A man walks through the afternoon shadows on the tile floor at Grand Central Terminal in New York.",
+   "source": "kansascity.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dailymail.com/health/article-15900707/Wegovy-Pill-10-times-patients-ordering-tablet-injection.html",
+   "title": "The Wegovy Pill craze takes off: 10 times as many patients ordering the tablet as the injection as companies report long waiting-lists... but will supplies last?",
+   "title_en": "The Wegovy Pill craze takes off: 10 times as many patients ordering the tablet as the injection as companies report long waiting-lists... but will supplies last?",
+   "summary": "The newly approved Wegovy pill has sparked strong early demand, according to data from one provider, with initial figures suggesting it could prove more popular than injectable treatments.",
+   "source": "dailymail.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://pmnewsnigeria.com/2026/09/12/2000-adamawa-tricycle-riders-to-get-50-fuel-subsidy/",
+   "title": "2,000 Adamawa tricycle riders to get 50% fuel subsidy",
+   "title_en": "2,000 Adamawa tricycle riders to get 50% fuel subsidy",
+   "summary": "“Others include; welfare benefits, education and career development opportunities, and other benefits within the ATRaS ecosystem,” Timothy said.",
+   "source": "pmnewsnigeria.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://us.headtopics.com/news/uk-approval-of-wegovy-pill-marks-game-changing-moment-for-84740720",
+   "title": "UK Approval of Wegovy Pill Marks Game-Changing Moment for Slimmers",
+   "title_en": "UK Approval of Wegovy Pill Marks Game-Changing Moment for Slimmers",
+   "summary": "The UK has approved a new pill form of Wegovy, a weight-loss medication that has been hailed as a game-changer for slimmers. The pill, which contains the same appetite-suppressing ingredient as the injection, is expected to have a monumental take-up rate, with recent polling suggesting that twice as many patients would be willing to take a weight-loss tablet as injections. Patients have reported remarkable improvements, with one woman losing over 15lb in just two months.",
+   "source": "us.headtopics.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

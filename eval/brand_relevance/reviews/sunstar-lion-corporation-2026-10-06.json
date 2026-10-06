@@ -1,0 +1,196 @@
+{
+ "site": "sunstar",
+ "brand": "Lion Corporation",
+ "brand_id": 2,
+ "profile_version": "cf7f0240bb27bae6",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 4,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 15,
+  "rejected_unnamed": 319,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.oscarpro.co.jp/news/entry/251364",
+   "title": "【上戸彩】LION「クリニカ」新CM出演！",
+   "title_en": "[Aoi Ueto] Appears in New LION \"Clinica\" CM!",
+   "summary": "Actress Ueto Aya will appear in a new commercial for LION's \"Clinica\" toothpaste, as announced by Oscar Promotion.",
+   "source": "oscarpro.co.jp",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://prtimes.jp/main/html/rd/p/000000310.000039983.html",
+   "title": "グリチルリチン酸ジカリウムが「口腔内細菌叢(※1)の菌のバランス」を整え、口臭を予防する可能性を示唆",
+   "title_en": "Potassium glycyrrhizinate suggests the potential to regulate the \"oral flora (※1) bacteria balance\" and prevent bad",
+   "summary": "Lion Corporation announced that potassium glycyrrhizinate shows potential for regulating oral flora bacterial balance and preventing bad breath.",
+   "source": "prtimes.jp",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://prtimes.jp/main/html/rd/p/000000314.000039983.html",
+   "title": "『Brilliant』からステインを浮かせて落としなめらかな歯面に仕上げる(※1)PMTC(※2)ペースト『PMTC』とステインを浮かせて落とし(※3)付着もブロック(※4)する歯磨剤『RICH』発売",
+   "title_en": "Remove stains to make the tooth surface smooth with Brilliant (※1) PMTC (※2) paste \"PMTC\" removes stains and (※3)",
+   "summary": "Lion Corporation announced the release of \"RICH,\" a PMTC paste that removes stains, smooths tooth surfaces, prevents adhesion, and blocks stains using Brilliant PMTC technology.",
+   "source": "prtimes.jp",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.mylifenews.net/health-medical/128656/",
+   "title": "ライオン歯科材、プロフェッショナルケア用PMTCペースト「Brilliant PMTC」などを歯科医院に向けて発売",
+   "title_en": "ライオン歯科材、プロフェッショナルケア用PMTCペースト「Brilliant PMTC」などを歯科医院に向けて発売",
+   "summary": "Lion Dental Materials launched two professional dental care products, \"Brilliant PMTC\" paste and \"Brilliant RICH\" whitening agent, for dental clinics, featuring formulations designed for enhanced efficacy and patient comfort.",
+   "source": "mylifenews.net",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://prtimes.jp/main/html/rd/p/000002453.000046848.html",
+   "title": "「3月のライオン」最新話掲載! 『ヤングアニマル』18号 9月11日(金)発売!",
+   "title_en": "The latest chapter of \"3-gatsu no Lion\" is featured! \"Young Animal\" No. 18, released on Friday, September 11th! Press",
+   "summary": "The latest chapter of \"3-gatsu no Lion\" is featured! \"Young Animal\" No. 18, released on Friday, September 11th! Press release by Hakusensha Co., Ltd.",
+   "source": "prtimes.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://prtimes.jp/main/html/rd/p/000000088.000037539.html",
+   "title": "2026年9月20日(日)「第5回エル・システマジャパン駒ヶ根子どもオーケストラ演奏会2026」を開催!",
+   "title_en": "On September 20, 2026 (Sunday), \"The 5th El Sistema Japan Komagane Children's Orchestra Concert 2026\" will be held!",
+   "summary": "On September 20, 2026 (Sunday), \"The 5th El Sistema Japan Komagane Children's Orchestra Concert 2026\" will be held! Press release by the El Sistema Japan General Incorporated Association",
+   "source": "prtimes.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.zaikei.co.jp/releases/3612246/",
+   "title": "2026年9月20日(日)「第5回エル・システマジャパン駒ヶ根子どもオーケストラ演奏会2026」を開催!",
+   "title_en": "2026年9月20日(日) \"5th El Sistema Japan Komagane Children's Orchestra Concert 2026\" to be held!",
+   "summary": "[Image 1: https://prcdn.freetls.fastly.net/release_image/37539/88/37539-88-56bbfa91428c8f6b5e033863499477d3-1910x2700.jpg?width=536&quality=85%2C75&format=jpeg&auto=webp&fit=bounds&bg-color=fff ]Komagane Children's Orchestra Concert 2026 Flyer The general incorporated association El Sistema Japan (located in Chiyoda, Tokyo, Representative Director: Jou Kawagushi) will hold \"The 5th El Sistema Japan Komagane Children's Orchestra Concert 2026\" on Sunday, September 20, 2026, starting at 14:00, at the Komagane City Cultural Hall Main Hall.",
+   "source": "zaikei.co.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.zaikei.co.jp/releases/3612821/",
+   "title": "【LINEマンガ】マンガがお得に買える大型セール「メガトク」開催!『3月のライオン』『春の嵐とモンスター』全巻60%OFFクーポンや単行本99円・199円など",
+   "title_en": "[LINE Manga] Megatoku, a large-scale sale where manga can be bought at a discount, is being held! \"3rd of March\" \"Spring Storm and Monster\" full volume 60% OFF coupon and single volume 99 yen/199 yen, etc.",
+   "summary": "LINE Digital Frontier Inc. (headquarters: Minato-ku, Tokyo, Representative Director and President: Mori Kei) will be holding a \"Mega Toku\" event on its e-Comic service \"LINE Manga\" (https://manga.line.me/), offering a 60% discount coupon for all volumes of popular works and a 99 yen sale for single volumes, from today, September 12 (Sat) to September 27 (Sun), allowing users to enjoy manga at a great value.",
+   "source": "zaikei.co.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.zaikei.co.jp/releases/3612820/",
+   "title": "【ebookjapan】マンガがお得に買える大型セール「メガトク」開催!『3月のライオン』『春の嵐とモンスター』全巻60%OFFクーポンや単行本99円・199円など",
+   "title_en": "ebookjapan: Manga Megatoku sale with discounts up to 60%! \"3rd of March\" and \"Spring Storm and Monster\" complete sets, and single volumes for 99 yen and 199 yen.",
+   "summary": "LINE Digital Frontier Inc. (Headquarters: Minato-ku, Tokyo, CEO: MORI Kei) is hosting a \"Megatoku\" event in collaboration with LINE Yahoo Corporation on its e-book sales service \"ebookjapan\" (https://ebookjapan.yahoo.co.jp/). From today, September 12 (Saturday) to September 27 (Sunday), the event will offer 60% OFF coupons for all volumes of popular works, and sales of single volumes at 99 yen and 199 yen, allowing customers to enjoy manga at great value.",
+   "source": "zaikei.co.jp",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.wwdjapan.com/articles/2496241",
+   "title": "ライオンがスキンケア領域に本格参入 オーストラリア発「スーキン」を日本導入",
+   "title_en": "Lion enters the skincare market; introduces Australian \"Sukkin\" to Japan",
+   "summary": "Lion introduces Australia's natural skincare brand \"SUKIN\" to Japan, making a serious entry into the skincare field. The subsidiary Sukin Japan plans and sells it, with the skin [...] The post Lion makes a serious entry into the skincare field by introducing Australia's \"SUKIN\" to Japan appeared first on WWDJAPAN - latest fashion & beauty news information.",
+   "source": "wwdjapan.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.tbsnews.net/economy/stocks/rancon-motor-bikes-signs-advisory-deal-proposed-public-listing-1553061",
+   "title": "Rancon Motor Bikes signs advisory deal for proposed public listing",
+   "title_en": "Rancon Motor Bikes signs advisory deal for proposed public listing",
+   "summary": "The agreement was signed at Rangs Babylonia in Tejgaon, Dhaka on Wednesday.",
+   "source": "tbsnews.net",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thehindubusinessline.com/news/national/thiruvananthapurams-emerald-island-a-167-year-old-zoo-caught-in-relocation-debate/article71490107.ece",
+   "title": "Thiruvananthapuram's 'Emerald Island': A 167-year-old zoo caught in relocation debate",
+   "title_en": "Thiruvananthapuram's 'Emerald Island': A 167-year-old zoo caught in relocation debate",
+   "summary": "Thiruvananthapuram's historic zoo faces relocation debate, raising concerns about preserving the city's unique heritage and biodiversity.",
+   "source": "thehindubusinessline.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://bleedingcool.com/comics/highlander-comic-in-titans-official-december-2026-solicits/",
+   "title": "Exclusive: Highlander Comic in Titan's Official December 2026 Solicits",
+   "title_en": "Exclusive: Highlander Comic in Titan's Official December 2026 Solicits",
+   "summary": "The new Highlander #1 comic book launches in Titan Comics' official full December 2026 solicits and solicitations",
+   "source": "bleedingcool.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://news.google.com/rss/articles/CBMijgFBVV95cUxQV1NRN0owUnBmNzlETUE1cUMyZDdJUkI1RDI4VTRZUWVyb1cxemg0d3I0SUlaazdZSTZTMm83cWYtaXNMSUVvaEJ4aHJjQVFpcXF1aFlrdWdtRVJsMkZmWlZyUk1vdHM1N2RoaDg5S3RMZHNmVHZ5Y2hob3lBeGR6STlBM0E5enhQNEEyQWtn?oc=5",
+   "title": "Fremantle v Brisbane Lions - Grand Final, 2026 - AFL Score Centre - Live AFL Scores - ABC News & Headlines – Australian Broadcasting Corporation",
+   "title_en": "Fremantle v Brisbane Lions - Grand Final, 2026 - AFL Score Centre - Live AFL Scores - ABC News & Headlines – Australian Broadcasting Corporation",
+   "summary": "Fremantle v Brisbane Lions - Grand Final, 2026 - AFL Score Centre - Live AFL Scores ABC News & Headlines – Australian Broadcasting Corporation VIDEO: Smoke rises after Houthi-claimed attacks on Riyadh ABC News & Headlines – Australian Broadcasting Corporation Pile-on for fixed rate hikes as Westpac joins the club Canstar Borrowers tipped to save thousands as lenders battle for refinancers amid property slump theaustralian.com.au Two of Australia’s biggest banks join rate hike surge Nine.com.au",
+   "source": "news.google.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://beforeitsnews.com/beyond-science/2026/09/the-great-quantum-transition-indias-major-historical-role-2457956.html",
+   "title": "The Great Quantum Transition & India’s Major Historical Role",
+   "title_en": "The Great Quantum Transition & India’s Major Historical Role",
+   "summary": "TheMillenniumReport.com: Reporting the Most Important News of the Week Legacy Part 6 The Great Quantum Transition Legacy Part 6 – The Great Quantum Transition – Lev In India, the war of the Light and Dark Rings continues with the same [...]",
+   "source": "beforeitsnews.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://prtimes.jp/main/html/rd/p/000004374.000012759.html",
+   "title": "第1弾は目標比300%超えの大反響!「フェリシモクラファン」待望の第2弾がスタート!「猫部」の偏愛爆発!「100cmの巨大猫」に大人のうっかり忘れを防ぐ本革バッグ、90’sリバイバルのクマニット",
+   "title_en": "The first release exceeded the target by 300%, drawing a huge response! The long-awaited second release of \"Felicimo",
+   "summary": "The first release exceeded the target by 300%, drawing a huge response! The long-awaited second release of \"Felicimo Kurafan\" is starting! The \"Cat Club\" explodes with love! \"100cm giant cat\", a genuine leather bag that prevents adults from forgetting, and a bear knit from 90's revival. Press release from Felicimo Corporation",
+   "source": "prtimes.jp",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

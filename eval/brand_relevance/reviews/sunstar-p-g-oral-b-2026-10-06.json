@@ -1,0 +1,218 @@
+{
+ "site": "sunstar",
+ "brand": "P&G Oral-B",
+ "brand_id": 5,
+ "profile_version": "a723cd80082c38b7",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 10,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 12,
+  "rejected_unnamed": 161,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.ofzenandcomputing.com/best-amazon-prime-big-deal-days-oral-b-deals-2026-sale/",
+   "title": "10 Best Amazon Prime Big Deal Days Oral-B Deals (October 2026 Sale)",
+   "title_en": "10 Best Amazon Prime Big Deal Days Oral-B Deals (October 2026 Sale)",
+   "summary": "Amazon Prime Big Deal Days in October 2026 offers discounts on Oral-B electric toothbrushes, including the Pro 1000 for daily cleaning and premium iO and Smart models at reduced prices.",
+   "source": "ofzenandcomputing.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://finance.yahoo.com/markets/stocks/articles/john-osher-built-475-million-095026885.html",
+   "title": "John Osher Built a $475 Million Toothbrush by Starting at 80 Cents While Rivals Started at $79",
+   "title_en": "John Osher Built a $475 Million Toothbrush by Starting at 80 Cents While Rivals Started at $79",
+   "summary": "John Osher developed a $475 million electric toothbrush business by reverse-engineering pricing from 80 cents rather than competitors' $79 approach, disrupting the market through cost-focused innovation.",
+   "source": "finance.yahoo.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.insidermonkey.com/news/haleon-is-buying-better-shelf-space-can-the-visibility-help-it-against-procter-gamble-and-colgate-palmolive-1834760/",
+   "title": "Haleon is Buying Better Shelf Space, Can the Visibility Help it Against Procter & Gamble and Colgate-Palmolive?",
+   "title_en": "Haleon is Buying Better Shelf Space, Can the Visibility Help it Against Procter & Gamble and Colgate-Palmolive?",
+   "summary": "Haleon is securing prominent retail shelf positions for Sensodyne and Advil to strengthen its competitiveness against larger US consumer-health rivals Procter & Gamble and Colgate-Palmolive.",
+   "source": "insidermonkey.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://financialpost.com/pmn/business-wire-news-releases-pmn/brushing-well-is-harder-than-most-people-think-new-research-confirms-why-the-technology-behind-oral-b-io-is-the-best-way-to-help-you-get-it-right",
+   "title": "Brushing Well Is Harder Than Most People Think — New Research Confirms Why the Technology Behind Oral-B iO is the Best Way to Help You Get it Right",
+   "title_en": "Brushing Well Is Harder Than Most People Think — New Research Confirms Why the Technology Behind Oral-B iO is the Best Way to Help You Get it Right",
+   "summary": "Research shows brushing effectively is difficult; Oral-B iO's oscillating-rotating technology with round brush head ranks first for plaque removal and gingivitis reduction, according to the company. Dentists reportedly recommend the brand.",
+   "source": "financialpost.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://www.businesswire.com/news/home/20260911054017/en/Brushing-Well-Is-Harder-Than-Most-People-Think-%E2%80%94-New-Research-Confirms-Why-the-Technology-Behind-Oral-B-iO-is-the-Best-Way-to-Help-You-Get-it-Right/",
+   "title": "Brushing Well Is Harder Than Most People Think — New Research Confirms Why the Technology Behind Oral-B iO is the Best Way to Help You Get it Right",
+   "title_en": "Brushing Well Is Harder Than Most People Think — New Research Confirms Why the Technology Behind Oral-B iO is the Best Way to Help You Get it Right",
+   "summary": "Independent peer-reviewed research of 19 clinical studies involving over 1,300 participants found Oral-B iO's oscillating-rotating technology ranked #1 for plaque removal and gingivitis reduction, reinforcing claims that proper brushing technique is difficult to achieve.",
+   "source": "businesswire.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.theguardian.com/society/2026/sep/22/the-rise-of-big-toothbrush",
+   "title": "The rise of Big Toothbrush: how did our mouths become such a lucrative market?",
+   "title_en": "The rise of Big Toothbrush: how did our mouths become such a lucrative market?",
+   "summary": "UK interest in oral health has surged, driving premium products like £600 electric toothbrushes with AI and cameras from brands including Dyson and Philips Sonicare, despite a simultaneous national dental crisis.",
+   "source": "theguardian.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.esquire.com/style/grooming/a73657225/best-smart-electric-toothbrushes/",
+   "title": "The 3 Best Electric and Smart Toothbrushes on the Market",
+   "title_en": "The 3 Best Electric and Smart Toothbrushes on the Market",
+   "summary": "Esquire recommends three electric and smart toothbrushes from Philips Sonicare, Oral-B, and Quip as superior alternatives to manual toothbrushes for personal grooming.",
+   "source": "esquire.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://slickdeals.net/f/20059059-1mm-2-1-94-get-3-walmart-cash-oral-b-toothbrush-dual-clean-medium-1-count",
+   "title": "2-Ct. Oral-B Dual Clean Medium Toothbrush + $3 Walmart Cash",
+   "title_en": "2-Ct. Oral-B Dual Clean Medium Toothbrush + $3 Walmart Cash",
+   "summary": "Walmart offers Oral-B Dual Clean Medium Toothbrush at two for $1.94 plus $3 Walmart Cash when clipping the product page offer. Deal requires adding two toothbrushes to cart.",
+   "source": "slickdeals.net",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.ozbargain.com.au/node/976900",
+   "title": "[Prime] Oral-B Everyday Clean Electric Toothbrush Replacement Heads 16 Pack $41.90 ($37.71 Sub & Save) Delivered @ Amazon AU",
+   "title_en": "[Prime] Oral-B Everyday Clean Electric Toothbrush Replacement Heads 16 Pack $41.90 ($37.71 Sub & Save) Delivered @ Amazon AU",
+   "summary": "Oral-B Everyday Clean Electric Toothbrush Replacement Heads (16-pack) priced at $41.90 delivered via Amazon Australia, with Subscribe & Save option reducing price to $37.71. Product features cup-shaped design for individual tooth cleaning.",
+   "source": "ozbargain.com.au",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.manchestereveningnews.co.uk/whats-on/shopping/boots-reduces-dentist-approved-electric-34619791",
+   "title": "Boots reduces 'dentist-approved' electric toothbrush by £500 ahead of Black Friday",
+   "title_en": "Boots reduces 'dentist-approved' electric toothbrush by £500 ahead of Black Friday",
+   "summary": "Boots has reduced an Oral-B electric toothbrush by £500 ahead of Black Friday. Oral-B is widely approved, used, and recommended by dental professionals worldwide.",
+   "source": "manchestereveningnews.co.uk",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://hip2save.com/deals/walmart-oral-b-toothbrush/",
+   "title": "TWO Better Than FREE Oral-B Toothbrushes After Walmart Cash",
+   "title_en": "TWO Better Than FREE Oral-B Toothbrushes After Walmart Cash",
+   "summary": "Walmart is offering a limited-time promotion where customers can obtain two Oral-B Essential Clean Toothbrushes at no cost plus receive $1.06 through Walmart Cash.",
+   "source": "hip2save.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dealigg.com/story-Oral-B-Dual-Clean-Medium-Toothbrush-2-1-94-3-Walmart-Cash",
+   "title": "Best Deal: Oral-B Dual Clean Medium Toothbrush: 2 for $1.94 + $3 Walmart Cash",
+   "title_en": "Best Deal: Oral-B Dual Clean Medium Toothbrush: 2 for $1.94 + $3 Walmart Cash",
+   "summary": "Oral-B Dual Clean Medium Toothbrushes are available at Walmart for $1.94 for two, with $3 Walmart Cash back. The toothbrushes feature plaque removal and end-rounded bristles designed to be gentle on teeth and gums.",
+   "source": "dealigg.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://bubblear.com/med-spa-expert-lindsey-smith-explains-what-to-expect-from-a-first-med-spa-visit-in-hellonation/33675/",
+   "title": "Med Spa Expert Lindsey Smith Explains What to Expect From a First Med Spa Visit in HelloNation",
+   "title_en": "Med Spa Expert Lindsey Smith Explains What to Expect From a First Med Spa Visit in HelloNation",
+   "summary": "The article explains how consultations, medical history reviews, treatment planning, and clear communication help patients prepare for their first med spa visit...",
+   "source": "bubblear.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dealigg.com/story-3x-3-Pack-3-Oz-Colgate-Optic-White-Pro-Series-High-Impact-White-Toothpaste",
+   "title": "Best Deal: 3x 3-Pack 3-Oz Colgate Optic White Pro Series High Impact White Toothpaste",
+   "title_en": "Best Deal: 3x 3-Pack 3-Oz Colgate Optic White Pro Series High Impact White Toothpaste",
+   "summary": "A promotional deal offers three 3-packs of Colgate Optic White Pro Series toothpaste, featuring 3.0 oz tubes in Brilliant Mint. The product claims to deliver 5X whiter teeth.",
+   "source": "dealigg.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://theartfulage.com/ap-thirty-six-and-a-half-seconds-after-apollo-12-left-the-pad-on-14-november-1969-lightning-travelled-through-the-saturn-v-and-its-exhaust-trail-and-fifteen-and-a-half-seconds-later-a-second-strike/",
+   "title": "Thirty-six and a half seconds after Apollo 12 left the pad on 14 November 1969, lightning travelled through the Saturn V and its exhaust trail, and fifteen and a half seconds later a second strike hit",
+   "title_en": "Thirty-six and a half seconds after Apollo 12 left the pad on 14 November 1969, lightning travelled through the Saturn V and its exhaust trail, and fifteen and a half seconds later a second strike hit",
+   "summary": "On 14 November 1969, lightning struck the Saturn V carrying Apollo 12 twice in the first minute of flight. The mission survived because a 26-year-old flight con...",
+   "source": "theartfulage.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://pubmed.ncbi.nlm.nih.gov/42823940/",
+   "title": "Duodenal Obstruction and Grade III Acute Cholangitis Following Pancreaticoduodenal Artery Aneurysm Rupture During Conservative Management of Acute Type B Aortic Dissection: A Case Report",
+   "title_en": "Duodenal Obstruction and Grade III Acute Cholangitis Following Pancreaticoduodenal Artery Aneurysm Rupture During Conservative Management of Acute Type B Aortic Dissection: A Case Report",
+   "summary": "Aneurysms of the pancreaticoduodenal arcade are uncommon visceral artery aneurysms that are strongly associated with stenosis or occlusion of the celiac axis an...",
+   "source": "pubmed.ncbi.nlm.nih.gov",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.express.co.uk/life-style/science-technology/2253918/i-tried-dysons-camerajet-toothbrush",
+   "title": "I tried Dyson's CameraJet toothbrush and it's not just the price that surprise me",
+   "title_en": "I tried Dyson's CameraJet toothbrush and it's not just the price that surprise me",
+   "summary": "Can a toothbrush really be worth £420? I put Dyson's CameraJet to the test and here's my full review.",
+   "source": "express.co.uk",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.news-medical.net/news/20260910/Rentosertib-shifts-multiple-proteomic-aging-clocks-toward-younger-age-profiles-in-IPF-trial.aspx",
+   "title": "Rentosertib shifts multiple proteomic aging clocks toward younger age profiles in IPF trial",
+   "title_en": "Rentosertib shifts multiple proteomic aging clocks toward younger age profiles in IPF trial",
+   "summary": "Researchers applied six proteomic aging clocks to serum samples from a phase 2a trial of rentosertib in people with idiopathic pulmonary fibrosis and found trea...",
+   "source": "news-medical.net",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

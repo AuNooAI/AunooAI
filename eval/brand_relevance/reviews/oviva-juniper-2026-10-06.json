@@ -1,0 +1,196 @@
+{
+ "site": "oviva",
+ "brand": "Juniper",
+ "brand_id": 5,
+ "profile_version": "bfed55390d2605ca",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 6,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 0,
+  "rejected_unnamed": 10,
+  "undecided": 0
+ },
+ "sampling": "up to 10 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.abc.net.au/news/2025-12-29/juniper-telehealth-concerns-weight-loss-treatment-glp1/106114626",
+   "title": "Concerns medical weight-loss treatments are being advertised to vulnerable eating disorder patients",
+   "title_en": "Concerns medical weight-loss treatments are being advertised to vulnerable eating disorder patients",
+   "summary": "Eating disorder industry bodies have raised concerns about telehealth company Juniper's marketing of weight-loss treatments, including a Black Friday sale and social media comments, to vulnerable patients with eating disorders.",
+   "source": "abc.net.au",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://mumbrella.com.au/ex-adlander-charlie-gearside-set-for-windfall-after-1-6b-eucalyptus-sale-915577",
+   "title": "Ex-adlander Charlie Gearside set for windfall after $1.6b Eucalyptus sale",
+   "title_en": "Ex-adlander Charlie Gearside set for windfall after $1.6b Eucalyptus sale",
+   "summary": "Former M+C Saatchi and Special Group art director Charlie Gearside is poised for significant financial gain following the $1.6 billion sale of Eucalyptus, the weight-loss telehealth start-up he co-founded.",
+   "source": "mumbrella.com.au",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://theconversation.com/weight-loss-campaigns-aimed-at-first-nations-women-look-like-drug-marketing-in-disguise-288522",
+   "title": "Weight-loss campaigns aimed at First Nations women look like drug marketing in disguise",
+   "title_en": "Weight-loss campaigns aimed at First Nations women look like drug marketing in disguise",
+   "summary": "Pharmaceutical companies are recruiting women of color and First Nations celebrities for weight-loss campaigns, drawing criticism that these promotional efforts may constitute disguised drug marketing.",
+   "source": "theconversation.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://newsable.asianetnews.com/markets/hims-stock-set-to-test-a-crucial-resistance-is-retail-expecting-a-breakout-articleshow-9oynt7i",
+   "title": "HIMS Stock Set To Test A Crucial Resistance – Is Retail Expecting A Breakout?",
+   "title_en": "HIMS Stock Set To Test A Crucial Resistance – Is Retail Expecting A Breakout?",
+   "summary": "HIMS stock approached $30 resistance in April, triggering selling pressure. The article examines whether retail investors anticipate an upcoming breakout as the price tests this key technical level again.",
+   "source": "newsable.asianetnews.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.abc.net.au/news/2026-02-01/woman-hospitalised-telehealth-provider-weight-loss-drugs-juniper/106273356",
+   "title": "Woman hospitalised after Juniper prescribes weight-loss drugs her GP refused",
+   "title_en": "Woman hospitalised after Juniper prescribes weight-loss drugs her GP refused",
+   "summary": "A patient was hospitalised with an eating disorder after telehealth provider Juniper prescribed weight-loss medications that her GP had previously refused. The case raises concerns about online health services' prescribing practices and patient safety protocols.",
+   "source": "abc.net.au",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.abc.net.au/news/2026-10-01/backlash-over-eli-lilly-mounjaro-delivery/107211964",
+   "title": "Doctors condemn Eli Lilly move to dispense GLP-1 medication Mounjaro direct to door",
+   "title_en": "Doctors condemn Eli Lilly move to dispense GLP-1 medication Mounjaro direct to door",
+   "summary": "Doctors and pharmacists criticised Eli Lilly's online platform LillyDirect, which will dispense Mounjaro and other medicines directly to consumers, bypassing traditional healthcare channels.",
+   "source": "abc.net.au",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.theguardian.com/science/2026/jul/06/wegovy-weight-loss-pill-on-sale-uk-high-street-online-pharmacies",
+   "title": "Wegovy weight-loss pill goes on sale on UK high street and online pharmacies",
+   "title_en": "Wegovy weight-loss pill goes on sale on UK high street and online pharmacies",
+   "summary": "Thousands of people begin receiving their first deliveries of once-a-day medication made by Novo Nordisk Business live – latest updates A once-a-day Wegovy weight-loss pill has gone on sale at high street and online pharmacies in the UK, but is not yet available on the NHS. Thousands of people began receiving their first deliveries of the pill, made by the Danish drugmaker Novo Nordisk, on Monday. It contains the same active GLP-1 ingredient as the injection, semaglutide, and is similarly effective, according to studies. Continue reading...",
+   "source": "theguardian.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thesun.co.uk/fabulous/33125667/weight-loss-jabs-saved-sex-life-toyboy/",
+   "title": "Fat jabs have turned me from 22st binge-eater into a sex machine having 6-HOUR romps... what happened when I came off them",
+   "title_en": "Fat jabs have turned me from 22st binge-eater into a sex machine having 6-HOUR romps... what happened when I came off them",
+   "summary": "AT her lowest moment, Lizz Adair was eating herself into an \"early grave\" at 22 stone, scoffing takeaways for dinner followed up by a family-sized Galaxy bar or trifle. The mum-of-two's libido was shot and sex with her partner - on the few occasions a year it even happened - was \"quick and emotionless\". Fast-forward...",
+   "source": "thesun.co.uk",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://asianews.network/nepal-wants-to-be-a-clean-energy-powerhouse-the-indigenous-people-are-paying-the-price/",
+   "title": "Nepal wants to be a clean-energy powerhouse. The indigenous people are paying the price",
+   "title_en": "Nepal wants to be a clean-energy powerhouse. The indigenous people are paying the price",
+   "summary": "A hydropower boom backed by billions in financing is colliding with local communities who say they were never really asked.",
+   "source": "asianews.network",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.techrepublic.com/article/news-us-ai-kill-switch-act/",
+   "title": "House Lawmakers Propose Mandatory Kill Switches for Frontier AI Systems",
+   "title_en": "House Lawmakers Propose Mandatory Kill Switches for Frontier AI Systems",
+   "summary": "The AI Kill Switch Act would let DHS order developers to slow or shut down frontier models after catastrophic incidents, raising enterprise continuity concerns. The post House Lawmakers Propose Mandatory Kill Switches for Frontier AI Systems appeared first on TechRepublic .",
+   "source": "techrepublic.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.gurufocus.com/news/9100803/juniper-investment-company-llc-adds-orthofix-medical-inc-ofix-shares-look-30-undervalued-on-gf-value",
+   "title": "Juniper Investment Company, LLC Adds Orthofix Medical Inc (OFIX) -- Shares Look 30% Undervalued on GF Value",
+   "title_en": "Juniper Investment Company, LLC Adds Orthofix Medical Inc (OFIX) -- Shares Look 30% Undervalued on GF Value",
+   "summary": "On September 21, 2026, Juniper Investment Company, LLC added Orthofix Medical Inc (OFIX) to its portfolio, with shares appearing 30% undervalued based on GF Value metrics.",
+   "source": "gurufocus.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://uk.investing.com/news/transcripts/earnings-call-transcript-ess-tech-q2-2026-loss-widens-as-bridge-ramps-93CH-4825582",
+   "title": "Earnings call transcript: ESS Tech Q2 2026 loss widens as Bridge ramps",
+   "title_en": "Earnings call transcript: ESS Tech Q2 2026 loss widens as Bridge ramps",
+   "summary": "Earnings call transcript: ESS Tech Q2 2026 loss widens as Bridge ramps",
+   "source": "uk.investing.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.developgoodhabits.com/herbal-tea/",
+   "title": "28 Types of Herbal Teas (and Their Benefits)",
+   "title_en": "28 Types of Herbal Teas (and Their Benefits)",
+   "summary": "Learn what herbal tea is, its health perks, and how to choose varieties for energy, relaxation, or digestion—28 options to start.",
+   "source": "developgoodhabits.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.chicagotribune.com/2026/09/06/single-stair-apartments-ordinance/",
+   "title": "Allowing single-stair complexes could create needed housing, but safety concerns loom in debate over ordinance",
+   "title_en": "Allowing single-stair complexes could create needed housing, but safety concerns loom in debate over ordinance",
+   "summary": "A group of advocates wants to pass an ordinance allowing developers to construct a single staircase for residential buildings of up to five stories, instead of the required two staircases.",
+   "source": "chicagotribune.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dailymail.com/health/article-15894415/Everything-you-need-know-new-Wegovy-Pill-works-you-it.html",
+   "title": "Everything you need to know about the new Wegovy Pill - from how it works to when and where you can get it",
+   "title_en": "Everything you need to know about the new Wegovy Pill - from how it works to when and where you can get it",
+   "summary": "Private waiting lists have already soared as Britons scramble to secure the game-changing treatment, which can help people with obesity lose up to 17 per cent of their body weight after 64 weeks.",
+   "source": "dailymail.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://uk.investing.com/news/transcripts/earnings-call-transcript-sembcorp-h1-2026-profit-falls-25-as-alinta-lifts-outlook-93CH-4829056",
+   "title": "Earnings call transcript: Sembcorp H1 2026 profit falls 25% as Alinta lifts outlook",
+   "title_en": "Earnings call transcript: Sembcorp H1 2026 profit falls 25% as Alinta lifts outlook",
+   "summary": "Earnings call transcript: Sembcorp H1 2026 profit falls 25% as Alinta lifts outlook",
+   "source": "uk.investing.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

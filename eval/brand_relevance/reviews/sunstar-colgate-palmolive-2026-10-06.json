@@ -1,0 +1,218 @@
+{
+ "site": "sunstar",
+ "brand": "Colgate-Palmolive",
+ "brand_id": 4,
+ "profile_version": "7d3bfe6207f302a6",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 20,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 48,
+  "rejected_unnamed": 192,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.insidermonkey.com/news/colgate-palmolive-cl-is-making-room-for-its-stronger-growth-engines-will-it-pay-off-1845317/",
+   "title": "Colgate-Palmolive (CL) is Making Room for Its Stronger Growth Engines. Will it Pay Off?",
+   "title_en": "Colgate-Palmolive (CL) is Making Room for Its Stronger Growth Engines. Will it Pay Off?",
+   "summary": "As of September 11, Colgate-Palmolive is considering selling mass-market personal care brands including Softsoap and Irish Spring to prioritize stronger growth engines, though the outcome remains uncertain.",
+   "source": "insidermonkey.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://finance.yahoo.com/markets/stocks/articles/cl-stock-alert-colgate-palmolive-144353389.html",
+   "title": "CL Stock Alert: Colgate-Palmolive Reportedly Considers $1 Billion Brand Sale",
+   "title_en": "CL Stock Alert: Colgate-Palmolive Reportedly Considers $1 Billion Brand Sale",
+   "summary": "Colgate-Palmolive is reportedly considering divesting brands valued over $1 billion. Investor confidence in CL shares remains strong despite the potential sale.",
+   "source": "finance.yahoo.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://qz.com/colgate-palmolive-softsoap-irish-spring-speed-stick-sale-091126",
+   "title": "Colgate-Palmolive is exploring selling Softsoap, Irish Spring, and Speed Stick",
+   "title_en": "Colgate-Palmolive is exploring selling Softsoap, Irish Spring, and Speed Stick",
+   "summary": "Colgate-Palmolive is evaluating the sale of three personal care brands—Softsoap, Irish Spring, and Speed Stick—with Goldman Sachs advising on the potential divestiture, valued at over $1 billion.",
+   "source": "qz.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.moneycontrol.com/news/business/colgate-palmolive-seeks-to-divest-some-personal-care-brands-report-14028203.html",
+   "title": "Colgate-Palmolive seeks to divest some personal care brands: Report",
+   "title_en": "Colgate-Palmolive seeks to divest some personal care brands: Report",
+   "summary": "Colgate-Palmolive is reportedly working with Goldman Sachs to divest certain personal care brands, according to unnamed sources discussing a private matter.",
+   "source": "moneycontrol.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://lufkindailynews.com/news_reuters/business/exclusive-colgate-palmolive-seeks-to-divest-some-personal-care-brands-sources-say/article_fd0ab4e6-f547-584c-a0a5-dbfdeb1082bf.html",
+   "title": "Exclusive-Colgate-Palmolive seeks to divest some personal care brands, sources say",
+   "title_en": "Exclusive-Colgate-Palmolive seeks to divest some personal care brands, sources say",
+   "summary": "Colgate-Palmolive is exploring the sale of mass-market personal care brands including Softsoap and Irish Spring, sources familiar with the matter said on Sept 11.",
+   "source": "lufkindailynews.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.business-standard.com/content/press-releases-ani/colgate-india-sets-a-world-record-for-the-largest-multi-location-oral-screening-programme-reaching-over-3-lakh-students-in-10-days-126100100445_1.html",
+   "title": "Colgate India sets a World Record for the 'Largest Multi-Location Oral Screening Programme' reaching over 3 Lakh Students in 10 Days",
+   "title_en": "Colgate India sets a World Record for the 'Largest Multi-Location Oral Screening Programme' reaching over 3 Lakh Students in 10 Days",
+   "summary": "Colgate conducted a world record oral health screening from 17-28 August 2026, reaching 308,106 students across 547 schools in Tamil Nadu and Puducherry in 10 days, demonstrating effective multi-stakeholder public health partnerships.",
+   "source": "business-standard.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.gurufocus.com/news/9103151/cl-dcf-analysis-intrinsic-value-38-vs-price-86",
+   "title": "CL DCF Analysis: Intrinsic Value $38 vs Price $86",
+   "title_en": "CL DCF Analysis: Intrinsic Value $38 vs Price $86",
+   "summary": "A September 30, 2026 DCF analysis of Colgate-Palmolive (CL) calculates an intrinsic value of $38, significantly below its $86 trading price, indicating potential overvaluation despite an 11.4% year-to-date gain.\n---",
+   "source": "gurufocus.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.dansdeals.com/shopping-deals/amazon/3-pack-of-colgate-optic-white-advanced-hydrogen-peroxide-toothpaste-for-5-04-6-34-shipped-from-amazon/",
+   "title": "3 Pack Of Colgate Optic White Advanced Hydrogen Peroxide Toothpaste For $5.04-$6.34 Shipped From Amazon",
+   "title_en": "3 Pack Of Colgate Optic White Advanced Hydrogen Peroxide Toothpaste For $5.04-$6.34 Shipped From Amazon",
+   "summary": "A three-pack of Colgate Optic White Advanced Hydrogen Peroxide Toothpaste is available on Amazon for $5.04-$6.34 with free shipping when customers clip a $6 coupon on the product page.",
+   "source": "dansdeals.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.gurufocus.com/news/9096590/cl-looks-106-undervalued-on-gf-value-as-dividend-sustainability-shines",
+   "title": "CL Looks 10.6% Undervalued on GF Value™ as Dividend Sustainability Shines",
+   "title_en": "CL Looks 10.6% Undervalued on GF Value™ as Dividend Sustainability Shines",
+   "summary": "On September 24, 2026, amid geopolitical tensions impacting global markets, Colgate-Palmolive Co (NYSE: CL) stands out as a dividend stock with attractive funda",
+   "source": "gurufocus.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.moneycontrol.com/news/business/markets/collapse-for-the-history-books-nike-booted-from-s-p-100-after-18-years-meet-4-tech-stocks-taking-its-place-14023862.html",
+   "title": "'Collapse for the history books': Nike booted from S&P 100 after 18 years; meet 4 tech stocks taking its place",
+   "title_en": "'Collapse for the history books': Nike booted from S&P 100 after 18 years; meet 4 tech stocks taking its place",
+   "summary": "The other companies being removed are Honeywell Aerospace, Simon Property Group and Colgate-Palmolive",
+   "source": "moneycontrol.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thehindubusinessline.com/brandhub/pr-release/colgate-and-kaun-banega-crorepati-champion-the-perfect-daily-sign-off/article71451883.ece",
+   "title": "Colgate and Kaun Banega Crorepati Champion the Perfect Daily Sign-Off",
+   "title_en": "Colgate and Kaun Banega Crorepati Champion the Perfect Daily Sign-Off",
+   "summary": "Colgate and Kaun Banega Crorepati Champion the Perfect Daily Sign-Off",
+   "source": "thehindubusinessline.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.gurufocus.com/news/9101584/oil-prices-dip-amid-middle-east-tensions-colgatepalmolive-cl-shows-dividend-resilience",
+   "title": "Oil Prices Dip Amid Middle East Tensions; Colgate-Palmolive (CL) Shows Dividend Resilience",
+   "title_en": "Oil Prices Dip Amid Middle East Tensions; Colgate-Palmolive (CL) Shows Dividend Resilience",
+   "summary": "On September 29, 2026, oil prices retreated as Brent crude fell 1.3% to $103.94 per barrel and U.S. West Texas Intermediate declined 1.9% to $90.77, despite str",
+   "source": "gurufocus.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://economictimes.indiatimes.com/markets/stocks/news/stocks-to-buy-titan-lenskart-dabur-among-nomuras-17-consumer-picks-do-you-own-any/slideshow/134609163.cms",
+   "title": "Stocks to buy: Titan, Lenskart, Dabur among Nomura’s 17 consumer picks. Do you own any?",
+   "title_en": "Stocks to buy: Titan, Lenskart, Dabur among Nomura’s 17 consumer picks. Do you own any?",
+   "summary": "Nomura has unveiled a selection of 17 consumer stocks with 'Buy' ratings, forecasting robust demand even amid rising inventory costs that press margins. Their projections hint at average EBITDA growth of 13.8% year-over-year for these firms, far exceeding previous expectations. These optimistic target prices unveil significant upside potential, urging investors to evaluate their portfolios carefully before proceeding with any financial maneuvers.",
+   "source": "economictimes.indiatimes.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://ktvz.com/politics/cnn-us-politics/2026/09/19/trump-vows-to-create-ai-force-and-appoint-czar-amid-calls-to-regulate-technologys-development/",
+   "title": "Trump vows to create ‘AI Force’ and appoint czar amid calls to regulate technology’s development",
+   "title_en": "Trump vows to create ‘AI Force’ and appoint czar amid calls to regulate technology’s development",
+   "summary": "By Logan Schiciano, CNN (CNN) — President Donald Trump said Saturday he plans to create an “AI Force” and name an AI czar as the government faces growing calls to impose guardrails on the rapid development of artificial intelligence. The president, writing on Truth Social, repeated his assessment that fears over AI amount to a The post Trump vows to create ‘AI Force’ and appoint czar amid calls to regulate technology’s development appeared first on KTVZ .",
+   "source": "ktvz.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://awfulannouncing.com/college-football/september-12-2026-watch-week-2.html",
+   "title": "College football viewing picks for September 12, 2026: How to watch Week 2",
+   "title_en": "College football viewing picks for September 12, 2026: How to watch Week 2",
+   "summary": "Oklahoma at Michigan on Fox and Ohio State at Texas on ABC highlight our Week 2 lineup today.",
+   "source": "awfulannouncing.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.breitbart.com/politics/2026/09/21/barack-obama-attacks-donald-trump-over-ai-again/",
+   "title": "Barack Obama Attacks Donald Trump over AI Again",
+   "title_en": "Barack Obama Attacks Donald Trump over AI Again",
+   "summary": "Former President Obama called for government regulation of AI, criticizing President Trump's more free-market approach. The post Barack Obama Attacks Donald Trump over AI Again appeared first on Breitbart .",
+   "source": "breitbart.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://moneysavingmom.com/brigettes-10-19-cvs-shopping-trip-1-81-money-maker-after-rewards-and-24-21-walgreens-shopping-trip-1-29-money-maker-after-rewards/",
+   "title": "Brigette’s $10.19 CVS Shopping Trip ($1.81 Money Maker after Rewards) and $24.21 Walgreens Shopping Trip ($1.29 Money Maker after Rewards)!",
+   "title_en": "Brigette’s $10.19 CVS Shopping Trip ($1.81 Money Maker after Rewards) and $24.21 Walgreens Shopping Trip ($1.29 Money Maker after Rewards)!",
+   "summary": "Love drug store shopping each week? Don’t miss these GREAT deals Brigette grabbed this week at CVS and Walgreens! CVS Shopping Trip All of my coupons are f...",
+   "source": "moneysavingmom.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://fortune.com/2026/09/18/att-cfo-pascal-desroches-reflects-nearly-40-year-finance-career-before-retiring/",
+   "title": "AT&T CFO Pascal Desroches reflects on a nearly 40-year finance career before retiring",
+   "title_en": "AT&T CFO Pascal Desroches reflects on a nearly 40-year finance career before retiring",
+   "summary": "Desroches shares the lessons behind AT&T's $150 billion network bet, a hard dividend call, and why he says he never hesitated.",
+   "source": "fortune.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

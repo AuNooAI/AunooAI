@@ -1,0 +1,163 @@
+{
+ "site": "oviva",
+ "brand": "Noom",
+ "brand_id": 6,
+ "profile_version": "4f8b02d408941dcc",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 18,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 1,
+  "rejected_unnamed": 19,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.news-medical.net/news/20260909/Digital-companion-apps-help-secure-long-term-habits-during-GLP-1-therapy.aspx",
+   "title": "Digital companion apps help secure long-term habits during GLP-1 therapy",
+   "title_en": "Digital companion apps help secure long-term habits during GLP-1 therapy",
+   "summary": "GLP-1 medications have transformed weight management, but patient dropout and weight regain remain challenges. Digital companion apps are emerging as tools to help patients maintain long-term habits and sustain treatment benefits.",
+   "source": "news-medical.net",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://nypost.com/2026/06/30/lifestyle/nutrition-apps-can-help-build-healthy-habits-but-the-gamification-might-carry-risks/",
+   "title": "Nutrition apps can help build healthy habits but the ‘gamification’ might carry risks",
+   "title_en": "Nutrition apps can help build healthy habits but the ‘gamification’ might carry risks",
+   "summary": "Nutrition apps employ gamification tactics from smartphone games to encourage healthy behaviors, though these engagement methods—adapted from shopping, betting, and education apps—may pose potential risks to users.",
+   "source": "nypost.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.healthcareittoday.com/2026/09/06/bonus-features-september-6-2026-59-of-clinicians-say-tiktok-is-the-top-source-of-misinformation-about-glp-1s-ama-names-leader-for-new-center-for-digital-health-and-ai-plus-32-mo/",
+   "title": "Bonus Features – September 6, 2026 – 59% of clinicians say TikTok is the top source of misinformation about GLP-1s, AMA names leader for new Center for Digital Health and AI, plus 32 more stories",
+   "title_en": "Bonus Features – September 6, 2026 – 59% of clinicians say TikTok is the top source of misinformation about GLP-1s, AMA names leader for new Center for Digital Health and AI, plus 32 more stories",
+   "summary": "Healthcare IT Today on September 6, 2026 reported clinicians identifying TikTok as the leading source of GLP-1 misinformation, alongside the AMA appointing leadership for its new Center for Digital Health and AI, among 34 total healthcare technology stories.",
+   "source": "healthcareittoday.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.mediapost.com/publications/article/416521/noom-defeats-privacy-suit-over-session-replay.html",
+   "title": "Noom Defeats Privacy Suit Over Session Replay",
+   "title_en": "Noom Defeats Privacy Suit Over Session Replay",
+   "summary": "Noom prevailed in a privacy lawsuit regarding its use of session replay technology as of 07/15/2026. The court decision resolved legal claims that challenged the company's data collection practices through website and app session recording tools.",
+   "source": "mediapost.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.adweek.com/creativity/noom-bets-its-behavior-change-roots-can-win-the-glp-1-wars/",
+   "title": "Noom Bets Its Behavior Change Roots Can Win the GLP-1 Wars",
+   "title_en": "Noom Bets Its Behavior Change Roots Can Win the GLP-1 Wars",
+   "summary": "Noom positions its behavior-change platform to compete in the growing market for GLP-1 weight-loss medications, leveraging its psychological approach to differentiate from pharmaceutical competitors.",
+   "source": "adweek.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.globenewswire.com/news-release/2026/06/24/3316992/0/en/Noom-Launches-Free-Version-of-Its-Powerful-GLP-1-Companion-Empowering-Providers-with-a-Research-Backed-Tool-to-Support-Weight-Loss-That-Lasts.html",
+   "title": "Noom Launches Free Version of Its Powerful GLP-1 Companion — Empowering Providers with a Research-Backed Tool to Support Weight Loss That Lasts",
+   "title_en": "Noom Launches Free Version of Its Powerful GLP-1 Companion — Empowering Providers with a Research-Backed Tool to Support Weight Loss That Lasts",
+   "summary": "On June 24, 2026, Noom launched a free, research-backed structured support program enabling healthcare providers to help GLP-1 medication patients achieve sustained long-term weight loss.",
+   "source": "globenewswire.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.wired.com/story/noom-promo-code/",
+   "title": "Noom Promo Codes: 50% Off Best Deals & Free Trials for September 2026",
+   "title_en": "Noom Promo Codes: 50% Off Best Deals & Free Trials for September 2026",
+   "summary": "Noom offers promotional discounts for September 2026, including 50% off subscriptions, free trials, and limited-time deals for GLP-1Rx Plus, with guidance on redeeming codes.",
+   "source": "wired.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thisisgoingtobebig.com/blog/2026/10/2/extraordinary-claims-require-extraordinary-evidence-how-much-due-diligence-is-right",
+   "title": "Extraordinary claims require extraordinary evidence: How Much Due Diligence is Right? — Charlie O'Donnell",
+   "title_en": "Extraordinary claims require extraordinary evidence: How Much Due Diligence is Right? — Charlie O'Donnell",
+   "summary": "Remember that time that Trevor Milton rolled a non-working Nikola truck down a hill for a demo video?  How about that time Charlie Javice sold Frank to JPMorgan...",
+   "source": "thisisgoingtobebig.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.foxnews.com/politics/luxury-travel-shopping-six-figure-salary-battleground-dems-ripped-phony-working-class-narrative",
+   "title": "Luxury travel, shopping, six-figure income: Battleground Dems ripped for 'phony' working-class narrative",
+   "title_en": "Luxury travel, shopping, six-figure income: Battleground Dems ripped for 'phony' working-class narrative",
+   "summary": "Dems running in battleground districts criticized over middle-class bios they are presenting to voters as financial records and other materials paint a picture of wealth others don't often have.",
+   "source": "foxnews.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thestreet.com/retail/walmart-costco-and-cvs-have-a-new-way-to-bring-you-back",
+   "title": "Walmart, Costco, and CVS have a new way to bring you back",
+   "title_en": "Walmart, Costco, and CVS have a new way to bring you back",
+   "summary": "Three major retailers have found a new way to bring customers back to their stores on a regular basis.",
+   "source": "thestreet.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://keyt.com/stacker-medical-care/2026/08/18/what-glp-1-weight-loss-programs-offer-beyond-medication/",
+   "title": "What GLP-1 weight-loss programs offer beyond medication",
+   "title_en": "What GLP-1 weight-loss programs offer beyond medication",
+   "summary": "A glucagon-like peptide-1 (GLP-1) weight-loss program is one that combines GLP-1 agonist medications like Wegovy (semaglutide) or Zepbound (tirzepatide) with additional support, such as nutrition counseling and medical guidance. In some cases, insurance plans may even require that you enroll in one of these programs in order to have your medications covered. But insurance The post What GLP-1 weight-loss programs offer beyond medication appeared first on News Channel 3-12 .",
+   "source": "keyt.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.thestreet.com/investing/stocks/cvs-health-29-dollar-weight-loss-visit-eli-lilly-glp1",
+   "title": "Healthcare giant slashes key consultation fee to beat rivals",
+   "title_en": "Healthcare giant slashes key consultation fee to beat rivals",
+   "summary": "CVS cut its GLP-1 weight-loss visit to $29 and struck an Eli Lilly deal to undercut Hims and Ro. Here is the strategy and why the stock still fell.",
+   "source": "thestreet.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://kesq.com/news/2026/08/19/ai-can-see-your-food-but-can-it-count-it/",
+   "title": "AI can see your food- But can it count it?",
+   "title_en": "AI can see your food- But can it count it?",
+   "summary": "THOUSAND PALMS, CALIF. (KESQ)- Recent research presented at the American Society for Nutrition meeting shows that popular photo-based AI food-tracking apps underestimate meal calories by 250 to 345 calories and miss about 30 grams of fat per meal, which amounts to roughly one-third of a meal's actual energy content. Options MyFitnessPal: Best overall for a The post AI can see your food- But can it count it? appeared first on KESQ .",
+   "source": "kesq.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}

@@ -1,0 +1,218 @@
+{
+ "site": "oviva",
+ "brand": "WeightWatchers",
+ "brand_id": 7,
+ "profile_version": "60220800e941314f",
+ "window_days": 30,
+ "drawn": "2026-10-06",
+ "seed": 20261006,
+ "population": {
+  "included": 58,
+  "owned": 0,
+  "sector": 0,
+  "rejected_named": 24,
+  "rejected_unnamed": 228,
+  "undecided": 0
+ },
+ "sampling": "up to 6 rows per non-empty stratum, uniformly at random within it",
+ "rows": [
+  {
+   "uri": "https://www.mirror.co.uk/news/health/itv-lorraine-kellys-enjoyable-exercise-37692617",
+   "title": "ITV Lorraine Kelly's 'enjoyable' exercise that helped her lose two stone",
+   "title_en": "ITV Lorraine Kelly's 'enjoyable' exercise that helped her lose two stone",
+   "summary": "ITV presenter Lorraine Kelly lost two stone through lifestyle changes, including an enjoyable exercise routine, after gaining weight.",
+   "source": "mirror.co.uk",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://hitconsultant.net/2026/09/29/weight-watchers-google-health-enterprise-fitbit-air-employer-weight-management/",
+   "title": "Google Fitbit and Weight Watchers Team Up on Employer-Sponsored Weight Health",
+   "title_en": "Google Fitbit and Weight Watchers Team Up on Employer-Sponsored Weight Health",
+   "summary": "Weight Watchers and Google Health Enterprise partnered to integrate Fitbit Air wearables and AI health insights into employer-sponsored weight health programs, announced on September 29, 2026.",
+   "source": "hitconsultant.net",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.zacks.com/stock/news/2767953/zackscom-featured-highlights-include-ww-international-and-webull?cid=CS-ZC-FT-press_releases-2767953",
+   "title": "Zacks.com featured highlights include WW International and Webull",
+   "title_en": "Zacks.com featured highlights include WW International and Webull",
+   "summary": "WW International and Webull gain attention from new analyst coverage as investors seek guidance amid inflation, tariffs, and policy uncertainty. Zacks.com features both companies in its highlights.",
+   "source": "zacks.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://theshelbyreport.com/2026/07/10/sams-club-weight-watchers-team-up-on-weight-health-programs/",
+   "title": "Sam’s Club, Weight Watchers Team Up On Weight Health Programs",
+   "title_en": "Sam’s Club, Weight Watchers Team Up On Weight Health Programs",
+   "summary": "Sam's Club and Weight Watchers announced a partnership on July 10, 2026, offering members discounted weight health programs and GLP-1 medication support, expanding healthcare services at the warehouse retailer.",
+   "source": "theshelbyreport.com",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://ww-recipes.net/weightwatchers-crispy-baked-fish-recipe/",
+   "title": "WeightWatchers Crispy Baked Fish Recipe • WW Recipes",
+   "title_en": "WeightWatchers Crispy Baked Fish Recipe • WW Recipes",
+   "summary": "WeightWatchers offers a crispy baked fish recipe marketed as an easy, healthier alternative to fried fish. The dish uses numerous spices and herbs for flavor without excess calories.",
+   "source": "ww-recipes.net",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.mirror.co.uk/news/uk-news/i-lost-12st-without-surgery-37721689",
+   "title": "I lost 12st without surgery, pills or jabs and men who ignored me now want me",
+   "title_en": "I lost 12st without surgery, pills or jabs and men who ignored me now want me",
+   "summary": "Christy lost 12 stone through diet and exercise alone, dropping from 28 stone 8 pounds. She reports receiving more respect and attention from men who previously ignored her due to her weight.",
+   "source": "mirror.co.uk",
+   "stratum": "included",
+   "system_earned": true,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.skinnytaste.com/free-7-day-healthy-meal-plan-sept-14-20/?adt_ei=%2A%7CEMAIL%7C%2A",
+   "title": "Free 7 Day Healthy Meal Plan (Sept 14-20)",
+   "title_en": "Free 7 Day Healthy Meal Plan (Sept 14-20)",
+   "summary": "A free 7-day, flexible weight loss meal plan including breakfast, lunch and dinner ideas and a shopping list. All recipes include macros and Weight Watchers points. Free 7 Day Healthy Meal Plan (Sept 14-20) Fall is just around the corner, and that means—apple-picking season! There’s something special about heading out to a local orchard and filling a basket with fresh-picked apples. Early season, usually [...]",
+   "source": "skinnytaste.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://ww-recipes.net/weight-watchers-home-made-gnocchi-recipe-5-points/",
+   "title": "Weight Watchers Home Made Gnocchi Recipe • WW Recipes",
+   "title_en": "Weight Watchers Home Made Gnocchi Recipe • WW Recipes",
+   "summary": "Weight Watchers homemade gnocchi recipe offers a low-SmartPoints Italian pasta alternative for diet-conscious consumers seeking guilt-free meal options.",
+   "source": "ww-recipes.net",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.skinnytaste.com/free-7-day-healthy-meal-plan-sept-28-oct-4/?adt_ei=%2A%7CEMAIL%7C%2A",
+   "title": "Free 7 Day Healthy Meal Plan (Sept 28-Oct 4)",
+   "title_en": "Free 7 Day Healthy Meal Plan (Sept 28-Oct 4)",
+   "summary": "A free 7-day, flexible weight loss meal plan including breakfast, lunch and dinner ideas and a shopping list. All recipes include macros and Weight Watchers points. Free 7 Day Healthy Meal Plan (Sept 28-Oct 4) There’s something about that first little hint of cooler weather that makes fall feel official. After a long, hot summer, I’m ready for crisp mornings and all the comforting […]",
+   "source": "skinnytaste.com",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://ww-recipes.net/weight-watchers-golden-squash-recipe-2-points/",
+   "title": "Weight Watchers Golden Squash Recipe • WW Recipes",
+   "title_en": "Weight Watchers Golden Squash Recipe • WW Recipes",
+   "summary": "A recipe website offers a Weight Watchers golden squash mash recipe, a 2-point fall side dish option for those following the WW program.",
+   "source": "ww-recipes.net",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://ww-recipes.net/weight-watchers-stuffed-grape-leaves-dolmades-recipe-3-points/",
+   "title": "Weight Watchers Stuffed Grape Leaves (Dolmades) Recipe • WW Recipes",
+   "title_en": "Weight Watchers Stuffed Grape Leaves (Dolmades) Recipe • WW Recipes",
+   "summary": "A Weight Watchers recipe for stuffed grape leaves (dolmades) contains 3 points per serving, with 111 calories and 7.7g fat, posted on a WW-focused recipe website.",
+   "source": "ww-recipes.net",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "http://ww-recipes.net/weightwatchers-watergate-salad-recipe/",
+   "title": "WeightWatchers Watergate Salad Recipe • WW Recipes",
+   "title_en": "WeightWatchers Watergate Salad Recipe • WW Recipes",
+   "summary": "WeightWatchers Watergate Salad recipe featured as a light dessert option, offering a classic American chilled dish adapted for the program's dietary guidelines.",
+   "source": "ww-recipes.net",
+   "stratum": "rejected_named",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.yourtango.com/health/women-born-50s-60s-70s-totally-offensive-health-realities-gen-z-cant-imagine",
+   "title": "Women Born In The 50s, 60s, & 70s Had To Deal With 13 Totally Offensive Medical Realities Gen-Z Cannot Even Imagine",
+   "title_en": "Women Born In The 50s, 60s, & 70s Had To Deal With 13 Totally Offensive Medical Realities Gen-Z Cannot Even Imagine",
+   "summary": "Women make up more than half the population, and the medical system still runs on the data collected from male bodies.",
+   "source": "yourtango.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.smh.com.au/national/nsw/p-plater-in-horror-newcastle-knights-car-crash-previously-lost-his-licence-20261004-p612mb.html",
+   "title": "P-plater in horror Newcastle Knights car crash previously lost his licence",
+   "title_en": "P-plater in horror Newcastle Knights car crash previously lost his licence",
+   "summary": "The 18-year-old driver is set to face court on Sunday on a slew of charges after multiple Knights fan were injured, including a five-year-old who remains in a critical but stable condition.",
+   "source": "smh.com.au",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://www.stuff.co.nz/health/361036261/being-overweight-was-never-really-my-fault",
+   "title": "I tried every diet and blamed myself. Science proves it wasn't my fault",
+   "title_en": "I tried every diet and blamed myself. Science proves it wasn't my fault",
+   "summary": "After speaking to an obesity expert, I now realise my prior attempts at weight loss were an uphill battle against biology.",
+   "source": "stuff.co.nz",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://bringatrailer.com/listing/1967-chevrolet-corvette-coupe-132/",
+   "title": "440 LSX-Powered 1967 Chevrolet Corvette Coupe 5-Speed",
+   "title_en": "440 LSX-Powered 1967 Chevrolet Corvette Coupe 5-Speed",
+   "summary": "This 1967 Chevrolet Corvette coupe was purchased by the owner in 2018, and a subsequent custom build was completed in 2024. The work involved mounting the widened fiberglass body atop a Coffman Corvette chassis that uses later Corvette control arms, Strange adjustable coilovers, power rack-and-pinion steering, and C6 Corvette front spindles. A 440ci LSX V8 was built with a Lunati crankshaft and camshaft as well as a Holley induction system with multi-point electronic fuel injection and dual four-barrel throttle bodies. A Tremec five-speed manual transmission was linked to a C4-style Corvette d",
+   "source": "bringatrailer.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://bringatrailer.com/listing/2003-chevrolet-corvette-z06-201/",
+   "title": "26k-Mile 2003 Chevrolet Corvette Z06",
+   "title_en": "26k-Mile 2003 Chevrolet Corvette Z06",
+   "summary": "This 2003 Chevrolet Corvette Z06 was delivered new to Chevy Chase Chevrolet Oldsmobile in Bethesda, Maryland, and it has remained registered in the state since and been driven 26k miles. Finished in Torch Red over Black leather, the fixed-roof coupe is powered by a 5.7-liter LS6 V8 linked to a six-speed manual gearbox and a limited-slip differential. Equipment includes an aftermarket rear spoiler, a carbon-fiber air-intake system, pop-up headlights, a head-up display, and 17\" and 18\" wheels. The seller recently acquired the car and reports touching up stone chips as well as replacing the hood ",
+   "source": "bringatrailer.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  },
+  {
+   "uri": "https://au.investing.com/analysis/swing-low-bounces-struggle-for-traction-200617389",
+   "title": "Swing Low Bounces Struggle for Traction",
+   "title_en": "Swing Low Bounces Struggle for Traction",
+   "summary": "Market Analysis by covering: S&P 500, Dow Jones Industrial Average, iShares Russell 2000 ETF, NASDAQ Composite. Read 's Market Analysis on Investing.com AU.",
+   "source": "au.investing.com",
+   "stratum": "rejected_unnamed",
+   "system_earned": false,
+   "brand_relation": null,
+   "source_relation": null
+  }
+ ]
+}
