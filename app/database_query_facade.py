@@ -3117,8 +3117,15 @@ class DatabaseQueryFacade:
         if timeframe != "all":
             try:
                 days = int(timeframe)
+                # submission_date is TEXT with an offset, so compare it as a
+                # timestamptz. Text against a datetime parameter raised
+                # "operator does not exist: text >= timestamp" and the
+                # flow chart returned 500 (bugfixing, 6 Oct 2026).
+                from datetime import timezone as _tz
+                from sqlalchemy import cast as _cast, DateTime as _DateTime
                 statement = statement.where(
-                    articles.c.submission_date >= datetime.utcnow() - timedelta(days=days)
+                    _cast(articles.c.submission_date, _DateTime(timezone=True))
+                    >= datetime.now(_tz.utc) - timedelta(days=days)
                 )
             except ValueError:
                 self.logger.warning("Invalid timeframe value provided: %s", timeframe)

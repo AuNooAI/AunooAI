@@ -1021,7 +1021,10 @@ async def get_latest_articles(
         else:
             articles = await research.get_recent_articles(limit=limit)
             logger.info(f"Retrieved {len(articles)} articles (no topic filter)")
-        return JSONResponse(content=articles)
+        # Rows carry timestamptz columns (first_seen_at, last_seen_at) that
+        # JSONResponse cannot serialise on its own.
+        from fastapi.encoders import jsonable_encoder
+        return JSONResponse(content=jsonable_encoder(articles))
     except Exception as e:
         logger.error(f"Error fetching latest articles: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching latest articles")
@@ -1037,7 +1040,10 @@ async def get_article(
         
         # If the article exists, return it
         if article:
-            return JSONResponse(content=article)
+            # first_seen_at / last_seen_at are datetimes; plain JSONResponse
+            # raised "Object of type datetime is not JSON serializable" (500).
+            from fastapi.encoders import jsonable_encoder
+            return JSONResponse(content=jsonable_encoder(article))
         
         # If the article doesn't exist, try to fetch it
         logger.info(f"Article not found in database, attempting to fetch/scrape: {uri}")
