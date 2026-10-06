@@ -580,3 +580,9 @@ from . import trust_tools as _trust_tools  # noqa: E402
 
 TOOLS.update(_trust_tools.SPECS)
 _LOCAL_HANDLERS.update(_trust_tools.HANDLERS)
+
+# ── Consensus analysis: the newest saved run of the Consensus tab ──────────
+from . import consensus_tools as _consensus_tools  # noqa: E402
+
+TOOLS.update(_consensus_tools.SPECS)
+_LOCAL_HANDLERS.update(_consensus_tools.HANDLERS)
