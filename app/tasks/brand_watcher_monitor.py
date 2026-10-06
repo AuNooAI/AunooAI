@@ -13,6 +13,14 @@ from sqlalchemy import text
 
 from app.database import Database, get_database_instance
 
+
+def _bcov_earned() -> str:
+    """The shared earned-news rule (brand_coverage): analysed, not social, not
+    this brand's own publishing; legacy SQL where brand labels are not installed."""
+    from app.services.brand_coverage import alert_earned_sql
+    return alert_earned_sql("a", "bac")
+
+
 logger = logging.getLogger(__name__)
 
 # Global variable to track task status
@@ -732,6 +740,7 @@ def evaluate_adverse_alerts(db) -> int:
                     JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                     WHERE a.publication_date >= to_char(now() - (:wd || ' days')::interval,'YYYY-MM-DD')
                       AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                      AND {_bcov_earned()}
                       AND {_not_fp_sql('a')}
                 """), {"b": bid, "wd": str(rc["window_days"])}).fetchone()
                 pos, neg, scored = row[0] or 0, row[1] or 0, row[2] or 0
@@ -777,6 +786,7 @@ def evaluate_adverse_alerts(db) -> int:
                       WHERE bac.brand_id = :b
                         AND bac.category <> 'Publications'
                         AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                        AND {_bcov_earned()}
                         AND {_not_fp_sql('a')}
                       GROUP BY bac.category)
                     SELECT category, cur, avg FROM weekly
@@ -793,6 +803,7 @@ def evaluate_adverse_alerts(db) -> int:
                         WHERE bac.brand_id = :b AND bac.category = :c
                           AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
                           AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                          AND {_bcov_earned()}
                           AND {_not_fp_sql('a')}
                     """), {"b": bid, "c": cat}).fetchall()]
                     new_set = set(uris) - _alerted_uris(

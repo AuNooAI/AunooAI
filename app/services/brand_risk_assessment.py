@@ -64,6 +64,13 @@ _REL = ("COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND "
         + earned_news_sql("a"))
 
 
+def _rel_sql() -> str:
+    """_REL with ownership decided per brand where a brand label exists
+    (brand_coverage); the legacy string when labels are not installed."""
+    from app.services.brand_coverage import earned_news_scoped_sql
+    return "COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4 AND " + earned_news_scoped_sql("a", "bac")
+
+
 def _day(date_str: str) -> str:
     return (date_str or "")[:10]
 
@@ -363,7 +370,7 @@ def _attention(conn, brand_id: int, end: str) -> Dict[str, Any]:
     hist = conn.execute(text(f"""
         SELECT MIN(a.publication_date)
         FROM bw_article_categories bac JOIN articles a ON a.uri = bac.article_uri
-        WHERE bac.brand_id = :bid AND {_REL}
+        WHERE bac.brand_id = :bid AND {_rel_sql()}
     """), {"bid": brand_id}).fetchone()
     hist_start = _day(hist[0] or "")
     if not hist_start or (datetime.strptime(week_ago, "%Y-%m-%d")
@@ -378,7 +385,7 @@ def _attention(conn, brand_id: int, end: str) -> Dict[str, Any]:
                    WHERE a.publication_date >= :wk AND a.publication_date <= :end) AS recent,
                COUNT(DISTINCT a.uri) FILTER (WHERE a.publication_date < :wk) AS hist
         FROM bw_article_categories bac JOIN articles a ON a.uri = bac.article_uri
-        WHERE bac.brand_id = :bid AND {_REL}
+        WHERE bac.brand_id = :bid AND {_rel_sql()}
         GROUP BY bac.category
     """), {"bid": brand_id, "wk": week_ago, "end": end_d + "~"}).fetchall()
     spikes, total_recent, total_hist = [], 0, 0
@@ -407,7 +414,7 @@ def _eligible_peers(conn, brand_id: int, start: str, end: str) -> List[Dict[str,
         FROM bw_brands b
         JOIN bw_article_categories bac ON bac.brand_id = b.id
         JOIN articles a ON a.uri = bac.article_uri
-        WHERE b.id <> :bid AND {_REL} AND {_SCORED}
+        WHERE b.id <> :bid AND {_rel_sql()} AND {_SCORED}
           AND a.publication_date >= :start AND a.publication_date <= :end
         GROUP BY b.id, COALESCE(b.display_name, b.name)
         HAVING COUNT(DISTINCT a.uri) >= :minn
@@ -431,7 +438,7 @@ def _peer_matches_for_issue(conn, issue_id: int, peer_ids: List[int],
         SELECT DISTINCT bac.brand_id
         FROM bw_article_categories bac
         JOIN articles a ON a.uri = bac.article_uri, cent
-        WHERE bac.brand_id = ANY(:peers) AND {_REL}
+        WHERE bac.brand_id = ANY(:peers) AND {_rel_sql()}
           AND a.publication_date >= :start AND a.publication_date <= :end
           AND a.embedding IS NOT NULL AND cent.emb IS NOT NULL
           AND 1 - (a.embedding <=> cent.emb) >= :sim

@@ -26,7 +26,11 @@ from app.services.social_sources import (
 )
 
 # Row predicates shared by the Brand Watcher queries (static SQL, no bind params).
-_EARNED_NEWS = earned_news_sql('a')          # analysed, not social, not the company's own publishing
+# Analysed, not social, not the company's own publishing; ownership decided per
+# brand where a brand label exists (brand_coverage, docs/BRAND_RELEVANCE_SPEC.md).
+# Built at query time so a site without the br_001 columns keeps the legacy SQL.
+from app.services import brand_coverage as _bcov
+_EARNED_NEWS = _bcov.LazySql(_bcov.earned_news_scoped_sql, 'a', 'bac')
 _SOCIAL_ROW = social_src_sql('a.news_source')
 _OWNED_ROW = owned_src_sql('a.bias_source')
 from app.services import brand_screening
@@ -1720,6 +1724,32 @@ async def create_brand(brand: BrandCreate, session=Depends(verify_session)):
         conn.close()
 
 
+@router.get("/brands/{brand_id}/coverage-split")
+async def get_brand_coverage_split(brand_id: int, days: int = 30, bucket: Optional[str] = None,
+                                   limit: int = 50, session=Depends(verify_session)):
+    """Counts per coverage bucket for a brand (earned, owned, sector, passing,
+    other, deferred, unavailable, unlabelled) and, with ``bucket``, that
+    bucket's articles with the reason and evidence for each decision."""
+    if bucket is not None and bucket not in ("earned", "owned", "sector", "passing", "other",
+                                             "deferred", "unavailable", "unlabelled", "invalid"):
+        raise HTTPException(status_code=400, detail="unknown bucket")
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        row = conn.execute(text("SELECT display_name FROM bw_brands WHERE id = :id"), {"id": brand_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        return _bcov.coverage_split(conn, row[0], days=max(1, min(int(days), 365)), relation=bucket,
+                                    limit=max(1, min(int(limit), 200)))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"coverage split failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail="coverage split failed")
+    finally:
+        conn.close()
+
+
 @router.get("/brands/{brand_id}", response_model=BrandResponse)
 async def get_brand(brand_id: int, session=Depends(verify_session)):
     """Get a single brand by ID."""
@@ -2512,6 +2542,15 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             except Exception as _kept_err:
                 logger.debug(f"kept-mentions filter skipped: {_kept_err}")
 
+            # Brand labels (docs/BRAND_RELEVANCE_SPEC.md): a labelled earned row
+            # enters even when the name filter misses it (body mention,
+            # original-language name); a row labelled anything else never does.
+            # Unlabelled rows keep the name filter.
+            _bc_topics = _bcov.brand_topics(brand["display_name"])
+            brand_filter = (f"AND (({brand_filter[4:]}) OR {_bcov.labelled_earned_sql('a', 'bc_topics')})"
+                            f" AND {_bcov.label_veto_sql('a', 'bc_topics')}")
+            brand_params = {**brand_params, "bc_topics": _bc_topics}
+
             base_params = {"start": start_date, "end": end_date, **brand_params, **social_excl_params}
             if topics:
                 for i, t in enumerate(topics):
@@ -2573,11 +2612,17 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             _news_excludes = [str(x).strip().lower()
                               for x in (brand.get("config", {}).get("news_keyword_excludes") or [])
                               if str(x).strip()]
+            try:
+                _labels = _bcov.labels_for(conn, [r[0] for r in articles], _bc_topics)
+            except Exception as _lbl_err:
+                logger.debug(f"brand labels unavailable: {_lbl_err}")
+                _labels = {}
             for uri, title, summary, art_topic, art_score, art_source, art_factual, art_sent in articles:
                 title = title or ''
                 summary = summary or ''
+                _label = _labels.get(uri)
 
-                if _news_excludes:
+                if _news_excludes and _label is None:
                     _blob = f"{title} {summary}".lower()
                     if any(x in _blob for x in _news_excludes):
                         continue
@@ -2654,7 +2699,12 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     # lives in this brand's topic (that score IS brand relevance); for
                     # cross-topic articles, judge against the brand explicitly.
                     brand_rel = None
-                    if art_topic == brand_topic and art_score is not None:
+                    if _label is not None:
+                        # The label decided inclusion; its grade is the score, so a
+                        # score cut-off in a reader cannot drop an earned label.
+                        from app.services.brand_decision import GRADES as _GRADES
+                        brand_rel = _GRADES.get(_label["brand_relation"])
+                    elif art_topic == brand_topic and art_score is not None:
                         brand_rel = float(art_score)
                     elif _brand_rel_svc is not None:
                         try:

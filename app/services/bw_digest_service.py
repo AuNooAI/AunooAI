@@ -17,6 +17,14 @@ from sqlalchemy import text
 
 from app.services.report_style import CLINICAL_STYLE_SHORT
 
+
+def _bcov_earned() -> str:
+    """The shared earned-news rule (brand_coverage): analysed, not social, not
+    this brand's own publishing; legacy SQL where brand labels are not installed."""
+    from app.services.brand_coverage import alert_earned_sql
+    return alert_earned_sql("a", "bac")
+
+
 logger = logging.getLogger(__name__)
 
 _NEG = ("sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%'"
@@ -253,6 +261,7 @@ def _compose_digest(conn, period_days: int):
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
             WHERE a.publication_date >= to_char(now() - (:d || ' days')::interval,'YYYY-MM-DD')
               AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+              AND {_bcov_earned()}
         """), {"b": bid, "d": str(period_days)}).fetchone()
         pos, neg, scored = row[0] or 0, row[1] or 0, row[2] or 0
         stats[bid] = (pos, neg, scored)
@@ -373,6 +382,7 @@ def _compose_digest(conn, period_days: int):
                 WHERE ({_NEG})
                   AND a.publication_date >= to_char(now() - interval '7 days','YYYY-MM-DD')
                   AND COALESCE(bac.relevance_score, a.topic_alignment_score) >= 0.4
+                  AND {_bcov_earned()}
                 ORDER BY a.publication_date DESC NULLS LAST LIMIT 8
             """), {"b": bid}).fetchall():
                 if row[1] not in seen_uris:
