@@ -920,6 +920,8 @@ def _judge_label(judged_by: dict, classify_model: str) -> str:
         return typesafe_client.model_name()
     if jev and llm:
         return f"{typesafe_client.model_name()}+{classify_model}"
+    if not llm and FORECAST_JUDGE == "jev" and typesafe_client.is_configured():
+        return typesafe_client.model_name()   # nothing to judge; Jev was the judge on duty
     return classify_model
 
 

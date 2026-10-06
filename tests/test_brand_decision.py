@@ -237,3 +237,19 @@ def test_grades_are_compatibility_values_and_sector_is_not_earned():
     assert bd.GRADES["sector"] >= 0.45  # passes a numeric cut, which is why readers use the label
     d = bd.Decision("decided", "sector", "independent")
     assert d.admitted and not d.earned
+
+
+
+def test_headline_rule_never_overrules_a_different_entity_verdict():
+    """wbm, 6 Oct: "Michelle Pearson ..." judged other (a different person),
+    then lifted to notable by the headline rule. "other" now stands."""
+    prof = bp.build_profile({"id": 7, "name": "pearson", "display_name": "Pearsons Education",
+                             "brand_keywords": ["Pearson"], "product_keywords": [], "config": {}})
+    art = {"uri": "https://news.example/a", "title": "Michelle Pearson died in hospital",
+           "summary": "A mother died after an attack on her home."}
+    def judge(*_a):
+        return "other", "A different person with the same name.", "m"
+    judge.route = "stub"
+    d = bd.decide(bp.ProfileResolution(prof, brand_topic=True), art, judges=(judge,), topic_scorer=lambda a: None)
+    assert d.brand_relation == "other" and not d.earned
+    assert d.evidence.get("headline_rule", "").startswith("not applied")

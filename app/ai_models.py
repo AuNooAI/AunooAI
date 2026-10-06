@@ -460,21 +460,35 @@ class AIModel:
         # different vendor's model. Record THIS when attributing output.
         self.resolved_model = resolve_model_identity(self.model)  # type: ignore[attr-defined]
 
+    def _call_extras(self) -> Dict[str, Any]:
+        """Provider settings the yaml pins to this model, for a direct
+        ``completion()`` call (same set as resolve_litellm_call_params).
+
+        Credentials go explicitly: the old behaviour (stuffing self.api_key
+        into a mangled env var) never worked for bedrock/ models and left the
+        call on SigV4 fallback. ``additional_drop_params`` must go too: these
+        calls bypass the Router, so without it litellm sent temperature=0.7
+        to Claude 5 on Bedrock, which rejects it ("`temperature` is
+        deprecated for this model") — every get_ai_model() caller of
+        claude-sonnet-5 / claude-opus-5 failed until 6 Oct 2026.
+        """
+        extra: Dict[str, Any] = {}
+        if self.api_key:
+            extra["api_key"] = self.api_key
+        if self.aws_region_name:
+            extra["aws_region_name"] = self.aws_region_name
+        for key in ("thinking", "additional_drop_params"):
+            if self.config.get(key) is not None:
+                extra[key] = self.config[key]
+        return extra
+
     def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
         """Synchronous version of generate() for use in sync contexts."""
         try:
             # Use provided values or fall back to instance defaults
             tokens = max_tokens if max_tokens is not None else self.max_tokens
             temp = temperature if temperature is not None else self.temperature
-
-            # Pass provider credentials explicitly — the old behaviour
-            # (stuffing self.api_key into a mangled env var) never worked
-            # for bedrock/ models and left the call on SigV4 fallback.
-            extra: Dict[str, Any] = {}
-            if self.api_key:
-                extra["api_key"] = self.api_key
-            if self.aws_region_name:
-                extra["aws_region_name"] = self.aws_region_name
+            extra = self._call_extras()
 
             # Generate completion
             response = completion(
@@ -518,12 +532,7 @@ class AIModel:
         """
 
         try:
-            # Pass provider credentials explicitly (see generate_sync).
-            extra: Dict[str, Any] = {}
-            if self.api_key:
-                extra["api_key"] = self.api_key
-            if self.aws_region_name:
-                extra["aws_region_name"] = self.aws_region_name
+            extra = self._call_extras()
 
             response = completion(
                 model=self.model,

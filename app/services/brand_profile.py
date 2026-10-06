@@ -33,7 +33,8 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 # brand-coverage-2 (6 Oct 2026): a short name containing a digit ("Ora2") no longer needs context.
-POLICY_VERSION = "brand-coverage-2"
+# brand-coverage-3 (6 Oct 2026): the headline rule no longer overrules a judge's "other".
+POLICY_VERSION = "brand-coverage-3"
 _WINDOW = 200          # characters either side of a mention that count as its context
 _EXTRACT = 140         # characters of evidence kept with a decision
 _SHORT_ALIAS = 4       # a Latin alias this short needs company context

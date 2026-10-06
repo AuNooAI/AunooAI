@@ -457,7 +457,15 @@ def decide(resolution: bp.ProfileResolution, article: Dict[str, Any], *,
     failure = "; ".join(failures)[:500] if failures else None
 
     # 7. headline rule
-    if mention.status == "title":
+    if mention.status == "title" and label == "other":
+        # The judge read the headline name as a different entity or the story
+        # as unrelated ("Michelle Pearson", a murder victim, under Pearson the
+        # publisher; wbm, 6 Oct). The headline rule lifts an under-rated
+        # brand story; it never overrules a different-entity verdict.
+        evidence["headline_rule"] = "not applied: judge said other"
+        d = Decision("decided", "other", src_rel, "model", reason, evidence, route=route,
+                     resolved_model=resolved, judge_version=key, failure=failure, model_calls=calls)
+    elif mention.status == "title":
         if label in ("subject", "notable"):
             d = Decision("decided", label, src_rel, "model", reason, evidence, route=route,
                          resolved_model=resolved, judge_version=key, failure=failure, model_calls=calls)
