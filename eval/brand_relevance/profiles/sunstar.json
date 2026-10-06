@@ -85,6 +85,9 @@
           "Colgate University",
           "Colgate Raiders",
           "Colgate Rochester"
+        ],
+        "non_press_domains": [
+          "colgate.edu"
         ]
       }
     },

@@ -150,9 +150,11 @@ def test_valuation_pages_are_excluded_and_reporting_is_not():
         assert bp.exclusion(_p(COLGATE), {"uri": "https://www.reuters.com/x", "title": t}) is None
 
 
-def test_deal_listing_is_excluded():
-    ex = bp.exclusion(_p(COLGATE), {"uri": "https://slickdeals.net/f/1", "title": "4-Pk 5.1-Oz Colgate Total Active Prevention Whitening Gel Toothpaste"})
-    assert ex is not None and ex[0] == "deal_listing"
+def test_deal_listing_is_promotional_not_excluded():
+    art = {"uri": "https://slickdeals.net/f/1", "title": "4-Pk 5.1-Oz Colgate Total Active Prevention Whitening Gel Toothpaste"}
+    assert bp.exclusion(_p(COLGATE), art) is None
+    assert bp.promotional_reason(art)
+    assert bp.promotional_reason({"uri": "https://www.reuters.com/x", "title": "Colgate-Palmolive Declares Regular Quarterly Dividend"}) is None
 
 
 # ── Resolution and versioning ───────────────────────────────────────────────

@@ -516,8 +516,9 @@ def valuation_page_reason(url: str, title: str) -> Optional[str]:
 
 def exclusion(profile: BrandProfile, article: Dict[str, Any]) -> Optional[Tuple[str, str]]:
     """(kind, why) when an existing source or content rule takes the article
-    out of brand coverage, else None. Kinds: non_press, deal_listing,
-    valuation_page."""
+    out of brand coverage, else None. Kinds: non_press, valuation_page.
+    Deal listings are not excluded (reviewer decision, 6 Oct): see
+    promotional_reason."""
     url = article.get("uri") or article.get("url") or ""
     host = host_of(url)
     src = _domain_of(article.get("news_source") or "")
@@ -525,16 +526,25 @@ def exclusion(profile: BrandProfile, article: Dict[str, Any]) -> Optional[Tuple[
                                       or host_in(src, profile.non_press_domains)):
         return "non_press", f"{host or src} is listed as a site whose pages are not {profile.display_name}'s press"
     title = article.get("original_title") or article.get("title") or ""
-    try:
-        from app.services.deal_listing import deal_listing_reason
-        deal = deal_listing_reason(url, title) or deal_listing_reason(url, article.get("title") or "")
-    except Exception:  # noqa: BLE001 - the rule module is optional on older sites
-        deal = None
-    if deal:
-        return "deal_listing", f"retail deal listing ({deal})"
     val = valuation_page_reason(url, article.get("title") or title)
     if val:
         return "valuation_page", val
+    return None
+
+
+def promotional_reason(article: Dict[str, Any]) -> Optional[str]:
+    """Why the page is a retail deal or product listing, else None. Such a
+    page about the brand's own product counts as coverage (reviewer decision,
+    6 Oct 2026) and is marked promotional so readers can split it out."""
+    url = article.get("uri") or article.get("url") or ""
+    try:
+        from app.services.deal_listing import deal_listing_reason
+    except Exception:  # noqa: BLE001 - the rule module is optional on older sites
+        return None
+    for t in (article.get("original_title"), article.get("title")):
+        r = deal_listing_reason(url, t or "")
+        if r:
+            return f"retail deal listing ({r})"
     return None
 
 

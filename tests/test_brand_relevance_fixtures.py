@@ -113,8 +113,17 @@ def test_colgate_university_sport_is_not_coverage_and_needs_no_model():
         assert d.brand_relation == "other" and d.provenance == "rule" and judge.calls == [], (r["title"], d.evidence)
 
 
-@pytest.mark.parametrize("case,kind", [("colgate_deal_listing", "deal_listing"),
-                                       ("colgate_valuation_page", "valuation_page"),
+def test_deal_listings_go_to_the_judge_marked_promotional():
+    """Reviewer decision, 6 Oct: a deal listing for the brand's own product
+    counts as coverage; it is judged, not excluded, and marked promotional."""
+    site, rows = _rows("colgate_deal_listing")
+    for r in rows:
+        d, judge = _decide(site, r)
+        assert d.evidence.get("exclusion") is None and d.evidence.get("promotional"), r["title"]
+        assert judge.calls, r["title"]
+
+
+@pytest.mark.parametrize("case,kind", [("colgate_valuation_page", "valuation_page"),
                                        ("ww_fan_recipes", "non_press")])
 def test_excluded_pages_are_not_coverage(case, kind):
     site, rows = _rows(case)
