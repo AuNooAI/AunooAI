@@ -11,11 +11,26 @@ logger = logging.getLogger(__name__)
 class PromptManagerError(Exception):
     pass
 
+
+class PromptSchemaError(PromptManagerError):
+    """A save, restore or import would change the fixed output block of an
+    analysis prompt (app/analyzers/analysis_schema.py). The caller's
+    request is wrong, not the server."""
+    pass
+
+
+def _check_schema(prompt_type: str, prompt_data: Dict) -> None:
+    from app.analyzers import analysis_schema
+    problem = analysis_schema.schema_problem(prompt_type, prompt_data.get("user_prompt") or "")
+    if problem:
+        raise PromptSchemaError(f"{prompt_type}: {problem}")
+
 class PromptManager:
     # Valid prompt types including dashboard features
     VALID_PROMPT_TYPES = [
         "title_extraction",
         "content_analysis",
+        "content_analysis_auto",
         "date_extraction",
         "relevance_analysis",
         "consensus_analysis",
@@ -116,6 +131,9 @@ class PromptManager:
             if additional_fields:
                 prompt_data.update(additional_fields)
 
+            # The effective prompt, after the merge, must keep its fixed block.
+            _check_schema(prompt_type, prompt_data)
+
             # Compute hash and save version
             version_hash = self._compute_hash(prompt_data)
             version_path = self._get_version_path(prompt_type, version_hash)
@@ -131,6 +149,8 @@ class PromptManager:
 
             logger.info(f"Saved new version {next_version} of {prompt_type} prompt: {version_hash}")
             return {"hash": version_hash, **prompt_data}
+        except PromptSchemaError:
+            raise
         except Exception as e:
             logger.error(f"Failed to save prompt version: {str(e)}")
             raise PromptManagerError(f"Failed to save prompt version: {str(e)}")
@@ -192,7 +212,8 @@ class PromptManager:
 
             # Get the version data
             version_data = self.get_version(prompt_type, version_hash)
-            
+            _check_schema(prompt_type, version_data)
+
             # Update current version
             current_path = self._get_current_path(prompt_type)
             with open(current_path, 'w') as f:
@@ -200,6 +221,8 @@ class PromptManager:
 
             logger.info(f"Restored version {version_hash} of {prompt_type} prompt")
             return version_data
+        except PromptSchemaError:
+            raise
         except Exception as e:
             logger.error(f"Failed to restore prompt version: {str(e)}")
             raise PromptManagerError(f"Failed to restore prompt version: {str(e)}")
@@ -245,6 +268,7 @@ class PromptManager:
         return [
             {"name": "title_extraction", "display_name": "Title Extraction"},
             {"name": "content_analysis", "display_name": "Content Analysis"},
+            {"name": "content_analysis_auto", "display_name": "Content Analysis (automated ingest)"},
             {"name": "date_extraction", "display_name": "Date Extraction"},
             {"name": "relevance_analysis", "display_name": "Relevance Analysis"},
             {"name": "consensus_analysis", "display_name": "Consensus Analysis (Dashboard)"},
@@ -284,8 +308,13 @@ class PromptManager:
                 current_path = self._get_current_path(prompt_type)
                 versions = self.get_versions(prompt_type)
                 
-                # Initialize if no current version exists or if there are no versions
-                if not os.path.exists(current_path) or not versions:
+                # Initialize if no current version exists, if there are no
+                # versions, or if current.json is the empty placeholder that
+                # _ensure_storage_dir writes for a prompt type it has not seen
+                # (a new type otherwise stayed empty for good).
+                current = next((v for v in versions if v.get("hash") == "current"), {})
+                if not os.path.exists(current_path) or not versions \
+                        or not (current.get("user_prompt") or "").strip():
                     self.save_version(
                         prompt_type,
                         template["system_prompt"],
@@ -295,6 +324,19 @@ class PromptManager:
         except Exception as e:
             logger.error(f"Failed to initialize default templates: {str(e)}")
             raise PromptManagerError(f"Failed to initialize default templates: {str(e)}")
+
+    def migrate_output_block(self, prompt_type: str) -> Optional[Dict]:
+        """Schema migration: give the live prompt the current fixed output
+        block, keeping its instructions. Saves a new version marked with
+        the schema version, or returns None when the block is already
+        current. The only sanctioned way to change the block."""
+        from app.analyzers import analysis_schema
+        current = self.get_current_version(prompt_type)
+        if not analysis_schema.schema_problem(prompt_type, current.get("user_prompt") or ""):
+            return None
+        new_user = analysis_schema.with_canonical_block(prompt_type, current.get("user_prompt") or "")
+        return self.save_version(prompt_type, current.get("system_prompt") or "", new_user,
+                                 {"schema_migration": analysis_schema.SCHEMA_VERSION})
 
     def delete_version(self, prompt_type: str, version_hash: str) -> None:
         try:
@@ -352,6 +394,8 @@ class PromptManager:
                 "created_at": datetime.now().isoformat(),
                 "restored_from_default": True
             }
+
+            _check_schema(prompt_type, version_data)
 
             # Compute hash and save as versioned file
             version_hash = self._compute_hash(version_data)

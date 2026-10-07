@@ -6,6 +6,7 @@ import hashlib
 import re
 from datetime import date, datetime, timezone
 from .prompt_manager import PromptManager, PromptManagerError
+from . import analysis_schema
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,10 @@ Output Format (JSON Object):
             )}
         ]
 
-    def format_analysis_prompt(self, **kwargs) -> List[Dict[str, str]]:
-        template = self.get_template("content_analysis")
+    def format_analysis_prompt(self, prompt_type: str = analysis_schema.MANUAL, **kwargs) -> List[Dict[str, str]]:
+        """The analysis prompt for one mode: ``content_analysis`` (manual)
+        or ``content_analysis_auto`` (automated ingest)."""
+        template = self.get_template(prompt_type)
         
         # Format lists as comma-separated strings
         kwargs["categories"] = ', '.join(kwargs.get("categories", []))
@@ -217,11 +220,13 @@ Output Format (JSON Object):
             logger.error(f"Failed to get template version: {str(e)}")
             raise PromptTemplateError(f"Failed to get template version: {str(e)}")
 
-    def get_template_hash(self) -> str:
+    def get_template_hash(self, analysis_prompt_type: str = analysis_schema.MANUAL) -> str:
+        """Hash of the live title prompt and the live analysis prompt of the
+        given mode, for cache validation: editing either invalidates."""
         try:
             # Get current versions of all templates
             templates = {}
-            for prompt_type in ["title_extraction", "content_analysis"]:
+            for prompt_type in ["title_extraction", analysis_prompt_type]:
                 template = self.prompt_manager.get_current_version(prompt_type)
                 templates[prompt_type] = {
                     "system_prompt": template["system_prompt"],
@@ -281,4 +286,22 @@ Output Format (JSON Object):
                 topic=topic_context,  # Use enhanced topic context
                 keywords=keywords
             )}
-        ] 
+        ]
+
+
+def _seed_analysis_defaults() -> None:
+    """Both analysis prompts end in the fixed block from analysis_schema.
+    The auto prompt is the manual one without Political Bias and
+    Factuality (docs/pipelines/08_INGEST_FIX_SPEC.md, WP3b)."""
+    manual = PromptTemplates.DEFAULT_TEMPLATES[analysis_schema.MANUAL]
+    manual["user_prompt"] = analysis_schema.with_canonical_block(analysis_schema.MANUAL, manual["user_prompt"])
+    instructions, _block = analysis_schema.split(manual["user_prompt"])
+    PromptTemplates.DEFAULT_TEMPLATES[analysis_schema.AUTO] = {
+        "version": "1.0.0",
+        "system_prompt": manual["system_prompt"],
+        "user_prompt": analysis_schema.auto_instructions(instructions).rstrip()
+        + "\n\n" + analysis_schema.output_block(analysis_schema.AUTO),
+    }
+
+
+_seed_analysis_defaults()

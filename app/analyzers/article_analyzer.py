@@ -4,6 +4,7 @@ import logging
 from urllib.parse import urlparse
 import hashlib
 from .prompt_templates import PromptTemplates, PromptTemplateError
+from . import analysis_schema
 from .cache import AnalysisCache, CacheError
 from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
 from app.utils.title_translation import english_title
@@ -12,8 +13,10 @@ from app.collectors.dates import (
     PROV_MODEL, PREC_DAY, STATUS_INVALID, STATUS_MISSING,
 )
 import json
+import time
 import traceback
 import re
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,29 @@ def _normalize_field_value(value: str) -> str:
     return value.strip().strip('*').strip()
 
 
+# Every heading the parser may start a field on: the canonical labels of
+# both prompts, the aliases above, and the extras some models volunteer.
+# Any other "Word: text" line belongs to the field being read (WP6d: a
+# summary quoting "CEO: we will grow" used to end at "CEO").
+_KNOWN_HEADERS = (
+    {f.lower() for f in analysis_schema.MANUAL_FIELDS}
+    | set(_FIELD_ALIASES)
+    | {"explanation", "rationale", "publication date"}
+)
+
+
 class ArticleAnalyzerError(Exception):
+    pass
+
+
+class AnalysisDeadlineExceeded(ArticleAnalyzerError):
+    """The attempt's overall deadline passed before the next model call."""
+    pass
+
+
+class AnalysisSuperseded(ArticleAnalyzerError):
+    """The attempt no longer owns the article (it expired and another
+    attempt started). Its result must not be cached or stored."""
     pass
 
 
@@ -127,6 +152,25 @@ Article text:
             logger.error(f"Failed to initialize: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to initialize: {str(e)}")
 
+    def _call_model(self, prompts, deadline: Optional[float] = None):
+        """One model call. With a deadline, the router is told to give up
+        when it passes (``timeout``), so retries and fallbacks inside the
+        router cannot run past the attempt's budget either."""
+        if deadline is None:
+            return self.ai_model.generate_response(prompts)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AnalysisDeadlineExceeded("analysis deadline passed before the model call")
+        try:
+            import inspect
+            params = inspect.signature(self.ai_model.generate_response).parameters
+            takes_kwargs = any(p.kind == p.VAR_KEYWORD for p in params.values())
+        except (TypeError, ValueError):
+            takes_kwargs = False
+        if takes_kwargs:
+            return self.ai_model.generate_response(prompts, timeout=max(1.0, remaining))
+        return self.ai_model.generate_response(prompts)
+
     def _compute_content_hash(self, content: str) -> str:
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
@@ -151,11 +195,45 @@ Article text:
             logger.error(f"Error extracting title: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to extract title: {str(e)}")
 
-    def analyze_content(self, article_text: str, title: str, source: str, uri: str, 
+    def analysis_cache_key(self, uri: str, mode: str, extract_date: bool, prompt_type: str,
+                           summary_length, summary_voice, summary_type, categories, future_signals,
+                           sentiment_options, time_to_impact_options, driver_types) -> str:
+        """The cache key covers everything that changes the output except the
+        article text (content hash) and the live prompt text (template hash),
+        which the cache checks separately: mode, date extraction, prompt and
+        schema version, model, the five label lists and the summary
+        settings. An auto result never answers a manual request (WP3b)."""
+        opts = json.dumps({
+            "mode": mode, "extract_date": bool(extract_date), "prompt": prompt_type,
+            "schema": analysis_schema.SCHEMA_VERSION,
+            "lists": [list(categories or []), list(future_signals or []), list(sentiment_options or []),
+                      list(time_to_impact_options or []), list(driver_types or [])],
+            "summary": [summary_length, summary_voice, summary_type],
+        }, sort_keys=True, default=str)
+        return f"{uri}_{self.model_name}_{hashlib.md5(opts.encode()).hexdigest()[:12]}"
+
+    def analyze_content(self, article_text: str, title: str, source: str, uri: str,
                        summary_length: int, summary_voice: str, summary_type: str,
-                       categories: List[str], future_signals: List[str], 
+                       categories: List[str], future_signals: List[str],
                        sentiment_options: List[str], time_to_impact_options: List[str],
-                       driver_types: List[str], extract_date: bool = True) -> Dict:
+                       driver_types: List[str], extract_date: bool = True,
+                       mode: str = "manual", deadline: Optional[float] = None,
+                       is_current: Optional[Callable[[], bool]] = None) -> Dict:
+        """Analyse one article.
+
+        ``mode``: "manual" (research, bulk research, the bias arena; every
+        field, publication date extracted when ``extract_date``) or "auto"
+        (automated ingest: the ``content_analysis_auto`` prompt without
+        Political Bias and Factuality, and never a date call).
+        ``deadline``: a ``time.monotonic()`` value; no model call starts
+        after it. ``is_current``: returns False once this attempt has been
+        superseded; a superseded attempt neither caches nor returns a result.
+        """
+        if mode not in ("manual", "auto"):
+            raise ArticleAnalyzerError(f"unknown analysis mode {mode!r}")
+        if mode == "auto":
+            extract_date = False
+        prompt_type = analysis_schema.AUTO if mode == "auto" else analysis_schema.MANUAL
 
         # Validate inputs
         if not article_text:
@@ -178,34 +256,38 @@ Article text:
         if not driver_types:
             raise ConfigurationFault("Driver types list cannot be empty")
 
+        def _check_time():
+            if deadline is not None and time.monotonic() >= deadline:
+                raise AnalysisDeadlineExceeded(f"analysis deadline passed for {uri}")
+
+        def _check_owner():
+            if is_current is not None and not is_current():
+                raise AnalysisSuperseded(f"analysis attempt for {uri} was superseded")
+
         try:
             # Get template hash for cache validation
-            template_hash = self.prompt_templates.get_template_hash()
+            template_hash = self.prompt_templates.get_template_hash(prompt_type)
 
             # Prepare model info for cache
             model_info = {
                 'name': self.model_name,
                 'provider': getattr(self.ai_model, 'provider', None)
             }
+            cache_key = self.analysis_cache_key(
+                uri, mode, extract_date, prompt_type, summary_length, summary_voice, summary_type,
+                categories, future_signals, sentiment_options, time_to_impact_options, driver_types)
+            content_hash = self._compute_content_hash(article_text)
 
             # Check cache first
             if self.use_cache:
-                logger.debug(f"Cache check enabled for model {self.model_name}")
-                content_hash = self._compute_content_hash(article_text)
-                # Include categories hash in cache key to prevent cross-topic cache pollution
-                categories_hash = hashlib.md5(','.join(sorted(categories)).encode()).hexdigest()[:8]
-                cache_key = f"{uri}_{self.model_name}_{categories_hash}"
-                logger.debug(f"Checking cache with key: {cache_key}, content_hash: {content_hash}")
                 cached_result = self.cache.get(cache_key, content_hash, model_info, template_hash)
-                
                 if cached_result:
-                    logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
+                    logger.info(f"Using cached analysis for {uri} with model {self.model_name} ({mode})")
                     cached_result["uri"] = uri
                     return cached_result
-            else:
-                logger.debug(f"Cache check disabled for model {self.model_name}")
 
             prompts = self.prompt_templates.format_analysis_prompt(
+                prompt_type=prompt_type,
                 article_text=article_text,
                 title=title,
                 source=source,
@@ -221,21 +303,33 @@ Article text:
             )
 
             logger.debug(f"Sending prompt to AI model: {prompts}")
-            # Retry on empty/unparseable responses. Reasoning models (Kimi/Nova
-            # on Bedrock) intermittently return content the Key:Value field
-            # parser can't read (~1/8) — a single miss otherwise marks the
-            # article enrichment_failed. Retrying makes that vanishingly rare.
+            # Retry on empty, unparseable or invalid responses. Reasoning
+            # models (Kimi/Nova on Bedrock) intermittently return content the
+            # field parser can't read (~1/8). Label validation runs inside the
+            # loop: a required label that is off-list (sentiment becomes "")
+            # is a failed attempt, and after the last attempt the analysis
+            # fails rather than storing an empty label (WP6d).
             result = None
             last_parse_err = "no response"
             for _attempt in range(3):
-                analysis = self.ai_model.generate_response(prompts)
+                _check_time()
+                analysis = self._call_model(prompts, deadline)
                 logger.debug(f"Received AI response (attempt {_attempt + 1}): {analysis}")
                 if not analysis:
                     last_parse_err = "empty response"
                     logger.warning(f"Enrichment attempt {_attempt + 1}: empty AI response; retrying")
                     continue
                 try:
-                    result = self.parse_analysis(analysis, fallback_title=title)
+                    parsed = self.parse_analysis(analysis, fallback_title=title, mode=mode)
+                    parsed = self._validate_analysis_fields(
+                        parsed, categories, future_signals, sentiment_options,
+                        time_to_impact_options, driver_types)
+                    invalid = [f for f in self.REQUIRED_LABELS
+                               if parsed.get(f) is None or not str(parsed.get(f)).strip()]
+                    if invalid:
+                        raise ArticleAnalyzerError(
+                            f"required field(s) empty or not in the topic's list: {', '.join(invalid)}")
+                    result = parsed
                     if _attempt:
                         logger.info(f"Enrichment recovered on attempt {_attempt + 1}")
                     break
@@ -244,17 +338,7 @@ Article text:
                     logger.warning(f"Enrichment attempt {_attempt + 1}: {_pe}; retrying")
             if result is None:
                 raise ArticleAnalyzerError(
-                    f"Failed to generate parseable analysis after retries: {last_parse_err}")
-
-            # Validate and sanitize the parsed result against the provided options
-            result = self._validate_analysis_fields(
-                result,
-                categories,
-                future_signals,
-                sentiment_options,
-                time_to_impact_options,
-                driver_types
-            )
+                    f"Failed to generate a valid analysis after retries: {last_parse_err}")
 
             # Truncate summary to requested word count (with 20% tolerance)
             # AI models often exceed the requested length, so we enforce it here
@@ -281,10 +365,12 @@ Article text:
 
             # Add uri and publication_date to result
             result["uri"] = uri
-            # Extract publication date using only article_text. This is a second
-            # model call; automated ingest passes extract_date=False because it
-            # already has the collector's date and discarded this one (about
-            # 25k wasted calls a week across the sites, 7 Oct 2026).
+            # Extract publication date using only article_text. A second
+            # model call, made only in manual mode when asked: automated
+            # ingest keeps the collector's date (about 25k wasted calls a
+            # week across the sites before 7 Oct 2026).
+            if extract_date:
+                _check_time()
             result["publication_date"] = (
                 self.extract_publication_date(article_text) if extract_date else None)
 
@@ -292,20 +378,21 @@ Article text:
             # article's language; the title is not. Translate it when it is not
             # English; the original travels as original_title so callers can
             # show both. An English title leaves the result untouched.
+            _check_time()
             shown, original = english_title(result.get("title") or title)
             if original:
                 result["title"] = shown
                 result["original_title"] = original
+            result["analysis_mode"] = mode
+            result["analysis_prompt"] = prompt_type
 
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
-            # When storing the result, include the model info
+            # A superseded attempt publishes nothing: no cache entry the new
+            # attempt could pick up, no result for the caller to store.
+            _check_owner()
             if self.use_cache:
                 try:
-                    content_hash = self._compute_content_hash(article_text)
-                    # Include categories hash in cache key to prevent cross-topic cache pollution
-                    categories_hash = hashlib.md5(','.join(sorted(categories)).encode()).hexdigest()[:8]
-                    cache_key = f"{uri}_{self.ai_model.model_name}_{categories_hash}"
                     self.cache.set(cache_key, content_hash, result, model_info, template_hash)
                 except CacheError as e:
                     logger.warning(f"Failed to cache analysis: {str(e)}")
@@ -318,6 +405,8 @@ Article text:
             logger.error(f"🚨 FATAL error analyzing content: {e}")
             # Re-raise PipelineError to allow pipeline to handle it
             raise
+        except ArticleAnalyzerError:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing content: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
@@ -328,6 +417,8 @@ Article text:
     # "category IS NOT NULL AND sentiment IS NOT NULL" gate the observer
     # agents retrieve on.
     CRITICAL_FIELDS = ["Title", "Summary", "Category", "Sentiment"]
+    #: Result keys that must hold an allowed value after validation.
+    REQUIRED_LABELS = ["title", "summary", "category", "sentiment"]
 
     # Descriptive/secondary fields. A model that omits or re-labels one of
     # these has still produced a usable analysis, so we fill a blank and warn
@@ -338,7 +429,7 @@ Article text:
                        "Driver Type Explanation", "Political Bias",
                        "Factuality", "Tags"]
 
-    def parse_analysis(self, analysis: str, fallback_title: str = None) -> Dict:
+    def parse_analysis(self, analysis: str, fallback_title: str = None, mode: str = "manual") -> Dict:
         if not analysis:
             return {}
 
@@ -352,16 +443,21 @@ Article text:
             current_value = []
 
             for line in lines:
+                # A field starts only on a known heading at the start of a
+                # line. "CEO: we will grow" inside a summary is summary text.
+                header = None
                 if ':' in line:
+                    key, value = line.split(':', 1)
+                    norm = _normalize_field_key(key)
+                    if norm.lower() in _KNOWN_HEADERS:
+                        header = (norm, value)
+                if header:
                     # If we have a previous key, save its value
                     if current_key:
                         parsed_analysis[current_key] = _normalize_field_value(
                             '\n'.join(current_value))
-
-                    # Start a new key
-                    key, value = line.split(':', 1)
-                    current_key = _normalize_field_key(key)
-                    current_value = [value.strip()]
+                    current_key = header[0]
+                    current_value = [header[1].strip()]
                 elif current_key:
                     # Continue with previous key
                     current_value.append(line.strip())
@@ -426,7 +522,11 @@ Article text:
                 raise ArticleAnalyzerError(
                     f"Missing required fields in analysis: {', '.join(missing_critical)}")
 
-            missing_optional = [f for f in self.OPTIONAL_FIELDS
+            # The auto prompt does not ask for Political Bias or Factuality;
+            # they stay absent rather than stored as invented blanks.
+            optional = [f for f in self.OPTIONAL_FIELDS
+                        if not (mode == "auto" and f in analysis_schema.AUTO_OMITTED)]
+            missing_optional = [f for f in optional
                                 if not cleaned_analysis.get(f)]
             if missing_optional:
                 logger.warning(
@@ -653,32 +753,3 @@ Article text:
         """Compatibility wrapper: the ISO date string, or None when unknown.
         Never the current time."""
         return self.extract_publication_date_result(content).iso()
-
-    def get_cached_analysis(self, uri, model_name):
-        """
-        Check if an analysis for this URI and model is already cached.
-        
-        Args:
-            uri: The article URI
-            model_name: The model used for analysis
-            
-        Returns:
-            The cached analysis result or None if not found
-        """
-        if not hasattr(self, 'cache') or not self.cache:
-            return None
-        
-        try:
-            cache_key = f"{uri}_{model_name}"
-            cached_result = self.cache.get(cache_key)
-            if cached_result:
-                logger.debug(f"Cache hit for {cache_key}")
-                return cached_result
-            else:
-                logger.debug(f"Cache miss for {cache_key}")
-                return None
-        except Exception as e:
-            logger.error(f"Error checking cache: {str(e)}")
-            return None
-
-    #logger.debug(f"AI extracted date: {ai_extracted_date}") 

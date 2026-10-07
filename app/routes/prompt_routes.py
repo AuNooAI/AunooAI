@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from app.security.session import verify_session
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
-from app.analyzers.prompt_manager import PromptManager, PromptManagerError
+from app.analyzers.prompt_manager import PromptManager, PromptManagerError, PromptSchemaError
 from app.analyzers.prompt_templates import PromptTemplates
 from app.core.shared import templates
 import logging
@@ -146,6 +146,8 @@ async def save_prompt_version(
             additional_fields if additional_fields else None
         )
         return version
+    except PromptSchemaError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except PromptManagerError as e:
         logger.error(f"Failed to save version for {prompt_type}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -159,6 +161,8 @@ async def restore_prompt_version(
     try:
         version = prompt_manager.restore_version(prompt_type, version_hash)
         return version
+    except PromptSchemaError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except PromptManagerError as e:
         logger.error(f"Failed to restore version {version_hash} for {prompt_type}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

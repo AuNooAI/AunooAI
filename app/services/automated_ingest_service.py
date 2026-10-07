@@ -16,6 +16,7 @@ Enhanced with:
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 from app.database import Database
@@ -100,6 +101,151 @@ EXTRACTION_TIMEOUT = "timeout"
 EXTRACTION_ERROR = "error"
 EXTRACTION_FALLBACK = "fallback"
 EXTRACTION_CACHED = "cached"
+
+
+def _min_gate_text_chars() -> int:
+    try:
+        return max(0, int(os.getenv("INGEST_MIN_GATE_TEXT_CHARS", "80")))
+    except ValueError:
+        return 80
+
+
+def _brand_path_topic(topic: Optional[str]) -> bool:
+    """True for a brand topic. Its brand decision (brand_ingest_hooks) and
+    brand mention gate (brand_mention_gate) read the stored page before the
+    relevance gate, and brand decisions are out of scope for WP3a, so brand
+    topics keep the pre-gate scrape. When it cannot be determined, True."""
+    if not topic:
+        return False
+    try:
+        return bool(_bhooks._bprof.brand_name_for_topic(topic))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def gate_evidence_insufficient(article: Dict[str, Any]) -> bool:
+    """True when the text the quick relevance gate reads (the collector's
+    content, else its summary) is too short to judge the article on:
+    shorter than ``INGEST_MIN_GATE_TEXT_CHARS`` (default 80, about one
+    sentence) after stripping. Such an article is scraped before the gate
+    so the gate sees its page (WP3a)."""
+    text = (article.get('content') or article.get('summary') or '').strip()
+    return len(text) < _min_gate_text_chars()
+
+
+# ---------------------------------------------------------------------------
+# Analysis input (WP6a) and attempt ownership (WP5d / M4)
+# ---------------------------------------------------------------------------
+
+#: Text that marks a scraped page as an error or block page, not an article.
+_ERROR_PAGE_MARKERS = (
+    "access denied", "403 forbidden", "404 not found", "page not found",
+    "just a moment", "enable javascript", "verify you are human", "captcha",
+    "are you a robot", "subscribe to continue", "this site can't be reached",
+)
+
+
+def analysis_input_mode() -> str:
+    """``ANALYSIS_INPUT_MODE``: ``summary_first`` (default; the collector's
+    summary, else its content, as before) or ``page_first`` (a usable cached
+    page, then content when longer than the summary, then the summary). The
+    page input stays off until the 300-article replay sets its budget."""
+    value = (os.getenv("ANALYSIS_INPUT_MODE") or "summary_first").strip().lower()
+    return value if value in ("summary_first", "page_first") else "summary_first"
+
+
+def _input_token_budget() -> int:
+    try:
+        return max(500, int(os.getenv("ANALYSIS_INPUT_TOKENS", "6000")))
+    except ValueError:
+        return 6000
+
+
+#: Conservative characters per token: English runs near 4, many other
+#: languages nearer 2-3, so 3 keeps a page inside the budget for most text.
+CHARS_PER_TOKEN = 3
+
+
+def usable_page(page: Optional[str]) -> bool:
+    text = (page or "").strip()
+    if len(text) < 200:
+        return False
+    head = text[:1500].lower()
+    return not (len(text) < 3000 and any(m in head for m in _ERROR_PAGE_MARKERS))
+
+
+def select_analysis_input(article: Dict[str, Any], page: Optional[str] = None,
+                          mode: Optional[str] = None) -> "tuple[str, Dict[str, Any]]":
+    """The text the analysis reads, and a record of the choice: source,
+    content hash, original and used length, and whether it was cut to the
+    token budget. No article text goes into the record."""
+    import hashlib as _hl
+    mode = mode or analysis_input_mode()
+    summary = (article.get('summary') or '').strip()
+    content = (article.get('content') or '').strip()
+    if mode == "page_first":
+        if usable_page(page):
+            source, text = "page", page.strip()
+        elif content and len(content) > len(summary):
+            source, text = "content", content
+        else:
+            source, text = ("summary", summary) if summary else ("content", content)
+        limit = _input_token_budget() * CHARS_PER_TOKEN
+    else:
+        source, text = ("summary", summary) if summary else ("content", content)
+        limit = None
+    original = len(text)
+    truncated = bool(limit and original > limit)
+    if truncated:
+        text = text[:limit]
+    info = {"source": source, "mode": mode, "sha": _hl.sha256(text.encode()).hexdigest()[:16],
+            "original_chars": original, "used_chars": len(text), "truncated": truncated}
+    return text, info
+
+
+class ArticleAnalyzerSuperseded(Exception):
+    """This analysis attempt lost ownership; its result is discarded."""
+
+
+def _analysis_deadline_seconds() -> float:
+    try:
+        return max(5.0, float(os.getenv("ANALYSIS_DEADLINE_SECONDS", "55")))
+    except ValueError:
+        return 55.0
+
+
+class _AnalysisAttempt:
+    """One analysis attempt's claim on an article. Only the newest attempt
+    for a URI is current; starting a new one or revoking this one makes any
+    late thread of this one unable to publish. In-process only: the monolith
+    runs one ingest process per site."""
+    _lock = __import__("threading").Lock()
+    _current: Dict[str, int] = {}
+    _seq = 0
+
+    def __init__(self, uri: str, token: int, deadline: float):
+        self.uri, self.token, self.deadline = uri, token, deadline
+
+    @classmethod
+    def start(cls, uri: str) -> "_AnalysisAttempt":
+        with cls._lock:
+            cls._seq += 1
+            cls._current[uri] = cls._seq
+            return cls(uri, cls._seq, time.monotonic() + _analysis_deadline_seconds())
+
+    def is_current(self) -> bool:
+        with self._lock:
+            return self._current.get(self.uri) == self.token and time.monotonic() < self.deadline + 1.0
+
+    def revoke(self) -> None:
+        with self._lock:
+            if self._current.get(self.uri) == self.token:
+                self._current[self.uri] = -self.token
+
+    def finish(self) -> None:
+        with self._lock:
+            if self._current.get(self.uri) == self.token:
+                del self._current[self.uri]
 
 
 def _looks_like_rss_batch(articles: List[Dict[str, Any]]) -> bool:
@@ -296,8 +442,10 @@ class AutomatedIngestService:
             Article data enriched with analysis results
         """
         try:
-            # Prepare content for analysis
-            article_text = article_data.get('summary', '') or article_data.get('content', '')
+            # Prepare content for analysis. The legacy sync path reads the
+            # collector text as before; page input is the async path's (WP6a).
+            article_text, _input_info = select_analysis_input(article_data, None, mode="summary_first")
+            article_data['_analysis_input'] = _input_info
             title = article_data.get('title', '')
             source = article_data.get('news_source', '')
             uri = article_data.get('uri', '')
@@ -465,7 +613,7 @@ class AutomatedIngestService:
                 sentiment_options=sentiment_options,
                 time_to_impact_options=time_to_impact_options,
                 driver_types=driver_types,
-                extract_date=False,  # the collector's date is kept; this one was discarded
+                mode="auto",  # auto prompt, no date call: the collector's date is kept
             )
 
             # Step 3: Merge results - SLM for confident classifications, LLM for rest
@@ -1106,7 +1254,10 @@ class AutomatedIngestService:
             # papers cycling 2026-08-31 to 09-07). Mark terminally and stop.
             # no-text-guard: scraped page fallback
             # A scraped page counts as text (6 Oct 2026): use it before giving up.
-            if article.get('title') and not (article.get('summary') or article.get('content')):
+            # Same for a snippet too short to judge (WP3a): the batch scraped its
+            # page before the gate; give that page to the gate and the analysis.
+            if article.get('title') and not (article.get('summary') or article.get('content')) \
+                    or (article.get('_prescrape_reason') and gate_evidence_insufficient(article)):
                 _page = (article.get('_scraped_content') or '').strip()
                 if not _page:
                     try:
@@ -1116,7 +1267,8 @@ class AutomatedIngestService:
                         _page = ''
                 if len(_page) >= 200:
                     article['content'] = _page[:20000]
-                    self.logger.info(f"📄 Article {article_uri}: no summary, using the scraped page ({len(_page)} chars)")
+                    self.logger.info(f"📄 Article {article_uri}: gate text missing or too short, "
+                                     f"using the scraped page ({len(_page)} chars)")
             if not article.get('_brand_decision') and (not (article.get('summary') or article.get('content')) or not article.get('title')):  # brand-hook
                 self.logger.info(
                     f"⛔ Article {article_uri}: no usable text (title only) — "
@@ -1267,7 +1419,9 @@ class AutomatedIngestService:
                     self.logger.error(f"Bias enrichment failed for {article_uri}: {e}")
                     enriched_article = article
             else:
-                # No pre-scraped content, scrape it now
+                # No page yet: the article passed the gate, so scrape it now,
+                # alongside the MBFC lookup (WP3a).
+                article['_scraped_after_gate'] = True
                 content_task = asyncio.create_task(
                     self.scrape_article_content(article_uri)
                 )
@@ -1541,8 +1695,16 @@ class AutomatedIngestService:
                 ai_model = LiteLLMModel.get_instance(model_name)
                 self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
             
-            # Prepare content for analysis
-            article_text = article_data.get('summary', '') or article_data.get('content', '')
+            # Prepare content for analysis (WP6a: select_analysis_input)
+            _page = None
+            if analysis_input_mode() == "page_first":
+                try:
+                    _raw = await self.async_db.get_raw_article_async(article_data.get('uri', ''))
+                    _page = (_raw or {}).get('raw_markdown')
+                except Exception:  # noqa: BLE001
+                    _page = None
+            article_text, _input_info = select_analysis_input(article_data, _page)
+            article_data['_analysis_input'] = _input_info
             title = article_data.get('title', '')
             source = article_data.get('news_source', '')
             uri = article_data.get('uri', '')
@@ -1584,25 +1746,35 @@ class AutomatedIngestService:
             self.logger.debug(f"  Time to impact: {time_to_impact_options}")
             self.logger.debug(f"  Driver types: {driver_types}")
             
-            # Perform analysis with dynamic ontology data in a thread executor
+            # Perform analysis in a thread executor. The thread cannot be
+            # stopped from here, so it gets a deadline (no model call starts
+            # after it, and each call's own timeout ends there) and an
+            # ownership token: when the caller's timeout fires, the token is
+            # revoked and the late thread neither caches nor returns its
+            # result (WP5d / M4).
             loop = asyncio.get_event_loop()
-            analysis_result = await loop.run_in_executor(
-                None,
-                self.article_analyzer.analyze_content,
-                article_text,
-                title,
-                source,
-                uri,
-                50,  # summary_length
-                "neutral",  # summary_voice
-                "informative",  # summary_type
-                categories,
-                future_signals,
-                sentiment_options,
-                time_to_impact_options,
-                driver_types,
-                False,  # extract_date: the collector's date is kept; this one was discarded
-            )
+            attempt = _AnalysisAttempt.start(uri)
+            try:
+                analysis_result = await loop.run_in_executor(
+                    None,
+                    lambda: self.article_analyzer.analyze_content(
+                        article_text, title, source, uri,
+                        50,  # summary_length
+                        "neutral",  # summary_voice
+                        "informative",  # summary_type
+                        categories, future_signals, sentiment_options,
+                        time_to_impact_options, driver_types,
+                        mode="auto",  # auto prompt, no date call: the collector's date is kept
+                        deadline=attempt.deadline,
+                        is_current=attempt.is_current,
+                    ),
+                )
+            except BaseException:
+                attempt.revoke()
+                raise
+            if not attempt.is_current():
+                raise ArticleAnalyzerSuperseded(f"analysis attempt for {uri} was superseded")
+            attempt.finish()
             
             # Update article data with analysis results
             tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
@@ -1764,14 +1936,21 @@ class AutomatedIngestService:
                 if isinstance(a, dict) and config_block_reasons.get(topic or a.get("topic"))
             }
 
-            # QUICK FIX: Use concurrent async processing instead of sequential loop
-            # This prevents blocking the event loop during auto-ingest
-
-            # Separate articles that already have content (from collectors like NewsFirehose,
-            # NewsData.io) from those that need Firecrawl scraping
-            articles_needing_scrape = []
+            # Page text before the relevance gate (docs/pipelines/08_INGEST_FIX_SPEC.md,
+            # WP3a). The quick gate reads the collector's content or summary,
+            # never a scraped page, so pre-scraping every article only paid
+            # for pages of articles the gate then rejected. Now:
+            # - collector content over 200 characters is the page; no scrape;
+            # - otherwise the raw_articles cache is read first;
+            # - an article whose gate text is too thin to judge
+            #   (gate_evidence_insufficient) is scraped BEFORE the gate, and a
+            #   usable page becomes its gate text, so the new order never
+            #   rejects it for lack of evidence;
+            # - every other article is scraped after it passes the gate,
+            #   alongside the MBFC lookup (_process_single_article_async).
             articles_with_content = {}
-
+            pre_gate_uris = []
+            cache_hits = 0
             for article in articles:
                 article_uri = article.get('uri')
                 if not article_uri:
@@ -1781,19 +1960,36 @@ class AutomatedIngestService:
                 existing_content = article.get('content')
                 if existing_content and len(existing_content) > 200:
                     articles_with_content[article_uri] = existing_content
-                else:
-                    articles_needing_scrape.append(article_uri)
+                    continue
+                try:
+                    cached = await self.async_db.get_raw_article_async(article_uri)
+                except Exception:  # noqa: BLE001
+                    cached = None
+                if cached and (cached.get('raw_markdown') or '').strip():
+                    articles_with_content[article_uri] = cached['raw_markdown']
+                    cache_hits += 1
+                elif _brand_path_topic(topic or article.get('topic')):
+                    # The brand decision reads the page before the gate
+                    # (brand_ingest_hooks.pre_decide); brand decisions are out
+                    # of scope for this change, so brand topics keep it.
+                    pre_gate_uris.append(article_uri)
+                    article['_prescrape_reason'] = 'brand_decision_reads_page'
+                elif gate_evidence_insufficient(article):
+                    pre_gate_uris.append(article_uri)
+                    article['_prescrape_reason'] = 'insufficient_gate_text'
 
-            self.logger.info(f"📊 Content status: {len(articles_with_content)} have collector content, {len(articles_needing_scrape)} need scraping")
+            self.logger.info(
+                f"📊 Page text: {len(articles_with_content) - cache_hits} from the collector, "
+                f"{cache_hits} from the raw cache, {len(pre_gate_uris)} scraped before the gate "
+                f"(gate text too thin); the rest are scraped only if they pass the gate")
 
-            # Only batch scrape articles that don't have content
             scraped_content = {}
-            if articles_needing_scrape:
-                self.logger.info(f"🚀 Pre-scraping {len(articles_needing_scrape)} articles in batch...")
-                scraped_content = await self.scrape_articles_batch(articles_needing_scrape, topic=topic)
-                self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+            if pre_gate_uris:
+                scraped_content = await self.scrape_articles_batch(pre_gate_uris, topic=topic)
+            results["scrape"] = {"pre_gate": len(pre_gate_uris), "cache_hits": cache_hits,
+                                 "post_gate": 0}
 
-            # Combine collector content and scraped content
+            # Combine collector content, cached pages and scraped content
             all_content = {**articles_with_content, **scraped_content}
 
             # Process articles concurrently using existing async infrastructure
@@ -1805,7 +2001,7 @@ class AutomatedIngestService:
             self.logger.info(f"🔄 Processing {len(articles)} articles concurrently (max {MAX_CONCURRENT} at a time)...")
 
             # Create tasks for all articles
-            extraction_outcomes = dict(self._last_extraction_outcomes) if articles_needing_scrape else {}
+            extraction_outcomes = dict(self._last_extraction_outcomes) if pre_gate_uris else {}
             all_article_data = []
             for article in articles:
                 # Attach pre-scraped content to article for processing
@@ -1820,7 +2016,7 @@ class AutomatedIngestService:
                     if scraped_content.get(article_uri):
                         article['content_kind'] = 'full_text'
                 all_article_data.append(article)
-            for outcome in (extraction_outcomes.get(u) for u in articles_needing_scrape):
+            for outcome in (extraction_outcomes.get(u) for u in pre_gate_uris):
                 if outcome:
                     results["extraction"][outcome] = results["extraction"].get(outcome, 0) + 1
 
@@ -1857,7 +2053,9 @@ class AutomatedIngestService:
                     )
 
                     # Aggregate results from this batch
-                    for result in batch_results:
+                    for art, result in zip(batch, batch_results):
+                        if isinstance(art, dict) and art.get("_scraped_after_gate"):
+                            results["scrape"]["post_gate"] += 1
                         if isinstance(result, Exception):
                             results["errors"].append(str(result))
                             self.logger.error(f"Article processing failed: {result}")
