@@ -2041,7 +2041,9 @@ def _news_metrics(*, headcount: Optional[Dict[str, Any]],
 
 _PLATFORM_NAMES = {"linkedin": "LinkedIn", "twitter": "X", "x": "X",
                    "bluesky": "Bluesky", "reddit": "Reddit",
-                   "mastodon": "Mastodon"}
+                   "mastodon": "Mastodon", "tiktok": "TikTok",
+                   "instagram": "Instagram", "youtube": "YouTube",
+                   "facebook": "Facebook"}
 
 
 def _evidence_label(row: Dict[str, Any], seen: set) -> str:
