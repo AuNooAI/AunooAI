@@ -1193,6 +1193,41 @@ class EmergingTopicsService:
 
         return min(1.0, confidence)
 
+    # Share of the smaller topic's articles two topics must have in common to
+    # count as one story.
+    SHARED_ARTICLE_MATCH = 0.5
+
+    def _find_topic_by_shared_articles(
+        self,
+        conn,
+        article_uris: List[str],
+        topic_filter: Optional[str],
+    ):
+        """Return (id, label) of the active topic sharing the most articles, or None.
+
+        A match needs at least 2 shared articles and at least
+        ``SHARED_ARTICLE_MATCH`` of the smaller topic's articles.
+        """
+        new_uris = set(article_uris or [])
+        if len(new_uris) < 2:
+            return None
+        rows = conn.execute(text("""
+            SELECT id, topic_label, article_uris FROM emerging_topics
+            WHERE topic_filter IS NOT DISTINCT FROM :topic_filter
+            AND status <> 'retired'
+            AND detection_date >= CURRENT_DATE - INTERVAL '7 days'
+        """), {"topic_filter": topic_filter}).fetchall()
+
+        best, best_shared = None, 0
+        for row in rows:
+            old_uris = set(row[2] or [])
+            shared = len(new_uris & old_uris)
+            smaller = min(len(new_uris), len(old_uris))
+            if shared >= 2 and smaller and shared / smaller >= self.SHARED_ARTICLE_MATCH:
+                if shared > best_shared:
+                    best, best_shared = (row[0], row[1]), shared
+        return best
+
     def _save_emerging_topic(
         self,
         conn,
@@ -1229,6 +1264,22 @@ class EmergingTopicsService:
         ).fetchone()
 
         try:
+            # Same story under a new label: an active topic in this scope that
+            # holds at least half of the smaller topic's articles. Label words
+            # alone missed these: on wileytest on 7 Oct 2026 "Novartis-Abogen
+            # $7.2B mRNA Therapy Deal" became a second topic beside "Big Pharma
+            # China mRNA Licensing Mega-Deals" with the same 6 articles. Retired
+            # topics are left out, so a new detection cannot vanish into one.
+            if not existing:
+                existing = self._find_topic_by_shared_articles(
+                    conn, topic.article_uris, topic_filter
+                )
+                if existing:
+                    logger.info(
+                        f"Article match: '{topic.topic_label}' shares its articles "
+                        f"with '{existing[1]}' (id={existing[0]})"
+                    )
+
             # If no exact match, check for similar labels (fuzzy match)
             if not existing:
                 # Extract significant words from the new topic label (3+ chars, lowercase)

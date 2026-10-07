@@ -902,3 +902,63 @@ def test_entity_patterns_escape_like_wildcards():
 def test_no_entities_means_no_patterns():
     assert _entity_patterns([]) == []
     assert _entity_patterns(None) == []
+
+
+# ---------------------------------------------------------------------------
+# Same story under a new label matches by shared articles
+# ---------------------------------------------------------------------------
+
+class _Rows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+
+class _TopicConn:
+    """Answers the shared-article lookup with fixed active topics."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.sql = []
+
+    def execute(self, stmt, params=None):
+        self.sql.append(str(stmt))
+        return _Rows(self.rows)
+
+
+def _shared_match(rows, uris):
+    from app.services.emerging_topics.emerging_topics_service import (
+        EmergingTopicsService,
+    )
+    conn = _TopicConn(rows)
+    return EmergingTopicsService._find_topic_by_shared_articles(
+        EmergingTopicsService, conn, uris, "Patent Cliffs"
+    ), conn
+
+
+def test_a_relabelled_story_matches_the_topic_holding_its_articles():
+    rows = [
+        (1, "Other", ["x", "y", "z"]),
+        (2, "Big Pharma China mRNA Licensing", ["a", "b", "c", "d", "e", "f"]),
+    ]
+    match, conn = _shared_match(rows, ["a", "b", "c", "d", "e", "f"])
+    assert match == (2, "Big Pharma China mRNA Licensing")
+    assert "status <> 'retired'" in conn.sql[0]
+
+
+def test_one_shared_article_is_not_a_match():
+    match, _ = _shared_match([(1, "T", ["a", "q", "r"])], ["a", "b", "c"])
+    assert match is None
+
+
+def test_overlap_below_half_of_the_smaller_topic_is_not_a_match():
+    match, _ = _shared_match([(1, "T", ["a", "b", "q", "r", "s"])], ["a", "b", "c", "d", "e"])
+    assert match is None
+
+
+def test_the_topic_sharing_the_most_articles_wins():
+    rows = [(1, "T1", ["a", "b"]), (2, "T2", ["a", "b", "c", "d"])]
+    match, _ = _shared_match(rows, ["a", "b", "c", "d"])
+    assert match == (2, "T2")
