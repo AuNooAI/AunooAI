@@ -3019,15 +3019,14 @@ async def enable_auto_ingest(
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Enable or disable auto-ingest functionality"""
+    """Enable auto-ingest. (It referenced an undefined ``toggle`` and
+    answered 500 after the setting was already written, until 7 Oct 2026.)"""
     try:
-        # Update auto_ingest_enabled setting
         db.facade.enable_or_disable_auto_ingest(True)
-
         return {
             "success": True,
-            "auto_ingest_enabled": toggle.enabled,
-            "message": f"Auto-ingest {'enabled' if toggle.enabled else 'disabled'} successfully"
+            "auto_ingest_enabled": True,
+            "message": "Auto-ingest enabled successfully"
         }
             
     except Exception as e:
@@ -3040,7 +3039,12 @@ async def disable_auto_ingest(
     session=Depends(verify_session_api)
 ):
     """Disable auto-ingest functionality"""
-    return db.facade.enable_or_disable_auto_ingest(False)
+    db.facade.enable_or_disable_auto_ingest(False)
+    return {
+        "success": True,
+        "auto_ingest_enabled": False,
+        "message": "Auto-ingest disabled successfully"
+    }
 
 @router.get("/auto-ingest/status")
 async def get_auto_ingest_status(

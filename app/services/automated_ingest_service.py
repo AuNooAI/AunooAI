@@ -464,7 +464,8 @@ class AutomatedIngestService:
                 future_signals=future_signals,
                 sentiment_options=sentiment_options,
                 time_to_impact_options=time_to_impact_options,
-                driver_types=driver_types
+                driver_types=driver_types,
+                extract_date=False,  # the collector's date is kept; this one was discarded
             )
 
             # Step 3: Merge results - SLM for confident classifications, LLM for rest
@@ -1599,7 +1600,8 @@ class AutomatedIngestService:
                 future_signals,
                 sentiment_options,
                 time_to_impact_options,
-                driver_types
+                driver_types,
+                False,  # extract_date: the collector's date is kept; this one was discarded
             )
             
             # Update article data with analysis results

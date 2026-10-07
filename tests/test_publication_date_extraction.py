@@ -100,3 +100,36 @@ def test_cached_content_returns_stored_publication_date_not_submission_date(monk
     r.db = object()
     assert r.stored_publication_date("https://e.com/a") == ("2026-01-02", "stored")
     assert r.stored_publication_date("https://e.com/missing") == (None, "unknown")
+
+
+def _analysis_reply():
+    return ("Title: Grid storage deal signed\nSummary: A utility signed a storage deal.\n"
+            "Category: Energy\nSentiment: Positive\nFuture Signal: Other\n"
+            "Future Signal Explanation: x\nSentiment Explanation: x\nTime to Impact: Immediate\n"
+            "Time to Impact Explanation: x\nDriver Type: Accelerator\nDriver Type Explanation: x\n"
+            "Political Bias: Neutral\nFactuality: High\nTags: storage, grid")
+
+
+def _analyze(extract_date):
+    analyzer = _analyzer(_analysis_reply())
+    analyzer.extract_publication_date = Mock(return_value="2026-10-01")
+    out = analyzer.analyze_content(
+        "Body text of the article " * 20, "Grid storage deal signed", "example.com",
+        "https://example.com/a", 50, "neutral", "informative",
+        ["Energy"], ["Other"], ["Positive", "Neutral", "Negative"], ["Immediate"], ["Accelerator"],
+        extract_date=extract_date)
+    return analyzer, out
+
+
+def test_ingest_skips_the_date_call():
+    """Automated ingest keeps the collector's date and threw this second model
+    call's answer away: about 25k wasted calls a week (7 Oct 2026)."""
+    analyzer, out = _analyze(extract_date=False)
+    analyzer.extract_publication_date.assert_not_called()
+    assert out["publication_date"] is None and out["category"] == "Energy"
+
+
+def test_other_callers_still_get_the_date():
+    analyzer, out = _analyze(extract_date=True)
+    analyzer.extract_publication_date.assert_called_once()
+    assert out["publication_date"] == "2026-10-01"

@@ -29,6 +29,7 @@ from app.vector_store_pgvector import (
     count_embeddings,
 )
 from app.database import Database, get_database_instance
+from app.services.article_visibility import readable_sql
 
 # Heavy numeric/ML dependencies are imported lazily inside the functions that
 # need them.  This avoids hard runtime failures when the optional packages are
@@ -1959,8 +1960,8 @@ async def analyze_incidents(
                bias, factual_reporting, mbfc_credibility_rating, bias_source
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
-        """
+        AND category IS NOT NULL AND NULLIF(TRIM(sentiment), '') IS NOT NULL
+        """ + "AND " + readable_sql() + "\n"
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
@@ -3843,8 +3844,8 @@ async def analyze_real_time_signals(
         SELECT uri, title, summary, news_source, publication_date, category, sentiment
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
-        """
+        AND category IS NOT NULL AND NULLIF(TRIM(sentiment), '') IS NOT NULL
+        """ + "AND " + readable_sql() + "\n"
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
@@ -4457,12 +4458,12 @@ async def run_signal_instructions(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND sentiment IS NOT NULL
+        AND NULLIF(TRIM(sentiment), '') IS NOT NULL
         AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
-        """
+        """ + "AND " + readable_sql() + "\n"
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
@@ -5382,12 +5383,12 @@ async def _run_signals_background(
                tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND sentiment IS NOT NULL
+        AND NULLIF(TRIM(sentiment), '') IS NOT NULL
         AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
-        """
+        """ + "AND " + readable_sql() + "\n"
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
 
         from app.core.modules import is_dedicated_bw
@@ -5620,11 +5621,12 @@ async def _run_signal_instruction_internal(
                     FROM articles
                     WHERE ({entity_conditions})
                     AND publication_date >= ? AND publication_date <= ?
-                    AND sentiment IS NOT NULL
+                    AND NULLIF(TRIM(sentiment), '') IS NOT NULL
                     AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
+                    AND {readable_sql()}
                     ORDER BY publication_date DESC NULLS LAST LIMIT ?
                     """
                     entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
@@ -5654,14 +5656,14 @@ async def _run_signal_instruction_internal(
                    tags, extracted_article_topics, extracted_article_keywords
             FROM articles
             WHERE publication_date >= ? AND publication_date <= ?
-            AND sentiment IS NOT NULL
+            AND NULLIF(TRIM(sentiment), '') IS NOT NULL
             AND (category IS NOT NULL OR (social_meta IS NOT NULL AND social_meta::text <> 'null'
              AND topic_alignment_score >= 0.4
              AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                              WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')))
             AND uri NOT IN (SELECT article_uri FROM signal_alerts
                             WHERE instruction_id = ? AND article_uri IS NOT NULL)
-            """
+            """ + "AND " + readable_sql() + "\n"
             params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'),
                       instruction_id]
 

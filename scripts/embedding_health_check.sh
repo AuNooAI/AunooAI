@@ -36,7 +36,7 @@
 # Tracked at scripts/embedding_health_check.sh; deployed to /home/orochford/bin/.
 # KEEP THOSE TWO IN SYNC — the collector check drifted once (7dd5d56c).
 
-TENANTS="bugfixing wileytest wiley wbm"
+TENANTS="bugfixing wileytest wiley wbm abm oviva panaya sunstar"   # last four added 7 Oct 2026
 LOG=/var/log/aunoo-embedding-health.log
 STATE_DIR=/var/tmp/embedding_health_state
 ALERT_TO="oliver.rochford@gmail.com"
@@ -51,8 +51,11 @@ mkdir -p "$STATE_DIR"
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 sysload() { echo "$(cut -d' ' -f1-3 /proc/loadavg) (1/5/15 min) on $(nproc) CPUs"; }
 
+. /home/orochford/bin/discord_notify.sh
+
 send_email() {
     local subject="$1" body="$2"
+    discord_notify "$subject" "$body" "$LOG"
     if [ -z "$RESEND_KEY" ]; then
         echo "$(ts) ERROR: RESEND_API_KEY not readable from $RESEND_ENV — cannot email" >> "$LOG"
         return 1

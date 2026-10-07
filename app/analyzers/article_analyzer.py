@@ -155,7 +155,7 @@ Article text:
                        summary_length: int, summary_voice: str, summary_type: str,
                        categories: List[str], future_signals: List[str], 
                        sentiment_options: List[str], time_to_impact_options: List[str],
-                       driver_types: List[str]) -> Dict:
+                       driver_types: List[str], extract_date: bool = True) -> Dict:
 
         # Validate inputs
         if not article_text:
@@ -281,8 +281,12 @@ Article text:
 
             # Add uri and publication_date to result
             result["uri"] = uri
-            # Extract publication date using only article_text
-            result["publication_date"] = self.extract_publication_date(article_text)
+            # Extract publication date using only article_text. This is a second
+            # model call; automated ingest passes extract_date=False because it
+            # already has the collector's date and discarded this one (about
+            # 25k wasted calls a week across the sites, 7 Oct 2026).
+            result["publication_date"] = (
+                self.extract_publication_date(article_text) if extract_date else None)
 
             # English headline. The summary above is already English whatever the
             # article's language; the title is not. Translate it when it is not
