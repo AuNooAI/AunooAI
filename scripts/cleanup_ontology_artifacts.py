@@ -15,6 +15,7 @@ Usage:
 import os
 import sys
 import argparse
+import asyncio
 import json
 from typing import Dict, List, Set, Any, Optional
 from datetime import datetime
@@ -346,7 +347,8 @@ class OntologyCleanup:
                         }
                         
                         # Re-analyze with correct ontology
-                        updated_article = ingest_service.analyze_article_content(article_data)
+                        updated_article = asyncio.run(ingest_service._analyze_article_content_async(
+                            article_data, article_data['topic']))
                         
                         # Update database with corrected values
                         cursor.execute("""

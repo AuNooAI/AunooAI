@@ -4,6 +4,7 @@ Test script to verify that automated_ingest_service correctly extracts AI-genera
 This tests the fix for the bug where summaries were not being extracted from analysis results.
 """
 
+import asyncio
 import sys
 import os
 
@@ -50,7 +51,8 @@ def test_auto_ingest_summary_extraction():
     try:
         # Call analyze_article_content() - the method we fixed
         print("🔍 ANALYZING: Calling analyze_article_content()...")
-        enriched_article = ingest_service.analyze_article_content(article_data)
+        enriched_article = asyncio.run(ingest_service._analyze_article_content_async(
+            article_data, article_data.get('topic')))
 
         print("✅ Analysis completed!")
         print()

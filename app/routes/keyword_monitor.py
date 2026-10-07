@@ -648,7 +648,10 @@ async def test_process_article(
         start_time = time.time()
 
         try:
-            enriched_article = ingest_service.analyze_article_content(article_dict)
+            # The same async analysis path the ingest pipeline uses; the old
+            # sync path (with its retired SLM enrichment) is gone (spec 08, WP7).
+            enriched_article = await ingest_service._analyze_article_content_async(
+                article_dict, article_dict.get('topic'))
             elapsed = round(time.time() - start_time, 2)
 
             # Extract enrichment fields
