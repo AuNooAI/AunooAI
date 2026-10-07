@@ -47,7 +47,7 @@ The monitor saves each round before committing and gives a moving cursor up to 2
 
 **Too-broad keywords.** Measured on 7 Oct: the 76 stuck firehose keywords return about 54,700
 rows for one 24-hour window (the site's late-September intake was 540-730 a day). A chunk with
-more than `NEWSFIREHOSE_BROAD_PAGES_PER_DAY` (10) pages per day of window now fails as a
+more than `NEWSFIREHOSE_BROAD_PAGES_PER_DAY` (20 since `c00cc3f6`) pages per day of window now fails as a
 configuration fault with no items. Most AI-group keywords exceed it: their OR-flattened queries
 contain `AI` on its own.
 
@@ -78,10 +78,12 @@ them); incident tracking and real-time signals accept them through `agent_eviden
 
 - WP3c social model routing: needs the 200-post comparison.
 - WP6a 300-article replay and the 50 non-English checks: page input stays off until then.
-- WP7 beyond matched keywords: quality placeholder, all-groups check-now routing,
-  `topic='general'`, MBFC re-enable, run insert counts, provider identity, `submission_date`
-  default, `NEWSAPI_KEY`, `daily_request_limit`, dedup priority, empty label lists, analysis
-  cache cleanup schedule, removal of the obsolete enrichment services.
+- WP7 still open: provider identity (needs a key migration plan), `daily_request_limit`
+  (enforce or label as not enforced: enforcing the site's 1,000 a day would stop firehose
+  collection), the per-group settings that do nothing, and removal of the obsolete enrichment
+  services. Done in `e0370e1b`: run write counts, dedup priority, label-list checks, read-only
+  MBFC lookup, daily cache cleanup, `NEWSAPI_KEY`. Done by another session: all-groups
+  check-now routing, `topic='general'`, `submission_date`.
 - WP3b token measurement and WP3a replay sample: need live traffic after deployment.
 - Brand Watcher readers with user-set sliders (`:min_rel`) and the Swiss project's `:social_min`
   keep their own floors on purpose; `training_routes` (0.5) serves training data.
