@@ -1417,6 +1417,11 @@ class KeywordMonitor:
                     # The provider query that returned it: collection evidence for
                     # the brand decision, never proof the page names the company.
                     '_collection_query': collection_query,
+                    # The search term that found it. Ingest folds it into the
+                    # tags (_merge_matched_keyword_tags) so a brand named only
+                    # in the body stays findable; it was dropped here until
+                    # 7 Oct 2026, so tags were the model's alone (WP7).
+                    '_matched_keywords': list(article.get('_matched_keywords') or []),
                     'topic': topic,
                     'analyzed': False
                 }

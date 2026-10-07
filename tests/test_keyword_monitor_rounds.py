@@ -149,3 +149,18 @@ def test_a_failed_save_keeps_the_interval_for_replay(monkeypatch):
     facade.fail_urls.clear()
     run(m.check_keywords(group_id=1))
     assert store.coverage == NOW and "https://x.test/0-1" in facade.saved
+
+
+def test_the_matched_keyword_reaches_ingest(monkeypatch):
+    m, store = _monitor(monkeypatch, PagedCollector(slices=1), Facade())
+    seen = {}
+
+    class Svc:
+        async def process_articles_batch(self, articles, topic, keywords, **kw):
+            seen["mk"] = [a.get("_matched_keywords") for a in articles]
+            return {"processed": len(articles), "saved": 0, "errors": []}
+    m.auto_ingest_service = Svc()
+    monkeypatch.setattr(m, "should_auto_ingest", lambda: True, raising=False)
+    out = run(m.auto_ingest_pipeline([{"url": "https://x.test/a", "title": "t", "_matched_keywords": ["SOC"]}],
+                                     "T", ["SOC"], suppress_notifications=True))
+    assert seen.get("mk") == [["SOC"]], out
