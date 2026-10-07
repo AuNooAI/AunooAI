@@ -419,6 +419,11 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     if brand_id is not None:
         where.append("s.brand_id = :b")
         params["b"] = brand_id
+    else:
+        # The market-wide list matches the hiring count, which leaves large
+        # incumbents out (market_analysis._NOT_INCUMBENT_MB).
+        from app.services.market_analysis import _NOT_INCUMBENT_MB
+        where.append(_NOT_INCUMBENT_MB)
     # `source` is deliberately *not* filtered here — see the dedup below.
 
     # One row per listing, carrying every run that saw it, so the status rules

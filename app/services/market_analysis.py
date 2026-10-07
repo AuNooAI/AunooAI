@@ -552,6 +552,15 @@ def _role_of(title: Optional[str]) -> str:
     return head[:40] or "not stated"
 
 
+#: A large incumbent's open roles are a whole company's (Leidos, CrowdStrike,
+#: WeightWatchers), so market-wide hiring figures leave it out, as the size
+#: figures already did (docs/MARKET_ADD_VENDOR_CHECKLIST.md). A single
+#: vendor's own list still shows its listings.
+_NOT_INCUMBENT_MB = ("NOT EXISTS (SELECT 1 FROM bw_market_vendor_controls vc"
+                     " WHERE vc.market_id = mb.market_id AND vc.brand_id = mb.brand_id"
+                     " AND vc.status = 'incumbent')")
+
+
 def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any]:
     """What the market is hiring for, grouped and per vendor.
 
@@ -585,6 +594,7 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
         FROM bw_vendor_snapshots s
         JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                  AND mb.market_id = :m AND mb.role <> 'excluded'
+                                 AND {_NOT_INCUMBENT_MB}
         JOIN bw_brands b ON b.id = s.brand_id
         WHERE s.snapshot_type = 'job_posting'
               {window}
@@ -824,6 +834,8 @@ def job_postings(conn, market_id: int,
     if brand_id is not None:
         where.append("s.brand_id = :b")
         params["b"] = brand_id
+    else:
+        where.append(_NOT_INCUMBENT_MB)
     # The same window and the same duplicate rule as hiring(), so a list shown
     # under a count of open roles is the roles that count is made of. Without
     # them Noom's 22 listed "Agentic Engineer (New Grad)" three times: once
@@ -1948,11 +1960,12 @@ def period_comparison(conn, market_id: int, *, days: int = 30) -> Dict[str, Any]
         return {kind: n for kind, n in rows}
 
     def _jobs(start_dt, end_dt) -> int:
-        return conn.execute(text("""
+        return conn.execute(text(f"""
             SELECT COUNT(DISTINCT s.provider_item_id)
             FROM bw_vendor_snapshots s
             JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                      AND mb.market_id = :m
+                                     AND {_NOT_INCUMBENT_MB}
             WHERE s.snapshot_type = 'job_posting'
               AND s.observed_at >= :start AND s.observed_at < :end
         """), {"m": market_id, "start": start_dt, "end": end_dt}).scalar() or 0
