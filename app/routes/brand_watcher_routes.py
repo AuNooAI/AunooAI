@@ -19,6 +19,7 @@ import re
 from functools import lru_cache
 import os
 
+from app.services.article_visibility import readable_sql as _readable_sql
 from app.security.session import verify_session
 from app.model_tiers import default_model
 from app.services.social_sources import (
@@ -6486,6 +6487,7 @@ async def get_perception_dimensions(
             WHERE bac.category = 'Financial Performance'
               AND a.publication_date >= :sd AND a.publication_date <= :ed
               AND a.topic_alignment_score >= 0.4
+              AND """ + _readable_sql("a") + """
             GROUP BY 1, 2
         """), {"sd": sd, "ed": ed}).fetchall()
         for bid, sentiment, n in inv_rows:

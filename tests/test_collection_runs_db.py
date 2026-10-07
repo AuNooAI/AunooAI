@@ -219,3 +219,16 @@ def test_lookback_cap_records_the_skipped_stretch_as_a_gap(db):
     assert cp2.interval_start == later - timedelta(days=1)
     gaps = _gaps(db, scope)
     assert len(gaps) == 1 and gaps[0][0] == "lookback_cap" and gaps[0][1] == t0
+
+
+def test_a_quota_pause_backs_the_scope_off_until_it_ends(db):
+    from app.collectors.contracts import CollectionResult
+    from app.services.collection_runs import claim_interval, commit_interval
+    scope = "scope:quota"
+    t0 = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=t0)
+    until = t0 + timedelta(hours=3)
+    assert commit_interval(db, cp, CollectionResult.quota_exhausted("reddit", until), now=t0)
+    # 15 minutes of ordinary backoff would have passed; the pause has not.
+    assert claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=t0 + timedelta(hours=1)) is None
+    assert claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=until + timedelta(seconds=1))

@@ -3,6 +3,7 @@ Monitor and execute scheduled brand watcher classification.
 Follows the same pattern as policy_tracker_monitor.py.
 """
 
+from app.services.article_visibility import readable_sql as _readable_sql
 import logging
 import asyncio
 import json
@@ -667,7 +668,7 @@ def evaluate_adverse_alerts(db) -> int:
                       COUNT(*) FILTER (WHERE publication_date <  to_char(now() - interval '48 hours','YYYY-MM-DD"T"HH24:MI:SS')
                                          AND publication_date >= to_char(now() - interval '96 hours','YYYY-MM-DD"T"HH24:MI:SS')) AS prior
                     FROM articles
-                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
                       AND {_not_fp_sql()}
                 """), {"t": topic}).fetchone()
                 recent, prior = row[0] or 0, row[1] or 0
@@ -675,7 +676,7 @@ def evaluate_adverse_alerts(db) -> int:
                         and not _fired_recently(conn, bid, "neg_social_spike", cooldown_h)):
                     uris = [r[0] for r in conn.execute(_text(f"""
                         SELECT uri FROM articles
-                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                        WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
                           AND publication_date >= to_char(now() - interval '48 hours','YYYY-MM-DD"T"HH24:MI:SS')
                           AND {_not_fp_sql()}
                     """), {"t": topic}).fetchall()]
@@ -701,7 +702,7 @@ def evaluate_adverse_alerts(db) -> int:
                 rows = conn.execute(_text(f"""
                     SELECT uri, {_ENGAGEMENT_SQL}
                     FROM articles
-                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                    WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own} AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
                       AND {_ENGAGEMENT_SQL} >= :minEng
                       AND {_not_fp_sql()}
@@ -883,7 +884,7 @@ def evaluate_adverse_alerts(db) -> int:
                                publication_date, {_ENGAGEMENT_SQL} AS eng
                         FROM articles
                         WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own}
-                          AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                          AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
                           AND COALESCE(social_meta->>'author','') <> ''
                           AND publication_date >= to_char(now() - (:lb || ' days')::interval,'YYYY-MM-DD')
                           AND {_not_fp_sql()}
@@ -929,7 +930,7 @@ def evaluate_adverse_alerts(db) -> int:
                            COUNT(*) AS n, MAX(title) AS sample
                     FROM articles
                     WHERE topic = :t AND {_SOCIAL_SRC_SQL} AND {_not_own}
-                      AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+                      AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
                       AND COALESCE(social_meta->>'author','') <> ''
                       AND publication_date >= to_char(now() - (:wh || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
                       AND {_not_fp_sql()}

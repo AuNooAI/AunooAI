@@ -103,6 +103,37 @@ EXTRACTION_FALLBACK = "fallback"
 EXTRACTION_CACHED = "cached"
 
 
+def relevance_accepted(result: Dict[str, Any], threshold: float) -> bool:
+    """The gate decision, the same at the quick and the final gate: an
+    engine's own accept (Jev, cross-encoder, brand decision) on its own
+    criterion, otherwise the measured score against the group's threshold
+    (WP4). Engine accepts keep the policy they had before 7 Oct 2026; only
+    the invented threshold-valued score is gone."""
+    if result.get("_accepted_by"):
+        return True
+    try:
+        return float(result.get("relevance_score") or 0.0) >= float(threshold)
+    except (TypeError, ValueError):
+        return False
+
+
+def relevance_evidence(result: Dict[str, Any], threshold: float,
+                       group_id: Optional[int] = None) -> Dict[str, Any]:
+    """The decision record stored with the article (ip_002 columns)."""
+    from app.services.article_visibility import POLICY_VERSION
+    accepted_by = result.get("_accepted_by")
+    method = result.get("_hybrid_method") or ("brand_decision" if accepted_by == "brand_decision" else None)
+    engine = accepted_by or (method or "unknown")
+    return {
+        "relevance_threshold_applied": float(threshold) if threshold is not None else None,
+        "relevance_accepted_applied": relevance_accepted(result, threshold),
+        "relevance_decision_engine": str(engine)[:48],
+        "relevance_engine_scores": result.get("_engine_scores") or {},
+        "relevance_policy_version": POLICY_VERSION,
+        "relevance_decision_group_id": group_id,
+    }
+
+
 def _min_gate_text_chars() -> int:
     try:
         return max(0, int(os.getenv("INGEST_MIN_GATE_TEXT_CHARS", "80")))
@@ -663,7 +694,8 @@ class AutomatedIngestService:
             self.logger.error(f"Error analyzing article content: {e}")
             return article_data
     
-    def score_article_relevance(self, article_data: Dict[str, Any], topic: str, keywords: List[str]) -> Dict[str, Any]:
+    def score_article_relevance(self, article_data: Dict[str, Any], topic: str, keywords: List[str],
+                                threshold: Optional[float] = None) -> Dict[str, Any]:
         """
         Score article relevance using the Hybrid Relevance Service (SLM + LLM fallback).
 
@@ -738,7 +770,7 @@ class AutomatedIngestService:
                 topic=topic,
                 title=title,
                 summary=article_content,
-                threshold=self.get_relevance_threshold(topic),
+                threshold=threshold if threshold is not None else self.get_relevance_threshold(topic),
                 use_llm_fallback=use_llm_fallback,
                 force_llm=force_llm,
                 use_local_llm=use_local_llm,
@@ -763,6 +795,10 @@ class AutomatedIngestService:
                 "_embedding_score": hybrid_result.get("embedding_score"),
                 "_classifier_score": hybrid_result.get("classifier_score"),
                 "_llm_score": hybrid_result.get("llm_score"),
+                "_accepted_by": hybrid_result.get("accepted_by"),
+                "_engine_scores": {k: hybrid_result.get(k) for k in (
+                    "embedding_score", "classifier_score", "llm_score", "ce_score", "jev_on_topic",
+                    "jev_score", "jev_confidence") if hybrid_result.get(k) is not None},
             }
 
             # Record relevance confidence stats for frontend tracking
@@ -1133,6 +1169,7 @@ class AutomatedIngestService:
         ledger_hit=None,
         ledger_ctx: Optional[Dict[str, Any]] = None,
         config_block_reasons: Optional[Dict[str, Optional[str]]] = None,
+        group_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Process a single article asynchronously with optimized database operations.
 
@@ -1151,6 +1188,8 @@ class AutomatedIngestService:
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
         loop = asyncio.get_event_loop()
+        if group_id is None:
+            group_id = (ledger_ctx or {}).get("group_id")
 
         # CRITICAL: Preserve original data from API throughout processing
         original_title = article.get('title', '')
@@ -1321,20 +1360,23 @@ class AutomatedIngestService:
             # Use only title and existing summary to save costs
             try:
                 # Do a quick relevance check with just title + summary (no scraping/LLM yet)
-                quick_relevance_result = await self._score_article_relevance_async(
-                    article, topic, keywords
-                )
-                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
+                # One threshold for both gates: the deciding group's own when
+                # the caller passed it, else the topic's (WP4).
                 relevance_threshold = (
                     relevance_threshold_override
                     if relevance_threshold_override is not None
                     else self.get_relevance_threshold(topic)
                 )
+                quick_relevance_result = await self._score_article_relevance_async(
+                    article, topic, keywords, threshold=relevance_threshold
+                )
+                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
 
                 self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
+                article.update(relevance_evidence(quick_relevance_result, relevance_threshold, group_id))
 
                 # If article fails relevance threshold, stop processing immediately
-                if quick_relevance_score < relevance_threshold:
+                if not relevance_accepted(quick_relevance_result, relevance_threshold):
                     self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
 
                     # Save with minimal data to database
@@ -1349,10 +1391,11 @@ class AutomatedIngestService:
                             "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
                         })
                         await self.async_db.save_below_threshold_article(article)
+                        await self.async_db.record_relevance_decision(article_uri, article)
                         self.db.facade.mark_article_as_below_threshold(article_uri)
                         await self.async_db.record_group_relevance(
                             article_uri, topic, article.get("topic_alignment_score"),
-                            "filtered_relevance")
+                            "filtered_relevance", evidence=article, group_id=group_id)
                     except Exception as e:
                         self.logger.warning(f"Failed to save below-threshold article: {e}")
 
@@ -1380,16 +1423,20 @@ class AutomatedIngestService:
 
             except Exception as e:
                 self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
-                # Save article with error status but preserve attempt record
+                # No engine answered: the decision is unavailable, not a
+                # reject. Scores stay NULL (0.0 read as "judged off-topic"),
+                # readers exclude the state by name, and the relevance retry
+                # sweep tries again with a cap and backoff (WP5a).
                 article.update({
                     "topic": topic,
                     "ingest_status": "relevance_check_failed",
-                    "keyword_relevance_score": 0.0,
-                    "topic_alignment_score": 0.0,
-                    "confidence_score": 0.0,
+                    "keyword_relevance_score": None,
+                    "topic_alignment_score": None,
+                    "confidence_score": None,
                     "overall_match_explanation": f"Relevance check failed: {str(e)}"
                 })
                 await self.async_db.save_below_threshold_article(article)
+                await self.async_db.record_relevance_failure(article_uri, str(e))
                 self.logger.info(f"Saved article {article_uri} with relevance_check_failed status")
                 # Return early - skip enrichment for this article
                 return {
@@ -1484,7 +1531,7 @@ class AutomatedIngestService:
             # Step 4: Final relevance scoring with full content
             try:
                 relevance_result = await self._score_article_relevance_async(
-                    enriched_article, topic, keywords
+                    enriched_article, topic, keywords, threshold=relevance_threshold
                 )
                 enriched_article.update(relevance_result)
                 self.logger.debug(f"🎯 Final relevance scoring completed for {article_uri}")
@@ -1501,20 +1548,13 @@ class AutomatedIngestService:
 
             # Step 5: Check final relevance threshold (double-check after full analysis)
             relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
-            # Honour the topic's own group threshold here too. Without it a group
-            # tuned to keep marginal material — a small competitor with little
-            # coverage, or a market that wants general category context —
-            # collects and analyses it, then files it below the global threshold
-            # where nothing can see it. Groups that set no floor of their own
-            # fall back to the global one, so their collection volume is
-            # unchanged. The override below remains for callers that pass an
-            # explicit threshold for a Brand Monitoring topic.
-            relevance_threshold = self.get_relevance_threshold(topic)
-            if (relevance_threshold_override is not None
-                    and (topic or "").startswith("Brand Monitoring ")):
-                relevance_threshold = relevance_threshold_override
+            # The same threshold as the quick gate (relevance_threshold, set
+            # above from the group's override or the topic's own). Until 7 Oct
+            # 2026 only Brand Monitoring topics honoured the override here, so
+            # a group's quick gate and final gate could disagree (WP4).
+            enriched_article.update(relevance_evidence(relevance_result, relevance_threshold, group_id))
 
-            if relevance_score >= relevance_threshold:
+            if relevance_accepted(relevance_result, relevance_threshold):
                 # Step 5: Quality check (simplified for async)
                 try:
                     quality_result = await _bhooks.quality_or_skip(self, enriched_article)  # brand-hook
@@ -1595,9 +1635,10 @@ class AutomatedIngestService:
                         success = await _bhooks.save_enriched(self, enriched_article, topic)  # brand-hook
 
                         if success:
+                            await self.async_db.record_relevance_decision(article_uri, enriched_article)
                             await self.async_db.record_group_relevance(
                                 article_uri, topic, enriched_article.get("topic_alignment_score"),
-                                "approved")
+                                "approved", evidence=enriched_article, group_id=group_id)
                             # Another route (RSS, manual, retry) accepted it: a
                             # stale keyword rejection must not shadow it later.
                             if ledger_ctx is None and _rejected.enabled():
@@ -1607,22 +1648,28 @@ class AutomatedIngestService:
                                 except Exception as ledger_err:
                                     self.logger.debug(f"rejected-candidate forget skipped for {article_uri}: {ledger_err}")
                             # Step 7: Vector database upsert (kept async but with timeout)
+                            # The embedding is a separate stage: a failure is
+                            # recorded on the row and the repair sweep retries
+                            # it without repeating the analysis (WP5b).
+                            indexed = False
                             try:
-                                await asyncio.wait_for(
+                                indexed = await asyncio.wait_for(
                                     self._upsert_to_vector_db_async(enriched_article, raw_content),
                                     timeout=30  # 30 second timeout
-                                )
-                                self.logger.debug(f"🔍 Vector indexing completed for {article_uri}")
+                                ) is True
                             except asyncio.TimeoutError:
                                 self.logger.warning(f"Vector indexing timed out for {article_uri}")
+                                from app.vector_store_pgvector import record_embedding_failure
+                                await asyncio.to_thread(record_embedding_failure, article_uri, "timeout after 30 s")
                             except Exception as e:
                                 self.logger.error(f"Vector indexing failed for {article_uri}: {e}")
-                            
+
                             return {
                                 "status": "success",
                                 "uri": article_uri,
                                 "relevance_score": relevance_score,
-                                "quality_score": quality_result.get("quality_score")
+                                "quality_score": quality_result.get("quality_score"),
+                                "vector_indexed": indexed,
                             }
                         else:
                             return {
@@ -1656,6 +1703,10 @@ class AutomatedIngestService:
 
                     # Save to articles table with relevance scores
                     await self.async_db.save_below_threshold_article(enriched_article)
+                    await self.async_db.record_relevance_decision(article_uri, enriched_article)
+                    await self.async_db.record_group_relevance(
+                        article_uri, topic, enriched_article.get("topic_alignment_score"),
+                        "filtered_relevance", evidence=enriched_article, group_id=group_id)
                     self.logger.debug(f"Saved below-threshold article {article_uri} with relevance scores")
 
                     # Mark as below threshold in keyword_article_matches
@@ -1813,17 +1864,29 @@ class AutomatedIngestService:
             return article_data
 
     async def _score_article_relevance_async(
-        self, 
-        article_data: Dict[str, Any], 
-        topic: str, 
-        keywords: List[str]
+        self,
+        article_data: Dict[str, Any],
+        topic: str,
+        keywords: List[str],
+        threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Async version of relevance scoring"""
+        """Async version of relevance scoring. ``threshold`` is the deciding
+        group's threshold; the quick and the final gate pass the same one."""
         _bh_ov = _bhooks.relevance_override(self, article_data, topic)  # brand-hook
         if _bh_ov is not None:
+            _bh_ov = dict(_bh_ov)
+            _bh_ov.setdefault("_accepted_by", "brand_decision")
             return _bh_ov
         # For now, this wraps the sync version in a thread executor
         loop = asyncio.get_event_loop()
+        import inspect
+        try:
+            takes_threshold = "threshold" in inspect.signature(self.score_article_relevance).parameters
+        except (TypeError, ValueError):
+            takes_threshold = False
+        if takes_threshold:
+            return await loop.run_in_executor(
+                None, lambda: self.score_article_relevance(article_data, topic, keywords, threshold=threshold))
         return await loop.run_in_executor(None, self.score_article_relevance, article_data, topic, keywords)
 
     async def _quality_check_article_async(self, article_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1846,8 +1909,9 @@ class AutomatedIngestService:
             if raw_content:
                 vector_article['raw'] = raw_content
 
-            # Use native async function - no thread pool needed
-            await upsert_article_async(vector_article)
+            # Use native async function - no thread pool needed. True stored,
+            # None no text, False failed (recorded for the repair sweep).
+            return await upsert_article_async(vector_article)
 
         except Exception as e:
             self.logger.error(f"Vector database upsert failed: {e}")
@@ -2041,6 +2105,7 @@ class AutomatedIngestService:
                             ledger_hit=hit,
                             ledger_ctx=ledger_ctx,
                             config_block_reasons=config_block_reasons,
+                            group_id=group_id,
                         )
                     )
                     tasks.append(task)
@@ -2064,7 +2129,9 @@ class AutomatedIngestService:
 
                             if result.get("status") == "success":
                                 results["saved"] += 1
-                                results["vector_indexed"] += 1
+                                results["vector_indexed"] += 1 if result.get("vector_indexed") is not False else 0
+                                results["vector_failed"] = results.get("vector_failed", 0) + (
+                                    1 if result.get("vector_indexed") is False else 0)
                                 results["quality_passed"] += 1
                                 results["relevant"] += 1
                                 results["enriched"] += 1

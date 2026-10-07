@@ -37,7 +37,7 @@ from app.collectors.base_collector import (
     in_interval, page_budget, provider_max_pages,
 )
 from app.collectors.contracts import (
-    CollectionResult, STATUS_FAILED, STATUS_PARTIAL, STATUS_SUCCESS, TRUNC_PROVIDER_LIMIT,
+    CollectionResult, ERR_QUOTA, STATUS_FAILED, STATUS_PARTIAL, STATUS_SUCCESS, TRUNC_PROVIDER_LIMIT,
 )
 from app.collectors.dates import parse_date
 from app.services.provider_quota import HostGuard
@@ -47,6 +47,24 @@ logger = logging.getLogger(__name__)
 _TAG = re.compile(r"<[^>]+>")
 _DEFAULT_UA = "aunoo-reddit-collector/1.0 (+https://aunoo.ai)"
 _HOST = "reddit.com"
+
+
+def _paused_until():
+    """When the shared ledger's pause on reddit.com ends, or None."""
+    try:
+        from app.services.shared_ledger import get_ledger
+        return get_ledger().host_paused_until(_HOST)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _note_pause(res: "CollectionResult") -> None:
+    """A quota failure carries the pause end, so the checkpoint backs off
+    until then (collection_runs.commit_interval)."""
+    if res.error_code == ERR_QUOTA and "quota_exhausted_until" not in res.diagnostics:
+        until = _paused_until()
+        if until is not None:
+            res.diagnostics["quota_exhausted_until"] = until.isoformat()
 
 
 def _session():
@@ -274,6 +292,16 @@ class RedditCollector(ArticleCollector):
         slug = re.sub(r"[^a-z0-9]", "", primary.lower())
         budget = max(1, int(max_results or 10))
 
+        # A shared pause (a 429 seen by any site, or a Retry-After) holds every
+        # request until it ends; ask nothing and say until when, so the
+        # checkpoint waits that long instead of retrying into the pause.
+        paused = _paused_until()
+        if paused is not None:
+            out = CollectionResult.quota_exhausted(
+                "reddit", paused, message="reddit.com paused in the shared ledger")
+            out.started_at = res.started_at
+            return self.finish(out, query, interval_start, interval_end)
+
         routes: List[CollectionResult] = []
         try:
             async with _session() as session:
@@ -285,6 +313,7 @@ class RedditCollector(ArticleCollector):
         except Exception as exc:  # noqa: BLE001
             out = CollectionResult.from_exception(exc, host=_HOST)
             out.started_at = res.started_at
+            _note_pause(out)
             return self.finish(out, query, interval_start, interval_end)
 
         # Merge successes first so a failed route makes the whole partial
@@ -303,6 +332,7 @@ class RedditCollector(ArticleCollector):
             seen.add(key)
             unique.append(item)
         res.items = unique
+        _note_pause(res)
         res.diagnostics["subreddit"] = slug or None
         res.diagnostics["terms"] = terms
         logger.info(f"Reddit returned {len(res.items)} posts for query '{term[:60]}' (r/{slug} + search), status {res.status}")

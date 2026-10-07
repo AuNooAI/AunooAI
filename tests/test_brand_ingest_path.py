@@ -84,7 +84,7 @@ def env(monkeypatch):
     # in front of it, where transform_ingest puts it in the real method.
     _fake_score = svc._score_article_relevance_async
 
-    async def scored(article, topic, keywords):
+    async def scored(article, topic, keywords, threshold=None):
         ov = bh.relevance_override(svc, article, topic)
         if ov is not None:
             return ov

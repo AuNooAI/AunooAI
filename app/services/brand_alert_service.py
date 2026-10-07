@@ -9,6 +9,7 @@ them through the configured channels:
 Config lives in bw_alert_config (rules/thresholds are consumed by the evaluator in
 app/tasks/brand_watcher_monitor.py; this module only handles delivery).
 """
+from app.services.article_visibility import readable_sql as _readable_sql
 import json
 import re
 import logging
@@ -81,7 +82,7 @@ def fetch_negative_social_posts(conn, topic: str, hours: int, author: Optional[s
                COALESCE(social_meta->>'author',''), {_ENGAGEMENT_SQL} AS eng
         FROM articles
         WHERE topic = :t AND {social_src_sql('news_source')}
-          AND topic_alignment_score >= 0.4 AND {_NEG_SENT_SQL}
+          AND topic_alignment_score >= 0.4 AND {_readable_sql()} AND {_NEG_SENT_SQL}
           AND publication_date >= to_char(now() - (:h || ' hours')::interval,'YYYY-MM-DD"T"HH24:MI:SS')
           AND NOT EXISTS (SELECT 1 FROM bw_finding_reviews _fpr
                           WHERE _fpr.article_uri = articles.uri AND _fpr.status = 'false_positive')

@@ -33,13 +33,23 @@ class FakeAsyncDb:
         self.updated: List[Dict[str, Any]] = []
         self.raw_saved: List[str] = []
         self.group_relevance: List[tuple] = []
+        self.decisions: Dict[str, Dict[str, Any]] = {}
+        self.relevance_failures: List[tuple] = []
 
     async def save_below_threshold_article(self, article):
         self.saved_below.append(dict(article))
         return True
 
-    async def record_group_relevance(self, uri, topic, score, status):
+    async def record_group_relevance(self, uri, topic, score, status, evidence=None, group_id=None):
         self.group_relevance.append((uri, topic, score, status))
+        return True
+
+    async def record_relevance_decision(self, uri, article):
+        self.decisions[uri] = {k: article.get(k) for k in article if k.startswith("relevance_")}
+        return True
+
+    async def record_relevance_failure(self, uri, error):
+        self.relevance_failures.append((uri, error))
         return True
 
     async def update_article_with_enrichment(self, article):
@@ -115,7 +125,7 @@ def make_service(topic_configs: Optional[Dict[str, Dict[str, Any]]] = None, *,
     svc.score_calls: List[str] = []
     svc.analyze_calls: List[str] = []
 
-    async def _score(article, topic, keywords):
+    async def _score(article, topic, keywords, threshold=None):
         svc.score_calls.append(article.get("uri"))
         return {"relevance_score": score, "topic_alignment_score": score,
                 "keyword_relevance_score": score, "confidence_score": score,

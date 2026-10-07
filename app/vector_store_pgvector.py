@@ -263,39 +263,83 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
 # Public API - Compatible with ChromaDB vector_store.py interface
 # --------------------------------------------------------------------------------------
 
-def upsert_article(article: Dict[str, Any]) -> None:
-    """Upsert an article's embedding into PostgreSQL.
+EMBEDDING_DIM = 768
 
-    Args:
-        article: Article dict with uri, title, summary, raw, etc.
-    """
+
+def _check_vector(embedding) -> str:
+    """The vector as pgvector text, or ValueError when the encoder returned
+    something that is not a 768-number vector."""
+    if not isinstance(embedding, (list, tuple)) or len(embedding) != EMBEDDING_DIM:
+        raise ValueError(f"encoder returned {len(embedding) if hasattr(embedding, '__len__') else type(embedding).__name__}"
+                         f" values, expected {EMBEDDING_DIM}")
+    return '[' + ','.join(str(float(x)) for x in embedding) + ']'
+
+
+def record_embedding_failure(uri: str, error: str) -> None:
+    """Count a failed encode on the row and set when to try again
+    (EMBEDDING_RETRY_BASE_MINUTES, default 10, doubling, at most 12 h).
+    The row becomes due now if it had no due time. Best-effort."""
+    if not uri:
+        return
+    conn = None
+    try:
+        base = float(os.getenv("EMBEDDING_RETRY_BASE_MINUTES", "10"))
+    except ValueError:
+        base = 10.0
+    try:
+        conn = get_database_instance()._temp_get_connection()
+        conn.execute(text("""
+            UPDATE articles
+               SET embedding_attempts = COALESCE(embedding_attempts, 0) + 1,
+                   embedding_last_error = :err,
+                   embedding_due_at = COALESCE(embedding_due_at, NOW()),
+                   embedding_next_retry_at = NOW() + make_interval(mins => LEAST(720,
+                       :base * power(2, COALESCE(embedding_attempts, 0)))::int)
+             WHERE uri = :uri AND embedding IS NULL
+        """), {"err": (error or "")[:1000], "base": base, "uri": uri})
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("embedding failure not recorded for %s: %s", uri, exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+_CLEAR_REPAIR_STATE = ("embedding_attempts = NULL, embedding_last_error = NULL, "
+                       "embedding_next_retry_at = NULL")
+
+
+def upsert_article(article: Dict[str, Any]) -> Optional[bool]:
+    """Store an article's embedding. True when stored, None when the article
+    has no text to embed, False when it failed (the failure is recorded on
+    the row for the repair sweep, app/tasks/embedding_repair.py)."""
     conn = None
     try:
         title, content = build_article_encoder_input(article)
         if not title and not content:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
-            return
+            return None
 
-        # Generate embedding
-        embedding = _encode_fields(title, content)
+        embedding_str = _check_vector(_encode_fields(title, content))
 
-        # Update database with embedding
         db = get_database_instance()
         conn = db._temp_get_connection()
-
-        # Convert embedding to PostgreSQL array format
-        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
-
-        stmt = text("""
+        conn.execute(text(f"""
             UPDATE articles
-            SET embedding = CAST(:embedding AS vector)
+            SET embedding = CAST(:embedding AS vector), {_CLEAR_REPAIR_STATE}
             WHERE uri = :uri
-        """)
-
-        conn.execute(stmt, {"embedding": embedding_str, "uri": article["uri"]})
+        """), {"embedding": embedding_str, "uri": article["uri"]})
         conn.commit()
-
         logger.debug("Upserted embedding for article %s", article.get("uri"))
+        return True
 
     except Exception as exc:
         logger.error("Vector upsert failed for article %s: %s", article.get("uri"), exc)
@@ -303,50 +347,50 @@ def upsert_article(article: Dict[str, Any]) -> None:
         if conn is not None:
             try:
                 conn.rollback()
-                logger.debug("Rolled back failed transaction for article %s", article.get("uri"))
             except Exception as rollback_error:
                 logger.error("Rollback failed for article %s: %s", article.get("uri"), rollback_error)
+        record_embedding_failure(article.get("uri"), f"{type(exc).__name__}: {exc}")
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
-async def upsert_article_async(article: Dict[str, Any]) -> None:
-    """Native async implementation for upserting article embeddings.
-
-    Args:
-        article: Article dictionary with uri, title, summary, etc.
-    """
-    # Check if native async is available
+async def upsert_article_async(article: Dict[str, Any]) -> Optional[bool]:
+    """Async ``upsert_article``: True stored, None no text, False failed
+    (recorded on the row for the repair sweep)."""
     if not _async_db_available:
-        # Fallback to thread pool
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, upsert_article, article)
-        return
+        return await loop.run_in_executor(None, upsert_article, article)
 
     try:
         title, content = build_article_encoder_input(article)
         if not title and not content:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
-            return
+            return None
 
         # The encoder call is blocking HTTP; keep it off the event loop.
         embedding = await asyncio.to_thread(_encode_fields, title, content)
+        embedding_str = _check_vector(embedding)
 
-        # Convert embedding to PostgreSQL array format
-        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
-
-        # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
         from app.services.async_db import get_async_database_instance
         async_db = get_async_database_instance()
         async with async_db.get_connection() as conn:
-            await conn.execute("""
+            await conn.execute(f"""
                 UPDATE articles
-                SET embedding = $1::vector
+                SET embedding = $1::vector, {_CLEAR_REPAIR_STATE}
                 WHERE uri = $2
             """, embedding_str, article["uri"])
-
         logger.debug("Async upserted embedding for article %s", article.get("uri"))
+        return True
 
     except Exception as exc:
         logger.error("Async vector upsert failed for article %s: %s", article.get("uri"), exc)
+        await asyncio.to_thread(record_embedding_failure, article.get("uri"), f"{type(exc).__name__}: {exc}")
+        return False
 
 
 

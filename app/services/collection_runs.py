@@ -49,6 +49,18 @@ def _non_exhaustive_policy() -> str:
     return value if value in ("advance", "hold") else "advance"
 
 
+def _parse_until(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
 def _backoff(attempts: int, now: datetime) -> datetime:
     """When a scope that failed or made no progress ``attempts`` times in a
     row may be claimed again: ``COLLECTION_BACKOFF_MINUTES`` (default 15),
@@ -360,6 +372,11 @@ def commit_interval(db, cp: Checkpoint, result: CollectionResult, *,
             no_prog = 0 if progressed else cp.no_progress_runs + 1
             if failed:
                 next_at = _backoff(fails, now)
+                # A quota pause says when it ends (a shared-ledger pause or a
+                # Retry-After); asking before then only extends it.
+                until = _parse_until((result.diagnostics or {}).get("quota_exhausted_until"))
+                if until is not None and until > next_at:
+                    next_at = until
             elif not progressed:
                 next_at = _backoff(no_prog, now)
             else:

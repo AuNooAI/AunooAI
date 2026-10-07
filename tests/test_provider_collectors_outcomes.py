@@ -960,3 +960,34 @@ def test_newsfirehose_broad_limit_scales_with_the_window(monkeypatch):
                               NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3)
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(days=2), interval_end=NOW))
     assert res.succeeded and res.coverage_complete and len(res.items) == 450
+
+
+def test_reddit_sends_nothing_while_the_shared_pause_holds(monkeypatch):
+    from app.collectors import reddit_collector as mod
+    until = datetime.now(timezone.utc) + timedelta(minutes=20)
+    monkeypatch.setattr(mod, "_paused_until", lambda: until)
+    session = FakeSession(lambda u, p, h: (_ for _ in ()).throw(AssertionError("no request may be sent")))
+    monkeypatch.setattr(mod, "_session", lambda: session)
+    res = run(mod.RedditCollector().collect("soc automation", "t", interval_start=START, interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_QUOTA and session.calls == []
+    assert res.diagnostics["quota_exhausted_until"] == until.isoformat()
+
+
+def test_a_429_carries_the_pause_end_for_the_checkpoint(monkeypatch):
+    from app.collectors import reddit_collector as mod
+    until = datetime.now(timezone.utc) + timedelta(minutes=7)
+    state = {"paused": None}
+    monkeypatch.setattr(mod, "_paused_until", lambda: state["paused"])
+
+    class Guard:
+        def __init__(self, host, **k): pass
+        def check(self): return None
+        def rate_limited(self, retry_after=None):
+            state["paused"] = until
+            return until
+    monkeypatch.setattr(mod, "HostGuard", Guard)
+    session = FakeSession(lambda u, p, h: FakeResponse(429, "slow down", headers={"Retry-After": "420"}))
+    monkeypatch.setattr(mod, "_session", lambda: session)
+    res = run(mod.RedditCollector().collect("soc automation", "t", interval_start=START, interval_end=NOW))
+    assert res.error_code == c.ERR_QUOTA
+    assert res.diagnostics.get("quota_exhausted_until") == until.isoformat()

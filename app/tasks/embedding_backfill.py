@@ -51,16 +51,24 @@ def _doc_text(title: str, summary: str) -> tuple:
     return (title, summary)
 
 
-def _process_batch() -> int:
+def _process_batch(selector: str = "eligible") -> int:
     """Embed one batch of NULL-embedding articles (newest-first). Sync; returns
-    the number embedded. Caller runs this in a thread."""
+    the number embedded. Caller runs this in a thread.
+
+    ``selector``: "eligible" (default) takes only rows the repair sweep would
+    (approved news, relevant social posts; app/tasks/embedding_repair.py).
+    "all" also embeds rejected and failed rows: an explicit audit repair."""
+    from app.tasks.embedding_repair import eligible_sql
+    where = eligible_sql() if selector == "eligible" else "embedding IS NULL"
+    if selector not in ("eligible", "all"):
+        raise ValueError(f"unknown selector {selector!r}")
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        rows = conn.execute(text("""
+        rows = conn.execute(text(f"""
             SELECT uri, title, summary
             FROM articles
-            WHERE embedding IS NULL
+            WHERE {where}
               AND title IS NOT NULL AND title <> ''
             ORDER BY submission_date DESC
             LIMIT :batch
@@ -104,7 +112,7 @@ async def run_embedding_backfill() -> None:
 
     while True:
         try:
-            count = await asyncio.to_thread(_process_batch)
+            count = await asyncio.to_thread(_process_batch, "eligible")
             if count > 0:
                 _status["embedded_total"] += count
                 _status["last_batch"] = count
@@ -124,12 +132,13 @@ async def run_embedding_backfill() -> None:
         await asyncio.sleep(LOOP_INTERVAL)
 
 
-async def backfill_embeddings(limit: int = 1000) -> int:
+async def backfill_embeddings(limit: int = 1000, selector: str = "eligible") -> int:
     """One-shot backfill for operator/admin use. Embeds up to ``limit`` articles
-    (or until drained) and returns the count."""
+    (or until drained) and returns the count. ``selector="all"`` includes
+    rejected rows; say so explicitly."""
     total = 0
     while total < limit:
-        count = await asyncio.to_thread(_process_batch)
+        count = await asyncio.to_thread(_process_batch, selector)
         if count == 0:
             break
         total += count

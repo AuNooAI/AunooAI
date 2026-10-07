@@ -426,6 +426,21 @@ t_articles = Table(
     Column('record_type', String(16)),
     Column('enrichment_block_reason', Text),
     Column('enrichment_attempts', Integer, server_default=text('0')),
+    # ip_002 (docs/pipelines/08_INGEST_FIX_SPEC.md, WP4/WP5a): decision evidence
+    Column('relevance_threshold_applied', Float),
+    Column('relevance_accepted_applied', Boolean),
+    Column('relevance_decision_engine', String(48)),
+    Column('relevance_engine_scores', JSONB),
+    Column('relevance_policy_version', String(32)),
+    Column('relevance_decision_group_id', Integer),
+    Column('relevance_attempts', Integer),
+    Column('relevance_next_retry_at', DateTime(timezone=True)),
+    Column('relevance_last_error', Text),
+    # ip_003 (WP5b): embedding repair state
+    Column('embedding_due_at', DateTime(timezone=True)),
+    Column('embedding_attempts', Integer),
+    Column('embedding_last_error', Text),
+    Column('embedding_next_retry_at', DateTime(timezone=True)),
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),
@@ -902,6 +917,11 @@ t_keyword_article_matches = Table(
     Column('group_id', ForeignKey('keyword_groups.id', ondelete='CASCADE'), nullable=False),
     Column('detected_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('is_read', Integer, default=text('0')),
+    # ip_002: the per-group relevance decision
+    Column('relevance_threshold_applied', Float),
+    Column('relevance_accepted', Boolean),
+    Column('relevance_engine', String(48)),
+    Column('relevance_policy_version', String(32)),
     UniqueConstraint('article_uri', 'group_id')
 )
 

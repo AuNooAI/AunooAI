@@ -151,6 +151,11 @@ async def lifespan(app: FastAPI):
         if (os.getenv("ENRICHMENT_RETRY_SWEEP_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
             _BACKGROUND_TASKS.append(
                 ("app.tasks.enrichment_retry_sweep", "run_enrichment_retry_sweep", 60, "enrichment retry sweep"))
+        # Embedding repair: approved news and relevant social posts without an
+        # embedding (docs/pipelines/08_INGEST_FIX_SPEC.md, WP5b).
+        if (os.getenv("EMBEDDING_REPAIR_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
+            _BACKGROUND_TASKS.append(
+                ("app.tasks.embedding_repair", "run_embedding_repair", 90, "embedding repair sweep"))
         for _mod, _func, _delay, _label in _BACKGROUND_TASKS:
             _schedule_background_task(_mod, _func, _delay, _label)
 

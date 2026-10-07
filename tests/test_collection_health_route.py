@@ -198,3 +198,12 @@ def test_alert_builder_names_failing_and_non_progressing_scopes_and_lookback_gap
             "1 failing 3+ times in a row; 2 not progressing)") in alerts
     assert any("newsapi skipped past the lookback" in a for a in alerts)
     assert not any("thenewsapi" in a for a in alerts)
+
+
+def test_pipeline_alerts_name_overdue_embeddings_and_exhausted_retries():
+    alerts = health_routes.pipeline_alerts(
+        {"overdue": 3, "exhausted": 1, "a_last_error": "ConnectionError: refused"},
+        {"enrichment_failed": {"waiting": 63, "exhausted": 63}, "relevance_check_failed": {"exhausted": 0}})
+    assert alerts[0].startswith("3 article(s) overdue for an embedding") and "refused" in alerts[0]
+    assert "1 article(s) at the embedding attempt cap" in alerts[1]
+    assert "63 enrichment_failed article(s) at their retry cap" in alerts[2] and len(alerts) == 3

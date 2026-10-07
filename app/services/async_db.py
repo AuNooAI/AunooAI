@@ -499,26 +499,101 @@ class AsyncDatabase:
             return False
 
     async def record_group_relevance(self, uri: str, topic: str, score: Optional[float],
-                                     status: str) -> bool:
+                                     status: str, evidence: Optional[Dict[str, Any]] = None,
+                                     group_id: Optional[int] = None) -> bool:
         """The relevance verdict for this article under this topic, on the
         (article, group) match row. Best-effort: a site that has not applied
-        rel_001 yet just logs at debug and carries on."""
+        rel_001 yet just logs at debug and carries on.
+
+        With ``group_id`` only that group's row is written: one group's
+        decision is never copied onto another group with a different
+        threshold (WP4). Without it, every group of the topic, as before.
+        ``evidence`` carries the decision fields (ip_002)."""
         if self.db_type != 'postgresql' or not uri or not topic:
             return False
-        query = """
+        ev = evidence or {}
+        group_filter = " AND m.group_id = ?" if group_id is not None else ""
+        query = f"""
             UPDATE keyword_article_matches m
                SET topic_alignment_score = ?,
                    relevance_status = ?,
                    scored_at = NOW(),
-                   below_threshold = ?
+                   below_threshold = ?,
+                   relevance_threshold_applied = COALESCE(?, m.relevance_threshold_applied),
+                   relevance_accepted = COALESCE(?, m.relevance_accepted),
+                   relevance_engine = COALESCE(?, m.relevance_engine),
+                   relevance_policy_version = COALESCE(?, m.relevance_policy_version)
               FROM keyword_groups g
-             WHERE g.id = m.group_id AND g.topic = ? AND m.article_uri = ?
+             WHERE g.id = m.group_id AND g.topic = ? AND m.article_uri = ?{group_filter}
         """
-        params = (score, status, 0 if status == 'approved' else 1, topic, uri)
+        params = [score, status, 0 if status == 'approved' else 1,
+                  ev.get("relevance_threshold_applied"), ev.get("relevance_accepted_applied"),
+                  ev.get("relevance_decision_engine"), ev.get("relevance_policy_version"), topic, uri]
+        if group_id is not None:
+            params.append(group_id)
+        try:
+            return (await self.execute_single_update(query, tuple(params))) > 0
+        except Exception as e:
+            logger.debug(f"record_group_relevance skipped for {uri} / {topic}: {e}")
+            return False
+
+    async def record_relevance_failure(self, uri: str, error: str) -> bool:
+        """Count a failed relevance check and set when to try again:
+        ``RELEVANCE_RETRY_BASE_MINUTES`` (default 30) doubling per attempt,
+        at most a day. The decision fields are cleared: there is none."""
+        if self.db_type != 'postgresql' or not uri:
+            return False
+        try:
+            base = float(os.getenv("RELEVANCE_RETRY_BASE_MINUTES", "30"))
+        except ValueError:
+            base = 30.0
+        query = """
+            UPDATE articles
+               SET relevance_attempts = COALESCE(relevance_attempts, 0) + 1,
+                   relevance_last_error = ?,
+                   relevance_next_retry_at = NOW() + make_interval(mins => LEAST(1440,
+                       ? * power(2, COALESCE(relevance_attempts, 0)))::int),
+                   relevance_accepted_applied = NULL,
+                   relevance_threshold_applied = NULL,
+                   topic_alignment_score = NULL,
+                   keyword_relevance_score = NULL,
+                   confidence_score = NULL
+             WHERE uri = ?
+        """
+        try:
+            return (await self.execute_single_update(query, ((error or "")[:1000], base, uri))) > 0
+        except Exception as e:
+            logger.warning(f"relevance failure not recorded for {uri}: {e}")
+            return False
+
+    async def record_relevance_decision(self, uri: str, article: Dict[str, Any]) -> bool:
+        """Write the decision record (ip_002 columns) on the article row. The
+        save paths predate these columns, so this is a separate update."""
+        if self.db_type != 'postgresql' or not uri or "relevance_accepted_applied" not in article:
+            return False
+        import json as _json
+        query = """
+            UPDATE articles
+               SET relevance_threshold_applied = ?,
+                   relevance_accepted_applied = ?,
+                   relevance_decision_engine = ?,
+                   relevance_engine_scores = CAST(? AS jsonb),
+                   relevance_policy_version = ?,
+                   relevance_decision_group_id = ?,
+                   relevance_next_retry_at = NULL,
+                   relevance_last_error = NULL,
+                   embedding_due_at = CASE WHEN ? THEN NOW() ELSE embedding_due_at END
+             WHERE uri = ?
+        """
+        params = (article.get("relevance_threshold_applied"), article.get("relevance_accepted_applied"),
+                  article.get("relevance_decision_engine"),
+                  _json.dumps(article.get("relevance_engine_scores") or {}, default=str),
+                  article.get("relevance_policy_version"), article.get("relevance_decision_group_id"),
+                  bool(article.get("relevance_accepted_applied")), uri)
         try:
             return (await self.execute_single_update(query, params)) > 0
         except Exception as e:
-            logger.debug(f"record_group_relevance skipped for {uri} / {topic}: {e}")
+            logger.warning(f"relevance decision not recorded for {uri}: {e}")
             return False
 
     async def close_pool(self):

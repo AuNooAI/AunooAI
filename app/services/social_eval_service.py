@@ -640,7 +640,9 @@ class SocialEvalService:
             db.facade._execute_with_rollback(text("""
                 UPDATE articles SET topic_alignment_score = :rel, keyword_relevance_score = :rel,
                     sentiment = :sent, ingest_status = 'social_evaluated', analyzed = true,
-                    author_role = :role, author_role_reason = :role_why
+                    author_role = :role, author_role_reason = :role_why,
+                    embedding_due_at = CASE WHEN CAST(:rel AS float) >= 0.4 AND embedding IS NULL
+                                            THEN NOW() ELSE embedding_due_at END
                 WHERE uri = :uri
             """), {"rel": s["relevance"], "sent": s["sentiment"].capitalize(), "uri": s["uri"],
                    "role": s.get("author_role"), "role_why": s.get("author_role_reason")})
@@ -781,7 +783,9 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
                    SET topic_alignment_score = :rel,
                        keyword_relevance_score = :rel,
                        sentiment = :sent, ingest_status = 'social_evaluated',
-                       analyzed = true
+                       analyzed = true,
+                       embedding_due_at = CASE WHEN CAST(:rel AS float) >= 0.4 AND embedding IS NULL
+                                               THEN NOW() ELSE embedding_due_at END
                  WHERE uri = :uri
             """), {"rel": verdict.get("relevance"),
                    "sent": sentiment.capitalize(), "uri": uri})

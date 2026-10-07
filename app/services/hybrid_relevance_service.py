@@ -774,6 +774,7 @@ Score:"""
             self._load_classifier()
 
         result = {
+            "accepted_by": None,
             "topic": topic,
             "relevant": False,
             "score": 0.0,
@@ -889,11 +890,11 @@ Score:"""
                 # "reject", and falls through to the LLM. See the CE_HIGH note
                 # at the top of this module for why the reject side is gone.
                 if ce_score > CE_HIGH:
-                    # Keep the hybrid score rather than adopting the CE's own
-                    # value — the CE's scale is not comparable to the
-                    # embedding/classifier scale, so writing it into `score`
-                    # would corrupt the threshold comparison downstream.
-                    result["score"] = max(result["score"], threshold)
+                    # Keep the hybrid score as measured. The CE's scale is not
+                    # the embedding/classifier scale, and raising the score to
+                    # the threshold stored an invented number (WP4); the
+                    # acceptance is recorded as a decision instead.
+                    result["accepted_by"] = "ce_accept"
                     result["method"] = f"{result['method']}+ce"
                     result["confidence"] = "high"
                     logger.info(
@@ -909,7 +910,9 @@ Score:"""
             try:
                 jev_pre = self._compute_jev_shadow(topic, title, summary, keywords=keywords)
                 if jev_pre and jev_pre["jev_on_topic"] >= JEV_ACCEPT_MIN:
-                    result["score"] = max(result["score"], threshold)
+                    # Accept on Jev's own criterion; the score stays as
+                    # measured and the acceptance is recorded (WP4).
+                    result["accepted_by"] = "jev_accept"
                     result["method"] = f"{result['method']}+jev_accept"
                     result["confidence"] = "high"
                     logger.info(f"🎯 Jev accepted borderline case: on_topic={jev_pre['jev_on_topic']:.2f} "
@@ -937,7 +940,8 @@ Score:"""
             logger.warning(f"Relevance unavailable for '{(title or '')[:60]}': no local engine and no fallback answered")
         else:
             result["status"] = "ok"
-            result["relevant"] = result["score"] >= threshold
+            result["relevant"] = bool(result.get("accepted_by")) or result["score"] >= threshold
+        result["threshold"] = threshold
 
         # Shadow tier: record what Jev would have said. Runs AFTER the decision
         # and touches none of score / relevant / method / confidence.

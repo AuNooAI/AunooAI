@@ -810,6 +810,24 @@ def _hours(delta: timedelta) -> int:
     return int(delta.total_seconds() // 3600)
 
 
+def pipeline_alerts(embeddings: Dict[str, Any], retries: Dict[str, Any]) -> list:
+    """Alerts for rows waiting on a later stage (WP5): embeddings overdue by
+    more than an hour, rows at an attempt cap that need a person."""
+    alerts = []
+    n = int((embeddings or {}).get("overdue") or 0)
+    if n:
+        alerts.append(f"{n} article(s) overdue for an embedding by more than 1h"
+                      + (f" (last error: {str(embeddings.get('a_last_error'))[:120]})"
+                         if embeddings.get("a_last_error") else ""))
+    n = int((embeddings or {}).get("exhausted") or 0)
+    if n:
+        alerts.append(f"{n} article(s) at the embedding attempt cap; see embedding_last_error")
+    for status, row in (retries or {}).items():
+        if isinstance(row, dict) and int(row.get("exhausted") or 0):
+            alerts.append(f"{row['exhausted']} {status} article(s) at their retry cap")
+    return alerts
+
+
 def build_collection_alerts(
     runs: Dict[str, Any],
     feeds: list,
@@ -998,9 +1016,13 @@ def _collect_collection_health() -> Dict[str, Any]:
     section("feeds", lambda: _feed_health_rows(db) if db else [])
     section("configuration_blocked", lambda: _count_by_topic(db, "quarantined_config") if db else [])
     section("enrichment_failed", lambda: _count_by_topic(db, "enrichment_failed") if db else [])
+    section("embeddings", lambda: __import__("app.tasks.embedding_repair", fromlist=["health"]).health(db)
+            if db else {})
+    section("retries", lambda: __import__("app.tasks.enrichment_retry_sweep", fromlist=["retry_health"])
+            .retry_health(db) if db else {})
     out["alerts"] = build_collection_alerts(
         out.get("runs") or {}, out.get("feeds") or [], out.get("configuration_blocked") or [],
-    )
+    ) + pipeline_alerts(out.get("embeddings") or {}, out.get("retries") or {})
     if not out["errors"]:
         out.pop("errors")
     return out

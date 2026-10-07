@@ -9,9 +9,19 @@ Two kinds of row wait here (spec work package 22):
 - ``enrichment_failed``: the article itself failed (no text, a model error).
   These are retried up to ``ENRICHMENT_MAX_ATTEMPTS`` times (default 3) and
   then left with their last error.
+- ``relevance_check_failed``: no relevance engine answered. Retried up to
+  ``RELEVANCE_MAX_ATTEMPTS`` times (default 5) once ``relevance_next_retry_at``
+  has passed (docs/pipelines/08_INGEST_FIX_SPEC.md, WP5a).
 
-The sweep runs on a timer, newest rows first, under a per-tick budget, and
-writes one run record per tick with provider ``enrichment_retry``.
+Eligibility and attempt caps are applied in SQL before the budget, and due
+rows are taken oldest first with the URI as tie-breaker (WP5c). Until 7 Oct
+2026 the query took the newest 200 waiting rows and capped them afterwards,
+so exhausted rows could fill the window and starve older eligible ones. A
+Postgres advisory lock keeps two sweeps from working the same rows. Rows at
+their cap stay visible in ``health_counts``.
+
+The sweep runs on a timer under a per-tick budget and writes one run record
+per tick with provider ``enrichment_retry``.
 
 Environment:
     ENRICHMENT_RETRY_SWEEP_ENABLED  "1" (default) starts the loop at boot
@@ -33,7 +43,10 @@ from app.collectors.contracts import CollectionResult
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_STATUSES = ("quarantined_config", "enrichment_failed")
+RETRYABLE_STATUSES = ("quarantined_config", "enrichment_failed", "relevance_check_failed")
+
+#: Advisory lock key for the sweep (any constant unique to this task).
+_SWEEP_LOCK_KEY = 0x0E0C_2026
 
 
 def _env_int(name: str, default: int) -> int:
@@ -45,6 +58,10 @@ def _env_int(name: str, default: int) -> int:
 
 def max_attempts() -> int:
     return _env_int("ENRICHMENT_MAX_ATTEMPTS", 3)
+
+
+def relevance_max_attempts() -> int:
+    return _env_int("RELEVANCE_MAX_ATTEMPTS", 5)
 
 
 def should_retry(row: Dict[str, Any], *, block_reason_now: Optional[str],
@@ -66,6 +83,8 @@ def should_retry(row: Dict[str, Any], *, block_reason_now: Optional[str],
         return True
     if status == "enrichment_failed":
         return int(row.get("enrichment_attempts") or 0) < cap
+    if status == "relevance_check_failed":
+        return int(row.get("relevance_attempts") or 0) < relevance_max_attempts()
     return False
 
 
@@ -92,28 +111,60 @@ def block_reasons_for(topics, configs: Dict[str, Dict[str, Any]]) -> Dict[str, O
     return reasons
 
 
-def _fetch_waiting_rows(db, limit: int) -> List[Dict[str, Any]]:
-    conn = None
+_WAITING_SQL = """
+    SELECT uri, title, news_source, publication_date, summary, topic,
+           ingest_status, enrichment_attempts, enrichment_block_reason, submission_date,
+           relevance_attempts, relevance_next_retry_at
+      FROM articles
+     WHERE ingest_status = 'quarantined_config'
+        OR (ingest_status = 'enrichment_failed'
+            AND COALESCE(enrichment_attempts, 0) < :cap)
+        OR (ingest_status = 'relevance_check_failed'
+            AND COALESCE(relevance_attempts, 0) < :rcap
+            AND (relevance_next_retry_at IS NULL OR relevance_next_retry_at <= NOW()))
+     ORDER BY COALESCE(relevance_next_retry_at, first_seen_at) ASC NULLS FIRST, uri ASC
+     LIMIT :limit
+"""
+
+
+def _fetch_waiting_rows(db, limit: int, conn=None) -> List[Dict[str, Any]]:
+    own = conn is None
     try:
-        conn = db._temp_get_connection()
-        rows = conn.execute(text("""
-            SELECT uri, title, news_source, publication_date, summary, topic,
-                   ingest_status, enrichment_attempts, enrichment_block_reason, submission_date
-              FROM articles
-             WHERE ingest_status IN ('quarantined_config', 'enrichment_failed')
-             ORDER BY submission_date DESC NULLS LAST
-             LIMIT :limit
-        """), {"limit": int(limit)}).mappings().fetchall()
+        conn = conn or db._temp_get_connection()
+        rows = conn.execute(text(_WAITING_SQL), {
+            "limit": int(limit), "cap": max_attempts(), "rcap": relevance_max_attempts(),
+        }).mappings().fetchall()
         return [dict(r) for r in rows]
     except Exception as exc:  # noqa: BLE001
         logger.warning("enrichment retry sweep: candidate query failed: %s", exc)
         return []
     finally:
+        if own and conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _try_lock(db):
+    """A connection holding the sweep's advisory lock, or None when another
+    sweep holds it. Released by closing the connection."""
+    conn = None
+    try:
+        conn = db._temp_get_connection()
+        got = conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _SWEEP_LOCK_KEY}).scalar()
+        if got:
+            return conn
+        conn.close()
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("enrichment retry sweep: advisory lock unavailable (%s); running unlocked", exc)
         if conn is not None:
             try:
                 conn.close()
             except Exception:  # noqa: BLE001
                 pass
+        return False
 
 
 def select_candidates(rows: List[Dict[str, Any]], configs: Dict[str, Dict[str, Any]],
@@ -160,8 +211,30 @@ async def sweep_once(db, *, budget: Optional[int] = None, service=None,
     result.mark_started()
 
     loop = asyncio.get_event_loop()
-    # Read more than the budget so rows that cannot retry yet do not starve
-    # the ones that can.
+    lock = await loop.run_in_executor(None, _try_lock, db)
+    if lock is None:
+        logger.info("enrichment retry sweep: another sweep holds the lock; skipping this tick")
+        return {"skipped": "locked"}
+    try:
+        return await _sweep_locked(db, budget, service, configs, record, result, loop)
+    finally:
+        if lock:
+            def _release():
+                # A pooled connection keeps its session: unlock explicitly.
+                try:
+                    lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _SWEEP_LOCK_KEY})
+                    lock.commit()
+                finally:
+                    lock.close()
+            try:
+                await loop.run_in_executor(None, _release)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+async def _sweep_locked(db, budget, service, configs, record, result, loop) -> Dict[str, Any]:
+    # Rows a topic block still stops are read too, so they are counted, but
+    # every row read is already under its cap and due.
     rows = await loop.run_in_executor(None, _fetch_waiting_rows, db, max(budget * 4, 50))
     selected, deferred, reasons = select_candidates(rows, configs, budget)
     result.counts.add(received=len(rows), deferred=deferred)
@@ -249,7 +322,8 @@ async def sweep_once(db, *, budget: Optional[int] = None, service=None,
 
 def health_counts(db) -> Dict[str, int]:
     """topic -> number of articles waiting on a configuration fix. For the
-    health probe and the UI flag on the topic."""
+    health probe and the UI flag on the topic. See ``retry_health`` for the
+    failed and exhausted counts."""
     conn = None
     try:
         conn = db._temp_get_connection()
@@ -263,6 +337,37 @@ def health_counts(db) -> Dict[str, int]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("enrichment retry sweep: health counts failed: %s", exc)
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def retry_health(db) -> Dict[str, Any]:
+    """Per state: rows waiting, rows due now, rows at their attempt cap
+    (exhausted: left with their last error, needing a person), and the
+    oldest waiting row's first_seen_at."""
+    conn = None
+    try:
+        conn = db._temp_get_connection()
+        rows = conn.execute(text("""
+            SELECT ingest_status, COUNT(*),
+                   COUNT(*) FILTER (WHERE (ingest_status = 'enrichment_failed' AND COALESCE(enrichment_attempts,0) >= :cap)
+                                       OR (ingest_status = 'relevance_check_failed' AND COALESCE(relevance_attempts,0) >= :rcap)),
+                   COUNT(*) FILTER (WHERE ingest_status = 'relevance_check_failed'
+                                      AND COALESCE(relevance_attempts,0) < :rcap
+                                      AND (relevance_next_retry_at IS NULL OR relevance_next_retry_at <= NOW())),
+                   MIN(first_seen_at)
+              FROM articles
+             WHERE ingest_status IN ('quarantined_config', 'enrichment_failed', 'relevance_check_failed')
+             GROUP BY ingest_status
+        """), {"cap": max_attempts(), "rcap": relevance_max_attempts()}).fetchall()
+        return {r[0]: {"waiting": int(r[1]), "exhausted": int(r[2]), "relevance_due": int(r[3]),
+                       "oldest_first_seen": r[4].isoformat() if r[4] else None} for r in rows}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
     finally:
         if conn is not None:
             try:

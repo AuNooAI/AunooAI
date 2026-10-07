@@ -29,7 +29,7 @@ from app.vector_store_pgvector import (
     count_embeddings,
 )
 from app.database import Database, get_database_instance
-from app.services.article_visibility import readable_sql
+from app.services.article_visibility import agent_evidence_sql, readable_sql
 
 # Heavy numeric/ML dependencies are imported lazily inside the functions that
 # need them.  This avoids hard runtime failures when the optional packages are
@@ -1960,8 +1960,8 @@ async def analyze_incidents(
                bias, factual_reporting, mbfc_credibility_rating, bias_source
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND NULLIF(TRIM(sentiment), '') IS NOT NULL
-        """ + "AND " + readable_sql() + "\n"
+        AND NULLIF(TRIM(sentiment), '') IS NOT NULL
+        """ + "AND " + agent_evidence_sql() + " AND " + readable_sql() + "\n"
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
@@ -3844,8 +3844,8 @@ async def analyze_real_time_signals(
         SELECT uri, title, summary, news_source, publication_date, category, sentiment
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND NULLIF(TRIM(sentiment), '') IS NOT NULL
-        """ + "AND " + readable_sql() + "\n"
+        AND NULLIF(TRIM(sentiment), '') IS NOT NULL
+        """ + "AND " + agent_evidence_sql() + " AND " + readable_sql() + "\n"
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
