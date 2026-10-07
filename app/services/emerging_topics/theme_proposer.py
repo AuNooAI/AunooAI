@@ -105,6 +105,24 @@ class ProposalResult:
         return len(self.sampled_uris)
 
 
+def _entity_patterns(entities: List[str]) -> List[str]:
+    """ILIKE patterns for a theme's key entities, LIKE wildcards escaped.
+
+    Names under three characters ("AI", "US") match almost every article and
+    are skipped.
+    """
+    patterns = []
+    seen = set()
+    for entity in entities or []:
+        name = str(entity or "").strip()
+        if len(name) < 3 or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        escaped = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        patterns.append(f"%{escaped}%")
+    return patterns
+
+
 class ThemeProposer:
     """
     Uses LLM to propose emerging themes from article samples.
@@ -397,7 +415,17 @@ class ThemeProposer:
         max_per_theme: int,
         distance_threshold: float,
     ) -> None:
-        """Fill one theme's article list by nearest-neighbour search (blocking)."""
+        """Fill one theme's article list (blocking).
+
+        Articles that name the theme's key entities come first, ranked by how
+        many of them they name; nearest-neighbour hits fill the rest. Vector
+        search alone could not find a theme's own story: the article
+        embeddings sit so close together that on wileytest on 7 Oct 2026 the
+        query "Gemini 4 Argon" scored 0.77 cosine against a Gemini launch
+        article and 0.85 against two missile tests, and its 30 nearest
+        articles held no Gemini article out of 67 that week. The relevance
+        check downstream judges every article this returns.
+        """
         conn = None
         try:
             conn = self._get_connection()
@@ -407,12 +435,22 @@ class ThemeProposer:
                 "query_embedding": embedding_str,
                 "cutoff": utcnow() - timedelta(days=days_back),
                 "limit": max_per_theme,
+                "threshold": distance_threshold,
             }
 
             topic_clause = ""
             if topic_filter:
                 topic_clause = "AND topic = :topic"
                 params["topic"] = topic_filter
+
+            hit_terms = []
+            for i, entity in enumerate(_entity_patterns(theme.key_entities)):
+                params[f"ent_{i}"] = entity
+                hit_terms.append(
+                    f"(CASE WHEN title ILIKE :ent_{i} ESCAPE '\\' "
+                    f"OR summary ILIKE :ent_{i} ESCAPE '\\' THEN 1 ELSE 0 END)"
+                )
+            hits_sql = " + ".join(hit_terms) if hit_terms else "0"
 
             published_ts = publication_ts_sql("publication_date")
 
@@ -421,14 +459,15 @@ class ThemeProposer:
             stmt = text(f"""
                 SELECT * FROM (
                     SELECT uri, title, summary,
-                           embedding <=> CAST(:query_embedding AS vector) as distance
+                           embedding <=> CAST(:query_embedding AS vector) as distance,
+                           {hits_sql} AS entity_hits
                     FROM articles
                     WHERE {published_ts} >= :cutoff
-                    AND embedding IS NOT NULL
                     {topic_clause}
                     OFFSET 0
                 ) filtered
-                ORDER BY distance, uri
+                WHERE entity_hits > 0 OR distance <= :threshold
+                ORDER BY entity_hits DESC, distance NULLS LAST, uri
                 LIMIT :limit
             """)
 
@@ -437,17 +476,19 @@ class ThemeProposer:
             uris: List[str] = []
             distances: List[float] = []
             for row in result.mappings():
-                distance = float(row["distance"])
-                if distance <= distance_threshold:
-                    uris.append(row["uri"])
-                    distances.append(distance)
+                uris.append(row["uri"])
+                # An article with no embedding was found by name; 1.0 marks it
+                # as unranked by the vector search.
+                distances.append(
+                    float(row["distance"]) if row["distance"] is not None else 1.0
+                )
 
             theme.article_uris = uris
             theme.article_distances = distances
 
             logger.info(
                 f"Theme '{theme.theme_label}': assigned {len(uris)} articles "
-                f"(threshold={distance_threshold})"
+                f"(entities={theme.key_entities}, threshold={distance_threshold})"
             )
         finally:
             if conn:

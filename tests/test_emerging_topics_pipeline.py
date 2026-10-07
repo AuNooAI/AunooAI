@@ -880,3 +880,25 @@ def test_a_successful_run_persists_topics_and_completes():
     assert not [e for e in events if e["event"] == "error"]
     # And every persisted topic carries an explicit coverage status.
     assert all(t.historical_coverage_status == "unknown" for t in store.saved_topics)
+
+
+# ---------------------------------------------------------------------------
+# Theme article search: entity names find a theme's own story
+# ---------------------------------------------------------------------------
+
+from app.services.emerging_topics.theme_proposer import _entity_patterns
+
+
+def test_entity_patterns_skip_short_names_and_duplicates():
+    assert _entity_patterns(["AI", "Google", "google", " Gemini 4 Argon ", "", None]) == [
+        "%Google%", "%Gemini 4 Argon%"
+    ]
+
+
+def test_entity_patterns_escape_like_wildcards():
+    assert _entity_patterns(["100%_Pure"]) == ["%100\\%\\_Pure%"]
+
+
+def test_no_entities_means_no_patterns():
+    assert _entity_patterns([]) == []
+    assert _entity_patterns(None) == []
