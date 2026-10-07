@@ -962,7 +962,7 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None,
                  + SUM(COALESCE((a.social_meta->>'reposts')::numeric,
                                 (a.social_meta->>'shares')::numeric, 0))
                    AS reactions,
-               COUNT(*) FILTER (WHERE a.social_meta IS NOT NULL) AS measured
+               COUNT(*) FILTER (WHERE (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')) AS measured
         FROM pb
         JOIN articles a ON a.uri = pb.article_uri
         WHERE COALESCE(a.bias_source,'') = 'vendor:linkedin'
@@ -1198,7 +1198,7 @@ def social_highlights(conn, market_id: int, days: Optional[int] = None,
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
           AND COALESCE(ma.review_verdict, '') <> 'excluded'
-          AND a.social_meta IS NOT NULL
+          AND (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
@@ -1281,7 +1281,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
           AND COALESCE(ma.review_verdict, '') <> 'excluded'
-          AND a.social_meta IS NOT NULL
+          AND (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
@@ -1346,7 +1346,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m
           AND COALESCE(ma.review_verdict, '') <> 'excluded'
-          AND a.social_meta IS NOT NULL
+          AND (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
           AND a.social_meta->>'author' IS NOT NULL
           AND COALESCE(a.bias_source, '') <> 'vendor:linkedin'
           AND COALESCE(a.topic_alignment_score, 0) >= {MIN_SOCIAL_ALIGNMENT}
@@ -1715,7 +1715,7 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
         JOIN bw_brands b ON b.id = pb.brand_id
         JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
         WHERE COALESCE(a.bias_source, '') <> 'vendor:linkedin'
-          AND a.social_meta IS NOT NULL
+          AND (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
           {window}
         GROUP BY 1, 2, 3
     """), params).mappings().all()
@@ -1730,7 +1730,7 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
         JOIN articles a ON a.uri = pb.article_uri
         JOIN bw_brands b ON b.id = pb.brand_id
         JOIN bw_market_brands mb ON mb.brand_id = b.id AND mb.market_id = :m
-        WHERE a.social_meta IS NOT NULL
+        WHERE (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
           {window}
         GROUP BY 1, 2, 3
         HAVING SUM(COALESCE((a.social_meta->>'reposts')::numeric,
@@ -1757,7 +1757,7 @@ def network_leaderboard(conn, market_id: int, *, days: Optional[int] = None
         FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.market_id = :m AND COALESCE(ma.review_verdict, '') <> 'excluded'
-          AND a.social_meta IS NOT NULL {window}
+          AND (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null') {window}
         ORDER BY engagement DESC
         LIMIT 500
     """), params).mappings().all()

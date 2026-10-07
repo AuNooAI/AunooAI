@@ -127,7 +127,7 @@ A hire is signal only when the post says someone has joined or been appointed.
 A customer is signal only when the customer is named or the deal is described.
 A launch is signal only when the post announces that a specific, named product
 or capability is now available, shipped or released, and kind "launch" is only
-for that. A post that argues a point, explains what the product does in general,
+for that. An advertising or marketing campaign is kind "other", not "launch". A post that argues a point, explains what the product does in general,
 comments on a threat, breach or vulnerability, marks an anniversary, or points
 to a webinar, podcast, interview, playbook or newsletter is not a launch: its
 kind is "opinion" (or "research" for a finding, "event" for the webinar).
@@ -239,7 +239,9 @@ Second, what kind of development it reports: launch, funding, customer,
 partnership, acquisition, award, hiring, research, incident, opinion, event,
 other. "incident" is something adverse that happened to the company: a data
 breach or cyberattack, an outage, a lawsuit, a regulator's fine or
-investigation, a product recall.
+investigation, a product recall. A "launch" is a product, feature or capability
+now available; an advertising or marketing campaign is "other" (Adweek on
+Noom's "Lose for Keeps" ad is not a launch).
 
 Then a verdict:
 - "signal": the article reports a specific development at the named company.
@@ -522,7 +524,8 @@ _CHECK_CRITERIA = {
 KIND_CRITERIA = {
     "launch": "A specific named product, feature or capability of the company "
               "is now available, shipped or released. Not a preview of something "
-              "coming, not a look back, not a listing on a marketplace.",
+              "coming, not a look back, not a listing on a marketplace, and not "
+              "an advertising or marketing campaign.",
     "funding": "The company raised investment: a round, led by or from investors.",
     "customer": "A named organisation buys, deploys or uses the company's "
                 "product, awards it a contract (a government contract or "
@@ -543,7 +546,8 @@ KIND_CRITERIA = {
                 "breach or cyberattack, an outage, a lawsuit, a regulator's fine, "
                 "investigation or warning, or a product recall or withdrawal.",
     "other": "Anything else: a newsletter, event, webinar, opinion, recap, "
-             "financial results, promotion, or plans for the future.",
+             "financial results, promotion, an advertising or marketing "
+             "campaign, or plans for the future.",
 }
 
 
