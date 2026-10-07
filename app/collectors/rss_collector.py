@@ -363,15 +363,26 @@ class RSSCollector(ArticleCollector):
             logger.info("feed not modified: %s", feed_url)
             return self._finish(result, started, since)
 
-        try:
-            response.raise_for_status()
-        except Exception as exc:                                       # noqa: BLE001
-            logger.error("feed fetch failed for %s: %s", feed_url, describe_exception(exc, host=host))
-            failed = CollectionResult.from_exception(exc, host=host, provider="rss", scope=feed_url)
-            failed.diagnostics.update(result.diagnostics)
-            return self._finish(failed, started, since)
+        # A site that refuses this server (BlinkOps's blog feed answered 403
+        # to everything from 17 Jul 2026) is read through Firecrawl instead.
+        fetched_text = None
+        from app.services import firecrawl_fetch
+        if firecrawl_fetch.is_blocked(status) and firecrawl_fetch.available():
+            via = await firecrawl_fetch.fetch_raw(feed_url)
+            if via is not None:
+                fetched_text = via[1]
+                result.diagnostics["via"] = "firecrawl"
+        if fetched_text is None:
+            try:
+                response.raise_for_status()
+            except Exception as exc:                                   # noqa: BLE001
+                logger.error("feed fetch failed for %s: %s", feed_url, describe_exception(exc, host=host))
+                failed = CollectionResult.from_exception(exc, host=host, provider="rss", scope=feed_url)
+                failed.diagnostics.update(result.diagnostics)
+                return self._finish(failed, started, since)
+            fetched_text = response.text or ""
 
-        text = clean_feed_text(response.text or "")
+        text = clean_feed_text(fetched_text)
         feed = feedparser.parse(text)
         if feed.bozo and _DECLARATION_NOT_AT_START in str(feed.get("bozo_exception") or ""):
             # Something other than whitespace sat before the declaration

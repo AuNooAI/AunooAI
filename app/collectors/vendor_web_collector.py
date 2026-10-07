@@ -54,7 +54,9 @@ from app.collectors.page_compare import (
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "Aunoo Market Monitor (+https://aunoo.ai)"
+# Browser-style, still naming us: Noom's feeds refused the bare
+# "Aunoo Market Monitor" string and accept this one.
+USER_AGENT = "Mozilla/5.0 (compatible; Aunoo Market Monitor; +https://aunoo.ai)"
 HTTP_TIMEOUT = 20.0
 
 # Sections worth watching on a vendor site, and what a change in each means.
@@ -158,6 +160,15 @@ async def discover_sources(domain: str, *, probe_pages: bool = True) -> Discover
             resp = await client.get(root)
             if resp.status_code < 400:
                 home_html = resp.text
+            else:
+                # A site that refuses this server: read the homepage once
+                # through Firecrawl for its feed links. The path guesses
+                # below stay direct, since each would be another paid call.
+                from app.services import firecrawl_fetch
+                if firecrawl_fetch.is_blocked(resp.status_code):
+                    via = await firecrawl_fetch.fetch_raw(root)
+                    if via is not None:
+                        home_html = via[1]
         except httpx.HTTPError as exc:
             out.errors.append(f"homepage: {exc}")
 
@@ -355,26 +366,33 @@ async def fetch_page(
         # The cheapest possible answer, and an unambiguous one.
         return PageFetch(url=url, status=304, changed=False, etag=etag,
                          last_modified=last_modified)
+    body, status, final_url = None, resp.status_code, str(resp.url)
     if resp.status_code >= 400:
-        return PageFetch(url=url, status=resp.status_code, changed=False,
-                         error=f"HTTP {resp.status_code}")
+        from app.services import firecrawl_fetch
+        via = (await firecrawl_fetch.fetch_raw(url)
+               if firecrawl_fetch.is_blocked(resp.status_code) else None)
+        if via is None:
+            return PageFetch(url=url, status=resp.status_code, changed=False,
+                             error=f"HTTP {resp.status_code}")
+        # Read through Firecrawl: no conditional-request headers come back.
+        status, body, final_url = via[0], via[1], url
 
-    title, text = extract_text(resp.text)
+    title, text = extract_text(body if body is not None else resp.text)
     digest = hash_text(text)
     blocks_hash = hash_blocks(text)
-    validation, reason = validate_content(text, prior_text, resp.status_code)
+    validation, reason = validate_content(text, prior_text, status)
     changed = prior_hash is None or prior_hash not in (digest, blocks_hash)
     if validation != V_OK:
         changed = False
     return PageFetch(
-        url=str(resp.url),
-        status=resp.status_code,
+        url=final_url,
+        status=status,
         changed=changed,
         content_hash=digest,
         text=text,
         title=title,
-        etag=resp.headers.get("etag"),
-        last_modified=resp.headers.get("last-modified"),
+        etag=resp.headers.get("etag") if body is None else None,
+        last_modified=resp.headers.get("last-modified") if body is None else None,
         error=(f"{validation}: {reason}" if validation != V_OK else None),
         validation=validation,
         blocks_hash=blocks_hash,
