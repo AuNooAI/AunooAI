@@ -1,5 +1,152 @@
 # Changes
 
+## 2026-10-07 — Market Monitor: Oviva's market page fixed end to end; incidents, press checks and hiring counts in canonical
+
+### Goal
+Oliver reviewed Oviva's market page (`oviva.aunoo.ai/api/market-monitor/markets/1/report.html`).
+Its "Product launches" section said there were none under a product launch, the RSS and AI feed
+links were missing, and it carried the aisocnews Analysis section and Cyberfuturists branding.
+Each round of checking the page turned up the next fault, so this entry covers a day of them.
+Most are class fixes that now sit in canonical; a few are Oviva-only edits and database changes.
+
+### Fix · The top story is listed in its own section too (`bdb97fab`)
+**`market_report_html.py`** took the top story out of its section so it would not show twice.
+When it was the only item of its kind, Oviva's section read "No product launch in the last 30
+days" under the HelloBetter MindFIT launch, and the section's own page dropped it entirely. The
+top story is now also listed in its section, and a section page lists every item.
+
+### Fix · RSS feed reader user agent (`bdb97fab`)
+Noom's feeds answered 403 to `AunooAI RSS Collector/1.0` and `AunooAI Feed Reader/1.0`, and the
+collector switched them off. **`rss_collector.py`** now sends
+`Mozilla/5.0 (compatible; AunooAI …; +https://aunoo.ai)`, and Noom answers 200. The Blink feed
+on bugfixing still answers 403 and stays off.
+
+### Feature · Feed links on private markets; no empty Analysis link (`83fecd57`)
+`feed.xml` and `feed.json` served public markets only, because a feed reader has no session.
+They now also accept a signed `exp`/`token` pair (the shared-report signature) and give it the
+shared view. The report pages show the links on any market the viewer can open, with a fresh
+year-long pair for a signed-in viewer (`FEED_LINK_TTL_SECONDS`). The Analysis link in the
+section bar now appears only when the market has published pieces, so aisocnews keeps it and
+customer markets drop it.
+
+### Feature · Incident developments (`9ba6ce37`, `7cdd2647`)
+A development had to be a launch, funding, customer, partnership, acquisition or hire, so
+HelloBetter's data breach (heise, stadt-bremerhaven) never reached the page. "incident" (a
+breach or cyberattack, an outage, a lawsuit, a regulator action, a recall) is now a kind in all
+three review prompts and `EVENT_KINDS` (**`market_post_review.py`**), a stored event type
+(**`entity_events.py`**, **`owned_post.py`**), a canonical "Incident" type ranked with the deals
+(**`market_assessment.py`**), a findings theme (**`market_findings.py`**), red on the page, and
+part of Market moves.
+
+### Fix · Events the press reported first were never shown (`7cdd2647`)
+An event first reported by trade press is stored under the article's title, and the review
+writes no headline for press. The stored-event path then picked a headline by rule, which the
+page refuses to show. Every press-only event was hidden, Noom's Adweek story included. Such
+events now carry the publisher's own title.
+
+### Fix · News sources labelled "Social" (`7cdd2647`)
+**`market_findings.py`** marked every news source social with `social_meta IS NOT NULL`. News
+rows store `social_meta` as JSON `null`, which that test does not catch.
+
+### Feature · Jev checks the kind of every press signal (`bf3bf063`)
+Vendor posts had a second reading by Jev; press had none. `_check_earned` in
+**`market_post_review.py`** now asks Jev the vendor-post questions, minus the headline ones,
+about each press signal. If Jev says it is not news, the item becomes commentary. If Jev does
+not support the kind, the item takes Jev's kind when that kind is shown on the page, and becomes
+commentary otherwise. The check is stored under `review_check.press`, not `review_check.kind`,
+because the vendor review re-reads wire releases that lack a `kind` check. `review_confidence`
+scores a press item on its kind alone. A press event now follows its article's current reading,
+as vendor events already did.
+
+### Fix · Social check asked about the customer, not the market (`9ba6ce37`)
+Jev was asked "Is this post about <market name>?". Oviva's market is named "Oviva", so posts
+about the other eight vendors failed, the breach posts included. The question now names the
+market's vendors and, when the market has no collection phrases, its corpus phrases.
+
+### Fix · Job lists match their counts (`9ba6ce37`)
+The list under an open-roles count ignored the count's 30-day window and its own-board duplicate
+rule, so Noom's 22 roles listed some titles three times. `job_postings()` now takes the window
+and applies the rule, and the rule also drops LinkedIn's per-city copies of one job. A company's
+own board still counts each opening.
+
+### Fix · Large incumbents left out of open roles (`c1505c24`)
+The add-vendor checklist says incumbents are left out of open-role figures; only headcount and
+funding did it. The hiring count, its job list, the period comparison and the jobs drill-down now
+leave them out (`_NOT_INCUMBENT_MB`). A single vendor's own job list still shows its listings.
+
+### Fix · Clinical job-function group (`08cbb503`)
+The function groups were written for the security market, so Oviva's "Health Care Provider"
+roles all read as "other". A clinical group now comes first.
+
+### Fix · Smaller page faults (`a9a02194`, `30bf1040`, `7e13d9c0`)
+- A press-reported top story printed its summary twice, once as "why it matters".
+- "1 vendors were watched" and "1 posts" now read correctly.
+- TikTok, Instagram, YouTube and Facebook posts now name their platform.
+- The acquisitions highlight read "Leidos acquired Leidos on 5 October". When the buyer found is
+  the tracked vendor itself, it now names the company bought: "Leidos acquired Analogic".
+
+### Oviva-only edits (prod tree, not committed)
+All in `/home/orochford/tenants/oviva.aunoo.ai`, with `.bak-*-20261007` or scratchpad backups:
+- Cyberfuturists branding removed: byline "Made with Aunoo", kicker "Market monitor", About page
+  off (it named Oliver Rochford Ltd as data controller), feed author Aunoo.
+- Incumbent support ported from canonical into `market_horizon.py`, the map renderer, three
+  headcount queries in `market_publish.py` and the vendor-status route.
+- Every canonical fix above, patched by hand: Oviva's copies of these files are far behind
+  canonical, so no file was copied wholesale.
+
+### Oviva data and config changes (database, not in git)
+- Market 1 `config.context_terms` set to eight health phrases (DiGA, digital health
+  application(s), Digitale Gesundheitsanwendung(en), Wegovy, Mounjaro, GLP-1). It had inherited
+  the AI-SOC security phrases, which turned away 517 vendor mentions in 30 days and let a
+  Splunk article in. The scan then added 72 articles; the Splunk row was deleted.
+- Vendors (via `/var/tmp/oviva_vendor_fix.sql`, run by Oliver): website links for seven vendors,
+  categories for all nine, funding for HelloBetter ($33.5m, from €31m disclosed) and Zanadio
+  (Undisclosed), page-poll pages for Juniper, Zanadio and Numan, Noom's feeds back on. Logos
+  fetched for all nine.
+- Zanadio: its LinkedIn link pointed at Sidekick Health, its parent. The link was retired, the
+  Sidekick posts and headcount removed from the market, and a note added.
+- WeightWatchers marked `incumbent` in `bw_market_vendor_controls`; its Brand Watcher tracking
+  left on.
+- Runs made by hand: the daily review, press re-reviews, the vendor-credit check, the social check
+  over 31 days, the coverage extractor, one LinkedIn profile read for HelloBetter (run 578), and
+  two maturity-map refreshes.
+
+### Verification
+- Oviva front page rendered after each round. The final render shows the MindFIT launch as the
+  top story, the HelloBetter breach as an Incident under Market moves from two independent
+  sources, 115 open roles with Oviva at "clinical 36", 7 of 9 vendors on the map, and
+  WeightWatchers listed as a large incumbent.
+- Press check on Oviva: the three breach articles confirmed as incidents at 1.0; Noom's ad story
+  confirmed as a launch at only 0.61, so it is listed but cannot be the top story (needs 0.85).
+- Social check re-run: 24 of 54 posts shown; the off-topic health-plan post scored 0.40 and is
+  hidden.
+- aisocnews live: "Leidos acquired Analogic on 5 October"; 157 open roles over 30 days (224 at
+  the start of the day; 207 after the job-list fix).
+- Signed feeds on Oviva: 200 for `feed.xml` and `feed.json` with a valid pair, 404 with a bad one.
+- `pytest` on the four market test files: the same four tests fail before and after these
+  changes. All four test live data; the job-list test's gap stays at 3 listings either way.
+
+### Propagation
+- Canonical: all ten commits above. The first two are on `fix/market-monitor-voices-relevance`
+  and `fix/ingest-pipeline-spec`; the rest only on `fix/ingest-pipeline-spec`, because another
+  session moved the shared tree to that branch mid-session. Only this session's files went into
+  them.
+- bugfixing restarted at 12:50 with all of it except `08cbb503`, which loads at the next restart
+  and changes no aisocnews figure.
+- Oviva: every change live; restarted last after `08cbb503`.
+- Other sites (sunstar, abm, panaya, …) have none of the market fixes. abm's
+  `market_report_html.py` matched canonical this morning; the rest have drifted.
+
+### Lessons
+- A customer market inherits the AI-SOC phrases unless `config.context_terms` is set. Set it
+  when a market is created.
+- `social_meta IS NOT NULL` selects news rows too. Seven queries in `market_analysis.py` still
+  use it and are unchecked.
+- Another session can switch the shared tree's branch mid-session. Commit by explicit path, and
+  check the branch first.
+- A restart that loads the tree also loads other sessions' uncommitted code. Check `git status`
+  before restarting.
+
 ## 2026-10-07 — Pipeline fixes, Phase 2: check-all-groups, submission_date default, social model kept on Haiku
 
 ### Goal
