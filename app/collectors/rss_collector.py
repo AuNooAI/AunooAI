@@ -87,7 +87,7 @@ async def first_capture(url: str, *, client: Optional[httpx.AsyncClient] = None
     client = client or httpx.AsyncClient(timeout=WAYBACK_TIMEOUT)
     try:
         response = await client.get(WAYBACK_CDX, params=params,
-                                    headers={"User-Agent": "AunooAI RSS Collector/1.0"})
+                                    headers={"User-Agent": "Mozilla/5.0 (compatible; AunooAI RSS Collector/1.0; +https://aunoo.ai)"})
         response.raise_for_status()
         stamp = (response.text or "").strip().split("\n")[0].strip()
         if not re.fullmatch(r"\d{14}", stamp):
@@ -328,7 +328,7 @@ class RSSCollector(ArticleCollector):
         result.interval_end = started
 
         headers = {
-            'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
+            'User-Agent': 'Mozilla/5.0 (compatible; AunooAI Feed Reader/1.0; +https://aunoo.ai)',
             'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
         }
         if etag:
@@ -659,7 +659,7 @@ class RSSCollector(ArticleCollector):
                 response = await client.get(
                     url,
                     headers={
-                        'User-Agent': 'AunooAI Feed Reader/1.0 (+https://aunoo.ai)',
+                        'User-Agent': 'Mozilla/5.0 (compatible; AunooAI Feed Reader/1.0; +https://aunoo.ai)',
                         'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml'
                     },
                     follow_redirects=True

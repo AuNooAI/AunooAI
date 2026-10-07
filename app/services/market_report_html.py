@@ -3839,6 +3839,18 @@ def _v2_is_voice(row: Dict[str, Any]) -> bool:
             or (verdict == "signal" and kind == "research"))
 
 
+def _v2_bucket_of(dev: Dict[str, Any]) -> str:
+    """The front-page section a development belongs in."""
+    kind = dev.get("event_type")
+    if kind in _V2_LAUNCH_TYPES:
+        return "launches"
+    if kind in _V2_HIRING_TYPES:
+        return "hiring"
+    if kind == "customer" and not _customer_named(dev) and not _is_contract(dev):
+        return "cases"
+    return "moves"
+
+
 def _v2_sections(developments: List[Dict[str, Any]],
                  corpus_rows: List[Dict[str, Any]],
                  discussion: List[Dict[str, Any]],
@@ -3879,15 +3891,7 @@ def _v2_sections(developments: List[Dict[str, Any]],
     for d in developments:
         if d is lead:
             continue
-        kind = d.get("event_type")
-        if kind in _V2_LAUNCH_TYPES:
-            buckets["launches"].append(d)
-        elif kind in _V2_HIRING_TYPES:
-            buckets["hiring"].append(d)
-        elif kind == "customer" and not _customer_named(d) and not _is_contract(d):
-            buckets["cases"].append(d)
-        else:
-            buckets["moves"].append(d)
+        buckets[_v2_bucket_of(d)].append(d)
     # Hiring is ordered by open roles, most first, then the headcount moves
     # by size, so the front page's top five are the five biggest recruiters.
     def hiring_key(d: Dict[str, Any]) -> tuple:
@@ -5059,7 +5063,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     lead_piece = pieces[0] if (pieces and section is None and piece_row is None
                                and _piece_is_fresh(pieces[0])) else None
     parts = _v2_sections(developments, rows, assessment.get("discussion") or [],
-                         highlights, lead_from_developments=lead_piece is None)
+                         highlights,
+                         lead_from_developments=lead_piece is None and section is None)
     buckets = parts["buckets"]
     buckets["analysis"] = [p for p in pieces if lead_piece is None or p["id"] != lead_piece["id"]]
     buckets["wider"] = list(assessment.get("wider") or [])
@@ -5261,6 +5266,12 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</section>")
         for key in V2_SECTIONS:
             items = buckets[key]
+            if lead is not None and lead_piece is None and key == _v2_bucket_of(lead):
+                # The lead is listed in its own section as well: a section
+                # reading "No product launch" under a launch as the lead was
+                # wrong (user, 7 Oct 2026). Newest first, like the rest.
+                items = sorted([lead] + items, key=lambda d: str(d.get("date") or ""),
+                               reverse=True)
             if key in ("analysis", "wider") and not items:
                 continue   # nothing of ours to show: no empty section (user, 29 Aug)
             if key == "social":
