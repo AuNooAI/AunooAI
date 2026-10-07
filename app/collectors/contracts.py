@@ -58,6 +58,11 @@ TRUNC_QUOTA = "quota"
 TRUNC_RETENTION = "retention_limit"
 TRUNC_NO_DATE_FILTER = "provider_no_date_filter"
 TRUNC_PARSE_PARTIAL = "parse_partial"
+#: The provider returned the most it will give for this query and there is no
+#: way to ask for more (a list API with no paging, or our own per-query page
+#: cap). Waiting does not help, so the checkpoint may advance; the run record
+#: keeps ``coverage_complete=False`` as the stated limitation.
+TRUNC_PAGE_CAP = "page_cap"
 
 #: Status codes that are a provider or network hiccup, not a bad query.
 #: arXiv answers 406 in bursts to a query that returns 200 a minute later
@@ -188,10 +193,14 @@ class CollectionResult:
 
     @property
     def may_advance_checkpoint(self) -> bool:
-        """Only a genuinely complete interval moves coverage forward. A 429,
-        a timeout, a parse error or an exhausted budget never does, whatever
-        it managed to return on the way."""
-        return self.status == STATUS_SUCCESS and self.coverage_complete and not self.parse_partial
+        """Only a complete interval moves coverage forward. A 429, a timeout,
+        a parse error or an exhausted budget never does, whatever it managed
+        to return on the way. The one exception is a page cap: re-asking the
+        same window returns the same page, so holding it would stall the
+        scope for good (the firehose keywords did, 2-7 Oct 2026)."""
+        if self.status != STATUS_SUCCESS or self.parse_partial:
+            return False
+        return self.coverage_complete or self.truncated_reason == TRUNC_PAGE_CAP
 
     def mark_started(self) -> "CollectionResult":
         self.started_at = self.started_at or datetime.now(timezone.utc)

@@ -464,9 +464,10 @@ class XpozCollector(ArticleCollector):
                     outcome.counts.filtered = dropped
                     if len(posts) >= per_platform:
                         # A full page from a provider that does not page for
-                        # us has no proven end.
+                        # us has no proven end, and asking again returns the
+                        # same page, so it is a page cap (see contracts).
                         outcome.coverage_complete = False
-                        outcome.truncated_reason = "provider_limit"
+                        outcome.truncated_reason = "page_cap"
                     logger.info(
                         "Xpoz %s returned %d posts for '%s'%s",
                         plat, len(posts), term[:60],

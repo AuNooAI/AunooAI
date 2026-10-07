@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from app.collectors.contracts import (
     CollectionResult,
-    TRUNC_PROVIDER_LIMIT,
+    TRUNC_PAGE_CAP,
     host_of,
 )
 
@@ -244,8 +244,11 @@ class ArticleCollector(ABC):
         """Collect over a fixed interval and report the outcome.
 
         The default wraps ``search_articles``. A full page from a list API has
-        no proven end, so it is reported as coverage incomplete with a
-        provider-limit truncation; fewer results than asked for is complete.
+        no proven end, so it is reported as coverage incomplete. It is a page
+        cap, not a resumable truncation: the list API cannot be asked for the
+        next page, so holding the interval would re-fetch the same page on
+        every run. The checkpoint advances and the run record keeps the gap.
+        Fewer results than asked for is complete.
         An exception becomes a failed result with a classified error code.
         """
         res = self.new_result(query, interval_start, interval_end)
@@ -262,7 +265,7 @@ class ArticleCollector(ABC):
         res.counts.received = len(items)
         if max_results and len(items) >= max_results:
             res.coverage_complete = False
-            res.truncated_reason = TRUNC_PROVIDER_LIMIT
+            res.truncated_reason = TRUNC_PAGE_CAP
             res.diagnostics["note"] = "list API returned a full page; no proven end"
         return self.finish(res, query, interval_start, interval_end)
 

@@ -36,6 +36,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_LEASE = timedelta(minutes=30)
 
 
+def _stall_after() -> timedelta:
+    """How long after its end an interval may sit unfinished before a run
+    that did not fail moves past it anyway (``CHECKPOINT_STALL_HOURS``)."""
+    try:
+        hours = float(os.getenv("CHECKPOINT_STALL_HOURS", "72"))
+    except ValueError:
+        hours = 72.0
+    return timedelta(hours=max(1.0, hours))
+
+
 def _owner() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
@@ -130,6 +140,8 @@ class Checkpoint:
     last_error_code: Optional[str] = None
     last_success_at: Optional[datetime] = None
     coverage_unknown_before: Optional[datetime] = None
+    #: Set by ``commit_interval``: True when coverage moved to interval_end.
+    advanced: bool = False
 
     @property
     def has_unfinished_interval(self) -> bool:
@@ -224,32 +236,55 @@ def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
 
 
 def commit_interval(db, cp: Checkpoint, result: CollectionResult, *,
-                    owner: Optional[str] = None) -> bool:
+                    owner: Optional[str] = None, now: Optional[datetime] = None) -> bool:
     """Record the run's effect on the checkpoint, atomically against the
     version read at claim time.
 
-    A complete success moves ``coverage_through`` to the interval end and
-    clears the continuation. A partial run keeps the interval and stores the
-    continuation. A failure leaves coverage alone and counts the failure.
-    Returns False when the version moved under us (another worker committed
-    first), in which case nothing is written.
+    A complete success (or a page cap, see ``contracts.TRUNC_PAGE_CAP``)
+    moves ``coverage_through`` to the interval end and clears the
+    continuation. A partial run, or a successful run that stopped early but
+    left a continuation, keeps the interval and stores the continuation. A
+    failure leaves coverage alone and counts the failure.
+
+    Stall valve: a run that did not fail, on an interval that ended more than
+    ``CHECKPOINT_STALL_HOURS`` ago, advances anyway with
+    ``last_error_code='stalled_advanced'``. Without it a provider that keeps
+    answering "there is more" without a usable cursor holds a scope forever
+    (2-7 Oct 2026: 82 firehose keywords on bugfixing). Failures never take
+    the valve: an outage must stay visible, not be skipped past.
+
+    Sets ``cp.advanced``. Returns False when the version moved under us
+    (another worker committed first), in which case nothing is written.
     """
+    cp.advanced = False
     if cp.version < 0:
         return False
     owner = owner or _owner()
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    stalled = (not result.may_advance_checkpoint and not result.failed
+               and cp.interval_end is not None
+               and now - cp.interval_end >= _stall_after())
     conn = None
     try:
         conn = db._temp_get_connection()
-        if result.may_advance_checkpoint:
+        if result.may_advance_checkpoint or stalled:
             res = conn.execute(text("""
                 UPDATE collection_checkpoints
                    SET coverage_through = :b, continuation = NULL, version = version + 1,
                        lease_owner = NULL, lease_until = NULL, last_success_at = :n,
-                       consecutive_failures = 0, last_error_code = NULL, updated_at = :n
+                       consecutive_failures = 0, last_error_code = :e, updated_at = :n
                  WHERE provider = :p AND scope_key = :s AND version = :v
-            """), {"b": cp.interval_end, "n": now, "p": cp.provider, "s": cp.scope_key, "v": cp.version})
-        elif result.status == "partial" or (result.failed and result.retryable):
+            """), {"b": cp.interval_end, "n": now, "e": "stalled_advanced" if stalled else None,
+                   "p": cp.provider, "s": cp.scope_key, "v": cp.version})
+            if stalled:
+                logger.warning(
+                    "checkpoint %s/%s: interval %s..%s unfinished for %s; advancing past it (%s)",
+                    cp.provider, cp.scope_key, cp.interval_start, cp.interval_end,
+                    now - cp.interval_end, result.truncated_reason or result.status)
+                result.diagnostics["stall_advanced"] = True
+            advancing = True
+        elif (result.status == "partial" or (result.failed and result.retryable)
+              or (result.succeeded and result.continuation)):
             res = conn.execute(text("""
                 UPDATE collection_checkpoints
                    SET continuation = CAST(:c AS jsonb), version = version + 1,
@@ -260,6 +295,7 @@ def commit_interval(db, cp: Checkpoint, result: CollectionResult, *,
             """), {"c": _json(result.continuation), "failed": bool(result.failed),
                    "e": (result.error_code or "")[:32] or None, "n": now,
                    "p": cp.provider, "s": cp.scope_key, "v": cp.version})
+            advancing = False
         else:
             res = conn.execute(text("""
                 UPDATE collection_checkpoints
@@ -267,13 +303,15 @@ def commit_interval(db, cp: Checkpoint, result: CollectionResult, *,
                        consecutive_failures = consecutive_failures + 1,
                        last_error_code = :e, updated_at = :n
                  WHERE provider = :p AND scope_key = :s AND version = :v
-            """), {"e": (result.error_code or "")[:32] or None, "n": now,
+            """), {"e": (result.error_code or result.truncated_reason or "")[:32] or None, "n": now,
                    "p": cp.provider, "s": cp.scope_key, "v": cp.version})
+            advancing = False
         conn.commit()
         if res.rowcount == 0:
             logger.warning("checkpoint %s/%s moved under us (version %s); nothing written",
                            cp.provider, cp.scope_key, cp.version)
             return False
+        cp.advanced = advancing
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("checkpoint commit failed for %s/%s: %s", cp.provider, cp.scope_key, exc)
@@ -336,6 +374,16 @@ def health_summary(db, *, since_hours: int = 24) -> Dict[str, Any]:
              WHERE error_code IS NOT NULL AND finished_at > NOW() - make_interval(hours => :h)
              GROUP BY provider, error_code ORDER BY 3 DESC LIMIT 50
         """), {"h": since_hours}).fetchall()
+        # A scope is stalled when its interval ended over a day ago and coverage
+        # never reached it. Every run touches updated_at, so it cannot say this.
+        stalled = conn.execute(text("""
+            SELECT provider, COUNT(*), MIN(interval_end)
+              FROM collection_checkpoints
+             WHERE interval_end < NOW() - interval '24 hours'
+               AND (coverage_through IS NULL OR coverage_through < interval_end)
+             GROUP BY provider
+        """)).fetchall()
+        stalled_by = {r[0]: (int(r[1]), r[2]) for r in stalled}
         pending = conn.execute(text("""
             SELECT provider, scope_key, interval_start, interval_end, coverage_through, consecutive_failures,
                    last_error_code, updated_at
@@ -347,7 +395,11 @@ def health_summary(db, *, since_hours: int = 24) -> Dict[str, Any]:
             "providers": [
                 {"provider": r[0], "last_success_at": r[1].isoformat() if r[1] else None,
                  "last_run_at": r[2].isoformat() if r[2] else None, "failed": int(r[3]),
-                 "partial": int(r[4]), "quota_exhausted": int(r[5]), "empty_success": int(r[6])}
+                 "partial": int(r[4]), "quota_exhausted": int(r[5]), "empty_success": int(r[6]),
+                 "stalled": stalled_by.get(r[0], (0, None))[0],
+                 "stalled_oldest_interval_end": (
+                     stalled_by[r[0]][1].isoformat()
+                     if r[0] in stalled_by and stalled_by[r[0]][1] else None)}
                 for r in providers],
             "errors": [{"provider": r[0], "error_code": r[1], "count": int(r[2])} for r in errors],
             "pending_intervals": [

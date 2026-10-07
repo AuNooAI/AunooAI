@@ -108,3 +108,56 @@ def test_gate_version_is_order_and_case_insensitive():
     from app.services.rejected_candidates import gate_version
     assert gate_version(["B", "a"], 0.5) == gate_version(["a", " b "], 0.5)
     assert gate_version(["a"], 0.5) != gate_version(["a"], 0.6)
+
+
+def test_page_cap_advances_and_a_continuation_holds(db):
+    """A page cap moves coverage (re-asking returns the same page); a
+    successful run that stopped with a continuation keeps the interval."""
+    from app.collectors.contracts import CollectionResult, TRUNC_PAGE_CAP
+    from app.services.collection_runs import claim_interval, commit_interval
+    scope = "scope:cap"
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    end1 = cp.interval_end
+    early = CollectionResult.ok([{"url": "a"}])
+    early.coverage_complete = False
+    early.continuation = {"after": "t3_x"}
+    assert commit_interval(db, cp, early) and not cp.advanced
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp2.interval_end == end1 and cp2.continuation == {"after": "t3_x"} and cp2.consecutive_failures == 0
+
+    capped = CollectionResult.ok([{"url": "b"}])
+    capped.coverage_complete = False
+    capped.truncated_reason = TRUNC_PAGE_CAP
+    assert commit_interval(db, cp2, capped) and cp2.advanced
+    cp3 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp3.coverage_through == end1 and cp3.continuation is None
+
+
+def test_stall_valve_advances_an_old_window_but_never_a_failure(db, monkeypatch):
+    from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, TRUNC_PROVIDER_LIMIT
+    from app.services.collection_runs import claim_interval, commit_interval, health_summary
+    monkeypatch.setenv("CHECKPOINT_STALL_HOURS", "72")
+    scope = "scope:stall"
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    end1 = cp.interval_end
+    stuck = CollectionResult.ok([{"url": "a"}])
+    stuck.coverage_complete = False
+    stuck.truncated_reason = TRUNC_PROVIDER_LIMIT
+
+    # Within the stall window: held, counted as a failure as before.
+    assert commit_interval(db, cp, stuck, now=end1 + timedelta(hours=12)) and not cp.advanced
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp2.interval_end == end1 and cp2.coverage_through is None
+
+    # A failure past the stall window is still held: outages stay visible.
+    late = end1 + timedelta(hours=73)
+    assert commit_interval(db, cp2, CollectionResult.failure(ERR_TIMEOUT, "slow", retryable=True), now=late)
+    assert not cp2.advanced
+    cp3 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp3.coverage_through is None
+
+    # The same non-failing run past the stall window advances.
+    assert commit_interval(db, cp3, stuck, now=late) and cp3.advanced
+    assert stuck.diagnostics.get("stall_advanced") is True
+    cp4 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp4.coverage_through == end1 and cp4.last_error_code == "stalled_advanced"

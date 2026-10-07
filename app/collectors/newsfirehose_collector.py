@@ -2,8 +2,9 @@ import asyncio
 import os
 import re
 import logging
+import time
 import aiohttp
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
 
@@ -13,10 +14,45 @@ def _naive_local(value):
     if isinstance(value, datetime) and value.tzinfo is not None:
         return value.astimezone().replace(tzinfo=None)
     return value
-from .base_collector import ArticleCollector
+from .base_collector import (
+    ArticleCollector,
+    PageClock,
+    ProviderHTTPError,
+    coerce_datetime,
+    get_json,
+    in_interval,
+    page_budget,
+    provider_max_pages,
+    provider_message,
+)
+from .contracts import CollectionResult, TRUNC_PAGE_CAP, host_of
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _session():
+    """Session factory; tests replace it with a fake."""
+    return aiohttp.ClientSession()
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+#: The API compares ``published_at <= to_date`` with ``to_date`` read as
+#: midnight at the START of that day, and rejects datetimes (HTTP 422). So the
+#: day after the interval end is the only bound that includes the end day.
+def _date_params(start: Optional[datetime], end: Optional[datetime]) -> Dict[str, str]:
+    params: Dict[str, str] = {}
+    if start is not None:
+        params["from_date"] = start.astimezone().strftime("%Y-%m-%d")
+    if end is not None:
+        params["to_date"] = (end.astimezone() + timedelta(days=1)).strftime("%Y-%m-%d")
+    return params
 
 
 class NewsFirehoseCollector(ArticleCollector):
@@ -241,8 +277,10 @@ class NewsFirehoseCollector(ArticleCollector):
                 if isinstance(from_dt, datetime) else str(from_dt)[:10]
             )
             if end_date is not None:
+                # The API reads to_date as midnight at the start of that day,
+                # so send the day after the end to include the end day itself.
                 params["to_date"] = (
-                    end_date.strftime("%Y-%m-%d")
+                    (end_date + timedelta(days=1)).strftime("%Y-%m-%d")
                     if isinstance(end_date, datetime) else str(end_date)[:10]
                 )
 
@@ -382,6 +420,159 @@ class NewsFirehoseCollector(ArticleCollector):
         except Exception as e:
             logger.error(f"NewsFirehose unexpected error: {type(e).__name__}: {e}")
             return []
+
+    async def collect(
+        self,
+        query: str,
+        topic: str,
+        *,
+        interval_start: Optional[datetime] = None,
+        interval_end: Optional[datetime] = None,
+        max_results: int = 10,
+        continuation: Optional[Dict[str, Any]] = None,
+        language: Optional[str] = "en",
+        source_ids: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        **kw: Any,
+    ) -> CollectionResult:
+        """Collect one fixed interval, paging until the provider has no more.
+
+        The default ``collect`` asked for one page of ``max_results`` (10 on
+        most tenants). From 2 Oct 2026 a full page held the checkpoint, the
+        next run asked for the same window and got the same 10 articles, and
+        82 keywords on bugfixing stopped collecting. This override pages each
+        OR-chunk newest first until ``has_more`` is false or the page's oldest
+        row is older than the interval.
+
+        Limits, all settable per tenant:
+        - ``NEWSFIREHOSE_MAX_PAGES_PER_CHUNK`` (default 3, i.e. 300 rows): a
+          broad keyword ("AI") has thousands of rows per window, and every
+          row goes through relevance scoring. A capped chunk keeps the newest
+          rows and is reported as a page cap, which still advances. Pages
+          holding only rows newer than the window do not count: the API
+          filters by whole days, so a window ending mid-afternoon first
+          returns the rest of that day.
+        - ``NEWSFIREHOSE_MAX_PAGES`` / ``NEWSFIREHOSE_BUDGET_SECONDS`` for the
+          whole run (default 12 pages, 90 s, inside the monitor's 120 s
+          timeout). Running out returns ``partial`` with a continuation, and
+          the next run resumes at that chunk and page.
+        - ``NEWSFIREHOSE_OVERLAP_HOURS`` (default 12): the window reaches back
+          this far before the interval start, because the firehose indexes
+          articles hours after publication. Re-found articles are deduplicated
+          downstream.
+
+        An HTTP error or exception is a failed result, never an empty success:
+        an empty success would advance the checkpoint past a window nobody
+        searched.
+        """
+        res = self.new_result(query, interval_start, interval_end)
+        norm = self._normalize_query(query or "")
+        if not norm or not norm.strip():
+            res.diagnostics["note"] = "empty query; no request sent"
+            return self.finish(res, query, interval_start, interval_end)
+
+        chunks = self._split_query_terms(norm)
+        cont = continuation or {}
+        try:
+            ci = max(0, int(cont.get("chunk") or 0))
+            page = max(1, int(cont.get("page") or 1))
+            inwin = max(0, int(cont.get("inwin") or 0))
+        except (TypeError, ValueError):
+            ci, page, inwin = 0, 1, 0
+        capped: List[int] = [int(c) for c in (cont.get("capped") or []) if str(c).isdigit()]
+
+        clock = PageClock(provider_max_pages("NEWSFIREHOSE_MAX_PAGES", 12),
+                          _env_float("NEWSFIREHOSE_BUDGET_SECONDS", 90.0))
+        chunk_cap = provider_max_pages("NEWSFIREHOSE_MAX_PAGES_PER_CHUNK", 3)
+        overlap = timedelta(hours=_env_float("NEWSFIREHOSE_OVERLAP_HOURS", 12.0))
+
+        hi = res.interval_end
+        lo = (res.interval_start - overlap) if res.interval_start is not None \
+            else coerce_datetime(datetime.now().astimezone() - timedelta(days=30))
+        params: Dict[str, Any] = {"page_size": 100, "sort_by": "published_at",
+                                  **_date_params(lo, hi)}
+        if language:
+            params["language"] = self.LANGUAGE_MAP.get(language.lower(), language)
+        if source_ids:
+            params["sources"] = ",".join(source_ids)
+        if categories:
+            params["categories"] = ",".join(categories)
+        headers = {"X-API-Key": self.api_key, "Accept": "application/json"}
+        host = host_of(self.base_url)
+        seen: set = set()
+
+        def _stop(out: CollectionResult) -> CollectionResult:
+            out.items = res.items
+            out.counts = res.counts
+            out.started_at = res.started_at
+            out.continuation = {"chunk": ci, "page": page, "inwin": inwin, "capped": capped}
+            out.diagnostics.update(res.diagnostics, pages=clock.pages, chunks=len(chunks))
+            return self.finish(out, query, interval_start, interval_end)
+
+        try:
+            async with _session() as session:
+                while ci < len(chunks):
+                    if clock.exhausted:
+                        return _stop(CollectionResult.partial([], truncated_reason=clock.reason))
+                    left = clock.max_seconds - (time.monotonic() - clock.started)
+                    status, data, _hdrs = await get_json(
+                        session, f"{self.base_url}/v1/search",
+                        params={**params, "q": chunks[ci], "page": page},
+                        headers=headers, timeout=max(10.0, min(75.0, left)))
+                    clock.tick()
+                    self.requests_today += 1
+                    if status != 200 or not isinstance(data, dict):
+                        exc = ProviderHTTPError(status, provider_message(data, f"HTTP {status}"),
+                                                url=f"{self.base_url}/v1/search")
+                        return _stop(CollectionResult.from_exception(exc, host=host))
+                    rows = data.get("articles") or []
+                    res.counts.received += len(rows)
+                    oldest = None
+                    for a in rows:
+                        key = a.get("url") or a.get("external_id") or a.get("id")
+                        if not key or not a.get("title"):
+                            res.counts.invalid += 1
+                            continue
+                        if key in seen:
+                            res.counts.duplicate += 1
+                            continue
+                        seen.add(key)
+                        when = coerce_datetime(a.get("publishedAt"))
+                        if when is not None and (oldest is None or when < oldest):
+                            oldest = when
+                        if not in_interval(when, lo, hi):
+                            res.counts.filtered += 1
+                            continue
+                        res.items.append(self._format_article(a, topic))
+                    # Newest first: once a page reaches back past the window
+                    # start there is nothing older worth asking for. A page
+                    # whose oldest row is still after the window end held
+                    # nothing for us, so it does not count toward the cap.
+                    past_start = lo is not None and oldest is not None and oldest < lo
+                    before_window = hi is not None and oldest is not None and oldest > hi
+                    if not before_window:
+                        inwin += 1
+                    if data.get("has_more") and not past_start and rows:
+                        if inwin >= chunk_cap:
+                            capped.append(ci)
+                            ci, page, inwin = ci + 1, 1, 0
+                        else:
+                            page += 1
+                    else:
+                        ci, page, inwin = ci + 1, 1, 0
+        except Exception as exc:  # noqa: BLE001
+            return _stop(CollectionResult.from_exception(exc, host=host))
+
+        if capped:
+            res.coverage_complete = False
+            res.truncated_reason = TRUNC_PAGE_CAP
+            res.diagnostics["capped_chunks"] = capped
+        res.diagnostics.update(pages=clock.pages, chunks=len(chunks))
+        logger.info(
+            f"NewsFirehose collected {len(res.items)} of {res.counts.received} rows for "
+            f"'{(query or '')[:80]}' in {clock.pages} page(s) over {len(chunks)} chunk(s)"
+            + (f"; page cap hit on chunk(s) {capped}" if capped else ""))
+        return self.finish(res, query, interval_start, interval_end)
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """Fetch full article content from NewsFirehose by URL."""

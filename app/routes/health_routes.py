@@ -839,9 +839,26 @@ def build_collection_alerts(
                 f"no successful run for {provider} in {_hours(now - last_run)}h (never succeeded)"
             )
 
+    # Stalled scopes: the interval ended over a day ago and coverage never got
+    # there. One line per provider; its scopes are not repeated below.
+    stalled_providers = set()
+    for p in runs.get("providers", []) or []:
+        n = int(p.get("stalled") or 0)
+        if n <= 0:
+            continue
+        provider = p.get("provider") or "?"
+        stalled_providers.add(provider)
+        oldest = _parse_ts(p.get("stalled_oldest_interval_end"))
+        since = f" (oldest window ended {_hours(now - oldest)}h ago)" if oldest else ""
+        alerts.append(f"{n} stalled scope(s) for {provider}{since}")
+
     for pi in runs.get("pending_intervals", []) or []:
         provider = pi.get("provider") or "?"
-        updated = _parse_ts(pi.get("updated_at"))
+        if provider in stalled_providers:
+            continue
+        # Age from the end of the window being worked. updated_at moves on
+        # every run, so a scope re-trying the same window never looked old.
+        updated = _parse_ts(pi.get("interval_end")) or _parse_ts(pi.get("updated_at"))
         if updated is None:
             continue
         age = now - updated

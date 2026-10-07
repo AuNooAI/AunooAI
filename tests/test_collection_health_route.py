@@ -148,3 +148,34 @@ def test_endpoint_survives_a_broken_section(client, monkeypatch):
     assert body["rejected_candidates"] is None
     assert "ledger table missing" in body["errors"]["rejected_candidates"]
     assert "alerts" in body
+
+
+def test_alert_builder_reports_stalled_scopes_once_per_provider():
+    """2-7 Oct 2026: 84 firehose scopes re-tried the same window for days and
+    nothing alerted, because the pending check aged them by updated_at, which
+    every run refreshes."""
+    runs = {
+        "providers": [
+            {"provider": "newsfirehose", "last_success_at": _iso(timedelta(minutes=5)),
+             "last_run_at": _iso(timedelta(minutes=5)), "stalled": 82,
+             "stalled_oldest_interval_end": _iso(timedelta(hours=120))},
+        ],
+        "pending_intervals": [
+            {"provider": "newsfirehose", "scope_key": "kw:404",
+             "interval_end": _iso(timedelta(hours=120)), "updated_at": _iso(timedelta(minutes=5))},
+        ],
+    }
+    alerts = health_routes.build_collection_alerts(runs, [], [], now=NOW, intervals={"newsfirehose": 720})
+    assert alerts == ["82 stalled scope(s) for newsfirehose (oldest window ended 120h ago)"]
+
+
+def test_pending_interval_ages_from_its_window_not_from_the_last_retry():
+    runs = {
+        "providers": [],
+        "pending_intervals": [
+            {"provider": "bluesky", "scope_key": "kw:9",
+             "interval_end": _iso(timedelta(hours=30)), "updated_at": _iso(timedelta(minutes=1))},
+        ],
+    }
+    alerts = health_routes.build_collection_alerts(runs, [], [], now=NOW, intervals={"bluesky": 60})
+    assert alerts == ["pending continuation for bluesky kw:9 older than 2 intervals (30h)"]

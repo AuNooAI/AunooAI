@@ -799,7 +799,7 @@ class KeywordMonitor:
                                 record_run(
                                     self.db, result, scope_kind="keyword", scope_id=str(keyword_id),
                                     checkpoint_before=cp.coverage_through,
-                                    checkpoint_after=cp.interval_end if result.may_advance_checkpoint else cp.coverage_through)
+                                    checkpoint_after=cp.interval_end if cp.advanced else cp.coverage_through)
                             except Exception as run_err:  # noqa: BLE001
                                 logger.warning(f"{provider}: run bookkeeping failed for keyword {keyword_id}: {run_err}")
 
