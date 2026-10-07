@@ -78,12 +78,30 @@ them); incident tracking and real-time signals accept them through `agent_eviden
 
 - WP3c social model routing: needs the 200-post comparison.
 - WP6a 300-article replay and the 50 non-English checks: page input stays off until then.
-- WP7 still open: provider identity (needs a key migration plan), `daily_request_limit`
-  (enforce or label as not enforced: enforcing the site's 1,000 a day would stop firehose
-  collection), the per-group settings that do nothing, and removal of the obsolete enrichment
-  services. Done in `e0370e1b`: run write counts, dedup priority, label-list checks, read-only
-  MBFC lookup, daily cache cleanup, `NEWSAPI_KEY`. Done by another session: all-groups
-  check-now routing, `topic='general'`, `submission_date`.
+- WP7 status (7 Oct, evening):
+  - Done in `e0370e1b`: run write counts, dedup priority, label-list checks, read-only MBFC
+    lookup, daily cache cleanup and `NEWSAPI_KEY`.
+  - Done in `5d822846`: the group `auto_ingest_enabled` setting is now honoured. The four other
+    group settings, and `daily_request_limit`, are labelled as not used or not enforced in the
+    UI.
+  - Done in `59736ab2` and `8b3055e8`: the sync analysis path is removed after a caller audit.
+    `EnrichmentService` and `HybridEnrichmentService` stay, because the training screens
+    (`/routing`, `/status`, `/model-config`, `/inference-mode`) and three SLM scripts still use
+    them.
+  - Still open: provider identity, planned in
+    [08d_PROVIDER_IDENTITY_PLAN.md](08d_PROVIDER_IDENTITY_PLAN.md) and not built.
+  - Done by another session: all-groups check-now routing, `topic='general'` and
+    `submission_date`.
+- Firehose too-broad keywords (`734cd57f`): a chunk that passes the limit is split by terms
+  rather than refused. The firehose takes whole days only, so a window cannot be split finer by
+  date. A single term still over the limit is refused, but its rows are now saved. Keyword 64's
+  2 October window measured 16 pages for its busiest term against a limit of 20, so after the
+  split it should complete. Not deployed.
+- Deployment: the 17:08 restart, done by another session, put `e0370e1b` live. The code before
+  it was `c00cc3f6`, which is the rollback point. After the restart, keyword 81's run recorded
+  929 inserted, 255 linked and 16 already stored, adding up to its 1,200 rows. The first cache
+  cleanup removed 34,045 expired files at 17:19. The related test selection has 80 failures,
+  the same 80 at the previous commit, so none are new.
 - WP3b token measurement and WP3a replay sample: need live traffic after deployment.
 - Brand Watcher readers with user-set sliders (`:min_rel`) and the Swiss project's `:social_min`
   keep their own floors on purpose; `training_routes` (0.5) serves training data.
