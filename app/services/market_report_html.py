@@ -490,8 +490,23 @@ def _brand_mark(filename: str, alt: str, height: int = 26) -> str:
 
 
 #: The JSON Feed for assistants, beside the RSS link: same items, JSON Feed 1.1.
-_AI_FEED_LINK = ('<a class="n-rss n-ai" href="feed.json?days={days}" '
+_AI_FEED_LINK = ('<a class="n-rss n-ai" href="feed.json?{q}" '
                  'title="JSON feed for AI assistants (JSON Feed 1.1)">' + '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.7L19.5 9.5l-5.7 1.8L12 17l-1.8-5.7L4.5 9.5l5.7-1.8z"/><path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/><path d="M5 15l.7 2 2 .7-2 .7L5 20.5l-.7-2-2-.7 2-.7z"/></svg>' + 'AI feed</a>')
+
+
+def _feed_query(days: int, feed_params: Optional[Dict[str, Any]]) -> str:
+    return _relink(feed_params or {}, days=days)
+
+
+def _feed_links(days: int, feed_params: Optional[Dict[str, Any]]) -> str:
+    """The RSS and AI feed links, or nothing when the viewer has no way to
+    read the feed. ``feed_params`` is what the feed needs to let the reader
+    in: empty for a public market, a signed pair for a private one."""
+    if feed_params is None:
+        return ""
+    q = _feed_query(days, feed_params)
+    return (f'<a class="n-rss" href="feed.xml?{q}" title="Subscribe in a feed reader">RSS</a>'
+            + _AI_FEED_LINK.format(q=q))
 
 
 def _brand_line() -> str:
@@ -2920,7 +2935,8 @@ def render_news_river(rows: List[Dict[str, Any]]) -> str:
 
 def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
                            allowed_brand_ids: Optional[List[int]] = None,
-                           link_params: Optional[Dict[str, Any]] = None
+                           link_params: Optional[Dict[str, Any]] = None,
+                           feed_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
     """The river: everything matched to the market in the period, as a
     time-ordered list of headlines with their sources. No analysis."""
@@ -2930,6 +2946,8 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
     from app.services import market_publish as mp
 
     link_params = dict(link_params or {})
+    if feed_params is None and market.get("is_public"):
+        feed_params = {}
     withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
     rows = mcorp.articles(conn, market["id"], limit=2000, days=days,
                           require_signal_for_social=False)
@@ -2947,10 +2965,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
         f'<a href="?{_relink(link_params, days=d, view="news")}"'
         + (' aria-current="page"' if d == days else "")
         + f'>{d} days</a>' for d in (7, 30, 90))
-    rss = ""
-    if market.get("is_public"):
-        rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
-               'title="Subscribe in a feed reader">RSS</a>' + _AI_FEED_LINK.format(days=days))
+    rss = _feed_links(days, feed_params)
     body = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>", '<div class="mm-news mm-v2">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
@@ -4939,7 +4954,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
                            sort: Optional[str] = None,
                            topic: Optional[int] = None,
                            allowed_brand_ids: Optional[List[int]] = None,
-                           link_params: Optional[Dict[str, Any]] = None
+                           link_params: Optional[Dict[str, Any]] = None,
+                           feed_params: Optional[Dict[str, Any]] = None
                            ) -> bytes:
     """The front page, or one of its sections as a page of its own.
 
@@ -4979,6 +4995,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             raise LookupError(f"no approved piece {piece}")
 
     link_params = dict(link_params or {})
+    if feed_params is None and market.get("is_public"):
+        feed_params = {}
     teaser = allowed_brand_ids is not None
     withheld = ent.withheld_names(conn, market["id"], allowed_brand_ids)
 
@@ -5118,15 +5136,15 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
     jump = "".join(
         f'<a href="{section_href(k)}"'
         + (' aria-current="page"' if k == section else "")
-        + f'>{esc(v["heading"])}</a>' for k, v in V2_SECTIONS.items())
+        + f'>{esc(v["heading"])}</a>' for k, v in V2_SECTIONS.items()
+        if k != "analysis" or pieces or section == "analysis")
     if market.get("is_public"):
         # The two standing reports sit at the end of the section row, after
         # Latest research, outlined so they read as pages rather than sections.
         jump += "".join(
             f'<a class="n-jump-page" href="?{_relink(link_params, days=days, view="v2", page=k)}">{label}</a>'
             for k, label in (("consensus", "Consensus"), ("horizons", "Three horizons")))
-    rss = (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
-           + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
+    rss = _feed_links(days, feed_params)
     pages = ((f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
               if section else "")
              + f'<a href="?{_relink(link_params, days=days, view="report")}">Analyst View</a>'
@@ -5459,7 +5477,8 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
 
 def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                         allowed_brand_ids: Optional[List[int]] = None,
-                        link_params: Optional[Dict[str, Any]] = None
+                        link_params: Optional[Dict[str, Any]] = None,
+                        feed_params: Optional[Dict[str, Any]] = None
                         ) -> bytes:
     """One market, one file, no external requests.
 
@@ -5539,6 +5558,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                    if started_iso else None)
 
     link_params = dict(link_params or {})
+    if feed_params is None and market.get("is_public"):
+        feed_params = {}
 
     dataset = mp.build_dataset(conn, market["id"])
     try:
@@ -5670,8 +5691,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 '<nav class="n-pages" aria-label="Pages">'
                 f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
                 f'<a href="?{_relink(link_params, days=days, view="news")}">News river</a>'
-                + (f'<a class="n-rss" href="feed.xml?days={days}" title="Subscribe in a feed reader">RSS</a>'
-                   + _AI_FEED_LINK.format(days=days) if market.get("is_public") else "")
+                + _feed_links(days, feed_params)
                 + _subscribe_link(market) + _book_link(market) + _theme_toggle() + '</nav>'
                 f'<span class="n-market">{esc(market["name"])}</span></div>')
 
@@ -5758,11 +5778,11 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
 
     # 4. The developments, with the observation states beside them
     body.append('<div class="n-grid"><section id="mm-developments">')
-    # A feed reader carries no session, so the RSS link is only real on a
-    # market that serves anonymously. Drawn inline: this file fetches nothing.
+    # A feed reader carries no session, so a private market's link carries
+    # a signed pair. Drawn inline: this file fetches nothing.
     rss = ""
-    if market.get("is_public"):
-        rss = (f'<a class="n-rss" href="feed.xml?days={days}" '
+    if feed_params is not None:
+        rss = (f'<a class="n-rss" href="feed.xml?{_feed_query(days, feed_params)}" '
                'title="Subscribe in a feed reader">'
                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
                'stroke-width="2" stroke-linecap="round" aria-hidden="true">'

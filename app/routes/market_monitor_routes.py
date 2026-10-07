@@ -1223,6 +1223,8 @@ async def market_feed(
                           "posts are excluded unless asked for."),
     days: Optional[int] = Query(None, ge=1, le=3650),
     limit: int = Query(50, ge=1, le=200),
+    exp: Optional[int] = Query(None),
+    token: Optional[str] = Query(None),
     session=Depends(verify_session_optional),
 ):
     """The market timeline as RSS, so the wire can be subscribed to.
@@ -1244,7 +1246,8 @@ async def market_feed(
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            if not market.get("is_public") and not session:
+            signed = _feed_signed(market_id, exp, token)
+            if not (market.get("is_public") or session or signed):
                 raise HTTPException(status_code=404, detail="Market not found")
             picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
             # An anonymous subscriber is a shared viewer, so it sees the same
@@ -1252,7 +1255,7 @@ async def market_feed(
             # market's 84 vendors to anyone who asked.
             from app.services import market_entitlements as ent
             entitlement = ent.resolve(
-                session=session, signed_link=False,
+                session=session, signed_link=signed,
                 market_is_public=bool(market.get("is_public")))
             allowed = ent.authorized_brand_ids(
                 conn, market_id, entitlement.vendor_limit)
@@ -1279,6 +1282,8 @@ async def market_feed_json(
     classes: Optional[str] = Query(None, description="Comma-separated: news, vendor, social, research."),
     days: Optional[int] = Query(None, ge=1, le=3650),
     limit: int = Query(50, ge=1, le=200),
+    exp: Optional[int] = Query(None),
+    token: Optional[str] = Query(None),
     session=Depends(verify_session_optional),
 ):
     """The same feed as ``feed.xml``, as JSON Feed 1.1 for assistants and
@@ -1295,12 +1300,13 @@ async def market_feed_json(
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            if not market.get("is_public") and not session:
+            signed = _feed_signed(market_id, exp, token)
+            if not (market.get("is_public") or session or signed):
                 raise HTTPException(status_code=404, detail="Market not found")
             picked = [c.strip() for c in (classes or "").split(",") if c.strip()]
             from app.services import market_entitlements as ent
             entitlement = ent.resolve(
-                session=session, signed_link=False,
+                session=session, signed_link=signed,
                 market_is_public=bool(market.get("is_public")))
             allowed = ent.authorized_brand_ids(
                 conn, market_id, entitlement.vendor_limit)
@@ -1325,6 +1331,22 @@ async def market_feed_json(
 # better than a public flag that does not, which is why this does not simply
 # ride on ``bw_markets.is_public`` the way the feed does.
 REPORT_LINK_TTL_SECONDS = 7 * 24 * 3600
+
+
+#: A feed link minted for a signed-in reader lasts a year: a feed reader
+#: subscription is meant to keep working.
+FEED_LINK_TTL_SECONDS = 365 * 24 * 3600
+
+
+def _feed_signed(market_id: int, exp: Optional[int], token: Optional[str]) -> bool:
+    """True when ``exp``/``token`` are a valid, unexpired report signature.
+
+    A feed reader carries no session, so a private market's feed links carry
+    this pair. It opens the same shared view a signed report link does."""
+    import hmac
+    import time
+    return bool(exp and token and exp > int(time.time())
+                and hmac.compare_digest(token, _market_report_token(market_id, exp)))
 
 
 def _market_report_token(market_id: int, exp: int) -> str:
@@ -1466,6 +1488,19 @@ async def market_report(
             params = ({"key": key} if subscriber
                       else {"exp": exp, "token": token} if signed
                       else ({"full": 1} if full_view else {}))
+            # What the RSS and AI feed links carry so the feed lets the reader
+            # in: nothing on a public market, the signed pair on a shared
+            # link, and a fresh year-long pair for a signed-in reader, whose
+            # feed reader will not have the session.
+            if market.get("is_public"):
+                feed_params = {}
+            elif signed:
+                feed_params = {"exp": exp, "token": token}
+            elif session:
+                fexp = int(time.time()) + FEED_LINK_TTL_SECONDS
+                feed_params = {"exp": fexp, "token": _market_report_token(market_id, fexp)}
+            else:
+                feed_params = None
             if view == "briefing":
                 return build_market_briefing_page(
                     conn, market, briefing_id=id, days=days,
@@ -1491,14 +1526,15 @@ async def market_report(
                 try:
                     return build_market_report_v2(
                         conn, market, days=days, section=section, piece=piece, page=page,
-                        sort=sort, topic=topic, allowed_brand_ids=allowed, link_params=params)
+                        sort=sort, topic=topic, allowed_brand_ids=allowed, link_params=params,
+                        feed_params=feed_params)
                 except LookupError:
                     raise HTTPException(status_code=404, detail="Piece or topic not found")
             builder = (build_market_news_page if view == "news"
                        else build_market_report)
             return builder(
                 conn, market, days=days, allowed_brand_ids=allowed,
-                link_params=params)
+                link_params=params, feed_params=feed_params)
         finally:
             conn.close()
 
