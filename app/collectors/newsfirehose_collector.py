@@ -445,7 +445,7 @@ class NewsFirehoseCollector(ArticleCollector):
         this far before the interval start, because the firehose indexes
         articles hours after publication.
 
-        ``NEWSFIREHOSE_BROAD_PAGES_PER_DAY`` (default 10, 0 turns it off): a
+        ``NEWSFIREHOSE_BROAD_PAGES_PER_DAY`` (default 20, 0 turns it off; 10 until 7 Oct 2026, when it blocked a narrowed keyword on a busy day): a
         chunk that still has rows after this many pages per day of window is
         a keyword too broad to collect in full. On 7 Oct 2026 the AI group's
         keywords returned 1,000-3,500 rows a day each, because the OR-flattened
@@ -481,7 +481,7 @@ class NewsFirehoseCollector(ArticleCollector):
         if categories:
             params["categories"] = ",".join(categories)
         fingerprint = _query_fingerprint(chunks, params)
-        broad_per_day = _env_float("NEWSFIREHOSE_BROAD_PAGES_PER_DAY", 10.0)
+        broad_per_day = _env_float("NEWSFIREHOSE_BROAD_PAGES_PER_DAY", 20.0)
         window_days = max(1.0, ((hi - lo).total_seconds() / 86400.0) if (hi and lo) else 30.0)
         broad_limit = int(broad_per_day * window_days + 0.999) if broad_per_day > 0 else 0
 
