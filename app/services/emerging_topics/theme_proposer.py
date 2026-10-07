@@ -18,6 +18,7 @@ from sqlalchemy import text
 import numpy as np
 
 from app.database import get_database_instance
+from app.services.article_visibility import readable_sql
 from app.model_tiers import default_model
 from .date_utils import publication_ts_sql, utcnow
 from .run_lock import normalize_topic_filter
@@ -157,6 +158,12 @@ class ThemeProposer:
     ) -> List[Dict[str, Any]]:
         """Fetch a bounded, source-diverse sample of high-novelty recent articles.
 
+        Only readable articles count (``article_visibility.readable_sql``).
+        Ingest keeps the articles its relevance gate rejected, and on
+        wileytest in the week to 7 Oct 2026 they were 21,765 rows against
+        3,882 approved. Sampling them is how "Fort Hood Shooter Firing Squad
+        Approval" became an emerging topic under Patent Cliffs.
+
         The whole sample is chosen in SQL. Ranking is a round robin over sources:
         every source contributes its best article before any source contributes
         its second, so one prolific wire cannot swallow the sample. Once every
@@ -207,6 +214,7 @@ class ThemeProposer:
                     WHERE {published_ts} >= :cutoff
                       AND a.summary IS NOT NULL
                       AND LENGTH(a.summary) > 50
+                      AND {readable_sql('a')}
                       {topic_clause}
                     ORDER BY COALESCE(n.composite_novelty_score, 50) DESC, a.uri
                     LIMIT :scan_cap
@@ -463,6 +471,7 @@ class ThemeProposer:
                            {hits_sql} AS entity_hits
                     FROM articles
                     WHERE {published_ts} >= :cutoff
+                    AND {readable_sql()}
                     {topic_clause}
                     OFFSET 0
                 ) filtered
