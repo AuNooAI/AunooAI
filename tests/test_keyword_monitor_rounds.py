@@ -113,7 +113,7 @@ def _monitor(monkeypatch, collector, facade, rounds=2):
     m.auto_ingest_service = None
     m._group_relevance_threshold = None
     m._group_context_applied = True
-    monkeypatch.setattr(m, "should_auto_ingest", lambda: False, raising=False)
+    monkeypatch.setattr(m, "should_auto_ingest", lambda *a: False, raising=False)
     monkeypatch.setattr(m, "_filter_by_source_country", lambda arts, kw: arts, raising=False)
     return m, store
 
@@ -160,7 +160,7 @@ def test_the_matched_keyword_reaches_ingest(monkeypatch):
             seen["mk"] = [a.get("_matched_keywords") for a in articles]
             return {"processed": len(articles), "saved": 0, "errors": []}
     m.auto_ingest_service = Svc()
-    monkeypatch.setattr(m, "should_auto_ingest", lambda: True, raising=False)
+    monkeypatch.setattr(m, "should_auto_ingest", lambda *a: True, raising=False)
     out = run(m.auto_ingest_pipeline([{"url": "https://x.test/a", "title": "t", "_matched_keywords": ["SOC"]}],
                                      "T", ["SOC"], suppress_notifications=True))
     assert seen.get("mk") == [["SOC"]], out

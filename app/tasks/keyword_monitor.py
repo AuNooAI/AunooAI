@@ -961,7 +961,9 @@ class KeywordMonitor:
                     # (relevance + LLM analysis + bias) — those posts get the cheap
                     # social eval (relevance + sentiment) instead, run once per group
                     # in check_single_group. Avoids GPT cost on high-volume social.
-                    should_auto_ingest = await loop.run_in_executor(None, self.should_auto_ingest)
+                    _kw_group = keyword.get('group_id') or group_id
+                    should_auto_ingest = await loop.run_in_executor(
+                        None, lambda: self.should_auto_ingest(_kw_group))
                     if getattr(self, '_social_only_group', False):
                         should_auto_ingest = False
                         logger.info("Social-only group: skipping heavy auto-ingest pipeline (social eval handles relevance+sentiment)")
@@ -1361,8 +1363,20 @@ class KeywordMonitor:
             return {"auto_ingest_enabled": False}
         return self.auto_ingest_service.get_auto_ingest_settings()
 
-    def should_auto_ingest(self) -> bool:
-        """Check if auto-ingest is enabled"""
+    def should_auto_ingest(self, group_id: Optional[int] = None) -> bool:
+        """Whether to run the auto-ingest pipeline. A group's own setting,
+        when it has one, wins over the site setting; NULL inherits the site.
+        Until 7 Oct 2026 the group setting was saved and shown but ignored
+        (spec 08, WP7). Switching it off stores collected articles without
+        the relevance check or analysis; nothing is deleted."""
+        if group_id is not None:
+            try:
+                row = self.db.facade.get_keyword_group_with_settings(group_id) or {}
+                override = row.get('auto_ingest_enabled')
+                if override is not None:
+                    return bool(override)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Could not read group {group_id} auto-ingest setting: {e}")
         settings = self.get_auto_ingest_settings()
         return settings.get("auto_ingest_enabled", False)
 
@@ -1411,7 +1425,7 @@ class KeywordMonitor:
             logger.warning("Auto-ingest service not available")
             return {"success": False, "error": "Auto-ingest service not available"}
 
-        if not self.should_auto_ingest():
+        if not self.should_auto_ingest(group_id):
             logger.debug("Auto-ingest is disabled, skipping pipeline")
             return {"success": True, "message": "Auto-ingest disabled", "processed": 0}
 

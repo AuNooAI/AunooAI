@@ -516,11 +516,11 @@ body {
                     </span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Requests Today:</span>
-                    <span class="metric-value">{{ health_data.autopolling.requests_today }} / {{ health_data.autopolling.daily_request_limit }}</span>
+                    <span class="metric-label">NewsAPI Requests Today:</span>
+                    <span class="metric-value">{{ health_data.autopolling.requests_today }} / {{ health_data.autopolling.daily_request_limit }} (limit not enforced)</span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Usage:</span>
+                    <span class="metric-label">Usage of unenforced limit:</span>
                     <span class="metric-value">{{ health_data.autopolling.usage_percent }}%</span>
                 </div>
                 {% if health_data.autopolling.last_poll_time %}

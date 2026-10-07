@@ -181,7 +181,7 @@ export function AutoCollectModal({
             </div>
 
             <div className="gather-form-group">
-              <Label htmlFor="daily-limit">Daily Request Limit</Label>
+              <Label htmlFor="daily-limit">Daily Request Limit (not enforced)</Label>
               <Input
                 id="daily-limit"
                 type="number"
@@ -190,6 +190,10 @@ export function AutoCollectModal({
                 value={formData.daily_request_limit || 100}
                 onChange={e => setFormData(prev => ({ ...prev, daily_request_limit: parseInt(e.target.value) || 100 }))}
               />
+              <p className="gather-form-hint">
+                Saved but not applied: collection is not stopped at this number. Each news provider
+                has its own quota and page limits.
+              </p>
             </div>
           </div>
 
@@ -229,7 +233,7 @@ export function AutoCollectModal({
             <div className="gather-toggle-row">
               <div className="gather-toggle-info">
                 <Label htmlFor="auto-ingest">Auto-Processing</Label>
-                <span className="gather-toggle-desc">Automatically analyze articles with AI</span>
+                <span className="gather-toggle-desc">Run the relevance check and AI analysis on new articles. Off: articles are stored without either.</span>
               </div>
               <Switch
                 id="auto-ingest"
@@ -240,8 +244,8 @@ export function AutoCollectModal({
 
             <div className="gather-toggle-row">
               <div className="gather-toggle-info">
-                <Label htmlFor="quality-control">Quality Control</Label>
-                <span className="gather-toggle-desc">Enable relevance scoring and filtering</span>
+                <Label htmlFor="quality-control">Quality Control (not used)</Label>
+                <span className="gather-toggle-desc">Saved but has no effect: the relevance check always runs.</span>
               </div>
               <Switch
                 id="quality-control"
@@ -252,8 +256,8 @@ export function AutoCollectModal({
 
             <div className="gather-toggle-row">
               <div className="gather-toggle-info">
-                <Label htmlFor="auto-save">Auto-Save Approved Only</Label>
-                <span className="gather-toggle-desc">Only save articles that pass quality threshold</span>
+                <Label htmlFor="auto-save">Auto-Save Approved Only (not used)</Label>
+                <span className="gather-toggle-desc">Saved but has no effect: rejected articles are always kept for audit and training.</span>
               </div>
               <Switch
                 id="auto-save"
@@ -262,18 +266,16 @@ export function AutoCollectModal({
               />
             </div>
 
-            {formData.quality_control_enabled && (
-              <div className="gather-form-group">
-                <Label>Minimum Relevance Threshold: {Math.round((formData.min_relevance_threshold || 0) * 100)}%</Label>
-                <Slider
-                  value={[(formData.min_relevance_threshold || 0) * 100]}
-                  onValueChange={([val]) => setFormData(prev => ({ ...prev, min_relevance_threshold: val / 100 }))}
-                  min={0}
-                  max={100}
-                  step={5}
-                />
-              </div>
-            )}
+            <div className="gather-form-group">
+              <Label>Minimum Relevance Threshold: {Math.round((formData.min_relevance_threshold || 0) * 100)}%</Label>
+              <Slider
+                value={[(formData.min_relevance_threshold || 0) * 100]}
+                onValueChange={([val]) => setFormData(prev => ({ ...prev, min_relevance_threshold: val / 100 }))}
+                min={0}
+                max={100}
+                step={5}
+              />
+            </div>
           </div>
 
           {/* AI Settings */}
@@ -315,7 +317,7 @@ export function AutoCollectModal({
               <>
               <div className="gather-form-row">
                 <div className="gather-form-group">
-                  <Label>LLM Temperature: {formData.llm_temperature?.toFixed(1)}</Label>
+                  <Label>LLM Temperature (not used): {formData.llm_temperature?.toFixed(1)}</Label>
                   <Slider
                     value={[(formData.llm_temperature || 0.1) * 100]}
                     onValueChange={([val]) => setFormData(prev => ({ ...prev, llm_temperature: val / 100 }))}
@@ -326,7 +328,7 @@ export function AutoCollectModal({
                 </div>
 
                 <div className="gather-form-group">
-                  <Label htmlFor="max-tokens">Max Tokens</Label>
+                  <Label htmlFor="max-tokens">Max Tokens (not used)</Label>
                   <Input
                     id="max-tokens"
                     type="number"

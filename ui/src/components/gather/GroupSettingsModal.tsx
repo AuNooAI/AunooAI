@@ -398,7 +398,7 @@ export function GroupSettingsModal({
                     <div className="gather-toggle-row">
                       <div className="gather-toggle-info">
                         <Label htmlFor="auto-ingest">Auto-Processing</Label>
-                        <span className="gather-toggle-desc">Automatically analyze articles with AI</span>
+                        <span className="gather-toggle-desc">Run the relevance check and AI analysis on new articles. Off: articles are stored without either.</span>
                       </div>
                       <Switch
                         id="auto-ingest"
@@ -409,8 +409,8 @@ export function GroupSettingsModal({
 
                     <div className="gather-toggle-row">
                       <div className="gather-toggle-info">
-                        <Label htmlFor="quality-control">Quality Control</Label>
-                        <span className="gather-toggle-desc">Enable relevance scoring and filtering</span>
+                        <Label htmlFor="quality-control">Quality Control (not used)</Label>
+                        <span className="gather-toggle-desc">Saved but has no effect: the relevance check always runs.</span>
                       </div>
                       <Switch
                         id="quality-control"
@@ -421,8 +421,8 @@ export function GroupSettingsModal({
 
                     <div className="gather-toggle-row">
                       <div className="gather-toggle-info">
-                        <Label htmlFor="auto-save">Auto-Save Approved Only</Label>
-                        <span className="gather-toggle-desc">Only save articles that pass quality threshold</span>
+                        <Label htmlFor="auto-save">Auto-Save Approved Only (not used)</Label>
+                        <span className="gather-toggle-desc">Saved but has no effect: rejected articles are always kept for audit and training.</span>
                       </div>
                       <Switch
                         id="auto-save"
@@ -431,18 +431,16 @@ export function GroupSettingsModal({
                       />
                     </div>
 
-                    {formData.quality_control_enabled && (
-                      <div className="gather-form-group">
-                        <Label>Minimum Relevance Threshold: {Math.round((formData.min_relevance_threshold || 0) * 100)}%</Label>
-                        <Slider
-                          value={[(formData.min_relevance_threshold || 0) * 100]}
-                          onValueChange={([val]) => setFormData(prev => ({ ...prev, min_relevance_threshold: val / 100 }))}
-                          min={0}
-                          max={100}
-                          step={5}
-                        />
-                      </div>
-                    )}
+                    <div className="gather-form-group">
+                      <Label>Minimum Relevance Threshold: {Math.round((formData.min_relevance_threshold || 0) * 100)}%</Label>
+                      <Slider
+                        value={[(formData.min_relevance_threshold || 0) * 100]}
+                        onValueChange={([val]) => setFormData(prev => ({ ...prev, min_relevance_threshold: val / 100 }))}
+                        min={0}
+                        max={100}
+                        step={5}
+                      />
+                    </div>
                   </div>
 
                   {/* AI Settings */}
@@ -485,7 +483,7 @@ export function GroupSettingsModal({
                     {formData.auto_ingest_enabled && (
                       <div className="gather-form-row">
                         <div className="gather-form-group">
-                          <Label>LLM Temperature: {formData.llm_temperature?.toFixed(1) || '0.2'}</Label>
+                          <Label>LLM Temperature (not used): {formData.llm_temperature?.toFixed(1) || '0.2'}</Label>
                           <Slider
                             value={[(formData.llm_temperature || 0.2) * 100]}
                             onValueChange={([val]) => setFormData(prev => ({ ...prev, llm_temperature: val / 100 }))}
@@ -496,7 +494,7 @@ export function GroupSettingsModal({
                         </div>
 
                         <div className="gather-form-group">
-                          <Label htmlFor="max-tokens">Max Tokens</Label>
+                          <Label htmlFor="max-tokens">Max Tokens (not used)</Label>
                           <Input
                             id="max-tokens"
                             type="number"

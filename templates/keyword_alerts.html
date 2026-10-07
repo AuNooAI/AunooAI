@@ -3165,12 +3165,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="qualityControlEnabled" class="form-label">
-                                            <i class="fas fa-shield-check me-1"></i>Quality Control
+                                            <i class="fas fa-shield-check me-1"></i>Quality Control (not used)
                                         </label>
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox" id="qualityControlEnabled" checked>
                                         </div>
-                                        <div class="form-text">AI-powered quality review and filtering</div>
+                                        <div class="form-text">Saved but has no effect: the relevance check always runs.</div>
                                     </div>
                                 </div>
                             </div>
@@ -3224,21 +3224,21 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="llmTemperature" class="form-label">
-                                    <i class="fas fa-thermometer-half me-1"></i>Temperature
+                                    <i class="fas fa-thermometer-half me-1"></i>Temperature (not used)
                                 </label>
                                 <input type="number" class="form-control" id="llmTemperature"
                                        min="0" max="2" step="0.1" value="0.7">
-                                <div class="form-text">Lower = more consistent results</div>
+                                <div class="form-text">Saved but not passed to the model.</div>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="llmMaxTokens" class="form-label">
-                                    <i class="fas fa-coins me-1"></i>Max Tokens
+                                    <i class="fas fa-coins me-1"></i>Max Tokens (not used)
                                 </label>
                                 <input type="number" class="form-control" id="llmMaxTokens"
                                        min="100" max="4000" step="100" value="200">
-                                <div class="form-text">Maximum response length</div>
+                                <div class="form-text">Saved but not passed to the model.</div>
                             </div>
                         </div>
                     </div>
@@ -3248,12 +3248,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="autoSaveApprovedOnly" class="form-label">
-                                    <i class="fas fa-check-circle me-1"></i>Save Approved Only
+                                    <i class="fas fa-check-circle me-1"></i>Save Approved Only (not used)
                                 </label>
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" id="autoSaveApprovedOnly" checked>
                                 </div>
-                                <div class="form-text">Only save articles that pass quality control</div>
+                                <div class="form-text">Saved but has no effect: rejected articles are always kept for audit and training.</div>
                             </div>
                         </div>
                         <div class="col-md-6">

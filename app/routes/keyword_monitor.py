@@ -99,7 +99,7 @@ class KeywordMonitorSettings(BaseModel):
     language: str
     sort_by: str
     page_size: int
-    daily_request_limit: int = 100
+    daily_request_limit: int = 100  # Saved and shown, not enforced (spec 08, WP7)
     provider: str = "newsapi"  # Legacy single provider (deprecated)
     providers: Optional[str] = None  # JSON array of selected providers
     # Auto-ingest settings
