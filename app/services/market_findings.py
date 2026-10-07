@@ -61,6 +61,7 @@ THEMES: List[Tuple[str, Tuple[str, ...]]] = [
     ("Leadership and strategy", ("leadership_change", "strategy_shift",
                                  "brand_identity_change", "rebrand")),
     ("Research and evidence", ("research_finding",)),
+    ("Incidents", ("incident", "controversy", "regulatory_legal")),
     ("Attention and narrative", ("coverage_spike", "sentiment_shift")),
 ]
 
@@ -471,7 +472,7 @@ def _evidence_summary(conn, event_ids: List[int]) -> Dict[int, Dict[str, Any]]:
                    'title', a.title,
                    'source', COALESCE(NULLIF(SPLIT_PART(a.news_source, ':', 2), ''),
                                       a.news_source),
-                   'social', (a.social_meta IS NOT NULL)
+                   'social', (a.social_meta IS NOT NULL AND a.social_meta::text <> 'null')
                )) FILTER (WHERE ev.relationship = ANY(:supporting)
                             AND ev.article_uri IS NOT NULL) AS supporting_rows
           FROM bw_entity_event_evidence ev

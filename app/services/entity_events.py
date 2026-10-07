@@ -61,6 +61,9 @@ EVENT_TYPES = (
     'customer_win', 'geographic_expansion', 'headcount_change',
     'hiring_spike', 'brand_identity_change', 'controversy',
     'regulatory_legal', 'narrative_spike', 'research_finding',
+    # A breach, outage, lawsuit, regulator action or recall, as the review
+    # read it (market_post_review kind "incident").
+    'incident',
 )
 
 # Ordered weakest to strongest, so an upgrade is a comparison.

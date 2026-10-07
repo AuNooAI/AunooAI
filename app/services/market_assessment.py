@@ -107,6 +107,7 @@ _STORED_TYPE_MAP = {
     "research_finding": "research",
     "leadership_change": "executive_appointment",
     "headcount_change": "headcount_change", "layoff": "headcount_change",
+    "incident": "incident",
 }
 
 #: How a reviewed vendor post's ``review_kind`` maps onto the canonical set.
@@ -2310,6 +2311,14 @@ def _stored_candidates(conn, market_id: int, days: int
         headline_source = ("checked" if written else
                            "data" if kind in ("significant_hiring", "headcount_change")
                            else "rule")
+        # An event the press reported first is stored under the article's own
+        # title, and the review writes no headline for press. Picking a
+        # sentence by rule instead hid every such event from the page, which
+        # shows only checked writing or a publisher's title: HelloBetter's
+        # data breach in heise and Noom's ad story in Adweek both vanished.
+        if not written and attrs.get("announced_by") == "press" and f.get("headline"):
+            headline = f["headline"]
+            headline_source = "publisher"
         # A hire is an executive appointment by the title in the headline,
         # not by a word anywhere in the post ("here to lead the charge on
         # unforgettable customer and partner experiences").

@@ -166,6 +166,7 @@ KIND_TO_EVENT = {
     'funding': 'funding_round',
     'acquisition': 'acquisition',
     'research': 'research_finding',
+    'incident': 'incident',
 }
 
 NOT_EVENTS = {'award', 'other', 'event', 'opinion'}
