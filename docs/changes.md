@@ -1,5 +1,155 @@
 # Changes
 
+## 2026-10-07 — Ingest pipeline fix specs: complete firehose paging, recorded relevance decisions, embedding repair, locked analysis prompts
+
+### Goal
+Oliver supplied two specs: `docs/pipelines/08_INGEST_FIX_SPEC.md` (WP1-WP7) and
+`docs/pipelines/08c_PIPELINE_FAILURE_FIXES_SPEC.md` (M1-M5 for the monolith, S1-S2 for saas).
+Both aim at one thing: no article lost, approved on bad evidence or silently failed. The work is
+on branch `fix/ingest-pipeline-spec` (from `83fecd57`). What shipped per package, and what did
+not, is in `docs/pipelines/08a_INGEST_FIX_LOG.md`. A later message added two more asks: show
+relevant social posts to vector search and the agents, and respect Reddit's shared pause.
+
+### Fix · Firehose reads every page and never skips a window (`467100a8`, `8c046234`)
+**`newsfirehose_collector.py`** `collect()` pages each OR-chunk until the API says `has_more:
+false` or a page reaches past the window. The 3-page cap per chunk (`a7b3263d`) is gone: it moved
+coverage past rows nobody read. A missing or malformed `has_more`, a non-JSON body or an empty
+page that says there is more are failures. A failure keeps the earlier pages' items and the
+cursor of the failed page; a resume replays one page, because the API sorts by `published_at`
+with no tie-breaker. The API refuses datetimes, so requests go out as whole UTC days with slack
+and rows are filtered to the exact interval. The interactive `search_articles` no longer widens
+every request to 30 days and raises when every chunk fails.
+
+**`collection_runs.py`**: proven coverage (`coverage_through`) moves only on a complete run. The
+72-hour stall valve is removed. A list API's full page (no way to ask for more) moves a separate
+`scheduled_through` and writes a `collection_gaps` row (`COLLECTION_NON_EXHAUSTIVE_POLICY`,
+default `advance`). Only failed runs count as failures; failures and runs that move no cursor
+back off (`next_attempt_at`, 15 min doubling to 12 h). A window skipped by the lookback cap is a
+gap on record. **`keyword_monitor.py`** saves each round's items before committing checkpoints
+and gives a provider whose cursor moved up to `COLLECTION_FOLLOWUP_ROUNDS` (2) more rounds.
+Migration `ip_001`.
+
+### Decision · Broad firehose keywords fail visibly; AI keywords narrowed
+Measured on 7 Oct over 24 h (window ending 09:00 UTC), chunk by chunk: 24 of the 76 stuck
+keywords had more than 10 pages (1,000 rows) of in-window rows per chunk. 22 are in the AI group;
+the top one, `kw:190` (Geopolitical Hotspots), had 56 pages. The cause is `_normalize_query`
+turning `+` into OR, so `(A | B) + (AI | "generative AI")` matches anything that says "AI".
+Complete paging would have pushed tens of thousands of rows a day through scoring, against a
+site intake of 540-730 a day in late September.
+
+A chunk with more than `NEWSFIREHOSE_BROAD_PAGES_PER_DAY` (10) pages per day of window now ends
+the run as a configuration failure with no items, no coverage move and a health entry. Only pages
+inside the window count (`8c046234`). Oliver chose to keep the guard and narrow the keywords: 23
+of the 25 AI keywords (group 9) were rewritten in the database to firehose AND-terms (`antitrust
++ AI` becomes `antitrust AI`). Each measured 1-8 pages per chunk over 24 h. The old text is in
+`/var/tmp/monitored_keywords_group9_backup_20261007.csv`. Keywords 65 (16 pages a day even
+narrowed) and 87 (`AI | "artificial intelligence"`) are unchanged, waiting for a decision.
+
+### Fix · Scrape after the relevance gate (`d25b0f57`)
+The quick gate reads only the collector's content or summary, yet every article without 200
+characters of content was Firecrawl-scraped before it. In the 7 days to 7 Oct, 2,252 of 3,344
+non-brand pages belonged to articles the gate rejected. **`automated_ingest_service.py`** now
+reads the `raw_articles` cache first, scrapes before the gate only snippets under
+`INGEST_MIN_GATE_TEXT_CHARS` (80) and brand topics (their decision reads the page), and scrapes
+the rest after they pass. Batch results count pre-gate, cache and post-gate scrapes.
+
+### Feature · Auto-ingest prompt, cache key and output lock (`d25b0f57`)
+`analyze_content(mode=...)` in **`article_analyzer.py`**: auto mode uses the new
+`content_analysis_auto` prompt (no Political Bias or Factuality, which ingest never stored) and
+makes no date call; manual research, bulk research and the bias arena are unchanged. The cache
+key covers mode, date extraction, prompt and schema version, model, the five label lists and the
+summary settings, so an auto result never answers a manual request. Both prompts end in a fixed
+block after `REQUIRED OUTPUT FORMAT:` (**`analysis_schema.py`**), which also asks for English.
+**`prompt_manager.py`** refuses any save, restore, import or restore-to-default that changes it,
+including one that keeps the heading; the route answers 422. A field now starts only on a known
+heading, so "CEO: we will grow" stays in the summary. An off-list sentiment retries inside the
+3-attempt loop, then fails the analysis instead of storing an empty label. Page input
+(`ANALYSIS_INPUT_MODE=page_first`, 6,000-token budget) is built and off.
+
+### Feature · Recorded relevance decisions (`0d0ff460`)
+Both gates use the same threshold: the group's own, else the topic's. The final gate honoured a
+group threshold only for Brand Monitoring topics before. **`hybrid_relevance_service.py`**: the
+Jev and cross-encoder tiers accept on their own criterion as before, but no longer raise the score
+to the threshold. Each decision is stored (migration `ip_002`): threshold, accepted, engine, raw
+engine scores, policy version and group, on the article and on that group's match row only.
+**`article_visibility.py`**: failed states are never readable; a recorded decision decides;
+legacy rows keep the score rule. Brand Watcher alert and investor readers now use it too.
+
+### Fix · Failures retry or show (`d25b0f57`, `0d0ff460`)
+- A failed relevance check stores NULL scores (0.0 read as "off-topic"), counts an attempt and
+  retries with a cap (`RELEVANCE_MAX_ATTEMPTS`, 5).
+- **`enrichment_retry_sweep.py`** applies eligibility and caps in SQL before its limit and takes
+  the oldest due rows first. Exhausted rows used to fill its window. An advisory lock stops
+  overlapping sweeps.
+- Each analysis attempt has a deadline (`ANALYSIS_DEADLINE_SECONDS`, 55) passed to the router as
+  each call's timeout, and an ownership token, so a timed-out thread neither caches nor returns.
+- Vector upserts return stored, no-text or failed and record failures (migration `ip_003`).
+- **`app/tasks/embedding_repair.py`** embeds approved news and relevant social posts, 200 per
+  pass, oldest due first, without repeating analysis. An unreachable encoder stops the pass
+  without spending attempts. `/api/health/collection` reports embeddings and retries.
+- The placeholder `quality_score = 0.8` is no longer written (`294a2780`); history is left alone.
+  The briefing ranking moved that weight to alignment.
+
+### Feature · Social posts reach vector search and the agents (`0d0ff460`)
+Social posts (`social_evaluated`, relevance at least 0.4, not a false positive) were never
+embedded. Incident tracking and real-time signals required a category, which social posts never
+get. Both now take relevant posts through `agent_evidence_sql()`; no category is invented. After
+bugfixing's restart the repair sweep embedded all 2,234 eligible posts.
+
+### Fix · Reddit waits out the shared pause (`0d0ff460`)
+**`reddit_collector.py`** sends nothing while the shared ledger pauses reddit.com and reports when
+the pause ends. A quota failure backs its checkpoint off until then.
+
+### Fix · Matched search term reaches the tags (`eff711f2`)
+The keyword monitor built the ingest record without `_matched_keywords`, so tags were the model's
+alone.
+
+### Docs · WP2 corrections (`9332ce13`)
+`METHODOLOGY.md`, `AI_DESIGN_PATTERNS.md`, the embedding docs, the brand spec and the collector
+data quality doc now describe the code at `83fecd57`, each claim backed by code, configuration
+or a dated query. New: `docs/pipelines/08b_ARTICLE_TEXT_RECIPIENTS.md`.
+
+### SaaS · S1 importer recovery and S2 classifier outcomes (saasmvp-app)
+Branch `fix/pipeline-failure-s1-s2` in saasmvp-app (worktree in the session scratchpad), commits
+`a004a962`, `f4a8ce8d`, `595ae8b5`, `e1cd1078`, `1c29bcf8`. The importer keeps a walk cursor
+apart from imported ids, records a durable retry for a failed row, escalates rows still unusable
+after 14 days, and links each source id to its article. The classifier returns matched, no-match
+or failed, stores attempts per input and catalogue version, discovers by arrival and by input
+change, pauses a faulty model configuration, and defaults to batch 200 at concurrency 8 (a
+57,600-a-day ceiling). Migration `pipeline_recovery_01` plus a prod twin. Not deployed.
+
+### Verification
+- 199 tests pass in this session's test files (`CDQ_DB_TESTS=1`), and 44 in the ingest and brand
+  path tests, re-run after the last commit.
+- The SaaS agent reports 45/45 new tests passing and an unchanged set of 30 old failures, compared
+  by message.
+- Database on bugfixing after the restart: 0 of 2,234 relevant social posts without an embedding;
+  0 AI-group keywords still containing `+`.
+- `/api/health/collection` alert builder covered by tests; not read on the live endpoint.
+
+### Propagation
+- **bugfixing**: another session restarted it at 12:49 and 12:59 onto this branch, so this code
+  is live there. Migrations `ip_001`-`ip_003` and `subd_001` are applied. The auto prompt was
+  seeded on restart. `scripts/migrate_analysis_prompt_schema.py` ran at 14:23: the manual
+  `content_analysis` prompt is now version 1.0.9 (`f16ddefa41ec1940`), its 2,753 characters of
+  instructions unchanged and only the format block replaced. The previous `current.json` is in
+  `/var/tmp/content_analysis_current_before_migration_20261007.json`. No firehose cycle had run
+  since the restart when this was written.
+- **Other seven sites**: not deployed. Each needs `ip_001`-`ip_003` before this code, because the
+  reader query uses their columns, then the prompt script.
+- **saas**: not deployed. `pipeline_recovery_prod_01` must run before any new code, including the
+  running Jul-Aug gap fill.
+
+### Lessons
+- **An advisory lock on a pooled connection must be released explicitly.** Closing the connection
+  returns it to the pool with the session still holding the lock; every later sweep then reads
+  "locked". Both sweeps now call `pg_advisory_unlock`.
+- **Constructing `PromptManager` writes to `data/prompts`.** Importing `prompt_routes` or running
+  a "dry run" that builds one creates prompt folders in the live store. Tests patch it out; the
+  migration script's dry run reads the files directly.
+- **Switching the shared tree's branch moves other sessions onto it.** Fifteen commits from other
+  sessions landed on `fix/ingest-pipeline-spec`, and another session's restart deployed it.
+
 ## 2026-10-07 — Market Monitor: Oviva's market page fixed end to end; incidents, press checks and hiring counts in canonical
 
 ### Goal
