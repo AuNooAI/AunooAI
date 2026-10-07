@@ -431,7 +431,12 @@ def jobs(conn, market_id: int, *, brand_id: Optional[int] = None,
     rows = [dict(r) for r in conn.execute(text(f"""
         SELECT s.provider_item_id, s.brand_id, s.source,
                b.display_name AS vendor,
-               MAX(s.data->>'title') AS title,
+               -- The newest title, as market_analysis.hiring() reads it. MAX()
+               -- picked the alphabetically last one: Nebulock's board renamed
+               -- "Sr Content Marketing Manager" to "Senior …", MAX() kept "Sr",
+               -- the LinkedIn copy no longer matched, and the list ran 3 over
+               -- its own count on aisocnews (7 Oct 2026).
+               (ARRAY_AGG(s.data->>'title' ORDER BY s.observed_at DESC))[1] AS title,
                MAX(s.data->>'location') AS location,
                MAX(s.data->>'seniority') AS seniority,
                -- ATS listings carry the board's own department in `function`
@@ -728,11 +733,18 @@ def voice_posts(conn, market_id: int, author: str, *,
     counts.
     """
     size, offset = _page(page, page_size)
+    # The same population top_voices counts: not excluded by the review, and
+    # aligned with the market. Without the two filters a card read 15 posts
+    # and its list 19 (hacker.at.thenote.app on aisocnews, 7 Oct 2026).
+    from app.services.market_analysis import MIN_SOCIAL_ALIGNMENT
     where = ["ma.market_id = :m",
              "a.social_meta->>'author' = :author",
-             "COALESCE(a.bias_source,'') <> 'vendor:linkedin'"]
+             "COALESCE(a.bias_source,'') <> 'vendor:linkedin'",
+             "COALESCE(ma.review_verdict, '') <> 'excluded'",
+             "COALESCE(a.topic_alignment_score, 0) >= :min_align"]
     params: Dict[str, Any] = {"m": market_id, "author": author,
-                              "lim": size, "off": offset}
+                              "lim": size, "off": offset,
+                              "min_align": MIN_SOCIAL_ALIGNMENT}
     since = _since(days)
     if since:
         where.append("COALESCE(a.publication_date, a.submission_date) >= :since")

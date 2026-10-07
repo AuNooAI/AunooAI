@@ -687,10 +687,14 @@ def test_a_vendors_own_website_is_not_third_party_coverage(conn, market):
 
     assert own_site['meta']['pagination']['total'] > 0, (
         'this market has vendor-website articles to classify')
-    # Disjoint: no item is both.
-    earned_uris = {r['uri'] for r in earned['data']}
-    own_uris = {r['uri'] for r in own_site['data']}
-    assert not (earned_uris & own_uris)
+    # Disjoint per vendor: no (article, vendor) pair is both. The same page
+    # can be both on purpose (market_corpus.vendor_domain_sql): Simbian's blog
+    # post on XDR integrations is owned for Simbian and third-party coverage
+    # for Dropzone AI, Intezer and CrowdStrike, which it names. Compared by
+    # URI alone, this test failed on that page (7 Oct 2026).
+    earned_pairs = {(r['uri'], r['brand_id']) for r in earned['data']}
+    own_pairs = {(r['uri'], r['brand_id']) for r in own_site['data']}
+    assert not (earned_pairs & own_pairs)
 
     for row in own_site['data']:
         assert row['ownership'] == 'owned_web'

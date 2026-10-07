@@ -303,7 +303,10 @@ def test_the_lead_answers_before_it_shows_evidence(conn, market):
     )]
     assert order == sorted(order), 'the lead is out of order'
     assert 'Funding and investor activity' in html
-    assert 'collected records' in html and 'material development' in html
+    # The distillation line, in the plain copy of d9abad37 (30 Aug 2026):
+    # "N records collected → M developments", once "collected records →
+    # material development".
+    assert 'records collected &rarr;' in html
     # Every development names whose word it rests on.
     assert ("Vendor sources only" in html or 'Also reported independently' in html
             or 'Reported by multiple independent sources' in html
