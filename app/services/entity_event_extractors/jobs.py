@@ -70,7 +70,8 @@ def run(conn, *, brand_id: Optional[int] = None,
         postings[int(row['brand_id'])].append({
             'snapshot_id': int(row['id']),
             'posting_id': data.get('posting_id'),
-            'function': (data.get('function') or 'unspecified').strip(),
+            'function': (data.get('function') or data.get('function_hint')
+                         or 'unspecified').strip(),
             'title': data.get('title'),
             'location': data.get('location'),
             'country': _country(data.get('location')),

@@ -892,7 +892,18 @@ def map_job_listing(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
     # enough that it would attribute a job to the wrong company.
     company_id = _first(raw, "company_id")
 
-    return {
+    # Bright Data stopped collecting job_function on 2026-10-01 because
+    # LinkedIn no longer shows it publicly, so `function` is now always empty.
+    # Guess the job family from the title, the same way the ATS collector
+    # does, and store it as `function_hint` so readers can tell a guess from
+    # LinkedIn's own label. A title that matches nothing stays unguessed.
+    from app.collectors.ats_collector import _function_of
+    function = _first(raw, "job_function")
+    function_hint = None if function else _function_of(title, None)
+    if function_hint == "Other":
+        function_hint = None
+
+    mapped = {
         "posting_id": str(posting_id),
         "title": title,
         "company": _first(raw, "company_name"),
@@ -900,12 +911,18 @@ def map_job_listing(raw: dict[str, Any]) -> Optional[dict[str, Any]]:
         "company_id": str(company_id) if company_id else None,
         "location": _first(raw, "job_location"),
         "seniority": _first(raw, "job_seniority_level"),
-        "function": _first(raw, "job_function"),
+        "function": function,
         "employment_type": _first(raw, "job_employment_type"),
         "posted_date": _first(raw, "job_posted_date"),
         "url": _first(raw, "url", "apply_link"),
         "observed_source": "brightdata_linkedin_jobs",
     }
+    # Only add the key when there is a guess. A record LinkedIn labelled
+    # itself then hashes the same as before the change, and is not stored
+    # again as if the posting had changed.
+    if function_hint:
+        mapped["function_hint"] = function_hint
+    return mapped
 
 
 def map_zoominfo_company(raw: dict[str, Any]) -> Optional[dict[str, Any]]:

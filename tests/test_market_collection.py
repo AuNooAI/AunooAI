@@ -365,6 +365,25 @@ def test_the_documented_jobs_output_maps_completely():
     assert mapped['employment_type'] == 'Full-time'
 
 
+def test_a_posting_without_job_function_gets_a_title_guess():
+    """Bright Data stopped collecting job_function on 2026-10-01. The
+    family is guessed from the title instead, kept apart from `function`."""
+    from app.services.brightdata_linkedin import map_job_listing
+
+    base = {'job_posting_id': '1', 'company_name': 'Intezer',
+            'company_id': '10656303', 'job_function': None}
+    mapped = map_job_listing({**base, 'job_title': 'Senior Account Executive'})
+    assert mapped['function'] is None
+    assert mapped['function_hint'] == 'Sales'
+
+    unmatched = map_job_listing({**base, 'job_title': 'Office Gardener'})
+    assert 'function_hint' not in unmatched
+
+    labelled = map_job_listing({**base, 'job_title': 'Senior Account Executive',
+                                'job_function': 'Sales'})
+    assert 'function_hint' not in labelled
+
+
 def test_a_posting_attributable_only_by_company_id_keeps_it():
     """The dictionary documents company_id and not company_url, so a record
     can arrive attributable by id alone. Dropping it would throw away a paid

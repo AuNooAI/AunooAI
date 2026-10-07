@@ -1270,6 +1270,19 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
         if not brand_id:
             unmatched += 1
             continue
+        if not mapped.get("function"):
+            # Bright Data stopped sending job_function on 2026-10-01. A posting
+            # we saw before then keeps LinkedIn's own label, and with it the
+            # record matches the stored one instead of looking changed.
+            earlier = conn.execute(text("""
+                SELECT data->>'function' FROM bw_vendor_snapshots
+                WHERE source = :src AND provider_item_id = :pid
+                  AND NULLIF(data->>'function', '') IS NOT NULL
+                ORDER BY observed_at DESC LIMIT 1
+            """), {"src": JOBS_SOURCE, "pid": mapped["posting_id"]}).scalar()
+            if earlier:
+                mapped["function"] = earlier
+                mapped.pop("function_hint", None)
         if store_snapshot(
             conn, market_id=run["market_id"], brand_id=brand_id,
             source=JOBS_SOURCE, snapshot_type="job_posting",
