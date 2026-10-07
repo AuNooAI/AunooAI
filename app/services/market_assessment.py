@@ -1782,6 +1782,33 @@ def _money(text_value: str) -> str:
 _HEADLINE_BUYER = re.compile(r"^([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\b(?=.*\bacqui)", re.I)
 
 
+def _same_company(name: str, vendor: str) -> bool:
+    """Whether two names are one company: "Leidos Security Enterprise
+    Solutions" and "Leidos", "Coalition, Inc." and "Coalition"."""
+    a = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split()
+    b = re.sub(r"[^a-z0-9 ]", " ", (vendor or "").lower()).split()
+    return bool(a and b) and a[0] == b[0]
+
+
+#: The company bought, after the verb or in "<Buyer> and <Target> close".
+_ACQUIRED_TARGET = re.compile(
+    r"\b(?:acquires|acquired|acquiring|acquisition of|buys|bought)\s+"
+    r"([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,3})")
+_CLOSE_WITH = re.compile(
+    r"\band\s+([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,2})\s+"
+    r"(?:close|complete|finali[sz]e)\w*\s+(?:the\s+|their\s+)?(?:acquisition|merger|deal)", re.I)
+
+
+def _acquired_company(text_value: str, vendor: str) -> str:
+    """The company the vendor bought, or "" when the text does not say."""
+    for pattern in (_CLOSE_WITH, _ACQUIRED_TARGET):
+        for m in pattern.finditer(text_value or ""):
+            name = m.group(1).strip()
+            if name and not _same_company(name, vendor) and name[0].isupper():
+                return name
+    return ""
+
+
 def _acquirer(text_value: str, vendor: str, headline: str = "") -> str:
     m = _ACQUIRED_BY.search(text_value or "") or _ACQUIRED_US.search(text_value or "")
     if m:
@@ -3332,6 +3359,14 @@ def _deal_sentence(dev: Dict[str, Any]) -> str:
     text_value = _full_text(dev)
     if dev["event_type"] == "acquisition":
         buyer = _acquirer(text_value, vendor, _title_of(dev))
+        # The tracked vendor can be the buyer, not the company bought:
+        # "Leidos Security Enterprise Solutions and Analogic close acquisition
+        # deal" read "Leidos acquired Leidos on 5 October" (7 Oct 2026).
+        if buyer and _same_company(buyer, vendor):
+            target = _acquired_company(f"{_title_of(dev)}. {text_value}", vendor)
+            if target:
+                return f"{vendor} acquired {target}{on}."
+            return f"{vendor} completed an acquisition{on}."
         if buyer:
             return f"{buyer} acquired {vendor}{on}."
         return f"{vendor} was acquired{on}; the source does not name the buyer."
