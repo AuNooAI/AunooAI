@@ -42,8 +42,19 @@ the run as a configuration failure with no items, no coverage move and a health 
 inside the window count (`8c046234`). Oliver chose to keep the guard and narrow the keywords: 23
 of the 25 AI keywords (group 9) were rewritten in the database to firehose AND-terms (`antitrust
 + AI` becomes `antitrust AI`). Each measured 1-8 pages per chunk over 24 h. The old text is in
-`/var/tmp/monitored_keywords_group9_backup_20261007.csv`. Keywords 65 (16 pages a day even
-narrowed) and 87 (`AI | "artificial intelligence"`) are unchanged, waiting for a decision.
+`/var/tmp/monitored_keywords_group9_backup_20261007.csv`.
+
+### Fix · Limit raised to 20 pages a day; blocked AI keywords collect (`c00cc3f6`)
+The first runs on the new code showed 10 was too tight. Keyword 74 measured 6 pages per chunk on
+7 Oct, but its stuck 2 Oct window needed 11, so it failed at 14:16 and 14:48 after saving 985
+articles in two earlier rounds. Keywords 63 and 64 had also tripped it. The default is now 20
+pages (2,000 rows) per chunk per day. That is above all 23 narrowed keywords (at most 8) and
+still below the worst original queries (27-56); `kw:190` stays blocked. Keyword 65 was then
+narrowed in the database like the others (`generative AI | machine learning | … | chatbot`, 16
+pages a day). Keyword 87 (`AI | "artificial intelligence"`, 14 pages a day) fits under 20 and is
+unchanged. bugfixing was restarted at 16:20 (quiet check: no users, chats or jobs), and the
+backoff on the three blocked keywords was cleared (`next_attempt_at = NULL`, coverage untouched).
+Keyword 74 then ran at 16:20:59: success, 782 articles, its 2 Oct window finished.
 
 ### Fix · Scrape after the relevance gate (`d25b0f57`)
 The quick gate reads only the collector's content or summary, yet every article without 200
@@ -118,14 +129,90 @@ or failed, stores attempts per input and catalogue version, discovers by arrival
 change, pauses a faulty model configuration, and defaults to batch 200 at concurrency 8 (a
 57,600-a-day ceiling). Migration `pipeline_recovery_01` plus a prod twin. Not deployed.
 
+### Fix · WP7 small repairs (`e0370e1b`)
+- **Run counts:** **`keyword_monitor.py`** keyword run records now count what each provider's
+  items did in the database, as `inserted`, `associated` (linked to the keyword), `existing`,
+  `filtered` and `persist_failed`. Before, `inserted` was always 0. The two new fields are in
+  **`contracts.py`**.
+- **Duplicate URLs:** firehose, xpoz, reddit and telegram now have a dedup priority. Every
+  priority is distinct, so the copy kept no longer depends on arrival order. Firehose ranks
+  highest because it carries the full body.
+- **Label lists:** **`topic_label_lists.py`** refuses a topic save, in the wizard and in
+  `/api/create_topic`, when any of the five label lists is empty, unless `enrichment_disabled`
+  is set. The wizard checked only two lists before. Ingestion already honours the flag: such
+  articles are held as `quarantined_config` with no model call. No existing topic fails the check.
+- **MBFC:** **`media_bias.py`** no longer switches a disabled source back on during a lookup; it
+  skips the source instead.
+- **Analysis cache:** `AnalysisCache.cleanup_expired` only listed the top folder, while the files
+  live one folder down, so it never removed anything. It now walks the subfolders, skips files
+  written in the last 5 minutes, and survives unreadable files. Writes are atomic (temporary name,
+  then rename). **`app/tasks/analysis_cache_cleanup.py`** runs it daily in a worker thread
+  (`ANALYSIS_CACHE_CLEANUP_ENABLED`, `ANALYSIS_CACHE_CLEANUP_HOURS`, default 24).
+- **NewsAPI key:** the NewsAPI collector accepts `NEWSAPI_KEY`, as the factory already did.
+
+### Fix · Too-broad firehose chunks split by terms (`734cd57f`)
+Keyword 64 was refused on its 2 Oct window, because its first chunk of 8 OR terms passed 21
+pages in one day. Measured on that window, no single term did: the busiest, "AI market", reached
+16 pages. **`newsfirehose_collector.py`** now halves a chunk that passes the limit and pages
+each half under its own limit. Together the halves make the same query. The split list rides in
+the continuation and is used on resume only if it holds exactly the query's terms.
+
+The firehose takes whole days only, so a window cannot be split finer by date. A single term
+still over the limit is refused as before (failure, coverage does not move), but its rows are
+now returned and saved.
+
+### Fix · Group settings: one honoured, four labelled, daily limit labelled (`5d822846`)
+- A group's `auto_ingest_enabled` now overrides the site setting (`should_auto_ingest(group_id)`;
+  NULL inherits the site). It was saved and shown but ignored. On all 19 site databases, no active
+  group has it off and every site has the site setting on, so nothing changed on deploy.
+- `quality_control_enabled`, `auto_save_approved_only`, `llm_temperature` and `llm_max_tokens`
+  reach no model call or save decision. They are labelled "not used" in the group settings and
+  auto-collect settings, and on the keyword alerts page. The threshold slider no longer hides
+  behind the quality-control switch, because the threshold applies regardless.
+- `daily_request_limit` is labelled "not enforced". Enforcing the site's 1,000 a day would stop
+  firehose paging. The health page now says its counter is NewsAPI's.
+- The UI was rebuilt on bugfixing; the build includes `28c4d770`'s coverage-panel labels.
+
+### Cleanup · Sync analysis path removed after a caller audit (`59736ab2`, `8b3055e8`)
+`AutomatedIngestService.analyze_article_content` had three callers: `/test-process-article`,
+`scripts/cleanup_ontology_artifacts.py` and `scripts/test_auto_ingest_summary.py`. All three now
+use `_analyze_article_content_async`, and the sync method went in a separate commit. It was the
+only ingest use of `EnrichmentService` and `HybridEnrichmentService`. Those two services stay,
+because the training screens (`/routing`, `/status`, `/model-config`, `/inference-mode`, called
+from `trainingApi.ts`) and three SLM scripts still use them.
+
+### Plan · Provider identity (`c03d7c56`)
+Not built. `docs/pipelines/08d_PROVIDER_IDENTITY_PLAN.md`: 9,065 of 13,478 `article_observations`
+rows on bugfixing (67%) are keyed by a publisher domain, not a collector. The plan prefers
+`collector_source`, writes new keys only, and looks up old and new keys together for 45 days. It
+does not rewrite old keys, because the stored rows do not record their collector.
+
 ### Verification
 - 199 tests pass in this session's test files (`CDQ_DB_TESTS=1`), and 44 in the ingest and brand
   path tests, re-run after the last commit.
+- Evening work: every new test passes. The related selection (`-k` over collection, ingest,
+  relevance, cache, topic, enrich and group) has 80 failures, the same 80 as a clean checkout of
+  the commit before, so none are new. The analyzer test file failed 11 at the branch base and
+  fails 10 now.
+- After the 17:08 restart: keyword 81's run recorded 929 inserted, 255 associated and 16 existing,
+  adding up to its 1,200 rows. All 42 non-RSS runs since then carry the new counts. RSS runs go
+  through another path and still report zeros. The first cache cleanup ran at 17:19 and removed
+  34,045 expired files in 10 seconds; 1,874 current files remain.
+- Keyword 64: the split ran at 17:45 (`after_pages` 21, 8 terms, now three chunks). Runs then
+  collected 321, 1,138, 150 and 1,200 rows. At 20:33 a run succeeded with 620 rows, which
+  finished the 2 Oct window.
 - The SaaS agent reports 45/45 new tests passing and an unchanged set of 30 old failures, compared
   by message.
 - Database on bugfixing after the restart: 0 of 2,234 relevant social posts without an embedding;
   0 AI-group keywords still containing `+`.
-- `/api/health/collection` alert builder covered by tests; not read on the live endpoint.
+- `/api/health/collection` read live at about 16:25: 0 missing embeddings; alerts for 55 stalled
+  firehose keywords (50 carrying failure counts from the old code, which reset on a keyword's
+  first success), 2 Reddit and 3 xpoz stalled keywords, feed 57 failing over 24 h, and 63
+  `enrichment_failed` articles at their retry cap.
+- At 16:32: 49 firehose keywords with 3+ failures, 56 on unfinished windows, 204 current.
+  Articles first seen since 16:20: 113 approved, 141 rejected, 197 still in processing.
+- Log since 16:20: one Firecrawl scrape failure and one asyncio "Task was destroyed but it is
+  pending" error, cause not investigated.
 
 ### Propagation
 - **bugfixing**: another session restarted it at 12:49 and 12:59 onto this branch, so this code
@@ -133,8 +220,14 @@ change, pauses a faulty model configuration, and defaults to batch 200 at concur
   seeded on restart. `scripts/migrate_analysis_prompt_schema.py` ran at 14:23: the manual
   `content_analysis` prompt is now version 1.0.9 (`f16ddefa41ec1940`), its 2,753 characters of
   instructions unchanged and only the format block replaced. The previous `current.json` is in
-  `/var/tmp/content_analysis_current_before_migration_20261007.json`. No firehose cycle had run
-  since the restart when this was written.
+  `/var/tmp/content_analysis_current_before_migration_20261007.json`. The prompt store's
+  `current.json` is tracked in git and now differs from the branch; it is live state and was not
+  committed. Restarted again at 16:20 for the limit change. Other sessions restarted it at
+  17:08, which put `e0370e1b` live, and at 17:43, which put `734cd57f` live. I restarted it at
+  20:30 (quiet check: no users, chats or jobs), which put `5d822846`, `59736ab2` and `8b3055e8`
+  live. The rollback point is `c03d7c56`. The 20:30 restart also made live another session's
+  uncommitted Market Monitor job-function work (`market_collect.fill_job_functions`,
+  `job_function_jev.py`). The two live sessions both said it isn't theirs. It was left as written.
 - **Other seven sites**: not deployed. Each needs `ip_001`-`ip_003` before this code, because the
   reader query uses their columns, then the prompt script.
 - **saas**: not deployed. `pipeline_recovery_prod_01` must run before any new code, including the
@@ -149,6 +242,12 @@ change, pauses a faulty model configuration, and defaults to batch 200 at concur
   migration script's dry run reads the files directly.
 - **Switching the shared tree's branch moves other sessions onto it.** Fifteen commits from other
   sessions landed on `fix/ingest-pipeline-spec`, and another session's restart deployed it.
+- **A restart deploys whatever is on disk, committed or not.** Before restarting the shared tree,
+  check `git status` for other sessions' uncommitted code and ask its owner.
+- **Read the whole call chain before calling code blocking.** I reported that the BrightData
+  webhook ran Jev calls on the event loop. In fact the route runs its whole `_work` function in
+  `asyncio.to_thread`, so it never blocked. My edit didn't compile, which is how I found out, and
+  I reverted it.
 
 ## 2026-10-07 — Market Monitor: Oviva's market page fixed end to end; incidents, press checks and hiring counts in canonical
 
