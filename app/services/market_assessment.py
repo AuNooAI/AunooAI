@@ -1052,6 +1052,12 @@ def review_confidence(check: Optional[Dict[str, Any]],
     (partnership 0.40, launch 0.53) were held out with near-perfect headlines
     (Oliver, 29 Sep 2026). A split into any other kind still counts alone.
     """
+    if isinstance(check, dict) and "kind" not in check \
+            and isinstance(check.get("press"), dict):
+        # A press item's check (market_post_review._check_earned): kind only.
+        # Its headline is the publisher's own title, which is not ours to
+        # check, so the kind decides alone.
+        check = {**check["press"], "headline": {"p_supports": 1.0}}
     if not isinstance(check, dict) or "kind" not in check:
         return None
     head = float((check.get("headline") or {}).get("p_supports") or 0.0)
@@ -2290,6 +2296,23 @@ def _stored_candidates(conn, market_id: int, days: int
                 if reread is None and _CONTRACT.search(said) \
                         and not _RAISE.search(said):
                     reread = "customer"
+                if reread is None:
+                    continue
+                if _FAMILY.get(reread) != _FAMILY.get(kind):
+                    kind = _refine_funding(_refine_product(reread, text_value),
+                                           text_value)
+        # The same for an event the press reported first: it follows the
+        # article's current reading. When Jev's check turns the reading into
+        # commentary (Adweek on Noom's ad, filed as a launch), the event goes;
+        # when it changes the kind, the event takes the new kind.
+        if attrs.get("announced_by") == "press":
+            current = [readings_now[e["uri"]] for e in evidence
+                       if e.get("uri") in readings_now]
+            if current:
+                signals = [k for v, k in current if v == "signal"]
+                if not signals:
+                    continue
+                reread = _REVIEW_KIND_MAP.get(signals[0])
                 if reread is None:
                     continue
                 if _FAMILY.get(reread) != _FAMILY.get(kind):

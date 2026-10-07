@@ -1352,16 +1352,25 @@ def store_earned(conn, market_id: int, verdicts: List[Dict[str, Any]],
 
     written = 0
     for v in verdicts:
+        # Jev's check goes under its own key, "press". The vendor review
+        # re-reads a wire release that has no "kind" check to write its
+        # headline, and must keep doing so.
         conn.execute(text("""
             UPDATE bw_market_articles
                SET review_verdict = :verdict,
                    review_kind    = :kind,
                    review_reason  = :reason,
                    review_model   = :model,
+                   review_check   = CASE WHEN CAST(:check AS JSONB) IS NULL
+                                         THEN review_check - 'press'
+                                         ELSE COALESCE(review_check, '{}'::jsonb)
+                                              || jsonb_build_object('press', CAST(:check AS JSONB))
+                                    END,
                    reviewed_at    = NOW()
              WHERE market_id = :m AND article_uri = :uri
         """), {"m": market_id, "uri": v["uri"], "verdict": v["verdict"],
-               "kind": v["kind"], "reason": v["reason"], "model": model})
+               "kind": v["kind"], "reason": v["reason"], "model": model,
+               "check": json.dumps(v["check"]) if v.get("check") else None})
 
         if v.get("vendor"):
             brand_id = conn.execute(text("""
@@ -1379,6 +1388,60 @@ def store_earned(conn, market_id: int, verdicts: List[Dict[str, Any]],
                     metadata={"model": model, "kind": v["kind"]})
         written += 1
     return written
+
+
+async def _check_earned(verdicts: List[Dict[str, Any]],
+                        by_uri: Dict[str, Dict[str, Any]]) -> None:
+    """Jev's second reading of each press signal's kind, in place.
+
+    Vendor posts always had it; press had none, so a reading went to the page
+    as the first model gave it. Adweek's piece on Noom's "Lose for Keeps" ad
+    was filed as a product launch and led Oviva's front page (7 Oct 2026).
+    The same questions as a vendor post, minus the headline ones: a press
+    item shows the publisher's own title, which is not ours to check.
+
+    Not news: the item becomes commentary. A kind Jev does not support: it
+    takes Jev's kind when that is one shown on the page, and is commentary
+    otherwise. Jev unreachable: the first reading stands, unchecked.
+    """
+    todo = [v for v in verdicts
+            if v.get("verdict") == "signal" and v.get("kind") in EVENT_KINDS]
+    if not todo:
+        return
+    gate = asyncio.Semaphore(_CHECK_CONCURRENCY)
+
+    async def one(v: Dict[str, Any]) -> None:
+        post = by_uri.get(v["uri"]) or {}
+        body = f"{post.get('title') or ''}\n\n{post.get('summary') or ''}"
+        async with gate:
+            try:
+                v["check"] = await asyncio.to_thread(
+                    check_one, body, {"kind": v["kind"], "vendor": v.get("vendor")})
+            except Exception as exc:  # noqa: BLE001 — never fail the review over the check
+                logger.warning("press check failed for %s: %s", v.get("uri"), exc)
+
+    await asyncio.gather(*(one(v) for v in todo))
+    for v in todo:
+        check = v.get("check")
+        if not check:
+            continue
+        k = check.get("kind") or {}
+        choice = (k.get("choice") or "").lower()
+        if float(check.get("is_news", 1.0)) < NEWS_MIN:
+            check["outcome"] = "not news"
+            v["verdict"] = "commentary"
+        elif choice != v["kind"] and float(k.get("p_drafted") or 0.0) < KIND_MIN_SUPPORT:
+            check["drafted_kind"] = v["kind"]
+            if choice in EVENT_KINDS:
+                check["outcome"] = f"re-kinded {v['kind']} -> {choice}"
+                v["kind"] = choice
+                # Scored on Jev's own kind from here on.
+                k["p_drafted"] = float(k.get("confidence") or 0.0)
+            else:
+                check["outcome"] = f"kind {v['kind']} not supported ({choice})"
+                v["verdict"] = "commentary"
+        else:
+            check["outcome"] = "confirmed"
 
 
 async def review_earned(conn, market_id: int, market_name: str, *,
@@ -1410,6 +1473,7 @@ async def review_earned(conn, market_id: int, market_name: str, *,
                            len(chunk), exc)
             continue
         by_uri = {p["uri"]: p for p in chunk}
+        await _check_earned(verdicts, by_uri)
         for v in verdicts:
             result["counts"][v["verdict"]] += 1
             if v.get("vendor"):
