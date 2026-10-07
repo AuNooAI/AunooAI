@@ -23,14 +23,14 @@ The two products decide brand relevance in different ways and share no code. The
 
 A brand topic is a keyword group named "Brand Monitoring X" or "X - Brand Watch". When the collector brings in a news article for one, the ingest service calls the brand path before anything else (`brand_ingest_hooks.pre_decide`). The decision (`brand_decision.decide`) runs these steps and stops at the first that settles it:
 
-1. **Profile.** The brand's names, products, original-language names, own websites and same-name rules come from its `bw_brands` row and the vendor registry (`brand_profile.build_profile`). A missing or duplicate profile defers the article.
+1. **Profile.** The brand's names, products, original-language names, own websites and same-name rules come from its `bw_brands` row and the vendor registry (`brand_profile.build_profile`). A brand topic with no profile returns no decision, and the article goes down the site's older path. A configuration error, such as two brands claiming the same topic, defers the article.
 2. **Exclusions.** A page on a site listed as never the brand's press, or an automated valuation page ("CL DCF Analysis: Intrinsic Value..."), is "other" with no model call. Deal listings are not excluded: they are marked promotional and go on (your 6 October decision).
 3. **Whose site.** The page is owned if it sits on one of the brand's own domains, independent if it has any other publisher, unknown if it has none (`source_relation`).
 4. **Mention.** The brand must be named in the article's own text, not just in the collector's claim. Names that need context, and words that mark a different company with the same name (SunStar the Philippine newspaper, Colgate University), are applied here. A listed fan or recipe site that names the brand is settled as a fan page.
 5. **Reuse.** If the same article and brand were decided before under the same inputs, that decision is reused and no model is called.
 6. **No mention.** An article that does not name the brand goes to the site's existing topic rules: relevant becomes "sector", not relevant becomes "other".
-7. **Judge.** An article that names the brand goes to the LLM judge (`HYBRID_RELEVANCE_LLM_MODEL`, Nova-lite today; Jev only if `BRAND_JUDGE_ROUTE=jev`). It must answer with one label and a one-sentence reason in strict JSON, or the answer is treated as unavailable. The rubric is version brand-judge-3.
-8. **Headline rule.** If the brand is in the headline and the judge said less than notable, the label is raised to notable.
+7. **Judge.** An article that names the brand goes to the LLM judge. The model is `BRAND_JUDGE_MODEL` if set, else `HYBRID_RELEVANCE_LLM_MODEL`, else Nova-lite; no running site sets either, so every site uses Nova-lite today. `BRAND_JUDGE_FALLBACK_MODEL` adds a second LLM route if the first fails, and `BRAND_JUDGE_ROUTE=jev` swaps the first route for Jev. It must answer with one label and a one-sentence reason in strict JSON, or the answer is treated as unavailable. The rubric is version brand-judge-3.
+8. **Headline rule.** If the brand is in the headline and the judge said sector or passing, or gave no answer, the label is raised to notable. A judge's "other" is kept, because it means the judge read the headline name as a different company or the story as unrelated (policy version brand-coverage-3; the spec's Appendix C records the change).
 9. **Unknown publisher.** A subject or notable label from a page with no readable publisher is deferred, not counted.
 
 The article counts as earned coverage only when the label is subject or notable and the site is independent. Sector stories and the brand's own content are kept and shown but never counted as press. Passing mentions and "other" are stored as rejections.
@@ -65,7 +65,7 @@ The three panaya drops are two UiPath false matches on its generic product names
 
 ## Monolith: where it is switched on
 
-The brand decision is on at every running monolith site. Only Sunstar and wbm have stored decisions so far: the other sites have not collected a new brand article since their switch-on, or have no brand topics.
+The brand decision is on at seven of the eight running monolith sites. It is off on bugfixing, where `BRAND_RELATION_DECISIONS` is not set in `.env` (checked 7 October). Only Sunstar and wbm had stored decisions when this table was made on 6 October: the other sites had not collected a new brand article since their switch-on, or have no brand topics.
 
 | Site | Brand decision | Market vendor decision | Retries by | Stored brand decisions | Note |
 | --- | --- | --- | --- | --- | --- |
@@ -73,7 +73,7 @@ The brand decision is on at every running monolith site. Only Sunstar and wbm ha
 | Oviva | on | off | cron | 0 | WeightWatchers recipe sites kept as fan pages |
 | abm | on | off | enrichment sweep | 0 |  |
 | wbm | on | off | cron | 4 | four "sage" rows decided not coverage after the threshold fix |
-| wileytest | on, waiting for restart | off | cron | 0 | restart held while users are active |
+| wileytest | on | off | cron | 0 | restarted onto the flag at 23:12 on 6 October |
 | panaya | on | on | cron | 0 | no brand topics; vendors come through the market |
 | wiley | on | off | cron | 0 | no brands |
 | bugfixing | off | off | enrichment sweep | 0 | canonical tree |
@@ -102,13 +102,15 @@ Decisions are recorded since 5 October 2026 in `relevance_evaluations`, `relevan
 
 ## SaaS: how topics get their articles
 
-Topics work separately from brands, and three mechanisms feed them.
+Topics work separately from brands. Five routes put articles into the shared `articles` store. Three of them attach a topic directly (analyst publish, RSS collection and the brand official-sources poller), and an LLM tagger adds topics to the rest. The two largest are the analyst publish step and, until 9 September, the firehose import.
 
+- **Analyst publish.** The analyst pipeline (described below) copies its confirmed articles into `articles` with the topic attached (`app/analyst/publishing.py`). It is the largest topic feeder today, at about 16,300 new rows in the week to 7 October. An article whose URL already exists only gains the topic id. Publishing never runs in reverse: rejecting an already-published article in the analyst UI does not remove its topic.
+- **Firehose import.** An hourly job copies NewsFirehose articles from its database straight into `articles` (`scripts/import_firehose_corpus.py`, `saas-firehose-import.timer`). It attaches **no topic** and no relevance score; those rows reach a topic only if the topic tagger below tags them, and 88% never were. It added 24,000 to 29,000 articles a day until 9 September 2026. Since then it adds none, because `FIREHOSE_DSN` is not set on production and the importer still reads the old, frozen local copy.
 - **Collection.** Every 15 minutes each active topic is collected. NewsAPI is configured but its key is empty in production, so production collects topics through RSS. There is no relevance check at collection: the article simply gets the topic's id added to `articles.topic_ids`.
-- **Topic tagging.** An LLM (Llama 3.3 70B in production) tags untagged articles with the curated topics they are "genuinely about, not topics it mentions in passing". It runs at ingest and as a background loop.
+- **Topic tagging.** An LLM (Llama 3.3 70B in production) tags untagged articles with the curated topics they are "genuinely about, not topics it mentions in passing". It runs at ingest and as a background loop. The loop is currently stuck: it re-sends the same 50 articles every 5 minutes.
 - **Relevance score.** Every 5 minutes a backfill scores tagged articles against each of their topics with Nova-lite and writes the highest score into `articles.relevance_score`. The score is not tied to one topic and no decision follows from it; a low score never removes a topic tag. On failure the score stays empty and is retried later.
 
-The analyst topics run their own pipeline: a small embedding model scores each article (the DeBERTa model is not present in production, so it runs on MiniLM alone), Nova-lite settles the uncertain middle band, and articles are bucketed confirmed, pending or rejected around each topic's threshold. Only confirmed articles are published. In the last 30 days that was 90,832 confirmed, 220,957 rejected (131,549 on the embedding score alone) and 16,690 pending.
+The analyst topics run their own pipeline: a small embedding model scores each article (the DeBERTa model is not present in production, so it runs on MiniLM alone), Nova-lite settles the uncertain middle band, and articles are bucketed confirmed, pending or rejected around each topic's threshold. Only confirmed articles are published, and a publish also needs the article's alignment score at or above the threshold, at least 10 eligible articles for the topic, a run with no errors and at least 95% scoring coverage, and a per-article validation pass. In the last 30 days that was 90,832 confirmed, 220,957 rejected (131,549 on the embedding score alone) and 16,690 pending.
 
 **Who reads it.** The reader feed and the public topic pages show articles with `relevance_score` of at least 0.3. The newsletter takes any scored article. The MCP tool `get_topic_articles` filters on the topic tag and dates only, with no relevance filter; the semantic search tools add vector distance. Social posts are scored the same way as news on this path.
 
@@ -126,8 +128,8 @@ The analyst topics run their own pipeline: a small embedding model scores each a
 
 Monolith, canonical tree `/home/orochford/tenants/bugfixing.aunoo.ai` (commit 7e74f4e6 and later):
 
-- Decision: `app/services/brand_decision.py` (`decide` line 356; exclusions 381, mention 397, reuse 418, judge 443, headline rule 459; judge route 316 to 320; earned and admitted 86 to 97)
-- Profile and mention rules: `app/services/brand_profile.py` (`build_profile` 212, `detect_mention` 403, `source_relation` 480, `exclusion` 523, `fan_site_reason` 541, `promotional_reason` 554)
+- Decision: `app/services/brand_decision.py` (`decide` line 356; exclusions 381, mention 397, reuse 418, judge 443, headline rule 459; judge route `configured_judges` 316 to 327; earned and admitted 86 to 97)
+- Profile and mention rules: `app/services/brand_profile.py` (`build_profile` 220, `detect_mention` 411, `source_relation` 488, `exclusion` 531, `fan_site_reason` 549, `promotional_reason` 562)
 - Ingest hooks: `app/services/brand_ingest_hooks.py` (`pre_decide`, hourly cap at line 40)
 - Readers: `app/services/brand_coverage.py` (`label_veto_sql` 91, `earned_news_scoped_sql` 131, `alert_earned_sql` 149, `coverage_split` 179); `app/routes/brand_watcher_routes.py` lines 33 and 2550; `app/tasks/brand_watcher_monitor.py` and `app/services/bw_digest_service.py`
 - Social posts kept out of the news pipeline: `app/tasks/keyword_monitor.py` around line 913; `app/services/social_eval_service.py`
@@ -140,7 +142,7 @@ SaaS production, `/home/orochford/tenants/saas.aunoo.ai`, database `aunoo_saas_p
 
 - Brand path: `app/features/brand_monitoring/service.py` (headline-only match 100 to 154, gates 591 to 614, review kept at 400, readers 1003 to 1999); `app/relevance/scorer.py` (LLM prompt 293 to 321, failure handling 343 to 364); `app/relevance/decision.py`
 - Official sources: `app/tasks/official_sources_poll_task.py`; `app/collectors/reddit.py`
-- Topics: `app/tasks/collector_task.py`; `app/topics/classifier.py`; `app/relevance/backfill.py`; `app/analyst/pipeline/steps/score_relevance.py`; `app/analyst/pipeline/runner.py` 263 to 273
+- Topics: `app/analyst/publishing.py` (analyst publish); `scripts/import_firehose_corpus.py` (firehose import); `app/tasks/collector_task.py`; `app/topics/classifier.py`; `app/relevance/backfill.py`; `app/analyst/pipeline/steps/score_relevance.py`; `app/analyst/pipeline/runner.py` 263 to 273
 - MCP tools: `app/auspex/brand_tools.py`; `app/auspex/tools.py`
 - Settings: `bm_brands.config` per brand; `ai_model_configs`; worker drop-ins in `/etc/systemd/system/saas-worker.service.d/`; production `.env`
 - Development tree compared: `/home/orochford/tenants/bugfixing.aunoo.ai/saasmvp-app`

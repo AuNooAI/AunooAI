@@ -32,28 +32,30 @@ When multiple providers return the same article, duplicates are resolved by prio
 
 ## 2. Multi-Dimensional Article Enrichment
 
-Every collected article passes through a structured enrichment pipeline that annotates it across eight analytical dimensions before it becomes available for analysis.
+Every collected article passes through a structured enrichment pipeline before it becomes available for analysis. The pipeline checks the article's relevance, then gives it a topic category, four forward-looking classifications, a summary, tags, and the credibility profile of its source.
 
 ### 2.1 Relevance Filtering
 
 Before investing in full enrichment, each article undergoes a lightweight relevance check against its monitoring topic:
 
 1. **Embedding similarity** — The article's title and summary are encoded as a vector and compared to the topic's semantic profile (description + keywords). This works for any topic with zero training data.
-2. **Fine-tuned classifier** — Where sufficient labelled data exists, a trained binary classifier provides a higher-precision relevance score.
-3. **LLM adjudication** — When the first two methods produce ambiguous scores (the 0.3–0.7 range), a language model reads the article and makes an explicit relevance judgment.
+2. **Fine-tuned classifier** — Where a trained relevance classifier is available, it scores the article against the topic and is combined with the similarity score.
+3. **Adjudication of unclear cases** — A combined score below 0.20 or above 0.85 is treated as a confident answer. Anything in between goes to a further check. Where enabled, a compact judgment model first accepts articles that are clearly on topic. Otherwise a language model reads the article and gives an explicit relevance score, which replaces the uncertain one.
 
-Articles below the configurable relevance threshold are archived separately — they are never discarded, but they do not enter the enrichment pipeline or appear in analyses.
+Articles below the configurable relevance threshold are archived separately — they are never discarded, but they do not enter the enrichment pipeline or appear in analyses. A second relevance check runs after enrichment, on the enriched summary, and can still set an article aside.
 
 ### 2.2 Content Acquisition
 
-Articles that pass relevance filtering are scraped for their full text. A local cache ensures each URL is scraped at most once. Content is truncated to approximately 16,000 tokens to remain within language model context limits.
+When a source supplies only a headline or a very short snippet, the platform fetches the full article page. This happens as the article arrives, before relevance filtering. A local cache ensures each URL is fetched at most once.
+
+The classification step (Section 2.3) reads the summary or text supplied by the source. The fetched page is used in two places: as the input to classification when the source supplied no text at all, and as the input to the vector embedding (Section 2.6).
 
 ### 2.3 Classification Taxonomy
 
-Each article is classified across four dimensions using a fine-tuned DeBERTa transformer model (345M parameters, trained on platform-specific labelled data):
+Each article is read by a large language model, which classifies it across four dimensions in a single pass. The model is given the topic's own list of allowed values for each dimension (see Section 3.2) and must choose from it:
 
-**Sentiment** — The dominant framing of the article:
-- Positive, Neutral, Negative, Concerned
+**Sentiment** — The dominant framing of the article. The values are set per topic; most topics use:
+- Positive, Neutral, Negative
 
 **Time to Impact** — When the described development is likely to materialise:
 - Immediate (0–6 months), Short-term (6–18 months), Mid-term (18–60 months), Long-term (60+ months)
@@ -63,11 +65,11 @@ Each article is classified across four dimensions using a fine-tuned DeBERTa tra
 
 **Future Signal** — Domain-specific forward-looking indicators. For geopolitical topics these include: Escalation, De-escalation, Peace agreements, New alliances form, Shifts in regional power balance, Economic collapse imminent, Frozen conflicts persist, among others. For technology topics: AI will accelerate, AI will evolve gradually, and others.
 
-Each classification includes a confidence score. When confidence falls below 0.6, the system falls back to a large language model for that dimension, ensuring quality is maintained at the cost of slightly higher latency.
+Every answer is checked against the topic's list. A category or future signal outside the list is recorded as "Other". A sentiment, time to impact or driver type outside the list is left blank rather than guessed. If the model's reply cannot be read, the platform tries again, making up to three attempts in all, before marking the article as failed.
 
 ### 2.4 Source Credibility Assessment
 
-Two complementary assessments of source reliability:
+Source reliability is assessed at the level of the outlet, not the individual article.
 
 **Media Bias Profile** (automated lookup against Media Bias/Fact Check data):
 - Political bias (Left through Right on a 6-point spectrum)
@@ -75,30 +77,25 @@ Two complementary assessments of source reliability:
 - Credibility rating
 - Media type and press freedom context
 
-**Factuality Assessment** (LLM-evaluated per article):
-- Evidence of sourcing (named sources, data citations, expert quotes)
-- Methodology transparency
-- Separation of reporting from opinion
-- Rated on a 5-point scale: Very High, High, Mixed, Low, Very Low
+The lookup matches the article's domain against the dataset. Outlets that the dataset does not cover carry no profile, so a blank rating means "not rated" rather than "low". The platform does not store a separate per-article factuality rating.
 
 ### 2.5 Summarisation & Tagging
 
-A language model generates:
-- A concise summary (typically 50 words) calibrated to a neutral, informative tone
-- 3–5 keyword tags extracted via KeyBERT
+The same language model pass that classifies the article (Section 2.3) also generates:
+- A concise summary (about 50 words) in a neutral, informative tone
+- 3–5 tags describing the article's main themes, to which the platform adds the monitoring keywords that matched the article at collection, so an article stays findable by the terms that brought it in
 - A topic-specific category drawn from a user-defined ontology (e.g. for a geopolitics topic: "Diplomacy", "Military", "Economic Sanctions", "Human Rights")
-- Explanatory text for the time-to-impact and driver-type classifications, providing the reasoning behind each label
+- A one- or two-sentence explanation for each of the four classifications (sentiment, time to impact, driver type and future signal), giving the reasoning behind each label
+
+Headlines in other languages are translated into English, and the original headline is kept alongside.
 
 ### 2.6 Vector Embedding
 
-The enriched article (title + summary) is encoded as a vector and stored in PostgreSQL with pgvector. This enables semantic search — finding articles by meaning rather than keyword match — which underpins the research and foresight features described below.
+Each article that passes enrichment is encoded as a vector and stored in PostgreSQL with pgvector. This enables semantic search — finding articles by meaning rather than keyword match — which underpins the research and foresight features described below.
 
-The encoder is tenant-dependent, and the vector width must match the tenant's `articles.embedding` column exactly. Two configurations are in use (verified 2026-08-02):
+The encoder input is the article's title, its tags, and the full fetched page where one exists (otherwise the summary). Putting the tags first means the matched keywords still count when a long article has to be shortened to fit the encoder.
 
-- **Local DeBERTa encoder, 768 dimensions** — bugfixing, wileytest, wbm. The default. No external call, and no fallback: it raises rather than writing a fabricated vector.
-- **OpenAI `text-embedding-3-small`, 1,536 dimensions** — wiley only, and the last tenant on this path. Article text is sent to OpenAI for this step. If the call fails, the store returns a random vector rather than raising; see the gotcha in `AI_DESIGN_PATTERNS.md` §3.1.
-
-Vectors from the two encoders are not comparable. Cosine distance between a 768-d and a 1536-d space is meaningless, which is why the width is enforced at the column and a mismatch fails loudly rather than degrading.
+The encoder is a transformer model hosted on the platform's own servers, producing 768-dimension vectors. Article text is not sent to an outside service for this step. If the encoder is unavailable, the platform writes no vector rather than a substitute one, because a substitute vector would distort every search that touched it.
 
 ---
 
@@ -146,7 +143,7 @@ Each monitoring topic defines its own **classification ontology** — a structur
 |-----------|-----------------|-------------------------------|
 | **Categories** | What type of development is this? | Diplomacy, Military Action, Economic Sanctions, Humanitarian Crisis, Arms Proliferation, Territorial Dispute |
 | **Future signals** | What forward-looking indicator does this represent? | Escalation, De-escalation, New alliances form, Shifts in regional power balance, Frozen conflicts persist |
-| **Sentiment** | What is the dominant framing? | Positive, Neutral, Negative, Concerned |
+| **Sentiment** | What is the dominant framing? | Positive, Neutral, Negative |
 | **Time to impact** | When will consequences materialise? | Immediate (0–6 months), Short-term (6–18 months), Mid-term (18–60 months), Long-term (60+ months) |
 | **Driver type** | How is this driving change? | Accelerator, Catalyst, Initiator, Blocker, Inhibitor |
 
@@ -337,21 +334,26 @@ Auspex is a conversational research interface that allows analysts to interrogat
 
 - **Conversation memory** — Multi-turn conversations maintain context. When conversations grow long, earlier turns are automatically summarised to preserve key facts while staying within model context limits.
 
-- **Source credibility integration** — The bias and factuality metadata from enrichment is available to the language model, allowing it to weight evidence and flag when conclusions rest on lower-credibility sources.
+- **Source credibility integration** — The outlet-level bias and factual-reporting ratings from enrichment are available to the language model, allowing it to weight evidence and flag when conclusions rest on lower-credibility sources.
 
 ---
 
 ## 9. Inference Architecture: Cost, Speed & Quality Trade-offs
 
-The platform supports three inference modes that control the balance between local processing and cloud language model usage:
+The platform splits its work between models that run on its own servers and language models hosted by a managed cloud AI service:
 
-**Local mode** — All classification via DeBERTa; all generation via locally-hosted Qwen/Phi-3 models through vLLM. Zero cloud API cost. Best for privacy-sensitive deployments or high-volume processing where cost control is paramount.
+- **On the platform's own servers:** the vector encoder (Section 2.6), the similarity model and the trained relevance classifier (Section 2.1).
+- **Cloud-hosted language models:** classification, summarisation and tagging (Sections 2.3–2.5), the adjudication of unclear relevance cases, and the analysis and research features described in Sections 4–8.
 
-**Hybrid mode** (default) — Classification via DeBERTa with cloud LLM fallback for low-confidence cases; generation via cloud models. Balances cost and quality — the local classifier handles the majority of articles, with the LLM stepping in only when needed.
+An inference mode setting controls how much of the **relevance check** uses a cloud language model. It does not change the classification and summarisation step, which always uses the configured cloud model.
 
-**External mode** — All processing via cloud language models (GPT-4o-mini or configured alternative). Highest quality, highest cost. Best for low-volume, high-stakes analysis.
+**Local mode** — The relevance check uses only the local similarity model and classifier. Unclear cases are decided on the local score alone.
 
-The platform tracks confidence statistics and cost metrics for each mode, allowing operators to monitor the proportion of articles handled locally versus via cloud API and adjust thresholds accordingly.
+**Hybrid mode** (default) — The local models decide the confident cases, and a cloud language model adjudicates the unclear ones (Section 2.1).
+
+**External mode** — A cloud language model scores the relevance of every article. This costs the most and is mainly useful for comparing against the hybrid results.
+
+The platform logs every language model call with its token usage and cost, so operators can see where model spend goes.
 
 ---
 
@@ -377,8 +379,9 @@ COLLECTION
   Multi-source scheduled gathering (7 providers, per-topic configuration)
        |
 ENRICHMENT
-  Relevance filtering -> Content acquisition -> Classification (8 dimensions)
-  -> Source credibility assessment -> Summarisation -> Vector embedding
+  Content acquisition -> Relevance filtering -> Source credibility lookup
+  -> Classification, summary & tags (one language model pass)
+  -> Second relevance check -> Vector embedding
        |
 ANALYSIS
   |

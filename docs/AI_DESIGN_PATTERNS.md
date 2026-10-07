@@ -373,16 +373,17 @@ flowchart LR
 **Problem.** Semantic recall over articles without a separate vector database — one source of truth, ACID, and native SQL metadata filtering in the same query.
 
 **Mechanism.**
-- Embeddings: OpenAI `text-embedding-3-small`, 1536-d, stored in `articles.embedding vector(1536)`. Index text priority: `raw → summary → title`; inputs truncated to 8000 tokens via tiktoken.
+- Embeddings: `microsoft/deberta-base` served by the local `deberta-encoder.service` on `127.0.0.1:8001` (`DEBERTA_ENCODER_URL`), 768-d, stored in `articles.embedding vector(768)`. The client posts `{title, description, content}` to `/encode` and requires a 768-element list back. Input (`build_article_encoder_input`): the real title as its own field; content starts with `"Tags: …"` so the matched keywords survive truncation, then the raw scraped page if there is one, else the summary, truncated to 8,000 tokens. Only approved articles are embedded, at the last ingest step.
 - Search: `(embedding <=> CAST(:q AS vector)) AS score ... ORDER BY ... LIMIT :n` — cosine **distance** (see 3.5). Metadata filters (`topic`, `$and`, `$gte/$lte` on dates) compile to SQL predicates applied *before* ANN ordering.
-- Index: IVFFlat (`lists = sqrt(row_count)` at migration time). Async variant uses an asyncpg pool with sync fallback.
+- Index: HNSW `vector_cosine_ops` (`articles_embedding_hnsw_idx`, m 16, ef_construction 64). pgvector 0.6.0 starves filtered HNSW queries, so below `PGVECTOR_EXACT_SCAN_MAX` (40,000) matching rows the store runs an exact scan instead. Async variant uses an asyncpg pool with sync fallback.
 - Wildcard query (`"*"`/`""`) skips embedding and returns filtered rows by recency — the same API serves both semantic and "just filter" calls.
 
-**Where.** `app/vector_store_pgvector.py` — embed `:102`, truncate `:58`, search `:259` (sync) / `:434` (async), similar-articles `:581`; index creation `scripts/migrate_chromadb_to_pgvector.py:117`. `app/vector_store.py` is a compatibility shim (ChromaDB fully removed; several names/docstrings are stale).
+**Where.** `app/vector_store_pgvector.py` — encoder client `_encode_fields` and `build_article_encoder_input` near the top, `upsert_article_async` for the ingest write, exact-scan switch in the search functions. The module docstring at the top of that file still says OpenAI 1536-d; it is stale. `app/vector_store.py` is a compatibility shim (ChromaDB fully removed; `get_chroma_client()` raises `NotImplementedError`).
 
 **Spec-reuse notes.**
-- **Critical gotcha:** if `OPENAI_API_KEY` is missing or the embed call fails, the store returns **random embeddings** rather than raising (`:121-152`). It logs at WARNING (`:123`, `:128`, `:150`), but the vector is returned and written to `articles.embedding` like a real one, so searches degrade to noise with nothing downstream able to detect it and nothing re-embedding it. Any spec touching this path should replace the fallback with a loud failure. This now applies to everything except wiley: the saas backend (see 6.1's embeddings note) and the bugfixing, wileytest and wbm monolith tenants all run local DeBERTa 768-d and raise instead. **wiley is the only remaining tenant on the random-fallback path.**
-- Three embedding spaces coexist: retrieval (OpenAI 1536-d), ingest relevance (MiniLM 384-d), and the saas backend (DeBERTa 768-d). They are **not interchangeable**; a spec must name which space it uses.
+- **No cloud fallback, by design.** There is no OpenAI path and no random-vector fallback; a 1536-d or random vector would corrupt every cosine search. Every monolith tenant with this file, wiley included, runs the local 768-d encoder. The OpenAI 1536-d path and its random-vector gotcha are gone.
+- **Gotcha: ingest swallows encoder failures.** `upsert_article_async` catches its own exceptions and only logs "Async vector upsert failed". The article stays approved with a NULL embedding, the batch counter `vector_indexed` still counts it, and nothing retries it. `app/tasks/embedding_backfill.py` re-embeds NULL rows but is scheduled nowhere; someone has to run it by hand, and it has no status filter, so it also embeds rejected rows. The sync path and the reindex scripts do raise.
+- Two embedding spaces coexist on the monolith: retrieval (DeBERTa 768-d, shared with the saas `article_embeddings` store) and ingest relevance (`all-MiniLM-L6-v2`, 384-d, used only for topic-vs-article similarity). saas adds a third, multilingual E5 at 1024-d. They are **not interchangeable**; a spec must name which space it uses.
 
 ## 3.2 Overfetch + Cross-Encoder Rerank
 
@@ -1087,7 +1088,7 @@ stateDiagram-v2
 | Enrichment | SLM confidence gate | 0.6 (hard-coded, twice) | `automated_ingest_service.py:298` |
 | Enrichment | Bootstrap → local threshold | 500 samples/field | `hybrid_enrichment_service.py:54` |
 | Enrichment | Label counts | sent 4 / tti 6 / driver 5 / signal 15 | `model_config.json` |
-| Retrieval | Embedding model | `text-embedding-3-small` 1536-d | `vector_store_pgvector.py:139` |
+| Retrieval | Embedding model | `microsoft/deberta-base` 768-d via `deberta-encoder.service` :8001 | `vector_store_pgvector.py` (`DEBERTA_ENCODER_URL`, `EMBEDDING_DIM`) |
 | Retrieval | Rerank | off by default; overfetch ×5, cap 200 | `reranker.py:42-66` |
 | Retrieval | BW attach-search similarity | ≥ 0.55 (converted) | `bw_incident_enrichment.py:54` |
 | Retrieval | Story-cluster distance | ≤ 0.008 (sim ≥ 0.992) | `brand_watcher_stories.py:35` |
@@ -1112,16 +1113,19 @@ stateDiagram-v2
 
 | Role | Model | Notes |
 |---|---|---|
-| Retrieval embeddings (monolith) | Local DeBERTa (768-d) on bugfixing, wileytest and wbm. OpenAI `text-embedding-3-small` (1536-d) on **wiley** only | The 1536-d path returns random vectors when the embed call fails. It logs at WARNING (`vector_store_pgvector.py:123,128,150`) but returns and persists them like real vectors, so no caller can tell. See 3.1 gotcha. The three 768-d tenants raise `RuntimeError` instead of fabricating a vector (verified 2026-08-02) |
-| Retrieval embeddings (saas) | local DeBERTa (768-d) | no cloud fallback by design |
+| Retrieval embeddings (monolith) | `microsoft/deberta-base` (768-d) via `deberta-encoder.service` :8001, on every monolith tenant that has this module, wiley included (checked 7 Oct 2026) | no cloud fallback; ingest logs and swallows encoder failures (see 3.1) |
+| Retrieval embeddings (saas) | local DeBERTa (768-d), plus multilingual E5 (1024-d) | no cloud fallback by design |
 | Ingest relevance embedding | `all-MiniLM-L6-v2` (384-d, CPU) | topic-vs-article similarity only |
-| Relevance / enrichment classifiers | fine-tuned DeBERTa (local, CPU) | hot-swappable singletons |
-| Cross-encoder (rerank + CE tier) | `BAAI/bge-reranker-v2-m3` | one shared singleton |
-| Bulk scoring / classification | `nova-lite` / `nova-pro` | 13× cheaper than Haiku; per-article default |
-| Cheap steps (extraction, planning, judges, matchers) | `gpt-5.4-mini` alias → Bedrock Haiku here | the workhorse |
-| Synthesis / writing / briefs | `gpt-5.4` alias → Bedrock Sonnet here | flagship reserved for synthesis |
-| Social eval | env `SOCIAL_EVAL_MODEL` | cheap; supervisor pass on negatives only |
-| Local fallbacks | Qwen2.5-3B / Phi-3 via vLLM | `local` inference mode |
+| Relevance classifier | fine-tuned DeBERTa-base binary classifier (`models/relevance_classifier/final`, local, CPU) | live in the quick relevance gate, weighted 0.6 against the embedding |
+| Enrichment classifier | fine-tuned DeBERTa-base, four heads 4/6/5/15 (`models/enrichment_model/final`) | **off the live ingest path**; reached only by `/test-process-article` and two scripts |
+| **Article analysis (category, sentiment, labels, summary, tags)** | `bedrock-kimi-k2-5` → Kimi K2.5 on Bedrock | from `keyword_monitor_settings.default_llm_model`; fallbacks `bedrock-claude-haiku` then `nova-lite`. A second Kimi call per article extracts a publication date |
+| Model tiers (`app/model_tiers.py`) | fast = `bedrock-kimi-k2-5`; standard = premium = `claude-sonnet-4-5` | overridable with `MODEL_TIER_*`; not consulted by auto-ingest |
+| Relevance LLM fallback / bulk scoring | `nova-lite` (`HYBRID_RELEVANCE_LLM_MODEL` default) / `nova-pro` | per-article default for scoring; nova-lite also translates non-English titles and summaries |
+| Relevance accept tier and shadows | TypeSafe Jev (`TYPESAFE_MODEL`) | accepts clear on-topic borderline cases before the LLM where enabled; also runs shadow checks |
+| Cross-encoder (rerank + CE tier) | `BAAI/bge-reranker-base` (CPU) | replaced `bge-reranker-v2-m3` on 23 Sep 2026; CE relevance tier is off |
+| Legacy aliases | `gpt-5.4-mini` → Kimi K2.5 on Bedrock; `gpt-5.4` → Claude Sonnet 4.5 on Bedrock | `legacy_alias: true` in the yaml; not real OpenAI models |
+| Social eval | env `SOCIAL_EVAL_MODEL` (per group `default_llm_model` first) | supervisor pass on negatives only; on bugfixing it is set to `claude-haiku-4-5`, against the cost rule below |
+| Local models | Phi-3-mini via `vllm-phi3` (:8765, running, unused by monolith ingest); Qwen via `vllm-qwen` (unit dead) | in `local` inference mode the ingest relevance check turns the LLM fallback off (`use_llm_fallback` is true only for hybrid and external), so Qwen is not called on that path |
 
 Cost policy (standing, memory `feedback_cost_conscious`): cheapest model that fits the task shape; avoid Haiku 4.5 where nova-lite/pro suffice; per-article paths never on flagship models.
 

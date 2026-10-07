@@ -5,10 +5,15 @@ Companion to `COLLECTOR_DATA_QUALITY_SPEC.md`. This records what was built on
 open. Field names here are the ones that exist; the spec's names were
 proposals.
 
-Status: code written in both canonical trees (monolith `bugfixing.aunoo.ai`,
-SaaS `bugfixing.aunoo.ai/saasmvp-app`), schema applied to the bugfixing
-database (`test`) and the saasmvp database (`aunoo_saas`). Nothing is committed,
-nothing is restarted, and no other tenant has the migration yet.
+Status (updated 7 October 2026): the work is committed and live in both
+canonical trees. The monolith commit is `6f8d4fbd` in `bugfixing.aunoo.ai`, and
+the SaaS commit is `073aac09` in `bugfixing.aunoo.ai/saasmvp-app`; both are
+dated 1 October 2026, 22:31. The schema is applied to the bugfixing database
+(`test`) and the saasmvp database (`aunoo_saas`). The bugfixing service has run
+this code since about 1 October: its first `collection_runs` row is from
+1 October, 21:25, and rows have been written every day since. The saasmvp units
+were last restarted on 6 October, after the commit. The abm database also has
+the `collection_runs` table now; this note does not track the other tenants.
 
 ## Shared foundation (identical files in both trees)
 

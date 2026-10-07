@@ -1,5 +1,51 @@
 # Changes
 
+## 2026-10-07 — Pipeline documentation for both products; firehose keywords collecting again
+
+### Goal
+Oliver asked for documentation of the full article pipeline (collection, curation and enrichment)
+for the monolith and saas, good enough to rebuild both. There was no single document, only
+pieces. Writing it turned up live defects; he approved a fix plan
+(`/root/.claude/plans/imperative-knitting-spark.md`) and asked for it to be run.
+
+### Docs · `docs/pipelines/`
+- `README.md`: both pipelines in brief, a side-by-side comparison, one rebuild order, the
+  problems found, and the older docs this set supersedes.
+- `01_NEWSFIREHOSE.md` to `05_SAAS_ENRICHMENT.md`: stage-by-stage notes with file:line
+  references and live numbers. `06_FIREHOSE_CHECKPOINT_STALL.md`: the stall investigation.
+- A code-only audit checked 97 claims: 4 wrong and 4 stale line references, now corrected.
+  Its rebuild gaps (model weights, unit files, saas model-config rows, env templates, seeds)
+  are not written up yet.
+- Stale docs corrected: `METHODOLOGY.md` (customer-facing; it claimed DeBERTa classification,
+  a stored per-article factuality rating and OpenAI embeddings), `SLM_PIPELINE_SUMMARY.md`
+  (marked historical), `AI_DESIGN_PATTERNS.md`, `COLLECTOR_DATA_QUALITY_IMPLEMENTATION.md`,
+  `BRAND_RELEVANCE_SAAS_VS_MONOLITH.md`, `EMBEDDING_HEALTH_MONITORING.md`, and the reindex
+  line in CLAUDE.md.
+
+### Fix · Firehose keywords stuck since 2 Oct (`a7b3263d`)
+Since `6f8d4fbd` (1 Oct) a full page of results held a keyword's checkpoint, and the next run
+searched the same window and got the same 10 articles. 82 firehose keywords on bugfixing had
+not moved since 2 Oct; the AI keyword group matched 0 new articles a day from 5 Oct
+(90-188 a day in late September).
+- The firehose collector has its own `collect()`. It pages each OR-chunk 100 at a time, newest
+  first, until the API has no more or the page reaches past the window. It stops at 3 pages per
+  chunk (`NEWSFIREHOSE_MAX_PAGES_PER_CHUNK`), counting only pages inside the window, because the
+  API filters by whole days. HTTP errors are failures, never an empty success that skips the
+  window. `to_date` is the day after the end, because the API reads it as midnight.
+- A page cap may advance the checkpoint (`TRUNC_PAGE_CAP`); the base collector and xpoz use it
+  for full pages they cannot page past.
+- `commit_interval` keeps a continuation from a successful early stop, and a stall valve moves
+  any non-failing window that ended 72 h ago (`CHECKPOINT_STALL_HOURS`).
+- The health route alerts once per provider on stalled scopes, aged from the window end. Before,
+  it aged them by `updated_at`, which every run moves, so none of the 84 ever alerted.
+- Live dry run: "SOC automation" collected 57 articles and completed; the AI keyword's current
+  window collected 300 in 0.7 s and advanced. 127 tests pass.
+- Deployed to bugfixing (restarted 10:03 by another session after the commit), abm (restarted
+  09:46) and bwtemplate (copied; stopped). wiley and wileytest do not have `6f8d4fbd`; it must
+  not go there without this fix.
+- Watch: broad keywords now bring up to 300 articles per run instead of 10, and each goes
+  through relevance scoring.
+
 ## 2026-10-06 — Brand relevance: one labelled decision per article and brand, on every running site; vendors' own accounts recognised
 
 ### Goal

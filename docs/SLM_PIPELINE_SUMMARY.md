@@ -1,5 +1,7 @@
 # SLM Pipeline Research & Implementation Summary
 
+> **Historical document (marked 7 October 2026).** This describes the February 2026 plan for a local-model pipeline, and most of it no longer matches the code. The live pipeline is not LLM-free: every analysed article gets a Kimi K2.5 analysis call, and the DeBERTa classifier described here has not run on the live ingest path since February 2026. For how the pipeline works today, read `docs/pipelines/README.md`, and for this document's specific errors, read `docs/pipelines/03_MONOLITH_ENRICHMENT.md` section 11.3.
+
 **Date:** February 2026
 **Project:** AunooAI - Strategic Intelligence Platform
 

@@ -52,6 +52,12 @@ so it is a backstop, not a primary.
 watched. Fixed 2026-08-02: wbm was added there with a measured floor of 20 articles/12h, and
 `embedding_health_check.sh` covers all four from the start.
 
+**The same gap is open again (checked 2026-10-07).** Both copies of the script still read
+`TENANTS="bugfixing wileytest wiley wbm"`. Four tenants started since then, abm, oviva, panaya
+and sunstar, run the same 768-d encoder and are not checked at all. An encoder or index fault
+on any of them would go unnoticed, the same way wbm's did. Add them to `TENANTS` in both
+`scripts/embedding_health_check.sh` and `/home/orochford/bin/embedding_health_check.sh`.
+
 ## The checks
 
 Ordered by signal quality. A–D are invariants and are the ones now built.
@@ -199,7 +205,8 @@ Follow `scripts/collector_health_check.sh`, which already solves the plumbing:
 - Log to `/var/log/aunoo-embedding-health.log`.
 - Repeat-alert suppression via `STATE_DIR`, 6 hours, cleared by a recovery.
 - Root crontab. Every 30 minutes suits checks A–D; F, G and I belong on a daily run.
-- **`TENANTS` must include wbm.** The existing collector check omits it.
+- **`TENANTS` must include every running tenant.** It now lists four (bugfixing, wileytest,
+  wiley, wbm); abm, oviva, panaya and sunstar are missing.
 
 Reads can go through pgbouncer on 6432 as the collector check does. Anything doing DDL cannot —
 wiley's pgbouncer runs `pool_mode = transaction`.
