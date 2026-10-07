@@ -1,5 +1,40 @@
 # Changes
 
+## 2026-10-07 — Pipeline fixes, Phase 2: check-all-groups, submission_date default, social model kept on Haiku
+
+### Goal
+Phase 2 of the plan in `/root/.claude/plans/imperative-knitting-spark.md`. A parallel session's
+ingest fix specs (`docs/pipelines/08*.md`, branch `fix/ingest-pipeline-spec`) had already built
+three Phase 2 items: scraping after the relevance gate, one threshold for both gates, and retries
+for failed relevance checks. This entry covers the rest.
+
+### Fix · Check now with no group, and Auto-ingest now (`4250b888`)
+"Check now" without a group ran every keyword on the global collectors, social groups' keywords
+through the news pipeline, inactive groups included, with no social evaluator. "Auto-ingest now"
+answered 500 (its query named columns `articles` does not have) and, had it run, would have
+stamped the topic `general`. Both now call `KeywordMonitor.check_all_groups()`, which runs each
+active group the way the scheduler does (`facade.get_active_keyword_groups()`, `kg.*` so it works
+on every site's schema). Patched on all eight sites; wbm by hand, because its check-now path
+differs.
+
+### Fix · submission_date default (`a2c8bcfe`, migration `subd_001`)
+Six raw-SQL writers leave `submission_date` out, so their rows were NULL and fell out of
+date-window readers. `articles` and `raw_articles` now default to `(CURRENT_TIMESTAMP)::text`,
+the same shape `submission_stamp()` writes. Applied through Alembic on all eight sites, each with
+its own `down_revision`. The id is `subd_001` because `sd_001` is the Swiss disinfo migration.
+
+### Decision · Social evaluation stays on Haiku 4.5
+We measured it on 200 recent bugfixing posts that the evaluator had already scored, with no
+writes. On keep/reject at 0.4, Haiku agreed with itself on 98.3% and Kimi K2.5 with itself on
+84.3%. Haiku and Kimi agreed on 79-80%. Kimi keeps about as many posts, but not the same ones,
+and is not stable run to run. Haiku costs about $5 a week on bugfixing and $6.50 on abm.
+
+### Not done
+- The UI clean-up of the five unused per-group settings. A UI build ships the whole branch's
+  UI to every site it is deployed to.
+- bugfixing is not restarted: the shared tree is on the other session's undeployed branch,
+  which needs its own migrations and prompt update first. The other seven sites were restarted.
+
 ## 2026-10-07 — Pipeline documentation for both products; firehose keywords collecting again
 
 ### Goal
