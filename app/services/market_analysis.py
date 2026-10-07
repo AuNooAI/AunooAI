@@ -445,6 +445,11 @@ def funding_momentum(conn, market_id: int, *, months: int = 12) -> Dict[str, Any
 # same thing for this purpose — and leaving them apart splits a small sample
 # into an unreadable one.
 _FUNCTION_GROUPS = (
+    # First, so "Health Care Provider and Other" is clinical, not other. The
+    # groups below were written for the security market; on Oviva, 36 of 40
+    # roles were LinkedIn's "Health Care Provider" and all read as "other".
+    ("clinical", ("health care", "healthcare", "medical", "clinical",
+                  "nursing", "pharma", "pharmacy", "pharmacist")),
     ("engineering", ("engineering", "information technology", "research")),
     ("sales", ("sales", "business development")),
     ("marketing", ("marketing", "product management", "product")),
