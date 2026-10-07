@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.services.daily_briefing_ranking import (
+    WEIGHTS,
     MAX_PER_SOURCE,
     SOURCE_CAP_OVERRIDE_GAP,
     annotate_candidates,
@@ -168,7 +169,7 @@ class TestRelevanceBeatsRecency:
 
     def test_missing_optional_signals_contribute_zero_not_a_neutral_value(self):
         bare = score_article(article("a", align=1.0, days_ago=99), now=NOW)
-        assert bare["composite"] == pytest.approx(0.45, abs=1e-3)
+        assert bare["composite"] == pytest.approx(WEIGHTS["alignment"], abs=1e-3)
 
     def test_user_preference_is_a_small_bounded_adjustment(self):
         base = score_article(article("a", align=0.8, days_ago=1), now=NOW)["composite"]

@@ -894,10 +894,12 @@ class AutomatedIngestService:
                 "article_url": article_data.get('uri', '')
             }
             
-            # For now, we'll return a placeholder quality check
-            # In a real implementation, this would call the quality control endpoint
+            # There is no quality check. Until 7 Oct 2026 this returned a
+            # made-up score of 0.8 for every article; it now records none
+            # (docs/pipelines/08_INGEST_FIX_SPEC.md, WP7). The relevance
+            # gates and the analysis validation are the checks that exist.
             quality_result = {
-                "quality_score": 0.8,  # Placeholder score
+                "quality_score": None,
                 "quality_issues": None,
                 "approved": True
             }
@@ -1890,10 +1892,11 @@ class AutomatedIngestService:
         return await loop.run_in_executor(None, self.score_article_relevance, article_data, topic, keywords)
 
     async def _quality_check_article_async(self, article_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Async version of quality check"""
-        # Simplified quality check for async processing
+        """No quality check exists; the step approves and records no score.
+        It used to store a made-up 0.8 on every approved article. History
+        keeps those values (no backfill); new rows store NULL."""
         return {
-            "quality_score": 0.8,  # Placeholder score
+            "quality_score": None,
             "quality_issues": None,
             "approved": True
         }

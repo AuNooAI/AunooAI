@@ -51,10 +51,14 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 #: day apart; alignment 0.50→0.45 and confidence 0.10→0.05 pay for it. The
 #: invariant below still holds: a 0.5 alignment gap (0.225) outweighs the
 #: whole recency component (0.20).
+#: Quality 0.10 -> 0.0, alignment 0.45 -> 0.55 (7 Oct 2026): quality_score
+#: was a placeholder 0.8 written to every approved row and is no longer
+#: written (docs/pipelines/08_INGEST_FIX_SPEC.md, WP7). Left in, new rows
+#: (NULL) would lose 0.08 to old ones for no reason.
 WEIGHTS: Dict[str, float] = {
-    "alignment": 0.45,
+    "alignment": 0.55,
     "keyword": 0.15,
-    "quality": 0.10,
+    "quality": 0.0,
     "confidence": 0.05,
     "credibility": 0.05,
     "recency": 0.20,
