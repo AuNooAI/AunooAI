@@ -156,6 +156,10 @@ async def lifespan(app: FastAPI):
         if (os.getenv("EMBEDDING_REPAIR_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
             _BACKGROUND_TASKS.append(
                 ("app.tasks.embedding_repair", "run_embedding_repair", 90, "embedding repair sweep"))
+        # Daily removal of expired analysis cache files (spec 08, WP7).
+        if (os.getenv("ANALYSIS_CACHE_CLEANUP_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off"):
+            _BACKGROUND_TASKS.append(
+                ("app.tasks.analysis_cache_cleanup", "run_analysis_cache_cleanup", 600, "analysis cache cleanup"))
         for _mod, _func, _delay, _label in _BACKGROUND_TASKS:
             _schedule_background_task(_mod, _func, _delay, _label)
 

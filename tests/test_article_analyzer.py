@@ -4,6 +4,7 @@ import json
 import os
 from app.analyzers.article_analyzer import ArticleAnalyzer, ArticleAnalyzerError
 from app.analyzers.prompt_templates import PromptTemplates, PromptTemplateError
+from app.analyzers.analysis_schema import output_block
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +42,8 @@ def custom_templates():
         },
         "content_analysis": {
             "system_prompt": "Custom system prompt for {summary_voice}",
-            "user_prompt": "Custom analysis prompt for {title}"
+            # A saved analysis prompt must end with the fixed output block.
+            "user_prompt": "Custom analysis prompt for {title}\n\n" + output_block("content_analysis")
         }
     }
 

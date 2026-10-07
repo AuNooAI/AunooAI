@@ -104,8 +104,12 @@ class AnalysisCache:
                 'model_info': model_info
             }
 
-            with open(cache_path, 'w') as f:
+            # Write to a temporary name and rename, so a reader or the cleanup
+            # never sees a half-written file.
+            tmp_path = f"{cache_path}.{os.getpid()}.tmp"
+            with open(tmp_path, 'w') as f:
                 json.dump(cache_data, f, indent=2)
+            os.replace(tmp_path, cache_path)
 
             logger.debug(f"Cached analysis for {uri} with model info: {model_info}")
         except Exception as e:
@@ -166,22 +170,42 @@ class AnalysisCache:
             logger.error(f"Error getting cache stats: {str(e)}")
             raise CacheError(f"Failed to get cache stats: {str(e)}")
 
-    def cleanup_expired(self) -> int:
-        try:
-            cleaned = 0
-            for filename in os.listdir(self.cache_dir):
-                if filename.endswith('.json'):
-                    file_path = os.path.join(self.cache_dir, filename)
-                    with open(file_path, 'r') as f:
-                        cache_data = json.load(f)
-                        cached_at = datetime.fromisoformat(cache_data['cached_at'])
-                        
-                        if datetime.now() - cached_at > self.ttl:
-                            os.remove(file_path)
-                            cleaned += 1
+    def cleanup_expired(self, grace_seconds: int = 300) -> int:
+        """Delete cache files older than the TTL, in every subdirectory.
 
-            logger.info(f"Cleaned up {cleaned} expired cache files")
-            return cleaned
-        except Exception as e:
-            logger.error(f"Error cleaning up expired cache: {str(e)}")
-            raise CacheError(f"Failed to clean up expired cache: {str(e)}") 
+        Files live one level down (``cache/<2 chars>/``); until 7 Oct 2026 this
+        only looked at the top level and removed nothing. Age comes from the
+        file's ``cached_at``, or its modification time when the file cannot be
+        read. Anything touched in the last ``grace_seconds`` is left alone, so
+        a write in progress is never deleted. One bad file does not stop the
+        sweep.
+        """
+        cleaned = 0
+        now = time.time()
+        ttl_seconds = self.ttl.total_seconds()
+        for root, _dirs, files in os.walk(self.cache_dir):
+            for filename in files:
+                if not (filename.endswith('.json') or filename.endswith('.tmp')):
+                    continue
+                file_path = os.path.join(root, filename)
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    if now - mtime < grace_seconds:
+                        continue
+                    age = now - mtime
+                    if filename.endswith('.json'):
+                        try:
+                            with open(file_path, 'r') as f:
+                                cached_at = datetime.fromisoformat(json.load(f)['cached_at'])
+                            age = (datetime.now() - cached_at).total_seconds()
+                        except Exception:
+                            pass  # unreadable: fall back to the file's age
+                    if age > ttl_seconds:
+                        os.remove(file_path)
+                        cleaned += 1
+                except FileNotFoundError:
+                    continue  # removed by a reader in the meantime
+                except Exception as e:
+                    logger.warning(f"Cache cleanup skipped {file_path}: {e}")
+        logger.info(f"Cleaned up {cleaned} expired cache files")
+        return cleaned 

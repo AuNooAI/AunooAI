@@ -62,7 +62,10 @@ class NewsAPICollector(ArticleCollector):
     provider_name = "newsapi"
 
     def __init__(self, db: Database):
-        self.api_key = os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
+        # Same names and order as collector_factory, so a key the factory
+        # accepts is a key the collector can use.
+        self.api_key = (os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
+                        or os.getenv('NEWSAPI_KEY'))
         if not self.api_key:
             logger.error("NewsAPI key not found in environment")
             raise ValueError("NewsAPI key not configured")

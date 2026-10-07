@@ -367,37 +367,8 @@ class MediaBias:
                     self.logger.debug(f"Found domain match for {normalized_source} using source {source_domain} (enabled)")
                     return s
         
-        # If no enabled sources found, try again with disabled ones
-        # First exact match with disabled sources
-        for s in self.sources:
-            source_domain = normalize_domain(s.get('source', ''))
-            if source_domain == normalized_source:
-                self.logger.debug(f"Found exact match for {normalized_source} using source {source_domain} (disabled)")
-                # Auto-enable this source for future requests
-                try:
-                    self.db.facade.enable_media_source(s.get('source'))
-                    # Update the current record
-                    s['enabled'] = 1
-                    self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
-                except Exception as e:
-                    self.logger.error(f"Error auto-enabling source {s.get('source')}: {e}")
-                return s
-                
-        # Then domain matching with disabled sources
-        for s in self.sources:
-            source_domain = normalize_domain(s.get('source', ''))
-            if domains_match(source_domain, normalized_source):
-                self.logger.debug(f"Found domain match for {normalized_source} using source {source_domain} (disabled)")
-                # Auto-enable this source for future requests
-                try:
-                    self.db.facade.enable_media_source(s.get('source'))
-                    # Update the current record
-                    s['enabled'] = 1
-                    self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
-                except Exception as e:
-                    self.logger.error(f"Error auto-enabling source {s.get('source')}: {e}")
-                return s
-
+        # A disabled source was switched off by an admin, so the lookup skips
+        # it. Lookups never change the enabled flag; only the admin path does.
         self.logger.debug(f"No match found for {normalized_source}")
         return None
     

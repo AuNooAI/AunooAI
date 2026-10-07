@@ -164,3 +164,13 @@ def test_the_matched_keyword_reaches_ingest(monkeypatch):
     out = run(m.auto_ingest_pipeline([{"url": "https://x.test/a", "title": "t", "_matched_keywords": ["SOC"]}],
                                      "T", ["SOC"], suppress_notifications=True))
     assert seen.get("mk") == [["SOC"]], out
+
+
+def test_run_records_carry_write_outcomes(monkeypatch):
+    coll = PagedCollector(slices=1)
+    facade = Facade(fail_urls={"https://x.test/0-1"})
+    m, store = _monitor(monkeypatch, coll, facade, rounds=0)
+    recorded = []
+    monkeypatch.setattr(km, "record_run", lambda db, result, **k: recorded.append(result.counts.as_dict()))
+    run(m.check_keywords(group_id=1))
+    assert recorded and recorded[0]["inserted"] == 1 and recorded[0]["persist_failed"] == 1

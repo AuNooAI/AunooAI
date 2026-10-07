@@ -381,7 +381,8 @@ document.getElementById('createTopicForm').addEventListener('submit', async func
         });
 
         if (!response.ok) {
-            throw new Error('Failed to create topic');
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.detail || 'Failed to create topic');
         }
 
         alert('Topic created successfully!');

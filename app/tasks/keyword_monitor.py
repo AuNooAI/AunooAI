@@ -398,14 +398,20 @@ class KeywordMonitor:
         seen_urls = {}
         unique_articles = []
 
-        # Provider priority: newsapi > thenewsapi > newsdata > semantic_scholar/bluesky > arxiv
+        # Provider priority: firehose (full body) > newsapi > thenewsapi >
+        # newsdata > semantic_scholar > bluesky > arxiv > other social. Every
+        # value is distinct, so the winner never depends on arrival order.
         provider_priority = {
-            'newsapi': 5,
-            'thenewsapi': 4,
-            'newsdata': 3,
-            'semantic_scholar': 2,
-            'bluesky': 2,
-            'arxiv': 1
+            'newsfirehose': 10,
+            'newsapi': 9,
+            'thenewsapi': 8,
+            'newsdata': 7,
+            'semantic_scholar': 6,
+            'bluesky': 5,
+            'arxiv': 4,
+            'reddit': 3,
+            'xpoz': 2,
+            'telegram': 1,
         }
 
         for article in articles:
@@ -767,12 +773,18 @@ class KeywordMonitor:
 
                     def _save_articles_batch(articles_to_save, save_topic, save_keyword_id):
                         """Save articles to DB in a thread (sync DB calls).
-                        Returns (saved_count, failed_count). A failed insert is
-                        counted, not hidden: the caller must not move the
-                        provider checkpoint past an interval whose items are
-                        not all on disk."""
+                        Returns (saved_count, failed_count, outcomes), where
+                        outcomes maps each provider to its write counts. A
+                        failed insert is counted, not hidden: the caller must
+                        not move the provider checkpoint past an interval whose
+                        items are not all on disk."""
                         saved_count = 0
                         failed_count = 0
+                        write_counts: Dict[str, Dict[str, int]] = {}
+
+                        def _count(art, key):
+                            per = write_counts.setdefault(art.get('collector_source') or '', {})
+                            per[key] = per.get(key, 0) + 1
                         phantom_dropped: List[str] = []
                         for article in articles_to_save:
                             try:
@@ -794,20 +806,28 @@ class KeywordMonitor:
                                         _term_tokens(keyword_text))
                                     if missing and _page_carries_tokens(article_url, missing) is False:
                                         phantom_dropped.append(article_url)
+                                        _count(article, 'filtered')
                                         continue
                                 (inserted_new_article, alert_inserted, match_updated) = self.db.facade.create_article(article_exists, article_url, article, save_topic, save_keyword_id)
                                 if inserted_new_article or alert_inserted or match_updated:
                                     saved_count += 1
                                     logger.info(f"Added/updated article: {article_url}")
+                                if inserted_new_article:
+                                    _count(article, 'inserted')
+                                elif match_updated or alert_inserted:
+                                    _count(article, 'associated')
+                                else:
+                                    _count(article, 'existing')
                             except Exception as e:
                                 failed_count += 1
+                                _count(article, 'persist_failed')
                                 logger.error(f"Error processing article {article.get('url', 'unknown')}: {str(e)}")
                                 continue
                         if phantom_dropped:
                             logger.info(
                                 f"Dropped {len(phantom_dropped)} of {len(articles_to_save)} TheNewsAPI results for "
                                 f"'{keyword_text}' ({getattr(self, 'language', '?')}): the search term is not on the page")
-                        return saved_count, failed_count
+                        return saved_count, failed_count, write_counts
 
                     loop = asyncio.get_event_loop()
 
@@ -895,10 +915,15 @@ class KeywordMonitor:
                                 logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
 
                             # FIRST: save every article. Sync DB calls run in a thread.
-                            saved_now, failed_now = await loop.run_in_executor(
+                            saved_now, failed_now, write_counts = await loop.run_in_executor(
                                 None, _save_articles_batch, round_articles, topic, keyword_id
                             )
                             new_articles_count += saved_now
+                            # Each provider's run record says what its items did
+                            # in the database, not only what the API returned.
+                            for _prov, _per in write_counts.items():
+                                if _prov in outcomes:
+                                    outcomes[_prov].counts.add(**_per)
                             if failed_now:
                                 # Not every item reached the database, so no provider's
                                 # interval is complete: downgrade each successful result

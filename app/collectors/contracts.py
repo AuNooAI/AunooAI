@@ -92,6 +92,10 @@ class CollectionCounts:
     quota_skipped: int = 0
     #: Rows not attempted because their own cooldown had not passed.
     deferred: int = 0
+    #: Already stored and already linked to this keyword; nothing written.
+    existing: int = 0
+    #: The database write raised; the interval is collected again.
+    persist_failed: int = 0
 
     def add(self, **kw: int) -> "CollectionCounts":
         for k, v in kw.items():

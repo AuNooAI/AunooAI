@@ -1779,6 +1779,10 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
 
 @app.post("/api/create_topic", dependencies=[Depends(verify_session_api)])
 async def create_topic(topic_data: dict):
+    from app.services.topic_label_lists import label_list_error
+    problem = label_list_error(topic_data)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
     try:
         config = load_config()
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')

@@ -13,6 +13,7 @@ import yaml
 from dotenv import load_dotenv, set_key
 from litellm import completion
 from app.ai_models import ai_get_available_models  # Add this import at the top
+from app.services.topic_label_lists import label_list_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1031,21 +1032,14 @@ async def save_topic(
             "keywords": keywords
         }
 
-        # Enrichment refuses to run on a topic with an empty categories or
-        # future-signals list; every article routed to it would be stored
+        # Enrichment refuses to run on a topic with any of its five label
+        # lists empty; every article routed to it would be stored
         # unanalysed (spec work package 22). Refuse the save unless the
         # caller says, in so many words, that this is what they want.
         enrichment_disabled = bool(topic_data.get("enrichment_disabled"))
-        empty_lists = [key for key in ("categories", "future_signals") if not formatted_topic.get(key)]
-        if empty_lists and not enrichment_disabled:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Topic '{formatted_topic['name']}' has an empty {' and '.join(empty_lists)} list. "
-                    "Articles for a topic without these lists are stored but never analysed. "
-                    "Fill the list, or send enrichment_disabled: true to save it that way on purpose."
-                ),
-            )
+        problem = label_list_error({**formatted_topic, "enrichment_disabled": enrichment_disabled})
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
         if enrichment_disabled:
             formatted_topic["enrichment_disabled"] = True
         logger.info(f"Formatted topic: {json.dumps(formatted_topic, indent=2)}")
