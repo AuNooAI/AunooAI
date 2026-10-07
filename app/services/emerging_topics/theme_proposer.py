@@ -37,16 +37,23 @@ Your task: Identify 5-10 SPECIFIC emerging topics.
 
 Requirements:
 - Must be SPECIFIC events/developments, not broad categories
-- Each topic should have 3+ articles that clearly relate to it
+- Every label names at least one specific company, product, person,
+  organisation, law or event that the articles name. A label built only from
+  generic words ("Physical AI Era", "AI Security Concerns", "Robotics
+  Adoption Wave") is not allowed.
+- At least 3 of the articles above must be about this same development and
+  name the same company, product, person, organisation, law or event. Do not
+  propose a topic that only one or two articles cover.
 - Focus on what's NEW or ACCELERATING, not ongoing coverage
 - Look for: new announcements, breaking developments, policy changes,
-  emerging trends, unexpected events
+  unexpected events
 
 BAD examples (too broad):
 - "AI Developments"
 - "Tech News"
 - "Market Updates"
 - "Regulatory Changes"
+- "Physical AI Era in Warehouse Robotics"
 
 GOOD examples (specific):
 - "DeepSeek R1 Release and Global Response"
@@ -61,7 +68,7 @@ Return ONLY valid JSON (no markdown):
       "theme_label": "Specific 3-7 word label",
       "theme_description": "One sentence describing the specific development",
       "search_query": "Semantic search query to find related articles",
-      "key_entities": ["Company/Person/Org mentioned"],
+      "key_entities": ["Names exactly as the articles write them: companies, products, people, organisations, laws, events. No generic words such as AI, robotics, security"],
       "why_emerging": "What makes this new/growing/notable"
     }}
   ]
