@@ -52,6 +52,11 @@ EXACT_HEADCOUNT = ("s.data->>\'employee_count\' ~ \'^[0-9]+$\' "
                    "AND (s.data->>\'employee_count\')::numeric > 0")
 
 
+def _feed_author() -> Dict[str, str]:
+    from app.services import market_brand
+    return market_brand.feed_author()
+
+
 def not_incumbent(mb: str = "mb") -> str:
     """SQL: the registry row ``mb`` is not marked a large incumbent.
 
@@ -574,7 +579,7 @@ def build_feed_json(conn, market: Dict[str, Any], *, base_url: str,
         "feed_url": links.feed("feed.json"),
         "description": market.get("question") or market["name"],
         "language": "en",
-        "authors": [{"name": "Cyberfuturists", "url": "https://cyberfuturists.com/"}],
+        "authors": [_feed_author()],
         "_aunoo": {"market_id": market_id, "kinds": ["news", "vendor", "social", "research",
                                                      "event", "briefing"],
                    "ai_disclosure": "Contains AI-generated content produced by AunooAI. "

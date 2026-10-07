@@ -1091,7 +1091,8 @@ def provenance_line(piece_row: Dict[str, Any]) -> str:
     """The byline. Every piece page carries the site's Article 50
     disclosure at its foot (6 Sep 2026), so the byline no longer spells
     out the model's part; ``generation`` stays on the row for the record."""
-    author = (piece_row.get("author") or "the Cyberfuturists").strip()
+    from app.services import market_brand
+    author = (piece_row.get("author") or market_brand.piece_author()).strip()
     return f"By {author}"
 
 

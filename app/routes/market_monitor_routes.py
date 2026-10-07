@@ -1508,7 +1508,10 @@ async def market_report(
             if view == "v2":
                 if section is not None and section not in V2_SECTIONS:
                     raise HTTPException(status_code=404, detail="Section not found")
-                if page is not None and page not in ("about", "consensus", "horizons"):
+                from app.services import market_brand
+                allowed_pages = ("about", "consensus", "horizons") if market_brand.about_page() \
+                    else ("consensus", "horizons")
+                if page is not None and page not in allowed_pages:
                     raise HTTPException(status_code=404, detail="Page not found")
                 if page in ("consensus", "horizons"):
                     # Our reports on the coverage: public in full, like the

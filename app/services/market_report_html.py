@@ -28,6 +28,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.html_report_common import esc, html_document, section_open
+from app.services import market_brand as _market_brand
 
 logger = logging.getLogger(__name__)
 
@@ -510,7 +511,14 @@ def _feed_links(days: int, feed_params: Optional[Dict[str, Any]]) -> str:
 
 
 def _brand_line() -> str:
-    """The byline: who wrote it, and what it was made with."""
+    """The byline: who wrote it, and what it was made with. An Aunoo-branded
+    site (market_brand) carries the Aunoo mark alone."""
+    from app.services import market_brand
+    if not market_brand.is_cyberfuturists():
+        return ('<span class="n-brand n-brand-made">'
+                + _brand_mark("aunoo-mark.png", "Aunoo", height=22)
+                + '<span>Made with <a href="https://aunoo.ai/">Aunoo</a></span>'
+                '</span>')
     return ('<span class="n-brand">'
             + _brand_mark("cyberfuturists-mark.png", "Cyberfuturists", height=36)
             + '<span>By the <a href="https://cyberfuturists.com/">'
@@ -5259,7 +5267,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</div></main>")
     else:
         body.append('<header class="v2-mast"><div>'
-                    f'<div class="n-kicker">Cyberfuturists · {esc(period_txt)}</div>'
+                    f'<div class="n-kicker">{esc(_market_brand.kicker())} · {esc(period_txt)}</div>'
                     f'<h1>{esc(market["name"])}</h1>'
                     f'<p class="n-sub">Market News and Trends for {esc(market["name"])}</p></div>'
                     f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
@@ -5359,13 +5367,16 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</aside></main>")
 
     about_href = "?" + _relink(link_params, days=days, view="v2", page="about")
+    # The About page is the Cyberfuturists' statement; an Aunoo-branded site
+    # has none, so its footer does not link to one.
+    about_links = (f' · <a href="{about_href}">About</a> · <a href="{about_href}#privacy">Privacy</a>'
+                   if _market_brand.about_page() else "")
     reports = "".join(
         f' · <a href="?{_relink(link_params, days=days, view="v2", page=k)}">{label}</a>'
         for k, label in (("consensus", "Consensus"), ("horizons", "Three horizons"))
     ) if market.get("is_public") else ""
     body.append('<div class="n-foot">' + _brand_line()
-                + f'<span>{esc(market["name"])} · {esc(period_txt)} · '
-                f'<a href="{about_href}">About</a> · <a href="{about_href}#privacy">Privacy</a>'
+                + f'<span>{esc(market["name"])} · {esc(period_txt)}{about_links}'
                 f'{reports}</span></div>')
     if teaser:
         body.append(_shared_view_note(conn, market["id"], allowed_brand_ids))
@@ -5719,7 +5730,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 # The publisher's line, then the period; the page is the
                 # rating, and it carries the publisher's name the way a
                 # named research product does.
-                f'<div class="n-kicker">Cyberfuturists · {esc(period_txt)}</div>'
+                f'<div class="n-kicker">{esc(_market_brand.kicker())} · {esc(period_txt)}</div>'
                 f'<h1>{esc(market["name"])} Market Maturity Map</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
