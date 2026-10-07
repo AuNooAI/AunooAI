@@ -764,7 +764,7 @@ def test_newsfirehose_budget_returns_partial_and_resumes_with_one_page_replay(mo
     first = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
     assert first.status == c.STATUS_PARTIAL and not first.may_advance_checkpoint
     assert first.truncated_reason == c.TRUNC_TIME_BUDGET and not first.coverage_complete
-    assert _cursor(first) == {"chunk": 0, "page": 3} and len(first.items) == 200
+    assert _cursor(first) == {"chunk": 0, "page": 3, "ahead": 0} and len(first.items) == 200
     coll2, session2 = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=5)
     second = run(coll2.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW,
                                continuation=first.continuation))
@@ -788,7 +788,7 @@ def test_newsfirehose_failure_on_page_two_keeps_page_one(monkeypatch):
     coll, session = _firehose(monkeypatch, _nf_pages(450, fail=fail))
     res = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
     assert res.failed and res.error_code == c.ERR_HTTP_5XX and res.retryable
-    assert len(res.items) == 100 and _cursor(res) == {"chunk": 0, "page": 2}
+    assert len(res.items) == 100 and _cursor(res) == {"chunk": 0, "page": 2, "ahead": 0}
     assert not res.may_advance_checkpoint
 
 
@@ -797,12 +797,12 @@ def test_newsfirehose_failure_on_the_replayed_page_never_walks_the_cursor_back(m
     fail = lambda q, page: FakeResponse(503, {"detail": "busy"}) if broken["on"] and page == 4 else None
     coll, session = _firehose(monkeypatch, _nf_pages(900, fail=fail), NEWSFIREHOSE_MAX_PAGES=4)
     first = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
-    assert _cursor(first) == {"chunk": 0, "page": 5}
+    assert _cursor(first) == {"chunk": 0, "page": 5, "ahead": 0}
     broken["on"] = True
     res = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW,
                            continuation=first.continuation))
     assert session.calls[-1]["params"]["page"] == 4
-    assert res.failed and _cursor(res) == {"chunk": 0, "page": 5}
+    assert res.failed and _cursor(res) == {"chunk": 0, "page": 5, "ahead": 0}
 
 
 def test_newsfirehose_or_chunks_are_all_read_and_deduplicated(monkeypatch):
@@ -827,7 +827,7 @@ def test_newsfirehose_failed_chunk_is_not_skipped(monkeypatch):
     session.handler = _nf_pages(20, per_q={chunks[0]: 0, chunks[1]: 100}, fail=fail)
     res = run(coll.collect(terms, "t", interval_start=START, interval_end=NOW))
     assert res.failed and res.error_code == c.ERR_AUTH and not res.retryable
-    assert len(res.items) == 20 and _cursor(res) == {"chunk": 1, "page": 1}
+    assert len(res.items) == 20 and _cursor(res) == {"chunk": 1, "page": 1, "ahead": 0}
 
 
 @pytest.mark.parametrize("body,why", [
@@ -875,7 +875,7 @@ def test_newsfirehose_http_errors_never_look_like_an_empty_success(monkeypatch, 
     res = run(coll.collect("x", "t", interval_start=START, interval_end=NOW))
     assert res.failed and res.error_code == code and res.retryable is retryable
     assert not res.may_advance_checkpoint
-    assert _cursor(res) == {"chunk": 0, "page": 1}
+    assert _cursor(res) == {"chunk": 0, "page": 1, "ahead": 0}
 
 
 @pytest.mark.parametrize("exc,code", [
@@ -991,3 +991,14 @@ def test_a_429_carries_the_pause_end_for_the_checkpoint(monkeypatch):
     res = run(mod.RedditCollector().collect("soc automation", "t", interval_start=START, interval_end=NOW))
     assert res.error_code == c.ERR_QUOTA
     assert res.diagnostics.get("quota_exhausted_until") == until.isoformat()
+
+
+def test_newsfirehose_pages_newer_than_the_window_do_not_count_toward_the_broad_limit(monkeypatch):
+    """A catch-up window ending 5 hours ago first returns 3 pages of later
+    rows (whole-day to_date). Only the 2 pages inside the window count."""
+    coll, session = _firehose(monkeypatch, _nf_pages(1000, newest=NOW, step=timedelta(minutes=1)),
+                              NEWSFIREHOSE_OVERLAP_HOURS=0, NEWSFIREHOSE_MAX_PAGES=50,
+                              NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3)
+    res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=8),
+                           interval_end=NOW - timedelta(hours=5)))
+    assert res.succeeded and res.coverage_complete and len(res.items) == 181

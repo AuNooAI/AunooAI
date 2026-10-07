@@ -487,12 +487,17 @@ class NewsFirehoseCollector(ArticleCollector):
 
         cont = continuation or {}
         ci, page = 0, 1
+        # Leading pages of the current chunk that held only rows newer than
+        # the window (the API's whole-day to_date plus our slack). They are
+        # read, but do not count toward the broad-query limit.
+        ahead = 0
         if cont and cont.get("q") == fingerprint:
             try:
                 ci = max(0, int(cont.get("chunk") or 0))
                 page = max(1, int(cont.get("page") or 1))
+                ahead = max(0, int(cont.get("ahead") or 0))
             except (TypeError, ValueError):
-                ci, page = 0, 1
+                ci, page, ahead = 0, 1, 0
         elif cont:
             res.diagnostics["continuation_discarded"] = "query or parameters changed"
         resume_at = (ci, page)
@@ -512,7 +517,7 @@ class NewsFirehoseCollector(ArticleCollector):
             out.started_at = res.started_at
             # Never hand back a cursor behind the one this run resumed from:
             # a failure on the replayed page would otherwise walk it back.
-            out.continuation = {"q": fingerprint, "chunk": ci, "page": page}
+            out.continuation = {"q": fingerprint, "chunk": ci, "page": page, "ahead": ahead}
             if (ci, page) < resume_at:
                 out.continuation.update(chunk=resume_at[0], page=resume_at[1])
             out.diagnostics.update(res.diagnostics, pages=clock.pages, chunks=len(chunks))
@@ -572,12 +577,15 @@ class NewsFirehoseCollector(ArticleCollector):
                     # Newest first: once a page reaches back past the window
                     # start there is nothing older worth asking for.
                     past_start = lo is not None and oldest is not None and oldest < lo
+                    if page == ahead + 1 and hi is not None and oldest is not None and oldest > hi:
+                        ahead += 1
                     if has_more and not past_start:
-                        if broad_limit and page >= broad_limit:
+                        if broad_limit and page - ahead >= broad_limit:
                             out = CollectionResult.failure(
                                 ERR_CONFIG,
                                 f"configuration: query too broad for NewsFirehose - chunk {ci + 1} of "
-                                f"{len(chunks)} still has rows after {page} pages ({page * 100} rows) for a "
+                                f"{len(chunks)} still has rows after {page - ahead} pages ({(page - ahead) * 100} rows) "
+                                f"inside a "
                                 f"{window_days:.1f}-day window (limit {broad_per_day:g} pages a day); narrow "
                                 f"the keyword", retryable=False)
                             out.started_at = res.started_at
@@ -589,7 +597,7 @@ class NewsFirehoseCollector(ArticleCollector):
                             return self.finish(out, query, interval_start, interval_end)
                         page += 1
                     else:
-                        ci, page = ci + 1, 1
+                        ci, page, ahead = ci + 1, 1, 0
         except Exception as exc:  # noqa: BLE001
             return _stop(CollectionResult.from_exception(exc, host=host))
 
