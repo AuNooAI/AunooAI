@@ -580,6 +580,9 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
                 logger.warning(f"Could not read group {group_id} settings: {e}")
         if group_row:
             result = await monitor.check_single_group(group_row, progress_callback=progress_callback)
+        elif group_id is None:
+            # All groups, each with its own providers and social handling.
+            result = await monitor.check_all_groups(progress_callback=progress_callback)
         else:
             result = await monitor.check_keywords(group_id=group_id, progress_callback=progress_callback)
 

@@ -4177,6 +4177,22 @@ class DatabaseQueryFacade:
         self._execute_with_rollback(query, params)
         return True
 
+    def get_active_keyword_groups(self):
+        """Every active keyword group, in the shape get_due_keyword_groups
+        returns, for "check all groups now"."""
+        query = text("""
+            SELECT
+                kg.*,
+                kms.check_interval as global_check_interval,
+                kms.interval_unit as global_interval_unit
+            FROM keyword_groups kg
+            CROSS JOIN (SELECT * FROM keyword_monitor_settings WHERE id = 1) kms
+            WHERE kg.is_active = TRUE
+            ORDER BY kg.id
+        """)
+        result = self._fetchall_with_rollback(query, mappings=True)
+        return [dict(row) for row in result]
+
     def get_due_keyword_groups(self):
         """Get keyword groups that are due for checking based on their schedules.
 

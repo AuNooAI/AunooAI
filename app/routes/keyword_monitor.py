@@ -991,6 +991,9 @@ async def check_now(
             if group_row:
                 logger.info(f"Calling monitor.check_single_group() for group {group_id}...")
                 result = await monitor.check_single_group(group_row)
+            elif group_id is None:
+                logger.info("Calling monitor.check_all_groups()...")
+                result = await monitor.check_all_groups()
             else:
                 logger.info("Calling monitor.check_keywords()...")
                 result = await monitor.check_keywords(group_id=group_id)

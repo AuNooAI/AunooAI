@@ -85,68 +85,74 @@ async def get_auto_ingest_status():
         logger.error(f"Failed to get auto-ingest status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/run")
-async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(verify_session)):
-    """Manually trigger auto-ingest pipeline with progress tracking"""
-    try:
-        from app.services.background_task_manager import get_task_manager, run_auto_ingest_task
-        from app.database import get_database_instance
+async def _run_all_groups_task(progress_callback=None, username=None):
+    """Collect every active keyword group now, each with its own providers,
+    language, threshold and social handling.
 
-        # Get username from session for notifications
-        username = session.get("user", {}).get("username")
+    Until 7 Oct 2026 this button read unread rows from ``keyword_alerts``
+    (empty on every site, and the query named columns ``articles`` does not
+    have, so the route answered 500) and sent them through ingest with the
+    topic ``general``, which no site has configured.
+    """
+    from app.database import get_database_instance
+    from app.tasks.keyword_monitor import KeywordMonitor
 
-        # Get pending articles count for progress tracking
-        db = get_database_instance()
-        pending_articles = db.facade.get_unread_alerts()
-        total_articles = len(pending_articles)
-
-        if total_articles == 0:
-            return JSONResponse({
-                "success": True,
-                "message": "No pending articles to process",
-                "total_articles": 0
-            })
-
-        # Create notification for manual auto-ingest start
+    db = get_database_instance()
+    result = await KeywordMonitor(db).check_all_groups(
+        progress_callback=progress_callback, username=username)
+    if username:
         try:
             db.facade.create_notification(
                 username=username,
-                type='auto_ingest_started',
-                title='Auto-Collect Started',
-                message=f'Processing {total_articles} pending articles...',
+                type='auto_ingest_complete' if result.get("success") else 'auto_ingest_error',
+                title='Auto-Collect Complete' if result.get("success") else 'Auto-Collect Failed',
+                message=(f"Checked {result.get('groups_checked', 0)} groups: "
+                         f"{result.get('new_articles', 0)} new articles, "
+                         f"{len(result.get('errors') or [])} errors"),
                 link='/gather'
             )
         except Exception as notif_err:
-            logger.error(f"Failed to create auto-ingest start notification: {notif_err}")
+            logger.error(f"Failed to create auto-collect notification: {notif_err}")
+    return {"success": bool(result.get("success")), "results": result}
 
-        # Create background task with progress tracking
+
+@router.post("/run")
+async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(verify_session)):
+    """Collect every active keyword group now, as a tracked background task."""
+    try:
+        from app.services.background_task_manager import get_task_manager
+        from app.database import get_database_instance
+
+        username = session.get("user", {}).get("username")
+        db = get_database_instance()
+        groups = db.facade.get_active_keyword_groups()
+        if not groups:
+            return JSONResponse({
+                "success": True,
+                "message": "No active keyword groups to collect",
+                "total_groups": 0
+            })
+
         task_manager = get_task_manager()
         task_id = task_manager.create_task(
-            name="Auto-Ingest Pipeline",
-            total_items=total_articles,
-            metadata={"type": "auto_ingest", "articles_count": total_articles, "username": username}
+            name="Auto-Collect: all groups",
+            total_items=len(groups),
+            metadata={"type": "auto_ingest", "groups_count": len(groups), "username": username}
         )
-
-        # Run auto-ingest as background task with username for notifications
-        background_tasks.add_task(
-            task_manager.run_task,
-            task_id,
-            run_auto_ingest_task,
-            username=username
-        )
-
+        background_tasks.add_task(task_manager.run_task, task_id, _run_all_groups_task,
+                                  username=username)
         return JSONResponse({
             "success": True,
-            "message": "Auto-ingest pipeline started with database progress tracking",
+            "message": f"Collecting {len(groups)} keyword groups",
             "task_id": task_id,
-            "total_articles": total_articles,
+            "total_groups": len(groups),
             "status_url": f"/api/background-tasks/task/{task_id}"
         })
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to start auto-ingest: {e}")
+        logger.error(f"Failed to start auto-collect: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/run-sync", dependencies=[Depends(verify_session_api)])

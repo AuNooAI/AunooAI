@@ -1684,6 +1684,38 @@ class KeywordMonitor:
             self._group_relevance_threshold = None
             self._social_only_group = False
 
+    async def check_all_groups(self, progress_callback=None, username=None) -> Dict:
+        """Check every active group now, each through check_single_group.
+
+        "Check now" with no group used to call check_keywords(None): every
+        keyword on the global collectors, social groups' keywords through the
+        news pipeline, inactive groups included, and no social evaluation.
+        This runs each group the way the scheduler does instead (7 Oct 2026).
+        """
+        groups = self.db.facade.get_active_keyword_groups()
+        results = {"success": True, "groups_checked": 0, "new_articles": 0,
+                   "keywords_processed": 0, "errors": []}
+        for group in groups:
+            try:
+                r = await self.check_single_group(group, progress_callback=progress_callback,
+                                                  username=username) or {}
+                results["groups_checked"] += 1
+                results["new_articles"] += int(r.get("new_articles") or 0)
+                results["keywords_processed"] += int(r.get("keywords_processed") or 0)
+                if not r.get("success"):
+                    results["errors"].append({"group_id": group["id"], "group_name": group.get("name"),
+                                              "error": r.get("error")})
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Failed to check group {group.get('name')}: {e}")
+                results["errors"].append({"group_id": group["id"], "group_name": group.get("name"),
+                                          "error": str(e)})
+        if groups and len(results["errors"]) == len(groups):
+            results["success"] = False
+            results["error"] = "every group failed"
+        logger.info(f"All-groups check: {results['groups_checked']} groups, "
+                    f"{results['new_articles']} new articles, {len(results['errors'])} errors")
+        return results
+
     async def check_due_groups(self) -> Dict:
         """Check all keyword groups that are due for collection.
 
