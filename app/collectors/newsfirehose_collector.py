@@ -64,6 +64,11 @@ def _date_params(start: Optional[datetime], end: Optional[datetime]) -> Dict[str
     return params
 
 
+def _terms(chunks: List[str]) -> List[str]:
+    """The OR terms of a list of chunks, in order."""
+    return [t.strip() for c in chunks for t in c.split(" OR ") if t.strip()]
+
+
 def _query_fingerprint(chunks: List[str], params: Dict[str, Any]) -> str:
     """Identifies the chunk list and the sort/filter parameters a
     continuation was made for. A continuation for a different query must not
@@ -449,9 +454,14 @@ class NewsFirehoseCollector(ArticleCollector):
         chunk that still has rows after this many pages per day of window is
         a keyword too broad to collect in full. On 7 Oct 2026 the AI group's
         keywords returned 1,000-3,500 rows a day each, because the OR-flattened
-        query contains "AI" on its own. Such a run is a configuration failure
-        with no items: nothing is skipped silently, coverage does not move,
-        and health shows the keyword until someone narrows it.
+        query contains "AI" on its own. A chunk of several terms that passes
+        the limit is split in two and each half paged under its own limit (the
+        union is the same query); the split chunk list rides in the
+        continuation. The firehose takes whole days only, so a window cannot
+        be split finer by date. A single term still over the limit is a
+        configuration failure: the rows read so far are returned for saving,
+        coverage does not move, and health shows the keyword until someone
+        narrows it.
 
         An HTTP error, a malformed body or an exception is a failed result,
         never an empty success. Rows collected on earlier pages are kept on
@@ -481,6 +491,7 @@ class NewsFirehoseCollector(ArticleCollector):
         if categories:
             params["categories"] = ",".join(categories)
         fingerprint = _query_fingerprint(chunks, params)
+        default_chunks = list(chunks)
         broad_per_day = _env_float("NEWSFIREHOSE_BROAD_PAGES_PER_DAY", 20.0)
         window_days = max(1.0, ((hi - lo).total_seconds() / 86400.0) if (hi and lo) else 30.0)
         broad_limit = int(broad_per_day * window_days + 0.999) if broad_per_day > 0 else 0
@@ -491,6 +502,17 @@ class NewsFirehoseCollector(ArticleCollector):
         # the window (the API's whole-day to_date plus our slack). They are
         # read, but do not count toward the broad-query limit.
         ahead = 0
+        if cont and cont.get("q") == fingerprint:
+            split = cont.get("chunks")
+            if split is not None:
+                # A chunk list this collector split earlier in the same
+                # interval. Use it only if it holds exactly the same terms.
+                if (isinstance(split, list) and split and all(isinstance(c, str) for c in split)
+                        and sorted(_terms(split)) == sorted(_terms(chunks))):
+                    chunks = list(split)
+                else:
+                    cont = {}
+                    res.diagnostics["continuation_discarded"] = "split chunk list does not match the query"
         if cont and cont.get("q") == fingerprint:
             try:
                 ci = max(0, int(cont.get("chunk") or 0))
@@ -518,6 +540,8 @@ class NewsFirehoseCollector(ArticleCollector):
             # Never hand back a cursor behind the one this run resumed from:
             # a failure on the replayed page would otherwise walk it back.
             out.continuation = {"q": fingerprint, "chunk": ci, "page": page, "ahead": ahead}
+            if chunks != default_chunks:
+                out.continuation["chunks"] = chunks
             if (ci, page) < resume_at:
                 out.continuation.update(chunk=resume_at[0], page=resume_at[1])
             out.diagnostics.update(res.diagnostics, pages=clock.pages, chunks=len(chunks))
@@ -581,19 +605,38 @@ class NewsFirehoseCollector(ArticleCollector):
                         ahead += 1
                     if has_more and not past_start:
                         if broad_limit and page - ahead >= broad_limit:
+                            terms = _terms([chunks[ci]])
+                            if len(terms) > 1:
+                                # Too many rows for one chunk, but the terms
+                                # may be fine on their own: split the chunk in
+                                # two and page each half under its own limit.
+                                # The union of the halves is the same query.
+                                half = (len(terms) + 1) // 2
+                                chunks[ci:ci + 1] = [" OR ".join(terms[:half]), " OR ".join(terms[half:])]
+                                res.diagnostics.setdefault("split", []).append(
+                                    {"chunk": ci, "after_pages": page - ahead, "terms": len(terms)})
+                                logger.info(f"NewsFirehose: chunk {ci + 1} of '{(query or '')[:80]}' passed "
+                                            f"{page - ahead} pages; split into {half} + {len(terms) - half} terms")
+                                page, ahead = 1, 0
+                                resume_at = min(resume_at, (ci, 1))
+                                continue
                             out = CollectionResult.failure(
                                 ERR_CONFIG,
-                                f"configuration: query too broad for NewsFirehose - chunk {ci + 1} of "
-                                f"{len(chunks)} still has rows after {page - ahead} pages ({(page - ahead) * 100} rows) "
+                                f"configuration: query too broad for NewsFirehose - the term '{chunks[ci]}' "
+                                f"still has rows after {page - ahead} pages ({(page - ahead) * 100} rows) "
                                 f"inside a "
                                 f"{window_days:.1f}-day window (limit {broad_per_day:g} pages a day); narrow "
                                 f"the keyword", retryable=False)
+                            # The rows read so far are real matches: keep them
+                            # so the caller saves them. Coverage still does not
+                            # move, because this is a failure.
+                            out.items = res.items
                             out.started_at = res.started_at
                             out.diagnostics.update(res.diagnostics, pages=clock.pages, chunks=len(chunks),
                                                    too_broad_chunk=ci, rows_seen=res.counts.received)
                             out.counts = res.counts
-                            logger.warning(f"NewsFirehose: '{(query or '')[:80]}' is too broad "
-                                           f"({page} pages in chunk {ci + 1}); no items kept")
+                            logger.warning(f"NewsFirehose: '{(query or '')[:80]}' is too broad: the term "
+                                           f"'{chunks[ci]}' passed {page - ahead} pages; {len(res.items)} items kept")
                             return self.finish(out, query, interval_start, interval_end)
                         page += 1
                     else:

@@ -950,7 +950,8 @@ def test_newsfirehose_too_broad_keyword_is_a_visible_configuration_failure(monke
                               NEWSFIREHOSE_OVERLAP_HOURS=0)
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
     assert res.failed and res.error_code == c.ERR_CONFIG and not res.retryable
-    assert res.items == [] and not res.may_advance_checkpoint
+    # The rows read before the refusal are kept for saving; coverage stays put.
+    assert len(res.items) == 300 and not res.may_advance_checkpoint
     assert "too broad" in res.error_message and len(session.calls) == 3
 
 
@@ -1002,3 +1003,73 @@ def test_newsfirehose_pages_newer_than_the_window_do_not_count_toward_the_broad_
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=8),
                            interval_end=NOW - timedelta(hours=5)))
     assert res.succeeded and res.coverage_complete and len(res.items) == 181
+
+
+def _nf_terms(totals, step=timedelta(seconds=10)):
+    """A /v1/search fake where each single term has its own rows and an OR
+    query returns the union of its terms' rows, newest first."""
+    rows_by_term = {t: [(f"{t}-{i}", NOW - timedelta(minutes=1) - step * i) for i in range(n)]
+                    for t, n in totals.items()}
+
+    def handler(url, params, headers):
+        page, size = int(params["page"]), int(params["page_size"])
+        terms = [t.strip() for t in params["q"].split(" OR ")]
+        rows = sorted((r for t in terms for r in rows_by_term[t]), key=lambda r: r[1], reverse=True)
+        chunk = rows[(page - 1) * size: page * size]
+        out = [{"url": f"https://nf.test/{k}", "title": k, "publishedAt": when.isoformat(),
+                "source": {"name": "nf"}} for k, when in chunk]
+        return FakeResponse(200, {"status": "ok", "articles": out, "has_more": page * size < len(rows)})
+    return handler
+
+
+def test_newsfirehose_splits_a_too_broad_chunk_instead_of_refusing(monkeypatch):
+    # 3 pages a day over a 20-hour window: each term fits (250 rows, 3 pages),
+    # the two together (500 rows) do not. Split, collect both, complete.
+    coll, session = _firehose(monkeypatch, _nf_terms({"alpha": 250, "beta": 250}),
+                              NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3,
+                              NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect("alpha | beta", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
+    assert res.succeeded and res.coverage_complete and res.may_advance_checkpoint
+    assert len({i["url"] for i in res.items}) == 500
+    assert res.diagnostics["split"] == [{"chunk": 0, "after_pages": 3, "terms": 2}]
+    assert [p["params"]["q"] for p in session.calls][3:] == ["alpha"] * 3 + ["beta"] * 3
+
+
+def test_newsfirehose_a_single_term_still_too_broad_is_refused_with_items_kept(monkeypatch):
+    coll, _ = _firehose(monkeypatch, _nf_terms({"alpha": 800, "beta": 50}),
+                        NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3,
+                        NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect("alpha | beta", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_CONFIG and not res.may_advance_checkpoint
+    assert "'alpha'" in res.error_message and res.items
+
+
+def test_newsfirehose_split_survives_a_budget_stop_and_resume(monkeypatch):
+    handler = _nf_terms({"alpha": 250, "beta": 250})
+    coll, _ = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=5,
+                        NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3, NEWSFIREHOSE_OVERLAP_HOURS=0)
+    start, end = NOW - timedelta(hours=20), NOW
+    first = run(coll.collect("alpha | beta", "t", interval_start=start, interval_end=end))
+    assert first.status == c.STATUS_PARTIAL and first.continuation["chunks"] == ["alpha", "beta"]
+    seen = {i["url"] for i in first.items}
+    res = first
+    for _ in range(5):
+        if res.coverage_complete:
+            break
+        res = run(coll.collect("alpha | beta", "t", interval_start=start, interval_end=end,
+                               continuation=res.continuation))
+        assert not res.failed
+        seen |= {i["url"] for i in res.items}
+    assert res.coverage_complete and len(seen) == 500
+
+
+def test_newsfirehose_discards_a_split_list_with_different_terms(monkeypatch):
+    coll, _ = _firehose(monkeypatch, _nf_terms({"alpha": 20, "beta": 20}), NEWSFIREHOSE_OVERLAP_HOURS=0)
+    start, end = NOW - timedelta(hours=20), NOW
+    from app.collectors.newsfirehose_collector import NewsFirehoseCollector, _query_fingerprint
+    norm = NewsFirehoseCollector._normalize_query("alpha | beta")
+    params = {"page_size": 100, "sort_by": "published_at", "language": "english"}
+    bad = {"q": _query_fingerprint([norm], params), "chunks": ["alpha", "gamma"], "chunk": 1, "page": 2}
+    res = run(coll.collect("alpha | beta", "t", interval_start=start, interval_end=end, continuation=bad))
+    assert res.succeeded and len(res.items) == 40
+    assert res.diagnostics["continuation_discarded"] == "split chunk list does not match the query"
