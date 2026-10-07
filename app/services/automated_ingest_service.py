@@ -43,8 +43,6 @@ def _merge_matched_keyword_tags(article_data, tags):
         if kw and kw.strip().lower() not in seen:
             tags_list.append(kw)
     return ','.join(tags_list) if tags_list else None
-from app.services.enrichment_service import get_enrichment_service
-from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.analyzers.article_analyzer import ArticleAnalyzer, ConfigurationFault
 from app.ai_models import LiteLLMModel, get_available_models
 from app.services import rejected_candidates as _rejected
@@ -288,8 +286,9 @@ def _looks_like_rss_batch(articles: List[Dict[str, Any]]) -> bool:
             return True
     return False
 
-# Allow nested event loops (needed when called from FastAPI routes that
-# invoke the sync analyze_article_content -> asyncio.run path).
+# Allow nested event loops. The sync analyze_article_content path that
+# needed this was removed on 7 Oct 2026; other sync callers may still run a
+# coroutine from inside the event loop, so it stays.
 nest_asyncio.apply()
 
 # Set up logging
@@ -311,9 +310,6 @@ class AutomatedIngestService:
         self.config = config or load_config()
         self.relevance_calculator = None
         self.hybrid_relevance_service = None  # Lazy-loaded SLM-based relevance
-        self.enrichment_service = None  # Lazy-loaded SLM-based enrichment
-        self.hybrid_enrichment_service = None  # Lazy-loaded adaptive enrichment (GPT -> DeBERTa)
-        self.use_adaptive_enrichment = self.config.get('use_adaptive_enrichment', True)
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
 
@@ -457,241 +453,6 @@ class AutomatedIngestService:
             
         except Exception as e:
             self.logger.error(f"Error enriching article with bias data: {e}")
-            return article_data
-    
-    def analyze_article_content(self, article_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Perform full article analysis using hybrid SLM + LLM approach.
-
-        SLM handles: sentiment, time_to_impact, driver_type, future_signal (classification)
-        LLM handles: summary, explanations, category, tags (generation)
-
-        Args:
-            article_data: Article data dictionary
-
-        Returns:
-            Article data enriched with analysis results
-        """
-        try:
-            # Prepare content for analysis. The legacy sync path reads the
-            # collector text as before; page input is the async path's (WP6a).
-            article_text, _input_info = select_analysis_input(article_data, None, mode="summary_first")
-            article_data['_analysis_input'] = _input_info
-            title = article_data.get('title', '')
-            source = article_data.get('news_source', '')
-            uri = article_data.get('uri', '')
-
-            if not article_text or not title:
-                self.logger.warning(f"Insufficient content for analysis: {uri}")
-                return article_data
-
-            topic = article_data.get('topic')
-            if not topic:
-                self.logger.error(f"No topic specified for article {uri} - cannot determine ontology")
-                return article_data
-
-            # Step 1: Try SLM/Hybrid enrichment for classification fields
-            slm_result = {}
-            slm_fields_used = []
-            enrichment_sources = {}
-
-            try:
-                if self.use_adaptive_enrichment:
-                    # Use adaptive hybrid enrichment (GPT for new topics, DeBERTa for trained)
-                    if not self.hybrid_enrichment_service:
-                        self.hybrid_enrichment_service = get_hybrid_enrichment_service()
-
-                    # Get inference mode to determine if we use local LLM (Qwen) instead of GPT
-                    inference_mode = self.get_inference_mode()
-                    use_local_llm = inference_mode == 'local'
-                    llm_type = "Qwen" if use_local_llm else "GPT"
-
-                    self.logger.info(f"    🔄 Using adaptive enrichment ({llm_type} fallback): {title[:50]}...")
-
-                    # Run async coroutine (nest_asyncio applied at module level)
-                    slm_result = asyncio.run(
-                        self.hybrid_enrichment_service.enrich_article(
-                            title=title,
-                            summary=article_text,
-                            topic=topic,
-                            article_uri=uri,
-                            use_local_llm=use_local_llm,
-                        )
-                    )
-
-                    # Track which fields were handled and by which model
-                    enrichment_sources = slm_result.get('sources', {})
-                    for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                        if field in slm_result and slm_result[field]:
-                            slm_fields_used.append(field)
-
-                    if slm_fields_used:
-                        sources_str = ', '.join(f"{f}={enrichment_sources.get(f, '?')}" for f in slm_fields_used)
-                        self.logger.info(f"    ✅ Adaptive enrichment: {sources_str}")
-
-                    # Record confidence stats for frontend tracking (hybrid enrichment path)
-                    try:
-                        deberta_confidence_scores = {}
-                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                            if enrichment_sources.get(field) == 'deberta':
-                                conf = slm_result.get(f'{field}_confidence', 0)
-                                deberta_confidence_scores[field] = conf
-
-                        if deberta_confidence_scores:
-                            from app.routes.training_routes import get_confidence_tracker
-                            tracker = get_confidence_tracker()
-                            tracker.record(topic, deberta_confidence_scores)
-                    except Exception as tracker_err:
-                        self.logger.debug(f"Failed to record confidence stats (hybrid): {tracker_err}")
-
-                else:
-                    # Use standard DeBERTa enrichment service
-                    if not self.enrichment_service:
-                        self.enrichment_service = get_enrichment_service()
-
-                    if self.enrichment_service.is_available():
-                        self.logger.info(f"    🧠 Using SLM for classification: {title[:50]}...")
-                        slm_result = self.enrichment_service.enrich(title=title, summary=article_text)
-
-                        confidence_threshold = 0.6
-                        confidence_scores = {}
-                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                            conf = slm_result.get(f'{field}_confidence', 0)
-                            confidence_scores[field] = conf
-                            if field in slm_result and conf >= confidence_threshold:
-                                slm_fields_used.append(field)
-                                enrichment_sources[field] = 'deberta'
-
-                        avg_conf = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0
-                        conf_str = ', '.join(f"{f[:3]}={c:.2f}" for f, c in confidence_scores.items())
-
-                        try:
-                            from app.routes.training_routes import get_confidence_tracker
-                            tracker = get_confidence_tracker()
-                            tracker.record(topic, confidence_scores)
-                        except Exception as tracker_err:
-                            self.logger.debug(f"Failed to record confidence stats: {tracker_err}")
-
-                        if slm_fields_used:
-                            self.logger.info(f"    ✅ SLM confident for: {', '.join(slm_fields_used)} (avg={avg_conf:.2f}, {conf_str})")
-                        else:
-                            self.logger.info(f"    ⚠️ SLM low confidence (avg={avg_conf:.2f}, {conf_str}), will use LLM for all fields")
-
-            except Exception as e:
-                self.logger.warning(f"Enrichment failed, falling back to LLM: {e}")
-
-            # Step 2: Use LLM for generative fields (summary, explanations) and low-confidence classifications
-            if not self.article_analyzer:
-                model_name = self.get_llm_client()
-                ai_model = LiteLLMModel.get_instance(model_name)
-                self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
-
-            model_name = self.get_llm_client()
-            research = self._get_research(model_name)
-            self.logger.info(f"    🤖 Using LLM ({model_name}) for summary & explanations")
-
-            research.set_topic(topic)
-
-            # Backstop guard: never fire the ontology LLM calls below for a
-            # topic that isn't in the loaded config. set_topic() silently
-            # retains the previous topic on an unknown name, so without this
-            # the 5 calls below would run against the wrong ontology (and, if
-            # the caller never marks the article done, loop forever). Mirrors
-            # the entry guard in _process_single_article_async.
-            if topic not in research.topic_configs:
-                self.logger.error(
-                    f"⛔ analyze_article_content: topic '{topic}' not in configuration — "
-                    f"skipping ontology LLM calls for {article_data.get('uri', '?')}"
-                )
-                article_data['analyzed'] = False
-                article_data['ingest_status'] = 'skipped_unknown_topic'
-                return article_data
-
-            try:
-                loop = asyncio.get_running_loop()
-                def run_async_in_thread(coro_func, *args):
-                    return asyncio.run(coro_func(*args))
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future_categories = executor.submit(run_async_in_thread, research.get_categories, topic)
-                    future_signals_f = executor.submit(run_async_in_thread, research.get_future_signals, topic)
-                    future_sentiments = executor.submit(run_async_in_thread, research.get_sentiments, topic)
-                    future_time_to_impact = executor.submit(run_async_in_thread, research.get_time_to_impact, topic)
-                    future_driver_types = executor.submit(run_async_in_thread, research.get_driver_types, topic)
-
-                    categories = future_categories.result()
-                    future_signals = future_signals_f.result()
-                    sentiment_options = future_sentiments.result()
-                    time_to_impact_options = future_time_to_impact.result()
-                    driver_types = future_driver_types.result()
-            except RuntimeError:
-                categories = asyncio.run(research.get_categories(topic))
-                future_signals = asyncio.run(research.get_future_signals(topic))
-                sentiment_options = asyncio.run(research.get_sentiments(topic))
-                time_to_impact_options = asyncio.run(research.get_time_to_impact(topic))
-                driver_types = asyncio.run(research.get_driver_types(topic))
-
-            analysis_result = self.article_analyzer.analyze_content(
-                article_text=article_text,
-                title=title,
-                source=source,
-                uri=uri,
-                summary_length=50,
-                summary_voice="neutral",
-                summary_type="informative",
-                categories=categories,
-                future_signals=future_signals,
-                sentiment_options=sentiment_options,
-                time_to_impact_options=time_to_impact_options,
-                driver_types=driver_types,
-                mode="auto",  # auto prompt, no date call: the collector's date is kept
-            )
-
-            # Step 3: Merge results - SLM for confident classifications, LLM for rest
-            tags_str = _merge_matched_keyword_tags(article_data, analysis_result.get('tags', []))
-
-            final_result = {
-                'summary': analysis_result.get('summary'),
-                'category': analysis_result.get('category'),
-                'sentiment': analysis_result.get('sentiment'),
-                'future_signal': analysis_result.get('future_signal'),
-                'future_signal_explanation': analysis_result.get('future_signal_explanation'),
-                'sentiment_explanation': analysis_result.get('sentiment_explanation'),
-                'time_to_impact': analysis_result.get('time_to_impact'),
-                'time_to_impact_explanation': analysis_result.get('time_to_impact_explanation'),
-                'driver_type': analysis_result.get('driver_type'),
-                'driver_type_explanation': analysis_result.get('driver_type_explanation'),
-                'tags': tags_str,
-                'analyzed': True,
-                '_enrichment_method': 'llm_only'
-            }
-            if analysis_result.get('original_title'):
-                # Non-English headline: show the English one, keep the original.
-                final_result['title'] = analysis_result['title']
-                final_result['original_title'] = analysis_result['original_title']
-
-            # Override with SLM results for high-confidence fields
-            if slm_fields_used:
-                for field in slm_fields_used:
-                    if field in slm_result:
-                        final_result[field] = slm_result[field]
-                final_result['_enrichment_method'] = f"hybrid_slm({','.join(slm_fields_used)})"
-
-            for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                if field not in enrichment_sources:
-                    enrichment_sources[field] = 'gpt'
-
-            final_result['enrichment_sources'] = enrichment_sources
-
-            article_data.update(final_result)
-
-            method = final_result.get('_enrichment_method', 'unknown')
-            self.logger.info(f"    📝 Enriched {uri[:50]}: method={method}, sentiment={final_result.get('sentiment')}, summary_len={len(final_result.get('summary', ''))}")
-
-            return article_data
-
-        except Exception as e:
-            self.logger.error(f"Error analyzing article content: {e}")
             return article_data
     
     def score_article_relevance(self, article_data: Dict[str, Any], topic: str, keywords: List[str],

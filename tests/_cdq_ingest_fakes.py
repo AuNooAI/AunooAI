@@ -108,10 +108,7 @@ def make_service(topic_configs: Optional[Dict[str, Dict[str, Any]]] = None, *,
     svc._last_extraction_outcomes = {}
     svc.article_analyzer = None
     svc.hybrid_relevance_service = None
-    svc.enrichment_service = None
-    svc.hybrid_enrichment_service = None
     svc.relevance_calculator = None
-    svc.use_adaptive_enrichment = False
     svc._blocking_executor = None
     svc.media_bias = None
 
