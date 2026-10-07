@@ -25,15 +25,17 @@ ARTICLES TO VALIDATE:
 
 For each article, determine if it is TRULY about this specific theme (not just tangentially related).
 Be strict - only mark articles as relevant if they directly discuss the theme's core subject matter.
+An article about the same industry or a neighbouring subject is NOT relevant.
 
-Return a JSON array with one object per article:
+Return a JSON array with one object per article, using the article's ID:
 [
-  {{"uri": "article_uri_here", "relevant": true, "confidence": 0.95, "reason": "Directly discusses the theme"}},
-  {{"uri": "another_uri", "relevant": false, "confidence": 0.85, "reason": "Only mentions theme tangentially"}}
+  {{"id": "A1", "relevant": true, "confidence": 0.95, "reason": "about the theme's event"}},
+  {{"id": "A2", "relevant": false, "confidence": 0.85, "reason": "different company, same sector"}}
 ]
 
 Important:
-- Use the exact URI from the input
+- Use the exact ID from the input, and judge every article
+- Keep each reason under ten words
 - confidence should be between 0.0 and 1.0
 - Be conservative - when in doubt, mark as not relevant"""
 
@@ -65,8 +67,8 @@ class ArticleValidator:
         self.ai_model_getter = ai_model_getter
         self.model_name = model_name
 
-    # How many articles the LLM actually judges. Everything past this point
-    # stays in the theme: the cap is a cost control, not a verdict.
+    # Articles per model call. Each batch is one prompt; every article the
+    # caller passes in is judged.
     MAX_VALIDATED = 15
 
     async def validate_theme_articles(
@@ -78,43 +80,82 @@ class ArticleValidator:
         min_confidence: float = 0.7,
         ordered_uris: Optional[List[str]] = None,
     ) -> List[str]:
-        """Drop the articles the LLM judges irrelevant; keep the rest in order.
+        """Keep only the articles the LLM approves, in their original order.
 
-        Only the first ``MAX_VALIDATED`` articles are sent to the model, for
-        cost. An article past that point has not been judged, so it is kept —
-        the previous behaviour discarded it, which silently truncated every
-        theme to 15 articles.
+        Every article is judged, ``MAX_VALIDATED`` per model call. An article
+        stays in the theme only on an explicit "relevant" verdict at or above
+        ``min_confidence``. An article the model did not judge is dropped:
+        the reply was cut off, unparseable, or the call failed.
+
+        This used to fail open. It judged the first 15 articles and kept the
+        rest unseen, and kept everything when the reply did not parse. On
+        bugfixing on 7 Oct 2026 that left themes such as "Flydubai Flight
+        Cockpit Incident" with 15 unjudged articles after all 15 judged ones
+        were rejected, and the deep analysis then wrote timelines out of
+        unrelated stories. A theme left with too few articles is dropped
+        later by the theme validator, which is the right outcome.
 
         Args:
             theme_label: The theme name
             theme_description: Theme description
             key_entities: Key entities for the theme
-            articles: Article dicts (uri, title, summary) for the articles to judge
-            min_confidence: Confidence a verdict needs before it is acted on
-            ordered_uris: The theme's full ranked URI list. Defaults to the URIs
-                of ``articles``. The return value preserves this order.
+            articles: Article dicts (uri, title, summary) to judge
+            min_confidence: Confidence a "relevant" verdict needs to count
+            ordered_uris: The theme's ranked URI list. Defaults to the URIs
+                of ``articles``. The return value preserves this order; a
+                URI absent from ``articles`` was not judged and is dropped.
 
         Returns:
-            The kept URIs, in their original ranking order.
+            The approved URIs, in their original ranking order.
         """
+        def uri_of(a: Dict[str, Any]) -> Optional[str]:
+            return a.get('uri', a.get('article_uri'))
+
+        articles = [a for a in articles if uri_of(a)]
         if ordered_uris is None:
-            ordered_uris = [
-                a.get('uri', a.get('article_uri'))
-                for a in articles
-                if a.get('uri', a.get('article_uri'))
-            ]
-
+            ordered_uris = [uri_of(a) for a in articles]
         if not articles:
-            return list(ordered_uris)
+            return []
 
-        articles_to_validate = articles[:self.MAX_VALIDATED]
+        approved: set = set()
+        for start in range(0, len(articles), self.MAX_VALIDATED):
+            batch = articles[start:start + self.MAX_VALIDATED]
+            approved |= await self._judge_batch(
+                theme_label, theme_description, key_entities, batch, min_confidence
+            )
 
-        # Format articles for prompt
-        articles_text = "\n".join([
-            f"- URI: {a.get('uri', a.get('article_uri', 'unknown'))}\n  Title: {a.get('title', 'N/A')}\n  Summary: {str(a.get('summary', 'N/A'))[:300]}"
-            for a in articles_to_validate
-        ])
+        kept = [uri for uri in ordered_uris if uri in approved]
+        logger.info(
+            f"Validated {len(articles)} of {len(ordered_uris)} articles for "
+            f"theme '{theme_label}': {len(kept)} approved, "
+            f"{len(ordered_uris) - len(kept)} dropped"
+        )
+        return kept
 
+    async def _judge_batch(
+        self,
+        theme_label: str,
+        theme_description: str,
+        key_entities: List[str],
+        batch: List[Dict[str, Any]],
+        min_confidence: float,
+    ) -> set:
+        """Return the URIs in one batch the model approves.
+
+        Articles are labelled A1, A2, ... so the model echoes a short id
+        rather than a long URL; the URL echo is what pushed replies past the
+        token cap. One retry on an unparseable reply, then the batch counts
+        as unjudged.
+        """
+        id_to_uri = {
+            f"A{i}": a.get('uri', a.get('article_uri'))
+            for i, a in enumerate(batch, 1)
+        }
+        articles_text = "\n".join(
+            f"- ID: A{i}\n  Title: {a.get('title', 'N/A')}\n"
+            f"  Summary: {str(a.get('summary', 'N/A'))[:300]}"
+            for i, a in enumerate(batch, 1)
+        )
         prompt = VALIDATION_PROMPT.format(
             theme_label=theme_label,
             theme_description=theme_description,
@@ -122,49 +163,36 @@ class ArticleValidator:
             articles_text=articles_text
         )
 
-        judged_uris = {
-            a.get('uri', a.get('article_uri'))
-            for a in articles_to_validate
-            if a.get('uri', a.get('article_uri'))
-        }
-
-        try:
-            model = self.ai_model_getter(self.model_name)
-
-            if hasattr(model, 'generate'):
-                response = await model.generate(prompt, max_tokens=1500)
-            elif hasattr(model, 'generate_response'):
-                # Synchronous fallback
-                response = model.generate_response([{"role": "user", "content": prompt}])
-            else:
-                logger.error("Model does not have generate or generate_response method")
-                return list(ordered_uris)
+        for attempt in (1, 2):
+            try:
+                model = self.ai_model_getter(self.model_name)
+                if hasattr(model, 'generate'):
+                    response = await model.generate(prompt, max_tokens=3000)
+                elif hasattr(model, 'generate_response'):
+                    # Synchronous fallback
+                    response = model.generate_response([{"role": "user", "content": prompt}])
+                else:
+                    logger.error("Model does not have generate or generate_response method")
+                    return set()
+            except Exception as e:
+                logger.error(f"Validation error for theme '{theme_label}': {e}")
+                return set()
 
             results = self._parse_response(response)
-
-            # Reject only what the model actually judged and actually rejected:
-            # an explicit "not relevant", or a "relevant" verdict the model is
-            # not confident enough about. A URI the model did not mention is
-            # left alone.
-            rejected = set()
-            for verdict in results:
-                if verdict.uri not in judged_uris:
-                    continue
-                if not verdict.relevant or verdict.confidence < min_confidence:
-                    rejected.add(verdict.uri)
-
-            kept = [uri for uri in ordered_uris if uri not in rejected]
-
-            logger.info(
-                f"Validated {len(judged_uris)} of {len(ordered_uris)} articles for "
-                f"theme '{theme_label}': {len(rejected)} rejected, {len(kept)} kept"
+            if results:
+                return {
+                    id_to_uri[v.uri]
+                    for v in results
+                    if v.uri in id_to_uri
+                    and v.relevant
+                    and v.confidence >= min_confidence
+                }
+            logger.warning(
+                f"Unparseable validation reply for theme '{theme_label}' "
+                f"(attempt {attempt} of 2)"
             )
-            return kept
 
-        except Exception as e:
-            logger.error(f"Validation error for theme '{theme_label}': {e}")
-            # Fail open: a validation outage must not empty a theme.
-            return list(ordered_uris)
+        return set()
 
     def _parse_response(self, response: Any) -> List[ValidationResult]:
         """Parse LLM response into ValidationResult list."""
@@ -211,7 +239,7 @@ class ArticleValidator:
                 continue
 
             results.append(ValidationResult(
-                uri=str(item.get("uri", "")),
+                uri=str(item.get("id", item.get("uri", ""))),
                 relevant=bool(item.get("relevant", False)),
                 confidence=float(item.get("confidence", 0)),
                 reason=str(item.get("reason", ""))

@@ -354,19 +354,31 @@ def test_normalize_topic_filter_collapses_blanks_to_the_global_scope():
 
 
 # ---------------------------------------------------------------------------
-# 3. Article validation preserves everything past the cost cap
+# 3. Article validation keeps only what the model approved
 # ---------------------------------------------------------------------------
 
 class StubModel:
-    def __init__(self, payload):
-        self.payload = payload
+    """Replies with one payload per call, in order; the last one repeats."""
+
+    def __init__(self, *payloads):
+        self.payloads = list(payloads)
+        self.calls = 0
 
     async def generate(self, prompt, max_tokens=None):
-        return self.payload
+        payload = self.payloads[min(self.calls, len(self.payloads) - 1)]
+        self.calls += 1
+        return payload(prompt) if callable(payload) else payload
 
 
-def run_validator(payload, articles, ordered_uris, min_confidence=0.7):
-    validator = ArticleValidator(ai_model_getter=lambda name: StubModel(payload))
+def verdicts(ids, relevant=True, confidence=0.9):
+    flag = "true" if relevant else "false"
+    return "[" + ",".join(
+        f'{{"id": "{i}", "relevant": {flag}, "confidence": {confidence}}}' for i in ids
+    ) + "]"
+
+
+def run_validator(model, articles, ordered_uris=None, min_confidence=0.7):
+    validator = ArticleValidator(ai_model_getter=lambda name: model)
     return asyncio.run(validator.validate_theme_articles(
         theme_label="T",
         theme_description="d",
@@ -377,57 +389,93 @@ def run_validator(payload, articles, ordered_uris, min_confidence=0.7):
     ))
 
 
-def test_articles_past_the_validation_cap_are_kept():
+def test_every_article_is_judged_in_batches():
     ordered = [f"uri-{i}" for i in range(30)]
-    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered[:15]]
-    payload = "[" + ",".join(
-        f'{{"uri": "{u}", "relevant": true, "confidence": 0.9}}' for u in ordered[:15]
-    ) + "]"
+    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered]
+    # Each batch is labelled A1..A15; approve all of them.
+    model = StubModel(verdicts([f"A{i}" for i in range(1, 16)]))
 
-    kept = run_validator(payload, articles, ordered)
+    kept = run_validator(model, articles, ordered)
 
-    assert kept == ordered, "positions 16-30 were never judged and must survive"
+    assert model.calls == 2
+    assert kept == ordered
 
 
-def test_rejected_uris_are_removed_without_disturbing_the_others():
-    ordered = [f"uri-{i}" for i in range(20)]
-    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered[:15]]
-    verdicts = []
-    for i, u in enumerate(ordered[:15]):
-        relevant = "false" if i in (2, 7) else "true"
-        verdicts.append(f'{{"uri": "{u}", "relevant": {relevant}, "confidence": 0.9}}')
-    payload = "[" + ",".join(verdicts) + "]"
+def test_articles_rejected_in_the_second_batch_are_dropped():
+    ordered = [f"uri-{i}" for i in range(30)]
+    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered]
+    model = StubModel(
+        verdicts([f"A{i}" for i in range(1, 16)]),
+        verdicts([f"A{i}" for i in range(1, 16)], relevant=False),
+    )
 
-    kept = run_validator(payload, articles, ordered)
+    assert run_validator(model, articles, ordered) == ordered[:15]
 
-    assert "uri-2" not in kept and "uri-7" not in kept
-    expected = [u for u in ordered if u not in ("uri-2", "uri-7")]
-    assert kept == expected
+
+def test_rejected_articles_are_removed_without_disturbing_the_others():
+    ordered = [f"uri-{i}" for i in range(5)]
+    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered]
+    payload = (
+        '[{"id": "A1", "relevant": true, "confidence": 0.9},'
+        ' {"id": "A2", "relevant": false, "confidence": 0.9},'
+        ' {"id": "A3", "relevant": true, "confidence": 0.9},'
+        ' {"id": "A4", "relevant": false, "confidence": 0.9},'
+        ' {"id": "A5", "relevant": true, "confidence": 0.9}]'
+    )
+
+    assert run_validator(StubModel(payload), articles, ordered) == [
+        "uri-0", "uri-2", "uri-4"
+    ]
 
 
 def test_a_low_confidence_positive_verdict_still_rejects():
     ordered = ["uri-0", "uri-1"]
     articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered]
     payload = (
-        '[{"uri": "uri-0", "relevant": true, "confidence": 0.2},'
-        ' {"uri": "uri-1", "relevant": true, "confidence": 0.95}]'
+        '[{"id": "A1", "relevant": true, "confidence": 0.2},'
+        ' {"id": "A2", "relevant": true, "confidence": 0.95}]'
     )
 
-    assert run_validator(payload, articles, ordered) == ["uri-1"]
+    assert run_validator(StubModel(payload), articles, ordered) == ["uri-1"]
 
 
-def test_validation_failure_keeps_the_whole_theme():
+def test_an_article_the_model_skipped_is_dropped():
+    ordered = ["uri-0", "uri-1"]
+    articles = [{"uri": u, "title": u, "summary": "s"} for u in ordered]
+
+    assert run_validator(StubModel(verdicts(["A1"])), articles, ordered) == ["uri-0"]
+
+
+def test_a_cut_off_reply_is_retried_once():
+    articles = [{"uri": "uri-0", "title": "t", "summary": "s"}]
+    model = StubModel('[{"id": "A1", "relevant": tr', verdicts(["A1"]))
+
+    assert run_validator(model, articles) == ["uri-0"]
+    assert model.calls == 2
+
+
+def test_a_reply_that_never_parses_keeps_nothing():
+    """The 7 Oct Meta theme: a truncated reply used to keep all 30 articles."""
+    articles = [{"uri": f"uri-{i}", "title": "t", "summary": "s"} for i in range(3)]
+
+    assert run_validator(StubModel("[ {"), articles) == []
+
+
+def test_a_model_outage_keeps_nothing():
     class BrokenModel:
         async def generate(self, prompt, max_tokens=None):
             raise RuntimeError("model down")
 
-    validator = ArticleValidator(ai_model_getter=lambda name: BrokenModel())
     ordered = ["a", "b", "c"]
-    kept = asyncio.run(validator.validate_theme_articles(
-        theme_label="T", theme_description="d", key_entities=[],
-        articles=[{"uri": u} for u in ordered], ordered_uris=ordered,
-    ))
-    assert kept == ordered
+    kept = run_validator(BrokenModel(), [{"uri": u} for u in ordered], ordered)
+    assert kept == []
+
+
+def test_a_uri_with_no_article_row_is_dropped():
+    articles = [{"uri": "uri-0", "title": "t", "summary": "s"}]
+
+    kept = run_validator(StubModel(verdicts(["A1"])), articles, ["uri-0", "gone"])
+    assert kept == ["uri-0"]
 
 
 # ---------------------------------------------------------------------------

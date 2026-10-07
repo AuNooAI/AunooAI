@@ -326,8 +326,7 @@ class EmergingTopicsService:
 
             result = conn.execute(stmt, params)
             by_uri = {row["uri"]: dict(row) for row in result.mappings()}
-            # Preserve the caller's ranking; the validator's cost cap applies to
-            # the first N articles by rank, not by whatever order the DB returns.
+            # Preserve the caller's ranking, not whatever order the DB returns.
             return [by_uri[uri] for uri in article_uris if uri in by_uri]
 
         except Exception as e:
@@ -735,20 +734,17 @@ class EmergingTopicsService:
         }
 
     async def _validate_theme_articles(self, theme: ProposedTheme) -> None:
-        """Drop articles the relevance sweep rejects, keeping order and distances.
+        """Keep only the articles the relevance sweep approves, with order and distances.
 
-        The sweep judges the first N articles for cost; the rest of the theme's
-        ranked list passes through untouched.
+        Every assigned article is judged. One the sweep did not approve is
+        dropped, so a theme never carries articles nobody checked.
         """
         if not theme.article_uris:
             return
 
-        cap = self.article_validator.MAX_VALIDATED
         articles = await asyncio.to_thread(
-            self._fetch_articles_for_validation, theme.article_uris[:cap]
+            self._fetch_articles_for_validation, theme.article_uris
         )
-        if not articles:
-            return
 
         original_uris = list(theme.article_uris)
         original_distances = list(getattr(theme, 'article_distances', None) or [])
