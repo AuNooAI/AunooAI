@@ -1,16 +1,28 @@
 """
-PostgreSQL pgvector-based vector store implementation.
+PostgreSQL pgvector store for article embeddings.
 
-This module replaces ChromaDB with native PostgreSQL pgvector for storing and searching
-article embeddings. Benefits:
-- No separate database synchronization needed
-- Native PostgreSQL querying with vector operations
-- Simpler architecture and better performance
-- ACID compliance for embeddings
+Embeddings live in the articles table itself (it replaced ChromaDB), so there
+is no second store to keep in sync.
 
-Vector column: articles.embedding vector(1536)
-Embedding model: OpenAI text-embedding-3-small (1536 dimensions)
-Distance metric: Cosine distance (<=> operator)
+Vector column: articles.embedding vector(768), HNSW index
+    articles_embedding_hnsw_idx (vector_cosine_ops).
+Encoder: the self-hosted DeBERTa encoder service (deberta-encoder.service),
+    reached at DEBERTA_ENCODER_URL (default http://localhost:8001), POST
+    /encode with {"title", "description", "content"}. It must return exactly
+    768 numbers. There is no OpenAI or random fallback: _encode_fields raises
+    instead, because a wrong vector silently corrupts every later search.
+Encoder input for an article (build_article_encoder_input): the real title,
+    and as content "Tags: ..." followed by the page text ("raw") or else the
+    summary, cut to 8,000 tokens. The token count uses the tiktoken
+    text-embedding-3-small tokenizer locally; no text is sent to OpenAI.
+Distance metric: cosine distance (<=> operator). Filtered searches switch to
+    an exact scan below PGVECTOR_EXACT_SCAN_MAX matching rows, because HNSW on
+    pgvector 0.6.0 applies filters after the index and can return almost
+    nothing.
+Failure handling: upsert_article and upsert_article_async catch encoder and
+    database errors and only log them, so the row keeps a NULL embedding and
+    nothing retries it. app/tasks/embedding_backfill.py repairs NULL rows when
+    run by hand. (The older OpenAI 1536-dimension setup is historical.)
 """
 import os
 import logging

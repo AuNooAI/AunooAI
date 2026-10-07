@@ -81,9 +81,10 @@ flowchart LR
         P[Providers: NewsAPI, ArXiv, Firehose, xpoz, ...] --> KM[Keyword monitor fan-out]
     end
     subgraph Score["Relevance (cheap-first cascade)"]
-        KM --> QG{Quick relevance gate}
+        KM --> PS[Batch pre-scrape of thin articles, Firecrawl]
+        PS --> QG{Quick relevance gate}
         QG -- below threshold --> DROP[Persist as filtered, stop]
-        QG -- pass --> ENR[Scrape + enrich: DeBERTa + LLM fallback]
+        QG -- pass --> ENR[LLM analysis with the configured model]
     end
     subgraph Store["Storage"]
         ENR --> DB[(articles + topic_alignment_score)]
@@ -102,7 +103,7 @@ flowchart LR
 
 Recurring platform-wide principles (each detailed in its pattern below):
 
-1. **Cheapest model that resolves the case** — free local models first, LLM only for the residual uncertain band (2.1, 2.5); cheap models for filtering/planning, flagship only for synthesis (4.7, 6.1).
+1. **Cheapest model that resolves the case** — free local models first, LLM only for the residual uncertain band (2.1). Article labelling itself is one LLM call per approved article; the local labelling model of 2.4–2.5 is not on the live path; cheap models for filtering/planning, flagship only for synthesis (4.7, 6.1).
 2. **Recall at collection, precision at scoring** — search queries are deliberately widened; the persisted `topic_alignment_score` is the universal downstream filter (1.3, 2.3).
 3. **LLMs may only cite what they were given** — every reference is validated against the candidate set that was in the prompt (4.8, 5.2).
 4. **Dedup is content identity, never time buckets** — ledgers keyed on URI sets / content hashes make alerts and recommendations idempotent (5.3, 6.8).
@@ -170,33 +171,41 @@ flowchart TB
 - This is a deliberate architectural bet, not sloppiness: it only works because every consumer filters on `topic_alignment_score` (2.3). A spec that adds a new consumer of raw collected articles **must** add an alignment filter, or firehose noise reaches users.
 - **Gotcha:** `military AND coup NOT football` becomes `military OR coup`. Analysts writing keywords should be told AND/NOT semantics do not survive on firehose. (Related: `/check-now` ignores per-group providers — see memory `project_asml_topic_keyword_gotchas`.)
 
-## 1.4 Cost-Ordered Ingest Pipeline
+## 1.4 Ingest Pipeline Order (as built)
 
-**Problem.** Enrichment (scraping, LLM analysis, vector indexing) is expensive; most collected articles are noise (widened further by 1.3). Spend must be gated on the cheapest possible check first, and every gate must run before the next-most-expensive step.
+*Rewritten 7 October 2026 from the code at commit `83fecd57`; line numbers are from that commit. The full trace is `docs/pipelines/03_MONOLITH_ENRICHMENT.md`.*
 
-**Mechanism.**
+**Problem.** Enrichment (scraping, LLM analysis, vector indexing) is expensive and most collected articles are noise (widened further by 1.3). The design goal is to run the cheapest rejection before each paid step. The current code meets that goal for the LLM analysis but not for scraping.
+
+**Mechanism.** `AutomatedIngestService.process_articles_batch` (`app/services/automated_ingest_service.py:1684`) runs, per batch and then per article:
 
 ```mermaid
 flowchart TB
-    A[Collected article] --> Q{"Step 1: quick relevance check<br/>(title + summary only, no scraping)"}
-    Q -- "score < threshold" --> F["Persist as filtered_relevance<br/>(kept for UI audit, no further spend)"]
-    Q -- pass --> S["Step 2: concurrent Firecrawl scrape + bias enrichment<br/>(skipped if collector shipped >200 chars content)"]
-    S --> L["Step 3: LLM content analysis (60s timeout)"]
-    L --> R["Step 4: final relevance scoring with full content"]
-    R --> T{"Step 5: threshold + quality re-check"}
-    T -- fail --> F2[Persist below-threshold with scores]
-    T -- pass --> U[DB upsert + pgvector index]
+    A[Collected batch] --> P["Batch pre-scrape (Firecrawl, hosted, paid) of every article<br/>whose collector content is 200 characters or less (:1770-1794)<br/>raw_articles cache read first"]
+    P --> G["Guards: unknown topic, empty label lists,<br/>no text, rejected-candidate ledger"]
+    G --> Q{"Quick relevance check (:1167)<br/>title + collector content, else summary"}
+    Q -- "below threshold" --> F["Persist as filtered_relevance (kept, no further spend)"]
+    Q -- "no engine answered" --> RF["relevance_check_failed"]
+    Q -- pass --> B["MBFC lookup + scrape of anything the batch did not fetch"]
+    B --> L["LLM analysis (:1535-1639), 60 s timeout<br/>reads summary, else content"]
+    L --> R["Final relevance re-score (:1330)"]
+    R --> T{"Threshold; quality step is a placeholder that always approves (:1657)"}
+    T -- fail --> F2["Persist below threshold with scores"]
+    T -- "analysed = false" --> EF["enrichment_failed / quarantined_config"]
+    T -- pass --> U["One UPDATE to approved, then pgvector upsert (30 s timeout)"]
 ```
 
-- Batch processing at `MAX_CONCURRENT = 5` with a 300 s per-batch timeout.
-- The relevance threshold resolves: per-group override → global DB setting → default 0.0 (i.e. by default nothing is filtered unless a group opts in).
-- An `inference_mode` setting (`local` / `hybrid` / `external`) flows into the relevance cascade (2.1) as force-flags.
-- Below-threshold and error articles are **persisted with their scores**, not discarded — the UI can show why something was filtered.
+- Batch concurrency `MAX_CONCURRENT = 5`.
+- The relevance threshold is the topic's keyword-group `min_relevance_threshold` if set, else `keyword_monitor_settings.min_relevance_threshold` (0.4 on bugfixing), else 0.0 only if that read fails (`get_relevance_threshold`, `:1996-2020`).
+- `inference_mode` (`local` / `hybrid` / `external`) changes only the relevance check (`:573-582`); see 2.1. It does not change the analysis model.
+- Below-threshold and failed articles are persisted with their scores and an `ingest_status`, not discarded.
+- **Scraping happens before the relevance gate**, so rejected articles can still cost a Firecrawl call. Moving it after the gate is work package WP3a of `docs/pipelines/08_INGEST_FIX_SPEC.md`, not yet deployed.
+- **Analysis reads the collector's text**, not the scraped page. The page is used for analysis only when the collector sent no summary or content (`:1098-1118`), and it is the main input to the embedding (3.1).
 
-**Where.** `app/services/automated_ingest_service.py` — orchestrator `:1265`, per-article gate `:821` (quick check `:847`), threshold resolution `:1440`, inference mode `:94`. Entry from the keyword monitor at `app/tasks/keyword_monitor.py:876`.
+**Where.** `app/services/automated_ingest_service.py`: batch `:1684`, per-article path `_process_single_article_async`, quick check `:1167`, analysis `:1535`, final re-score `:1330`, approved save and vector upsert `:1440-1470`, threshold `:1996`. Entry from the keyword monitor through `process_articles_batch(..., route="keyword")` in `app/tasks/keyword_monitor.py`.
 
 **Spec-reuse notes.**
-- The ordering rule generalizes: **sort pipeline steps by cost, and re-check the cheapest rejection gate after each enrichment step.** Any new per-article pipeline should follow it.
+- The ordering rule still stands as the target: **sort pipeline steps by cost, and re-check the cheapest rejection gate after each enrichment step.** The pre-gate scrape is the known exception.
 - **Gotcha:** a second, older `app/services/auto_ingest_service.py` (different filename) coexists; the live one is `automated_ingest_service.py`. Don't extend the wrong file.
 
 ---
@@ -205,40 +214,51 @@ flowchart TB
 
 ## 2.1 Tiered Relevance Cascade with Confidence Gate
 
-**Problem.** LLM relevance judgments are accurate but cost real money at 50k+ calls/day. Free local models should decide the confident majority; the LLM should only adjudicate the genuinely uncertain band.
+*Rewritten 7 October 2026 from `app/services/hybrid_relevance_service.py` at commit `83fecd57`.*
 
-**Mechanism.** `HybridRelevanceService.score_relevance()` runs a cascade where each tier can *resolve* the case and stop escalation:
+**Problem.** LLM relevance judgments are accurate but cost money at high volume. Free local models should decide the confident cases; paid models should only see the uncertain band.
+
+**Mechanism.** `HybridRelevanceService.score_relevance()` (`:727-962`) runs these tiers. The ingest wrapper (`automated_ingest_service.py:518-659`) first rejects retail deal listings with no model call, and passes the title plus the collector's content, else its summary.
 
 ```mermaid
 flowchart TB
-    A[Article + topic + keywords] --> E["Tier 1: embedding similarity<br/>all-MiniLM-L6-v2, free, zero-shot"]
-    A --> C["Tier 2: fine-tuned DeBERTa relevance classifier<br/>(if trained for deployment)"]
-    E & C --> W["Weighted combine: 0.6 classifier + 0.4 embedding"]
-    W --> G{"Confidence gate:<br/>score < 0.20 or > 0.85 ?"}
-    G -- "yes → high confidence" --> DONE[Resolved, no LLM spend]
-    G -- "no → medium" --> CE{"Tier 3 (optional, env-gated):<br/>cross-encoder score_pair"}
-    CE -- "< 0.10 or > 0.90" --> DONE
-    CE -- still uncertain --> LLM["Tier 4: LLM judge (nova-lite)<br/>score overrides, confidence → high"]
+    A[Article + topic + keywords] --> E["Embedding similarity<br/>all-MiniLM-L6-v2, in-process"]
+    A --> C["DeBERTa relevance classifier<br/>(models/relevance_classifier/final, in-process)"]
+    E & C --> W["0.6 classifier + 0.4 embedding"]
+    W --> G{"score < 0.20 or > 0.85,<br/>or classifier >= 0.90 on a theme topic?"}
+    G -- yes --> DONE[Confident: no paid call]
+    G -- no --> CE{"CE tier, theme topics only<br/>(RELEVANCE_USE_CE_TIER, off on bugfixing)"}
+    CE -- "ce > CE_HIGH: accept" --> DONE
+    CE -- otherwise --> J{"Jev accept tier<br/>(TYPESAFE_DECIDE_RELEVANCE_ACCEPT, on on bugfixing)"}
+    J -- "on_topic >= 0.8: accept" --> DONE
+    J -- otherwise --> LLM["LLM judge: HYBRID_RELEVANCE_LLM_MODEL, default nova-lite<br/>its score replaces the local one"]
     LLM --> DONE
     DONE --> BIN["relevant = score >= threshold"]
 ```
 
 **Key parameters.**
-| Parameter | Value | Notes |
+| Parameter | Value | Where |
 |---|---|---|
-| Embedding model | `all-MiniLM-L6-v2` (384-d, CPU) | topic embedding enriched with description + ≤10 keywords, cached |
-| Classifier | DeBERTa, `models/relevance_classifier/final`, input `topic [SEP] title. summary`, max_len 256 | |
-| Combine weights | 0.6 classifier / 0.4 embedding | |
-| Confidence band | high if score < 0.20 or > 0.85 | widened from 0.35/0.65 — see gotcha |
-| CE tier | env `RELEVANCE_USE_CE_TIER` (default off); resolve at < 0.10 / > 0.90 | reuses the retrieval reranker singleton |
-| LLM model | env `HYBRID_RELEVANCE_LLM_MODEL`, default `nova-lite` (13× cheaper than Haiku) | highest-volume LLM path in the system |
+| Embedding model | `all-MiniLM-L6-v2` (384-d, CPU) | `:44` |
+| Combine weights | 0.6 classifier / 0.4 embedding | `:45-46`, `:812-817` |
+| Confident band | score < 0.20 or > 0.85 | `:837` |
+| Classifier guard | classifier ≥ 0.90 counts as confident, theme topics only | `:850-854` |
+| CE tier | accept-only, theme topics only, `CE_HIGH` default 0.05; off unless `RELEVANCE_USE_CE_TIER` is true (it is `false` in bugfixing's `.env`) | `:89-93`, `:882-904` |
+| Jev accept tier | accept-only, `TYPESAFE_DECIDE_RELEVANCE_MIN` default 0.8; needs the LLM fallback to be allowed | `:108-109`, `:908-919` |
+| LLM judge | `HYBRID_RELEVANCE_LLM_MODEL`, default `nova-lite` (unset on bugfixing) | `:605-606` |
+| Jev shadow | `TYPESAFE_SHADOW_RELEVANCE`, records Jev's reading after the decision and changes nothing; runs in every inference mode | `:945-960` |
 
-**Where.** `app/services/hybrid_relevance_service.py` — cascade `:436`, embedding `:194`, classifier `:233`, gate `:537`, CE tier `:270`, LLM `:290`.
+**Accept tiers do not use their own scale.** When the CE or Jev tier accepts, the stored score becomes `max(score, threshold)`: a local score below the threshold is raised to exactly the threshold, and the engine's own measurement is not stored as the score (`:896`, `:912`). Changing this is WP4 of `docs/pipelines/08_INGEST_FIX_SPEC.md`.
+
+**Inference mode** (`automated_ingest_service.py:573-582`): `local` turns the paid tiers off, so unclear cases are decided on the local score (the Jev shadow still runs if enabled); `hybrid` allows them; `external` sends every article straight to the LLM judge.
+
+**When nothing answers.** If no local engine scores and no fallback answers, the result is `status = "unavailable"`, not a reject (`:933-937`). The ingest wrapper then tries a full LLM relevance check with the analysis model (`_score_article_relevance_llm_only`, `automated_ingest_service.py:655-690`), whatever the inference mode; if that also fails the article is filed as `relevance_check_failed`.
+
+**Brand and market topics differ.** Topics named "Brand Monitoring X", "X - Brand Watch" or "Market Monitoring X" (`:112-120`) skip the classifier guard and the CE tier, and the LLM judge gets a brand- or market-specific prompt (`:474-520`; see 2.2). On sites with `BRAND_RELATION_DECISIONS` set, brand topics take the separate brand decision path first (`docs/BRAND_RELEVANCE_SAAS_VS_MONOLITH.md`); bugfixing does not set it. The brand mention gate (`brand_mention_gate.apply`, `automated_ingest_service.py:640-649`) can change a brand topic's result when a site configures it.
 
 **Spec-reuse notes.**
-- **The load-bearing subtlety:** the uncertain band must be calibrated against the *actual score distribution*. The DeBERTa classifier is bimodal (~0.04 / ~0.94), so combined scores landed at ~0.24/~0.82 — always *outside* the old 0.35–0.65 band, making the LLM fallback dead code until the band was widened to 0.20/0.85 (comment at `:531`). When specifying any confidence gate, require a distribution check, not just a threshold choice.
-- The cascade shape (free → cheap → paid, each tier able to short-circuit) is the template for any high-volume classification task.
-- `LLM_FALLBACK_THRESHOLD = 0.3` at `:47` is a dead legacy constant; the confidence band is the real gate.
+- **Calibrate the band against the real score distribution.** The DeBERTa classifier is bimodal (~0.04 / ~0.94), so combined scores landed at ~0.24/~0.82, always outside the old 0.35–0.65 band, which made the LLM fallback dead code until the band was widened (comment at `:832-836`).
+- `LLM_FALLBACK_THRESHOLD = 0.3` (`:49`) is a dead legacy constant, and the docstring of `score_article_relevance` still says "0.3-0.7"; the confident band above is the real gate.
 
 ## 2.2 Context-Aware LLM Judge Prompt
 
@@ -270,6 +290,8 @@ flowchart TB
 
 ## 2.4 Sample-Count Bootstrap Routing
 
+> **Not on the live ingest path (checked 7 October 2026).** Live ingest labels articles with one LLM call (`_analyze_article_content_async`, `automated_ingest_service.py:1535-1639`). This routing is reached only through the sync `analyze_article_content`, used by the `/test-process-article` debug route and two scripts, and through the training dashboard. On `test`, `enrichment_training_samples` last grew on 3 February 2026, and none of the 12,768 approved rows first seen in the 90 days to 7 October has `enrichment_sources` set. The bootstrap model default is `bedrock-kimi-k2-5` (`training_bootstrap_service.py:57`), not gpt-5.4-mini. The section is kept as a pattern description.
+
 **Problem.** A freshly-added topic has no trained local-model coverage, but needs quality enrichment immediately — and needs to accumulate training data so the free local model can eventually take over.
 
 **Mechanism.** Per topic × field, route by accumulated training-sample count:
@@ -297,6 +319,8 @@ flowchart TB
 
 ## 2.5 Confidence-Gated Field Merge
 
+> **Not on the live ingest path (checked 7 October 2026).** Same status as 2.4: this merge runs only in the sync `analyze_article_content`. Every approved article's labels come from the LLM analysis call.
+
 **Problem.** Even a trained local model has shaky individual predictions (the 15-way `future_signal` head sits at ~0.51 accuracy). Per-prediction, don't trust a weak softmax; per-article, the LLM has to run anyway for generative fields (summary, explanations).
 
 **Mechanism.** One DeBERTa forward pass predicts all four classification fields (sentiment, time_to_impact, driver_type, future_signal) with softmax-max as confidence. Fields with confidence ≥ 0.6 are accepted from the SLM; the rest are left for the LLM analyzer (2.8) to fill alongside summary/explanations. A per-field `enrichment_sources` map records which model won (`deberta` / `gpt`), and `_enrichment_method` is stamped `hybrid_slm(fields...)` for audit.
@@ -308,6 +332,8 @@ flowchart TB
 - **Gotcha:** the 0.6 appears twice, independently — the live gate (`automated_ingest_service.py:298`) and the stats SQL (`training_routes.py:197`). Changing one does not change the other.
 
 ## 2.6 Retrain → Hot-Swap → Rollback Loop
+
+> **Dormant for the enrichment classifier (checked 7 October 2026).** No new training samples since 3 February 2026 (see 2.4). The loop shape still applies to the relevance classifier, which is live.
 
 **Problem.** Close the loop so the local model improves as GPT bootstraps new topics — with zero-downtime deployment and a safe rollback.
 
@@ -334,9 +360,11 @@ flowchart LR
 
 **Problem.** LLMs put out-of-vocabulary garbage in classification fields (a sentiment value in `future_signal`, invented categories, `"N/A"`), which poisons every downstream aggregation.
 
-**Mechanism.** Immediately after parsing, every classification field is validated against the same option lists that were injected into the prompt. Out-of-vocabulary values are coerced: `future_signal`/`category` → `"Other"` (original bad value preserved into the explanation field); `sentiment`/`time_to_impact`/`driver_type` → `""`. The analysis cache key includes a hash of the ontology (`{uri}_{model}_{categories_hash}`) so the same article analyzed under different topic ontologies never cross-pollutes.
+**Mechanism.** Immediately after parsing, every classification field is validated against the same option lists that were injected into the prompt. Out-of-vocabulary values are coerced: `future_signal`/`category` → `"Other"` (for `future_signal` the original value goes into the explanation only when the explanation is empty); `sentiment`/`time_to_impact`/`driver_type` → `""`. The analysis cache key includes a hash of the categories list (`{uri}_{model}_{categories_hash}`), so the same article analysed under a different category list does not reuse the cached answer.
 
-**Where.** `app/analyzers/article_analyzer.py:326-380` (`_validate_analysis_fields`); cache key `:132-134`.
+**Where.** `app/analyzers/article_analyzer.py:481-535` (`_validate_analysis_fields`); cache key `:197`, `:308` (commit `83fecd57`).
+
+**Gotcha (7 October 2026).** A blanked `sentiment` passes the parser's "required field" check, because validation runs after parsing, so a row can be stored with `sentiment = ''`.
 
 **Spec-reuse notes.** The pair "inject the closed vocabulary into the prompt AND validate the answer against it" should appear in any spec with enum-typed LLM output. **Gotcha:** the fallback sentinel is inconsistent (`"Other"` vs `""`) — downstream must treat both as unclassified; a new field should pick one convention and say so.
 
@@ -344,13 +372,15 @@ flowchart LR
 
 **Problem.** Smaller/older models are unreliable at emitting valid JSON for a 14-field schema; one bad character loses the whole result. A line-oriented `Key: value` format degrades gracefully — a malformed line is one missing field, not a total parse failure.
 
-**Mechanism.** The content-analysis prompt ends with a rigid "Format your response as follows:" block listing every key. The parser splits on newlines, treats any `colon` line as a new key and following lines as continuation, tolerates markdown decoration, checks the 14 required fields case-insensitively, and normalizes human labels to snake_case via a key map. Summary length is enforced post-hoc (truncate at 120% of the configured word count).
+**Mechanism.** The content-analysis prompt ends with a rigid "Format your response as follows:" block listing every key. The parser splits on newlines, treats any line with a colon as a new key and following lines as continuation, tolerates markdown decoration and heading aliases, and normalizes labels to snake_case. Four fields are required (Title, Summary, Category, Sentiment, `CRITICAL_FIELDS`); a reply missing one is retried, up to three attempts in all. The other fields are filled with "" and a warning. Summary length is enforced afterwards (cut at 120% of the configured word count, 60 words for auto-ingest).
 
-**Where.** `app/analyzers/article_analyzer.py` — parser `:216-247`, required fields `:262-281`, key map `:284-315`; prompt contract `app/analyzers/prompt_templates.py:140-156`.
+The live prompt (`data/prompts/content_analysis/current.json`, version 1.0.8 on bugfixing) asks for 16 lines, including Political Bias and Factuality. Ingest stores neither: the `bias` and `factual_reporting` columns come from the MBFC table.
+
+**Where.** `app/analyzers/article_analyzer.py` (commit `83fecd57`) — retry loop `:230`, `CRITICAL_FIELDS` `:330`, summary trim `:262`, parser `parse_analysis`; prompt default `app/analyzers/prompt_templates.py`.
 
 **Spec-reuse notes.**
 - Choose per task: labeled-field for many-field extraction on cheap models; JSON with robust extraction (7.6) for nested structures on strong models.
-- Prompts are runtime-editable through the versioned `PromptManager` (`app/analyzers/prompt_manager.py`), which splits each prompt at the literal marker `REQUIRED OUTPUT FORMAT:` — text above is dashboard-editable, the output contract below is locked. Reuse this split for any tenant-tunable prompt.
+- Prompts are runtime-editable through the versioned `PromptManager` (`app/analyzers/prompt_manager.py`), which splits each prompt at the literal marker `REQUIRED OUTPUT FORMAT:` (`:216-220`) and shows only the text above it as editable. **The live content-analysis prompt does not contain that marker** (it says "OUTPUT FORMAT"), so on bugfixing the output contract is not locked and a dashboard edit can break the parser. Server-side enforcement is WP6c of `docs/pipelines/08_INGEST_FIX_SPEC.md`, not yet built.
 - **Gotcha:** a value line containing a colon mid-explanation is misparsed as a new key; keep explanations colon-free in prompt examples.
 
 ## 2.9 Confidence Telemetry & Cost-Savings Accounting
@@ -359,7 +389,7 @@ flowchart LR
 
 **Mechanism.** Every scoring decision writes a row to a rolling 24 h readings table — `relevance_confidence_readings` (topic, score, per-model scores, method, ce_score) and `enrichment_confidence_readings` (topic, field, confidence). Pruning is **probabilistic**: ~1% of writes delete rows older than the window, avoiding a cron job. Stats endpoints aggregate per topic/field: averages, method breakdown, % above threshold. A `/cost-savings` endpoint derives local-vs-LLM split from the method names and estimates savings at a flat $0.001/article.
 
-**Where.** `app/routes/training_routes.py` — trackers `:86-297` (enrichment), `:304-523` (relevance); cost-savings `:1912`. Recording calls from `automated_ingest_service.py:491` and `:274-315`.
+**Where.** `app/routes/training_routes.py` — trackers `:86-297` (enrichment), `:304-523` (relevance); cost-savings `:1912`. Relevance readings are recorded on the live path (`automated_ingest_service.py:620-637`). Enrichment readings are recorded only by the sync path of 2.4–2.5, so that table no longer fills from ingest.
 
 **Spec-reuse notes.**
 - The probabilistic-prune trick (write-triggered, ~1% chance) is the standard way we keep rolling windows without schedulers — reuse it.
@@ -373,16 +403,17 @@ flowchart LR
 **Problem.** Semantic recall over articles without a separate vector database — one source of truth, ACID, and native SQL metadata filtering in the same query.
 
 **Mechanism.**
-- Embeddings: `microsoft/deberta-base` served by the local `deberta-encoder.service` on `127.0.0.1:8001` (`DEBERTA_ENCODER_URL`), 768-d, stored in `articles.embedding vector(768)`. The client posts `{title, description, content}` to `/encode` and requires a 768-element list back. Input (`build_article_encoder_input`): the real title as its own field; content starts with `"Tags: …"` so the matched keywords survive truncation, then the raw scraped page if there is one, else the summary, truncated to 8,000 tokens. Only approved articles are embedded, at the last ingest step.
+- Embeddings: `microsoft/deberta-base` served by the local `deberta-encoder.service` on `127.0.0.1:8001` (`DEBERTA_ENCODER_URL`), 768-d, stored in `articles.embedding vector(768)`. The client posts `{title, description, content}` to `/encode` and requires a 768-element list back. Input (`build_article_encoder_input`): the real title as its own field; content starts with `"Tags: …"`, then the article's `raw` text, else its summary, truncated to 8,000 tokens (counted locally with the tiktoken `text-embedding-3-small` tokenizer; nothing is sent to OpenAI). On live ingest `raw` is the collector's content when it is over 200 characters, otherwise the scraped page, and the tags are the analysis model's tags only: the collection-time matched keywords the code comments mention are dropped before analysis (see the gotcha below). Live ingest embeds only approved articles, as its last step.
 - Search: `(embedding <=> CAST(:q AS vector)) AS score ... ORDER BY ... LIMIT :n` — cosine **distance** (see 3.5). Metadata filters (`topic`, `$and`, `$gte/$lte` on dates) compile to SQL predicates applied *before* ANN ordering.
 - Index: HNSW `vector_cosine_ops` (`articles_embedding_hnsw_idx`, m 16, ef_construction 64). pgvector 0.6.0 starves filtered HNSW queries, so below `PGVECTOR_EXACT_SCAN_MAX` (40,000) matching rows the store runs an exact scan instead. Async variant uses an asyncpg pool with sync fallback.
 - Wildcard query (`"*"`/`""`) skips embedding and returns filtered rows by recency — the same API serves both semantic and "just filter" calls.
 
-**Where.** `app/vector_store_pgvector.py` — encoder client `_encode_fields` and `build_article_encoder_input` near the top, `upsert_article_async` for the ingest write, exact-scan switch in the search functions. The module docstring at the top of that file still says OpenAI 1536-d; it is stale. `app/vector_store.py` is a compatibility shim (ChromaDB fully removed; `get_chroma_client()` raises `NotImplementedError`).
+**Where.** `app/vector_store_pgvector.py` — encoder client `_encode_fields` and `build_article_encoder_input` near the top, `upsert_article_async` for the ingest write, exact-scan switch in the search functions. The module docstring was corrected on 7 October 2026 to describe the 768-d encoder. `app/vector_store.py` is a compatibility shim (ChromaDB fully removed; `get_chroma_client()` raises `NotImplementedError`).
 
 **Spec-reuse notes.**
 - **No cloud fallback, by design.** There is no OpenAI path and no random-vector fallback; a 1536-d or random vector would corrupt every cosine search. Every monolith tenant with this file, wiley included, runs the local 768-d encoder. The OpenAI 1536-d path and its random-vector gotcha are gone.
-- **Gotcha: ingest swallows encoder failures.** `upsert_article_async` catches its own exceptions and only logs "Async vector upsert failed". The article stays approved with a NULL embedding, the batch counter `vector_indexed` still counts it, and nothing retries it. `app/tasks/embedding_backfill.py` re-embeds NULL rows but is scheduled nowhere; someone has to run it by hand, and it has no status filter, so it also embeds rejected rows. The sync path and the reindex scripts do raise.
+- **Gotcha: every write path swallows encoder failures.** `upsert_article_async` (ingest) and the sync `upsert_article` (manual research) both catch their own exceptions and only log. The article stays approved with a NULL embedding, the batch counter `vector_indexed` still counts it, and nothing retries it. Only the encoder client `_encode_fields` raises. `app/tasks/embedding_backfill.py` re-embeds NULL rows but is scheduled nowhere; someone has to run it by hand, it has no status filter, so it also embeds rejected rows, and it embeds title plus summary only. Automatic retry is WP5b of `docs/pipelines/08_INGEST_FIX_SPEC.md`, not yet built.
+- **Gotcha: matched keywords never reach the tags.** `keyword_monitor.py` stamps `_matched_keywords` on each collected article, and `_merge_matched_keyword_tags` (`automated_ingest_service.py:31-45`) would append them to the model's tags, but the keyword monitor builds a fresh dict for ingest without that key (`keyword_monitor.py:1373-1390` at commit `83fecd57`). So the merge has nothing to add, and neither the tags nor the embedding carry the search term. Passing them through is a WP7 item of the fix spec.
 - Two embedding spaces coexist on the monolith: retrieval (DeBERTa 768-d, shared with the saas `article_embeddings` store) and ingest relevance (`all-MiniLM-L6-v2`, 384-d, used only for topic-vs-article similarity). saas adds a third, multilingual E5 at 1024-d. They are **not interchangeable**; a spec must name which space it uses.
 
 ## 3.2 Overfetch + Cross-Encoder Rerank
@@ -1077,16 +1108,17 @@ stateDiagram-v2
 
 | Area | Parameter | Value | Where |
 |---|---|---|---|
-| Ingest | Global relevance threshold | DB setting, default 0.0 | `automated_ingest_service.py:1440` |
-| Ingest | Per-group threshold override | group `min_relevance_threshold` | `keyword_monitor.py:1092` |
-| Ingest | Batch concurrency / timeout | 5 / 300 s | `automated_ingest_service.py:1323` |
-| Relevance | Combine weights | 0.6 classifier / 0.4 embedding | `hybrid_relevance_service.py:43` |
-| Relevance | Confidence band (skip LLM) | < 0.20 or > 0.85 | `hybrid_relevance_service.py:537` |
-| Relevance | CE tier resolve band | < 0.10 or > 0.90 (env-gated) | `hybrid_relevance_service.py:56` |
-| Relevance | LLM fallback model | `nova-lite` (env) | `hybrid_relevance_service.py:411` |
+| Ingest | Global relevance threshold | `keyword_monitor_settings.min_relevance_threshold` (0.4 on bugfixing); 0.0 only if the read fails | `automated_ingest_service.py:1996-2020` |
+| Ingest | Per-group threshold override | group `min_relevance_threshold` | `get_relevance_threshold`, same lines |
+| Ingest | Batch concurrency | 5 | `automated_ingest_service.py` `MAX_CONCURRENT` |
+| Relevance | Combine weights | 0.6 classifier / 0.4 embedding | `hybrid_relevance_service.py:45-46` |
+| Relevance | Confidence band (skip paid tiers) | < 0.20 or > 0.85 | `hybrid_relevance_service.py:837` |
+| Relevance | CE tier | accept-only above `CE_HIGH` 0.05, theme topics only, env-gated (off on bugfixing) | `hybrid_relevance_service.py:89-93` |
+| Relevance | Jev accept tier | on_topic ≥ 0.8, accept-only (on on bugfixing) | `hybrid_relevance_service.py:108-109` |
+| Relevance | LLM fallback model | `nova-lite` (env `HYBRID_RELEVANCE_LLM_MODEL`) | `hybrid_relevance_service.py:605-606` |
 | Alignment | Downstream floors | 0.3 topic / 0.4 brand / 0.7 report | `database_query_facade.py:1131` et al. |
-| Enrichment | SLM confidence gate | 0.6 (hard-coded, twice) | `automated_ingest_service.py:298` |
-| Enrichment | Bootstrap → local threshold | 500 samples/field | `hybrid_enrichment_service.py:54` |
+| Enrichment | SLM confidence gate (unused sync path) | 0.6 (hard-coded, twice) | sync `analyze_article_content` |
+| Enrichment | Bootstrap → local threshold (unused sync path) | 500 samples/field | `hybrid_enrichment_service.py:54` |
 | Enrichment | Label counts | sent 4 / tti 6 / driver 5 / signal 15 | `model_config.json` |
 | Retrieval | Embedding model | `microsoft/deberta-base` 768-d via `deberta-encoder.service` :8001 | `vector_store_pgvector.py` (`DEBERTA_ENCODER_URL`, `EMBEDDING_DIM`) |
 | Retrieval | Rerank | off by default; overfetch ×5, cap 200 | `reranker.py:42-66` |
@@ -1118,7 +1150,7 @@ stateDiagram-v2
 | Ingest relevance embedding | `all-MiniLM-L6-v2` (384-d, CPU) | topic-vs-article similarity only |
 | Relevance classifier | fine-tuned DeBERTa-base binary classifier (`models/relevance_classifier/final`, local, CPU) | live in the quick relevance gate, weighted 0.6 against the embedding |
 | Enrichment classifier | fine-tuned DeBERTa-base, four heads 4/6/5/15 (`models/enrichment_model/final`) | **off the live ingest path**; reached only by `/test-process-article` and two scripts |
-| **Article analysis (category, sentiment, labels, summary, tags)** | `bedrock-kimi-k2-5` → Kimi K2.5 on Bedrock | from `keyword_monitor_settings.default_llm_model`; fallbacks `bedrock-claude-haiku` then `nova-lite`. A second Kimi call per article extracts a publication date |
+| **Article analysis (category, sentiment, labels, summary, tags)** | `bedrock-kimi-k2-5` → Kimi K2.5 on Bedrock | from `keyword_monitor_settings.default_llm_model`; fallbacks `bedrock-claude-haiku` then `nova-lite` (`litellm_config.yaml` `fallbacks:`), all configured with `aws_region_name: us-east-1`. Since commit `679ee413` (7 Oct 2026) auto-ingest no longer makes the second, publication-date call; the bugfixing process running on 7 Oct started before that change and still made it (2,462 `extract_publication_date_result` calls in the 7 days to 7 Oct, the latest at 10:46) |
 | Model tiers (`app/model_tiers.py`) | fast = `bedrock-kimi-k2-5`; standard = premium = `claude-sonnet-4-5` | overridable with `MODEL_TIER_*`; not consulted by auto-ingest |
 | Relevance LLM fallback / bulk scoring | `nova-lite` (`HYBRID_RELEVANCE_LLM_MODEL` default) / `nova-pro` | per-article default for scoring; nova-lite also translates non-English titles and summaries |
 | Relevance accept tier and shadows | TypeSafe Jev (`TYPESAFE_MODEL`) | accepts clear on-topic borderline cases before the LLM where enabled; also runs shadow checks |
@@ -1130,6 +1162,8 @@ stateDiagram-v2
 Cost policy (standing, memory `feedback_cost_conscious`): cheapest model that fits the task shape; avoid Haiku 4.5 where nova-lite/pro suffice; per-article paths never on flagship models.
 
 ---
+
+*Sections 1.4, 2.1, 2.4–2.9 and 3.1 and the enrichment rows of the appendices were rechecked on 2026-10-07 against commit `83fecd57`.*
 
 *Generated 2026-07-18 from the `bugfixing.aunoo.ai` monolith (branch `fix/collection-reliability`) and `saas.aunoo.ai`. Line numbers drift — treat them as anchors, not gospel.*
 

@@ -17,6 +17,14 @@ the forward repair for what it left unfinished.
 | wileytest | `fa_012` | `vector(768)` | **absent** | present |
 | wbm | `bwr_001` | `vector(768)` | **absent** | present |
 
+Rechecked on bugfixing on 7 October 2026: `articles.embedding` is still
+`vector(768)` with `articles_embedding_hnsw_idx` (HNSW, `vector_cosine_ops`,
+m 16, ef_construction 64), and `articles_embedding_1536_backup` still holds
+51,526 rows. The alembic head on `test` is now `ip_001`, not `fa_012`. The
+table above was not rechecked for the other tenants, and abm, oviva, panaya
+and sunstar are not in it. All eight sites use the same encoder unit,
+`deberta-encoder.service` on `127.0.0.1:8001`.
+
 Where the backup is absent the original OpenAI vectors are gone, and a rollback
 to 1536d is not possible from the database alone. `emb_768_01`'s downgrade now
 refuses to run there rather than creating an empty `vector(1536)` column and
@@ -83,8 +91,35 @@ in a quiet window.
 
 ### 4. Backfill
 
-The backfill task runs inside the app (`app/tasks/embedding_backfill.py`),
-newest articles first, and picks up where it left off. Watch it:
+The backfill does not run inside the app. `app/tasks/embedding_backfill.py`
+defines a loop (`run_embedding_backfill`) and a one-shot function
+(`backfill_embeddings`), but nothing in `app/` or `scripts/` calls either of
+them (checked by code search on 7 October 2026). Someone has to run it by
+hand, from the tenant directory, with the encoder up:
+
+```bash
+.venv/bin/python -c "import asyncio; from app.tasks.embedding_backfill import backfill_embeddings; print(asyncio.run(backfill_embeddings(limit=1000)))"
+```
+
+What it does (`app/tasks/embedding_backfill.py`):
+
+- Picks rows `WHERE embedding IS NULL AND title <> ''`, 100 at a time,
+  newest `submission_date` first. It does not filter on `ingest_status`, so
+  it also embeds rejected, failed and social rows.
+- Embeds the title plus the stored summary only. Ingest embeds the title, the
+  tags and the page text (see "The encoder is down" below), so a backfilled
+  vector is not the same as the one ingest would have written.
+- Skips a row whose encode fails, leaving it NULL for the next run, and
+  returns the number embedded. It stops after `limit` rows or when nothing is
+  left.
+
+Because of the first point, the backfill is a poor tool for repairing a few
+approved rows on a tenant with many unembedded rejects. On bugfixing on
+7 October 2026, 2 of 47,483 approved rows had no embedding, against 25,802
+NULL rows in all (most of them `filtered_relevance` and `social_evaluated`),
+so a `limit=1000` run would spend its whole budget on rejected rows first.
+
+Watch progress:
 
 ```sql
 SELECT COUNT(*) AS total, COUNT(embedding) AS populated,
@@ -166,7 +201,40 @@ followed by a stalled backfill leaves a valid, empty column.
 `scripts/embedding_768_postbackfill.py --check` says which width the column is;
 the encoder writes 768.
 
-**The encoder is down.** Embedding raises rather than writing a placeholder, by
-design: a wrong vector in `articles.embedding` corrupts every later search
-silently and cannot be told apart from a correct one afterwards. Restart the
-encoder and re-run; the backfill picks up the rows it skipped.
+**The encoder is down.** The encoder client never writes a placeholder
+vector. `_encode_fields` in `app/vector_store_pgvector.py` raises on an
+unreachable service, a non-2xx reply, a malformed reply or any width other
+than 768, because a wrong vector in `articles.embedding` corrupts every later
+search and cannot be told apart from a correct one afterwards.
+
+What happens to the article depends on the path. This is the code at commit
+`83fecd57`:
+
+- **Live ingest.** After an approved save, `_process_single_article_async`
+  calls `upsert_article_async` with a 30-second timeout
+  (`app/services/automated_ingest_service.py:1456-1465`).
+  `upsert_article_async` catches the encoder error itself and only logs
+  "Async vector upsert failed" (`app/vector_store_pgvector.py:299-337`). The
+  article stays approved with a NULL embedding. The batch still counts it in
+  `vector_indexed` (`automated_ingest_service.py:1867-1869`), and nothing
+  retries it.
+- **Manual research.** `app/bulk_research.py:645-669` calls the sync
+  `upsert_article`, which also catches and logs ("Vector upsert failed",
+  `vector_store_pgvector.py:254-296`). Same result: the row stays NULL.
+- **The backfill** (step 4) skips the row and leaves it NULL.
+
+So after an outage, restarting the encoder is not enough. Once it answers,
+find the approved rows it missed and embed them by hand:
+
+```sql
+SELECT count(*) FROM articles WHERE ingest_status = 'approved' AND embedding IS NULL;
+```
+
+Then run the backfill from step 4, keeping in mind that it also embeds
+non-approved rows and uses title plus summary only. Automatic retry of
+missing embeddings is not built yet; it is work package WP5b in
+`docs/pipelines/08_INGEST_FIX_SPEC.md`.
+
+The encoder unit itself has `Restart=always` (`systemctl show
+deberta-encoder.service`), so a crash restarts it, but a hung process does
+not.

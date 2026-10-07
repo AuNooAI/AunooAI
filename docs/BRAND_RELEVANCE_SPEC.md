@@ -113,6 +113,15 @@ unavailable. If a conclusive headline or exclusion rule settles the decision, pe
 decision with its evidence and provenance even if a separate model attempt fails; do not fabricate a
 successful model verdict.
 
+As built (policy version `brand-coverage-3`, adopted 6 October 2026, see Appendix C; code
+`app/services/brand_decision.py:459-486` at commit `83fecd57`): when the verified mention is in the
+headline, a judge answer of subject or notable stands; sector, passing or no answer from any judge is
+raised to notable (provenance `model+headline`, or `rule` when no judge answered); and a judge answer
+of "other" is kept, because it means the judge read the headline name as a different entity or the
+story as unrelated. So the headline rule lifts an under-rated brand story but does not overrule a
+different-entity verdict. A subject or notable label from a page whose publisher is unknown is then
+deferred (`:488-494`).
+
 A title-only item with a verified headline mention enters the judge using its title. Store and display
 that limited-evidence status. Neither the prompt nor the saved reason may invent body content. An item
 with insufficient evidence and no qualifying headline follows the existing enrichment-failure path,
@@ -455,8 +464,13 @@ Deployment owner for every site: Oliver Rochford. Wiley's rules apply on wileyte
 - **Flags.** `BRAND_RELATION_DECISIONS` (default off) switches the ingest path. `BRAND_PROFILE_COLLECTION`
   (default off) adds profile names and products to the brand groups' collection queries. The reader rule
   is always on but is a no-op until labels exist, and it checks the columns exist so code copied ahead of
-  the migration cannot break a site. Model route: `BRAND_JUDGE_ROUTE` = `llm` (default, the site's
-  `HYBRID_RELEVANCE_LLM_MODEL`) or `jev` (Jev Choice, opt-in).
+  the migration cannot break a site. Judge order (`configured_judges`,
+  `app/services/brand_decision.py:314-324`): the first route is Jev Choice when `BRAND_JUDGE_ROUTE=jev`,
+  otherwise an LLM judge using `BRAND_JUDGE_MODEL`, else `HYBRID_RELEVANCE_LLM_MODEL`, else `nova-lite`.
+  `BRAND_JUDGE_FALLBACK_MODEL`, if set, adds an LLM judge as the second route; without it there is no
+  second route. On 7 October 2026 none of the eight running sites set `BRAND_JUDGE_ROUTE`,
+  `BRAND_JUDGE_MODEL`, `BRAND_JUDGE_FALLBACK_MODEL` or `HYBRID_RELEVANCE_LLM_MODEL` in `.env`, so each
+  judges with `nova-lite` alone.
 
 ### Phases
 
@@ -502,7 +516,7 @@ sites (migration and regression only while stopped).
 | 2026-10-06 | wbm on | Profile additions already applied; no enrichment sweep, so brand_retry cron every 30 minutes (dry run selected nothing). `.env` backed up, `BRAND_RELATION_DECISIONS=1`. An ingest run was in progress, so the restart waits for quiet (restart_when_quiet.sh, up to 45 minutes) |
 | 2026-10-06 | wileytest on | Paying customer's site. Profile additions already applied; judge route stays llm (no Jev on Wiley sites); no enrichment sweep, so brand_retry cron every 30 minutes (dry run selected nothing). `.env` backed up, `BRAND_RELATION_DECISIONS=1`. An ingest run was in progress, so the restart waits for quiet |
 | 2026-10-06 | panaya on | panaya has 7 brands but no brand-topic keyword groups (its brands are collected through the one topic "Market Monitoring Enterprise Test Automation"), so the decision path stays idle there. The flag's only effect is the alert and digest rule: the in-app alerts (11 in 30 days; email and webhook off) now draw on earned news only. `.env` backed up, flag on, brand_retry cron added for when brand topics appear, restarted 16:11 when quiet, no tracebacks |
-| 2026-10-06 | wiley on | wiley has no brands (bw_brands empty) and no brand topics; its topics are research and policy themes, so the flag changes nothing today and is on for parity. `.env` backed up, flag on, brand_retry cron added (dry run selected nothing), judge route llm (no Jev on Wiley sites), restarted 16:14 when quiet, no tracebacks. All seven running monolith sites now have the flag on (wileytest effective after its pending quiet restart) |
+| 2026-10-06 | wiley on | wiley has no brands (bw_brands empty) and no brand topics; its topics are research and policy themes, so the flag changes nothing today and is on for parity. `.env` backed up, flag on, brand_retry cron added (dry run selected nothing), judge route llm (no Jev on Wiley sites), restarted 16:14 when quiet, no tracebacks. All seven running monolith sites other than bugfixing now have the flag on; bugfixing, the eighth, keeps it off (its `.env` has no `BRAND_RELATION_DECISIONS`, checked 7 October 2026) (wileytest effective after its pending quiet restart) |
 | 2026-10-06 | bwtemplate deployed, flag on, left stopped | bwtemplate already had br_001 applied, an older copy of the brand modules and the routes and risk changes, but no ingest hooks. `deploy_site.sh` now also recognises the risk change by `def _rel_sql`; apply copied the current modules and inserted the hooks (backup bwtemplate-20261006_161534). `.env.encrypted` backed up, decrypted, flag added, app import checked (flag on, brand-judge-3), re-encrypted and the plaintext removed; service still inactive. Sites cloned from the template inherit the brand path with the flag on; each new site still needs a brand_retry cron unless it has the enrichment sweep |
 | 2026-10-06 | Market vendors; Sunstar search term | Oliver chose option 2 for panaya (brand decisions for Market Monitor vendor links): draft spec in `docs/BRAND_RELEVANCE_MARKET_VENDORS.md`, not built. Sunstar: the English search term "Brilliant More" (group 9, added this morning from Lion's product list) collected 51 of Lion's 66 unrelated articles, because the provider matches the two words anywhere; deleted (row backed up to /var/tmp/brand_rollout/) and added to Lion's `collection_skip`. The Japanese term ブリリアントモア stays |
 | 2026-10-06 | Market vendor decisions built; panaya on | `docs/BRAND_RELEVANCE_MARKET_VENDORS.md` adopted (Oliver: yes to all three questions) and built in canonical; bm_001 applied on bugfixing and panaya. Panaya: profile (UiPath's generic product names need "UiPath" nearby), audit with the judge (22 earned, 86 owned, 3 dropped of 111 news links; social keeps today's rule), `MARKET_VENDOR_DECISIONS=1`, market 1312 `vendor_decisions_since` 2026-10-06T14:45:41Z, restarted 16:45, no tracebacks. market_analysis.py and market_publish.py differ per site, so those changes travel as /var/tmp/brand_rollout/patches/market_vendor_baseline.patch |

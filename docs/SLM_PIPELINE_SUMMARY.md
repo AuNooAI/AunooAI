@@ -1,6 +1,15 @@
 # SLM Pipeline Research & Implementation Summary
 
-> **Historical document (marked 7 October 2026).** This describes the February 2026 plan for a local-model pipeline, and most of it no longer matches the code. The live pipeline is not LLM-free: every analysed article gets a Kimi K2.5 analysis call, and the DeBERTa classifier described here has not run on the live ingest path since February 2026. For how the pipeline works today, read `docs/pipelines/README.md`, and for this document's specific errors, read `docs/pipelines/03_MONOLITH_ENRICHMENT.md` section 11.3.
+> **Historical document (marked 7 October 2026, rechecked against commit `83fecd57`).** This describes the February 2026 plan for a local-model pipeline. The body is kept as written and does not describe the running system. The parts that no longer hold:
+>
+> - **"LLM-free" and "$0.00 per article".** Every analysed article gets one cloud model call for labels, summary and tags (`bedrock-kimi-k2-5`, the `keyword_monitor_settings.default_llm_model` on bugfixing). The relevance check sends unclear cases to `nova-lite`, and Jev (TypeSafe) reads every scored article. `llm_usage_log` on `test` recorded 2,970 analysis calls on Kimi K2.5 in the 7 days to 7 October 2026.
+> - **DeBERTa classification, Phi-3 summaries, KeyBERT tags, Qwen explanations and category.** None of these run on the live ingest path. Ingest calls `_analyze_article_content_async`, which uses only the configured LLM (`app/services/automated_ingest_service.py:1535-1639`). The DeBERTa classifier is reached only through the sync `analyze_article_content`, used by the `/test-process-article` debug route and two scripts. On `test`, none of the 12,768 approved rows first seen in the 90 days to 7 October 2026 has `enrichment_sources` set, and `enrichment_training_samples` last grew on 3 February 2026. `vllm-qwen.service` is stopped; `vllm-phi3.service` runs but ingest does not call it.
+> - **"LLM skip optimization" and `_check_slm_services_available`.** This code does not exist.
+> - **Firecrawl "FREE (self-hosted)" and the scrape feeding the model.** Firecrawl is the hosted API (`FIRECRAWL_API_KEY`), and the analysis reads the collector's summary, then its content; the scraped page is stored in `raw_articles` and used for analysis only when the collector sent no text.
+> - **The `article_embeddings` table.** Embeddings are in `articles.embedding vector(768)`, written by the self-hosted encoder `deberta-encoder.service`.
+> - **Label counts, accuracies and statuses.** The deployed classifier (`models/enrichment_model/final/model_config.json`) has 4/6/5/15 labels for sentiment, time to impact, driver type and future signal. Ingest writes six `ingest_status` values (`approved`, `filtered_relevance`, `relevance_check_failed`, `enrichment_failed`, `quarantined_config`, `skipped_unknown_topic`), and the social evaluator writes a seventh, `social_evaluated`.
+>
+> For how the pipeline works today, read `docs/pipelines/README.md` and `docs/pipelines/03_MONOLITH_ENRICHMENT.md`; section 11.3 of the latter lists this document's errors line by line.
 
 **Date:** February 2026
 **Project:** AunooAI - Strategic Intelligence Platform

@@ -1,7 +1,9 @@
 # Embedding health monitoring — what to check and why
 
-**Status:** checks A–D are built and running (`scripts/embedding_health_check.sh`, root crontab
-`15,45 * * * *`). Checks E–I are specification only.
+**Status (checked 2026-10-07):** checks A–D are built and running (`scripts/embedding_health_check.sh`,
+deployed as `/home/orochford/bin/embedding_health_check.sh`, root crontab `15,45 * * * *`) on all
+eight running sites. Checks E–I are specification only. Nothing retries a missing embedding
+automatically; see "What happens today when an embedding fails" below.
 **Written:** 2026-08-02, after wbm spent four weeks writing no embeddings without anyone noticing.
 
 ## Why this exists
@@ -36,8 +38,9 @@ false, has no baseline, and cannot false-positive. "Fewer embeddings than usual 
 baseline, drifts with volume, and cries wolf. Build the invariant checks first — they are cheap
 and they would have caught this outage within 30 minutes.
 
-**Do not alert on the relevance gate.** Articles are only indexed after passing relevance and
-quality filters. On 2026-08-02 wbm logged `processed: 2, enriched: 2, relevant: 0, saved: 0,
+**Do not alert on the relevance gate.** Live ingest only indexes articles it approved, after the
+relevance check. (The quality step in between is a placeholder that always approves,
+`_quality_check_article_async` in `app/services/automated_ingest_service.py:1657-1664`.) On 2026-08-02 wbm logged `processed: 2, enriched: 2, relevant: 0, saved: 0,
 vector_indexed: 0` — that is the filter working, not a fault, and 160 articles legitimately sat
 unindexed. A naive "articles collected but not embedded" alert fires constantly on this. See
 check E for the way around it.
@@ -52,11 +55,46 @@ so it is a backstop, not a primary.
 watched. Fixed 2026-08-02: wbm was added there with a measured floor of 20 articles/12h, and
 `embedding_health_check.sh` covers all four from the start.
 
-**The same gap is open again (checked 2026-10-07).** Both copies of the script still read
-`TENANTS="bugfixing wileytest wiley wbm"`. Four tenants started since then, abm, oviva, panaya
-and sunstar, run the same 768-d encoder and are not checked at all. An encoder or index fault
-on any of them would go unnoticed, the same way wbm's did. Add them to `TENANTS` in both
-`scripts/embedding_health_check.sh` and `/home/orochford/bin/embedding_health_check.sh`.
+**The gap reopened and was closed again on 2026-10-07.** Four tenants started after August, abm,
+oviva, panaya and sunstar, ran the same 768-d encoder without being checked. Commit `679ee413`
+(7 October 2026) added them, and both copies of the script now read
+`TENANTS="bugfixing wileytest wiley wbm abm oviva panaya sunstar"` (line 39). The 10:45 run on
+7 October logged an OK line for all eight in `/var/log/aunoo-embedding-health.log`.
+
+## What happens today when an embedding fails
+
+Checked against commit `83fecd57` on 2026-10-07.
+
+- **Live ingest.** After an approved save, ingest calls `upsert_article_async` with a 30-second
+  timeout (`app/services/automated_ingest_service.py:1456-1465`). When the encoder is down,
+  `upsert_article_async` catches the error and only logs "Async vector upsert failed"
+  (`app/vector_store_pgvector.py:299-337`). The article stays approved with `embedding` NULL. The
+  batch result still counts it in `vector_indexed` (`automated_ingest_service.py:1867-1869`), so
+  run counters overstate indexing during an outage.
+- **Manual research** (`app/bulk_research.py:645-669`) uses the sync `upsert_article`, which also
+  catches and logs. The row stays NULL.
+- **Nothing retries.** No scheduled job re-embeds approved rows with a NULL embedding.
+  `app/tasks/embedding_backfill.py` has a loop for it, but nothing in `app/` or `scripts/` starts
+  it. Automatic retry is work package WP5b in `docs/pipelines/08_INGEST_FIX_SPEC.md` and is not
+  built.
+
+### Manual repair after an outage
+
+1. Confirm the encoder answers (check B's `curl`).
+2. Count what was missed:
+   ```sql
+   SELECT count(*) FROM articles WHERE ingest_status = 'approved' AND embedding IS NULL;
+   ```
+3. From the tenant directory, run the one-shot backfill:
+   ```bash
+   .venv/bin/python -c "import asyncio; from app.tasks.embedding_backfill import backfill_embeddings; print(asyncio.run(backfill_embeddings(limit=1000)))"
+   ```
+   It takes every NULL row newest `submission_date` first, whatever its `ingest_status`, so it
+   also embeds rejected and social rows, and it embeds title plus summary only, not the tags and
+   page text that ingest uses. On a tenant with many unembedded rejected rows, raise `limit` or
+   expect the approved rows to wait.
+4. Check the column, fill rate and index:
+   `.venv/bin/python scripts/embedding_768_postbackfill.py --check`.
 
 ## The checks
 
@@ -78,8 +116,8 @@ SELECT format_type(atttypid, atttypmod) FROM pg_attribute
 WHERE attrelid = 'articles'::regclass AND attname = 'embedding';
 ```
 
-against `EMBEDDING_DIM` in that tenant's `app/vector_store_pgvector.py` — 768 on all four
-tenants since wiley migrated on 2026-08-02. Read it from the file rather than hardcoding it, so
+against `EMBEDDING_DIM` in that tenant's `app/vector_store_pgvector.py` — 768 on all eight
+checked sites (health log, 2026-10-07 10:45). Read it from the file rather than hardcoding it, so
 the check keeps working through the next migration. Alert on any mismatch.
 
 Also worth comparing across the two derived centroid columns, which must match:
@@ -95,9 +133,10 @@ curl -s -m 10 -X POST http://localhost:8001/encode \
 ```
 
 Alert if unreachable, if the response has no `embedding`, or if its length is not `EMBEDDING_DIM`.
-All three 768-d tenants share this one service, so a single failure here stops embedding
-platform-wide. Note the code raises rather than falling back, so an outage here means articles
-go unindexed, not that bad vectors get written.
+All eight sites share this one service (`deberta-encoder.service`), so a single failure here stops
+embedding everywhere. The encoder client raises rather than falling back, so an outage means
+articles go unindexed, not that bad vectors get written. Those articles are not retried later
+(see below).
 
 ### C. Vector-write errors in the journal
 **Severity: critical. This is the direct symptom.**
@@ -109,6 +148,12 @@ journalctl -u <tenant>.aunoo.ai.service --since "-40min" \
 
 Alert on any non-zero count. During the outage this produced several errors per minute
 continuously — there is no ambiguity to tune around.
+
+Two failures this pattern does not match, because `grep -E` is case-sensitive here
+(`scripts/embedding_health_check.sh:229-230`): the 30-second ingest timeout logs "Vector indexing
+timed out" (a warning), and the sync path used by manual research logs "Vector upsert failed" with
+a capital V. An unreachable encoder still shows up, because the client logs "DeBERTa encoder
+unreachable" first. A hung encoder that never answers can produce only the timeout line.
 
 ### D. The HNSW index exists and is valid
 **Severity: high. Silent performance failure.**
@@ -140,10 +185,14 @@ WHERE submission_date::timestamp > now() - interval '24 hours'
   AND embedding IS NULL;
 ```
 
-The gate-passed predicate needs pinning down against `automated_ingest_service` before this can
-be built — the `saved` counter in `rss_feed_monitor`'s completion line is the closest proxy seen
-so far. **This check is specified but not yet implementable.** Until it is, C covers the same
-ground more bluntly.
+The gate-passed predicate is now known: live ingest embeds only rows it saved with
+`ingest_status = 'approved'`, so the check is
+`ingest_status = 'approved' AND embedding IS NULL`. Use the time the row was approved, not
+`submission_date`, once such a column exists; an old article approved today would otherwise look
+overdue or be missed. Measured on bugfixing on 2026-10-07: 2 of 4,896 approved rows first seen in
+the last 30 days had no embedding, and 2 of 47,483 approved rows of any age. **Check E is still
+not built.** It is part of work package WP5b in `docs/pipelines/08_INGEST_FIX_SPEC.md`. Until
+then, C covers the same ground more bluntly.
 
 ### F. The NULL backlog is growing
 **Severity: medium. Slow-burn detector.**
@@ -205,8 +254,8 @@ Follow `scripts/collector_health_check.sh`, which already solves the plumbing:
 - Log to `/var/log/aunoo-embedding-health.log`.
 - Repeat-alert suppression via `STATE_DIR`, 6 hours, cleared by a recovery.
 - Root crontab. Every 30 minutes suits checks A–D; F, G and I belong on a daily run.
-- **`TENANTS` must include every running tenant.** It now lists four (bugfixing, wileytest,
-  wiley, wbm); abm, oviva, panaya and sunstar are missing.
+- **`TENANTS` must include every running tenant.** Since 2026-10-07 it lists all eight
+  (bugfixing, wileytest, wiley, wbm, abm, oviva, panaya, sunstar). Add each new tenant there.
 
 Reads can go through pgbouncer on 6432 as the collector check does. Anything doing DDL cannot —
 wiley's pgbouncer runs `pool_mode = transaction`.

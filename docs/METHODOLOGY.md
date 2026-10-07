@@ -6,6 +6,8 @@ AunooAI is a strategic intelligence platform that continuously collects, classif
 
 This document describes the methodology at each stage of the intelligence lifecycle, with particular emphasis on the foresight analysis capabilities.
 
+Models and services are configured per deployment. Where this document names a specific model, setting or measured figure, it gives the deployment and date it was checked; the reference deployment is `bugfixing.aunoo.ai`, checked on 7 October 2026. A full list of the services that receive article text is kept in `docs/pipelines/08b_ARTICLE_TEXT_RECIPIENTS.md`.
+
 ---
 
 ## 1. Collection
@@ -38,21 +40,30 @@ Every collected article passes through a structured enrichment pipeline before i
 
 Before investing in full enrichment, each article undergoes a lightweight relevance check against its monitoring topic:
 
-1. **Embedding similarity** — The article's title and summary are encoded as a vector and compared to the topic's semantic profile (description + keywords). This works for any topic with zero training data.
-2. **Fine-tuned classifier** — Where a trained relevance classifier is available, it scores the article against the topic and is combined with the similarity score.
-3. **Adjudication of unclear cases** — A combined score below 0.20 or above 0.85 is treated as a confident answer. Anything in between goes to a further check. Where enabled, a compact judgment model first accepts articles that are clearly on topic. Otherwise a language model reads the article and gives an explicit relevance score, which replaces the uncertain one.
+1. **Embedding similarity** — The article's title and the text the source supplied (its full content where the source sends one, otherwise its summary) are encoded by a small local model and compared to the topic's semantic profile (description + keywords). This works for any topic with zero training data.
+2. **Fine-tuned classifier** — Where a trained relevance classifier is available, it scores the article against the topic. The combined score weights the classifier 0.6 and the similarity 0.4. Both models run on the platform's own servers.
+3. **Adjudication of unclear cases** — A combined score below 0.20 or above 0.85 is treated as a confident answer, and so is a classifier score of 0.90 or more on an ordinary theme topic. Anything else is unclear and goes to further checks, in this order:
+   - Where enabled, a cross-encoder model may accept a clearly relevant article. It never rejects. (Off on the reference deployment.)
+   - Where enabled, a compact judgment model, Jev from TypeSafe, may accept an article it rates at least 0.8 on topic. It never rejects. (On at the reference deployment.)
+   - Otherwise a language model reads the title and text and gives an explicit relevance score, which replaces the uncertain one. On the reference deployment this is Amazon Nova Lite (`nova-lite`), the code default.
 
-Articles below the configurable relevance threshold are archived separately — they are never discarded, but they do not enter the enrichment pipeline or appear in analyses. A second relevance check runs after enrichment, on the enriched summary, and can still set an article aside.
+When one of the accept-only checks accepts an article, its stored score is raised to at least the topic's threshold; the check's own reading is not stored as the score. If no check can answer at all, the article is marked "relevance check failed" rather than rejected.
+
+Brand and market monitoring topics are handled differently: they skip the classifier shortcut and the cross-encoder, the language model gets a brand- or market-specific instruction, and on deployments that enable it a separate brand decision step labels each article's relationship to the brand.
+
+Articles below the configurable relevance threshold are archived separately — they are never discarded, but they do not enter the enrichment pipeline or appear in analyses. The threshold is set per keyword group, with a deployment-wide default (0.4 on the reference deployment). A second relevance check runs after the classification step, on the source's full text where there is one and otherwise on the new summary, and can still set an article aside.
 
 ### 2.2 Content Acquisition
 
-When a source supplies only a headline or a very short snippet, the platform fetches the full article page. This happens as the article arrives, before relevance filtering. A local cache ensures each URL is fetched at most once.
+When a source supplies no full text (200 characters or less in its content field), the platform fetches the article page through a hosted scraping service, Firecrawl. This happens as the batch arrives, before relevance filtering, so pages of articles that are later set aside are fetched too. Fetched pages are cached, and the cache is checked first, so each URL is normally fetched once.
 
 The classification step (Section 2.3) reads the summary or text supplied by the source. The fetched page is used in two places: as the input to classification when the source supplied no text at all, and as the input to the vector embedding (Section 2.6).
 
 ### 2.3 Classification Taxonomy
 
-Each article is read by a large language model, which classifies it across four dimensions in a single pass. The model is given the topic's own list of allowed values for each dimension (see Section 3.2) and must choose from it:
+Each article is read by a large language model, which classifies it across four dimensions in a single pass. The model is a per-deployment setting. On the reference deployment it is Kimi K2.5 (`bedrock-kimi-k2-5`), served through Amazon Bedrock with the configured region `us-east-1`, with Claude Haiku 4.5 and then Amazon Nova Lite configured as fallbacks. In the 7 days to 7 October 2026 the platform's call log recorded 2,970 classification calls on that deployment, all on Kimi K2.5. This step is separate from relevance scoring (Section 2.1); no local model assigns these labels.
+
+The model is given the topic's own list of allowed values for each dimension (see Section 3.2) and must choose from it:
 
 **Sentiment** — The dominant framing of the article. The values are set per topic; most topics use:
 - Positive, Neutral, Negative
@@ -79,23 +90,27 @@ Source reliability is assessed at the level of the outlet, not the individual ar
 
 The lookup matches the article's domain against the dataset. Outlets that the dataset does not cover carry no profile, so a blank rating means "not rated" rather than "low". The platform does not store a separate per-article factuality rating.
 
+Coverage depends on the sources a deployment collects from. On the reference deployment, 2,569 of the 4,896 approved articles first seen between 7 September and 7 October 2026 carried a factual-reporting rating, so 47.5% had none.
+
 ### 2.5 Summarisation & Tagging
 
-The same language model pass that classifies the article (Section 2.3) also generates:
+The same language model pass that classifies the article (Section 2.3) also generates the following. It reads the summary the source supplied, or the source's content when there is no summary; it reads the fetched page only when the source supplied no text at all.
 - A concise summary (about 50 words) in a neutral, informative tone
-- 3–5 tags describing the article's main themes, to which the platform adds the monitoring keywords that matched the article at collection, so an article stays findable by the terms that brought it in
+- 3–5 tags describing the article's main themes, written by the same model. The monitoring keyword that found the article is not currently added to the tags: the platform records it at collection but drops it before this step
 - A topic-specific category drawn from a user-defined ontology (e.g. for a geopolitics topic: "Diplomacy", "Military", "Economic Sanctions", "Human Rights")
 - A one- or two-sentence explanation for each of the four classifications (sentiment, time to impact, driver type and future signal), giving the reasoning behind each label
 
-Headlines in other languages are translated into English, and the original headline is kept alongside.
+Headlines and summaries in other languages are translated into English when the article is first stored, and the originals are kept alongside. On the reference deployment the translation model is Amazon Nova Lite.
 
 ### 2.6 Vector Embedding
 
 Each article that passes enrichment is encoded as a vector and stored in PostgreSQL with pgvector. This enables semantic search — finding articles by meaning rather than keyword match — which underpins the research and foresight features described below.
 
-The encoder input is the article's title, its tags, and the full fetched page where one exists (otherwise the summary). Putting the tags first means the matched keywords still count when a long article has to be shortened to fit the encoder.
+The encoder input is the article's title, its tags, and the full text: the source's own content when it is longer than 200 characters, otherwise the fetched page, otherwise the summary. The tags are placed before the text so they survive when a long article is shortened to fit the encoder.
 
-The encoder is a transformer model hosted on the platform's own servers, producing 768-dimension vectors. Article text is not sent to an outside service for this step. If the encoder is unavailable, the platform writes no vector rather than a substitute one, because a substitute vector would distort every search that touched it.
+The encoder is a DeBERTa transformer model hosted on the platform's own servers (`deberta-encoder.service`), producing 768-dimension vectors. Article text is not sent to an outside service for this step. If the encoder is unavailable, the platform writes no vector rather than a substitute one, because a substitute vector would distort every search that touched it. The article is still approved and readable, but semantic search cannot find it until an operator re-runs embedding; automatic retry is not yet in place.
+
+Historical note: until August 2026 some deployments embedded articles with OpenAI's 1536-dimension model. Wiley's site moved to the 768-dimension local encoder on 2 August 2026, and all eight running deployments use it now (checked 7 October 2026).
 
 ---
 
@@ -343,11 +358,12 @@ Auspex is a conversational research interface that allows analysts to interrogat
 The platform splits its work between models that run on its own servers and language models hosted by a managed cloud AI service:
 
 - **On the platform's own servers:** the vector encoder (Section 2.6), the similarity model and the trained relevance classifier (Section 2.1).
-- **Cloud-hosted language models:** classification, summarisation and tagging (Sections 2.3–2.5), the adjudication of unclear relevance cases, and the analysis and research features described in Sections 4–8.
+- **Cloud-hosted language models:** classification, summarisation and tagging (Sections 2.3–2.5), translation, the adjudication of unclear relevance cases, and the analysis and research features described in Sections 4–8.
+- **Other outside services:** the page-fetching service (Section 2.2) and, where enabled, TypeSafe's Jev model for relevance acceptance and shadow checks.
 
-An inference mode setting controls how much of the **relevance check** uses a cloud language model. It does not change the classification and summarisation step, which always uses the configured cloud model.
+An inference mode setting controls how much of the **relevance check** uses a cloud language model. It does not change the classification and summarisation step, which always uses its configured model, so every mode can incur cloud charges.
 
-**Local mode** — The relevance check uses only the local similarity model and classifier. Unclear cases are decided on the local score alone.
+**Local mode** — The relevance check uses only the local similarity model and classifier. Unclear cases are decided on the local score alone. Two cloud calls can still happen in this mode: if the local models cannot score an article at all, the platform falls back to a language-model relevance check, and if Jev shadow checks are enabled they still run.
 
 **Hybrid mode** (default) — The local models decide the confident cases, and a cloud language model adjudicates the unclear ones (Section 2.1).
 

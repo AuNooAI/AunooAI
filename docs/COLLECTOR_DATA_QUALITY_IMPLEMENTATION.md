@@ -443,12 +443,27 @@ Tests: `tests/test_xpoz_cancellation.py`, `tests/test_bluesky_window.py`,
 
 Done on 1 October 2026: code in both canonical trees, schema on the
 bugfixing and saasmvp databases, foundation and package tests green
-(monolith 268 tests across the new files, SaaS 275). Nothing is committed
-and no service has been restarted, so no running process has the new
-behaviour yet. The spec's rollout order says to capture baselines and
-compare in shadow mode before enabling; none of that has happened.
+(monolith 268 tests across the new files, SaaS 275).
 
-Before the first restart:
+Commits and restarts, checked 7 October 2026 with `git log` and
+`systemctl show <unit> -p ActiveEnterTimestamp`:
+
+- Monolith: committed as `6f8d4fbd` on 1 October 2026, 22:31 (+02:00).
+  Later commits on the same paths include `c87849d3` and `cea85466`
+  (6 October) and `a7b3263d` (firehose paging, 7 October, 09:45).
+- SaaS: committed as `073aac09` in `saasmvp-app` on 1 October 2026, 22:31.
+- The bugfixing service was already running the code before the commit: the
+  first `collection_runs` row on `test` is from 1 October, 21:25, about an
+  hour before `6f8d4fbd`. The current bugfixing process started on 7 October
+  at 10:03:50 (CEST). That is the only restart date this note can confirm.
+- The three saasmvp units (`saasmvp.aunoo.ai`, `saasmvp-skills-worker`,
+  `saasmvp-classifier`) last started on 6 October at 10:11, after `073aac09`.
+
+The spec's rollout order says to capture baselines and compare in shadow
+mode before enabling; none of that has happened.
+
+The checklist below was written before the first restart and is kept for
+the other tenants:
 1. Monolith readers and NULL publication dates (see package 2 notes). The
    "newest" orderings carry `NULLS LAST`; time-windowed comparisons still
    leave undated rows out.
