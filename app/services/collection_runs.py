@@ -36,14 +36,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_LEASE = timedelta(minutes=30)
 
 
-def _stall_after() -> timedelta:
-    """How long after its end an interval may sit unfinished before a run
-    that did not fail moves past it anyway (``CHECKPOINT_STALL_HOURS``)."""
+#: What to do with a window a provider cannot page through (a list API that
+#: returned a full page and has no way to ask for the rest). ``advance``: the
+#: schedule moves past it, proven coverage does not, and a ``collection_gaps``
+#: row records the loss. ``hold``: keep asking for the same window (it never
+#: finishes; only useful while investigating). Firehose pages, so it never
+#: reaches this. Choosing the policy is a product decision
+#: (docs/pipelines/08_INGEST_FIX_SPEC.md, WP1 item 7); ``advance`` keeps the
+#: behaviour these providers have had since 7 Oct 2026, now on the record.
+def _non_exhaustive_policy() -> str:
+    value = (os.getenv("COLLECTION_NON_EXHAUSTIVE_POLICY") or "advance").strip().lower()
+    return value if value in ("advance", "hold") else "advance"
+
+
+def _backoff(attempts: int, now: datetime) -> datetime:
+    """When a scope that failed or made no progress ``attempts`` times in a
+    row may be claimed again: ``COLLECTION_BACKOFF_MINUTES`` (default 15),
+    doubling per attempt, at most 12 hours."""
     try:
-        hours = float(os.getenv("CHECKPOINT_STALL_HOURS", "72"))
+        base = float(os.getenv("COLLECTION_BACKOFF_MINUTES", "15"))
     except ValueError:
-        hours = 72.0
-    return timedelta(hours=max(1.0, hours))
+        base = 15.0
+    minutes = min(720.0, max(1.0, base) * (2 ** max(0, min(attempts, 12) - 1)))
+    return now + timedelta(minutes=minutes)
 
 
 def _owner() -> str:
@@ -140,24 +155,48 @@ class Checkpoint:
     last_error_code: Optional[str] = None
     last_success_at: Optional[datetime] = None
     coverage_unknown_before: Optional[datetime] = None
-    #: Set by ``commit_interval``: True when coverage moved to interval_end.
+    #: How far the schedule moved past windows that could not be read in
+    #: full. Never proof of coverage; see ``collection_gaps``.
+    scheduled_through: Optional[datetime] = None
+    no_progress_runs: int = 0
+    #: Set by ``commit_interval``: True when proven coverage moved to
+    #: interval_end. ``scheduled`` is True when only the schedule moved.
     advanced: bool = False
+    scheduled: bool = False
+    #: Set by ``commit_interval``: the continuation cursor or coverage moved.
+    progressed: bool = False
+
+    @property
+    def schedule_position(self) -> Optional[datetime]:
+        """Where the next interval starts: proven coverage, or the schedule
+        when it moved further past a window recorded as a gap."""
+        if self.coverage_through and self.scheduled_through:
+            return max(self.coverage_through, self.scheduled_through)
+        return self.coverage_through or self.scheduled_through
 
     @property
     def has_unfinished_interval(self) -> bool:
-        return self.interval_end is not None and (
-            self.coverage_through is None or self.coverage_through < self.interval_end)
+        pos = self.schedule_position
+        return self.interval_end is not None and (pos is None or pos < self.interval_end)
 
 
 def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
                    now: Optional[datetime] = None, lease: timedelta = DEFAULT_LEASE,
-                   owner: Optional[str] = None) -> Optional[Checkpoint]:
+                   owner: Optional[str] = None, ignore_backoff: bool = False) -> Optional[Checkpoint]:
     """Lease the scope and return the interval to work.
 
     If the previous run left an interval unfinished, that same interval is
-    returned with its continuation; otherwise a new interval from the proven
-    coverage (or ``now - lookback`` on first contact) to ``now``, fixed at
-    this moment. Returns None when another worker holds the lease.
+    returned with its continuation; otherwise a new interval from the
+    schedule position (proven coverage, or the schedule when it moved past a
+    recorded gap; ``now - lookback`` on first contact) to ``now``, fixed at
+    this moment. Returns None when another worker holds the lease, or when
+    the scope is backing off after failures or runs that made no progress
+    (``next_attempt_at``), unless ``ignore_backoff``.
+
+    When the schedule position is older than the lookback, the interval
+    starts at ``now - lookback`` and the skipped stretch is written to
+    ``collection_gaps`` (reason ``lookback_cap``); an explicit catch-up run
+    can refill it.
     """
     now = now or datetime.now(timezone.utc)
     owner = owner or _owner()
@@ -166,11 +205,16 @@ def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
         conn = db._temp_get_connection()
         row = conn.execute(text("""
             SELECT interval_start, interval_end, coverage_through, coverage_unknown_before, continuation,
-                   version, lease_owner, lease_until, consecutive_failures, last_error_code, last_success_at
+                   version, lease_owner, lease_until, consecutive_failures, last_error_code, last_success_at,
+                   scheduled_through, no_progress_runs, next_attempt_at
               FROM collection_checkpoints WHERE provider = :p AND scope_key = :s FOR UPDATE
         """), {"p": provider, "s": scope_key}).fetchone()
         if row is not None and row[6] and row[7] and row[7] > now and row[6] != owner:
             conn.rollback()
+            return None
+        if row is not None and row[13] and row[13] > now and not ignore_backoff:
+            conn.rollback()
+            logger.info("checkpoint %s/%s backing off until %s", provider, scope_key, row[13])
             return None
         if row is None:
             start = now - lookback
@@ -179,8 +223,8 @@ def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
             conn.execute(text("""
                 INSERT INTO collection_checkpoints
                     (provider, scope_key, interval_start, interval_end, coverage_unknown_before,
-                     version, lease_owner, lease_until, last_attempt_at, updated_at)
-                VALUES (:p, :s, :a, :b, :u, 0, :o, :l, :n, :n)
+                     version, lease_owner, lease_until, last_attempt_at, updated_at, progress_at)
+                VALUES (:p, :s, :a, :b, :u, 0, :o, :l, :n, :n, :n)
                 ON CONFLICT (provider, scope_key) DO UPDATE SET
                     lease_owner = EXCLUDED.lease_owner, lease_until = EXCLUDED.lease_until,
                     last_attempt_at = EXCLUDED.last_attempt_at, updated_at = EXCLUDED.updated_at
@@ -188,20 +232,26 @@ def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
                    "o": owner, "l": now + lease, "n": now})
             conn.commit()
             return cp
-        (istart, iend, through, unknown_before, cont, version, _lo, _lu, fails, last_code, last_ok) = row
+        (istart, iend, through, unknown_before, cont, version, _lo, _lu, fails, last_code, last_ok,
+         sched, no_prog, _next) = row
         if isinstance(cont, str):
             try:
                 cont = json.loads(cont)
             except ValueError:
                 cont = None
         cp = Checkpoint(provider, scope_key, istart, iend, through, cont, int(version or 0),
-                        int(fails or 0), last_code, last_ok, unknown_before)
+                        int(fails or 0), last_code, last_ok, unknown_before,
+                        scheduled_through=sched, no_progress_runs=int(no_prog or 0))
         if not cp.has_unfinished_interval:
-            # Start the next fixed interval from proven coverage.
-            cp.interval_start = through or (now - lookback)
+            # Start the next fixed interval from the schedule position.
+            cp.interval_start = cp.schedule_position or (now - lookback)
             # Cap the replay at the lookback so a scope idle for months does
-            # not ask the provider for its whole history in one go.
+            # not ask the provider for its whole history in one go. The
+            # stretch skipped is a gap on record, not a silent loss.
             if cp.interval_start < now - lookback:
+                if cp.schedule_position is not None:
+                    _insert_gap(conn, provider, scope_key, cp.interval_start, now - lookback,
+                                "lookback_cap", None, now)
                 cp.coverage_unknown_before = now - lookback
                 cp.interval_start = now - lookback
             cp.interval_end = now
@@ -235,83 +285,102 @@ def claim_interval(db, provider: str, scope_key: str, *, lookback: timedelta,
                 pass
 
 
+def _insert_gap(conn, provider: str, scope_key: str, start: Optional[datetime],
+                end: Optional[datetime], reason: str, items: Optional[int], now: datetime) -> None:
+    conn.execute(text("""
+        INSERT INTO collection_gaps (provider, scope_key, interval_start, interval_end, reason, items, recorded_at)
+        VALUES (:p, :s, :a, :b, :r, :i, :n)
+    """), {"p": provider, "s": scope_key, "a": start, "b": end, "r": (reason or "unknown")[:32],
+           "i": items, "n": now})
+
+
 def commit_interval(db, cp: Checkpoint, result: CollectionResult, *,
                     owner: Optional[str] = None, now: Optional[datetime] = None) -> bool:
     """Record the run's effect on the checkpoint, atomically against the
-    version read at claim time.
+    version read at claim time. The caller has already saved the items.
 
-    A complete success (or a page cap, see ``contracts.TRUNC_PAGE_CAP``)
-    moves ``coverage_through`` to the interval end and clears the
-    continuation. A partial run, or a successful run that stopped early but
-    left a continuation, keeps the interval and stores the continuation. A
-    failure leaves coverage alone and counts the failure.
+    - Complete success: ``coverage_through`` moves to the interval end; the
+      continuation, failure count, no-progress count and backoff clear.
+    - Non-exhaustive success (a list API's full page with no way to ask for
+      more, ``CollectionResult.non_exhaustive``): proven coverage stays.
+      Under the ``advance`` policy the schedule moves to the interval end and
+      a ``collection_gaps`` row records the window; under ``hold`` the
+      interval is kept and counted as no progress.
+    - Failure: coverage stays, the failure is counted, the continuation of
+      the page that failed is kept, and the scope backs off.
+    - Partial (budget stop, persist failure, parse loss): coverage stays and
+      the continuation is kept. Not a failure. When the cursor did not move,
+      it counts as no progress and backs off.
 
-    Stall valve: a run that did not fail, on an interval that ended more than
-    ``CHECKPOINT_STALL_HOURS`` ago, advances anyway with
-    ``last_error_code='stalled_advanced'``. Without it a provider that keeps
-    answering "there is more" without a usable cursor holds a scope forever
-    (2-7 Oct 2026: 82 firehose keywords on bugfixing). Failures never take
-    the valve: an outage must stay visible, not be skipped past.
+    Nothing skips an interval because it failed or stalled for long. A
+    stuck scope stays visible in ``health_summary`` until it moves.
 
-    Sets ``cp.advanced``. Returns False when the version moved under us
-    (another worker committed first), in which case nothing is written.
+    Sets ``cp.advanced``, ``cp.scheduled`` and ``cp.progressed``. Returns
+    False when the version moved under us (another worker committed first),
+    in which case nothing is written.
     """
-    cp.advanced = False
+    cp.advanced = cp.scheduled = cp.progressed = False
     if cp.version < 0:
         return False
     owner = owner or _owner()
     now = now or datetime.now(timezone.utc)
-    stalled = (not result.may_advance_checkpoint and not result.failed
-               and cp.interval_end is not None
-               and now - cp.interval_end >= _stall_after())
     conn = None
     try:
         conn = db._temp_get_connection()
-        if result.may_advance_checkpoint or stalled:
+        key = {"p": cp.provider, "s": cp.scope_key, "v": cp.version, "n": now}
+        advancing = scheduled = progressed = False
+        if result.may_advance_checkpoint:
             res = conn.execute(text("""
                 UPDATE collection_checkpoints
                    SET coverage_through = :b, continuation = NULL, version = version + 1,
                        lease_owner = NULL, lease_until = NULL, last_success_at = :n,
-                       consecutive_failures = 0, last_error_code = :e, updated_at = :n
+                       consecutive_failures = 0, no_progress_runs = 0, next_attempt_at = NULL,
+                       last_error_code = NULL, progress_at = :n, updated_at = :n
                  WHERE provider = :p AND scope_key = :s AND version = :v
-            """), {"b": cp.interval_end, "n": now, "e": "stalled_advanced" if stalled else None,
-                   "p": cp.provider, "s": cp.scope_key, "v": cp.version})
-            if stalled:
-                logger.warning(
-                    "checkpoint %s/%s: interval %s..%s unfinished for %s; advancing past it (%s)",
-                    cp.provider, cp.scope_key, cp.interval_start, cp.interval_end,
-                    now - cp.interval_end, result.truncated_reason or result.status)
-                result.diagnostics["stall_advanced"] = True
-            advancing = True
-        elif (result.status == "partial" or (result.failed and result.retryable)
-              or (result.succeeded and result.continuation)):
+            """), {**key, "b": cp.interval_end})
+            advancing = progressed = True
+        elif result.non_exhaustive and _non_exhaustive_policy() == "advance":
+            res = conn.execute(text("""
+                UPDATE collection_checkpoints
+                   SET scheduled_through = :b, continuation = NULL, version = version + 1,
+                       lease_owner = NULL, lease_until = NULL, last_success_at = :n,
+                       consecutive_failures = 0, no_progress_runs = 0, next_attempt_at = NULL,
+                       last_error_code = :e, progress_at = :n, updated_at = :n
+                 WHERE provider = :p AND scope_key = :s AND version = :v
+            """), {**key, "b": cp.interval_end, "e": (result.truncated_reason or "")[:32] or None})
+            if res.rowcount:
+                _insert_gap(conn, cp.provider, cp.scope_key, cp.interval_start, cp.interval_end,
+                            result.truncated_reason or "non_exhaustive", len(result.items), now)
+            scheduled = progressed = True
+        else:
+            new_cont = result.continuation if result.continuation else cp.continuation
+            progressed = bool(result.continuation) and result.continuation != cp.continuation
+            failed = bool(result.failed)
+            fails = cp.consecutive_failures + 1 if failed else (0 if progressed else cp.consecutive_failures)
+            no_prog = 0 if progressed else cp.no_progress_runs + 1
+            if failed:
+                next_at = _backoff(fails, now)
+            elif not progressed:
+                next_at = _backoff(no_prog, now)
+            else:
+                next_at = None
             res = conn.execute(text("""
                 UPDATE collection_checkpoints
                    SET continuation = CAST(:c AS jsonb), version = version + 1,
                        lease_owner = NULL, lease_until = NULL,
-                       consecutive_failures = CASE WHEN :failed THEN consecutive_failures + 1 ELSE consecutive_failures END,
+                       consecutive_failures = :f, no_progress_runs = :np, next_attempt_at = :na,
+                       progress_at = CASE WHEN :prog THEN :n ELSE progress_at END,
                        last_error_code = :e, updated_at = :n
                  WHERE provider = :p AND scope_key = :s AND version = :v
-            """), {"c": _json(result.continuation), "failed": bool(result.failed),
-                   "e": (result.error_code or "")[:32] or None, "n": now,
-                   "p": cp.provider, "s": cp.scope_key, "v": cp.version})
-            advancing = False
-        else:
-            res = conn.execute(text("""
-                UPDATE collection_checkpoints
-                   SET version = version + 1, lease_owner = NULL, lease_until = NULL,
-                       consecutive_failures = consecutive_failures + 1,
-                       last_error_code = :e, updated_at = :n
-                 WHERE provider = :p AND scope_key = :s AND version = :v
-            """), {"e": (result.error_code or result.truncated_reason or "")[:32] or None, "n": now,
-                   "p": cp.provider, "s": cp.scope_key, "v": cp.version})
-            advancing = False
+            """), {**key, "c": _json(new_cont), "f": fails, "np": no_prog, "na": next_at,
+                   "prog": progressed,
+                   "e": (result.error_code or result.truncated_reason or "")[:32] or None})
         conn.commit()
         if res.rowcount == 0:
             logger.warning("checkpoint %s/%s moved under us (version %s); nothing written",
                            cp.provider, cp.scope_key, cp.version)
             return False
-        cp.advanced = advancing
+        cp.advanced, cp.scheduled, cp.progressed = advancing, scheduled, progressed
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("checkpoint commit failed for %s/%s: %s", cp.provider, cp.scope_key, exc)
@@ -374,45 +443,64 @@ def health_summary(db, *, since_hours: int = 24) -> Dict[str, Any]:
              WHERE error_code IS NOT NULL AND finished_at > NOW() - make_interval(hours => :h)
              GROUP BY provider, error_code ORDER BY 3 DESC LIMIT 50
         """), {"h": since_hours}).fetchall()
-        # A scope is stalled when its interval ended over a day ago and coverage
-        # never reached it. Every run touches updated_at, so it cannot say this.
+        # A scope is stalled when its interval ended over a day ago and neither
+        # coverage nor the schedule reached it. Every run touches updated_at,
+        # so it cannot say this. ``no_progress`` counts scopes whose last runs
+        # moved neither coverage nor their continuation cursor.
         stalled = conn.execute(text("""
-            SELECT provider, COUNT(*), MIN(interval_end)
+            SELECT provider, COUNT(*), MIN(interval_end),
+                   COUNT(*) FILTER (WHERE no_progress_runs >= 3),
+                   COUNT(*) FILTER (WHERE consecutive_failures >= 3)
               FROM collection_checkpoints
-             WHERE interval_end < NOW() - interval '24 hours'
-               AND (coverage_through IS NULL OR coverage_through < interval_end)
+             WHERE (interval_end < NOW() - interval '24 hours'
+                    AND COALESCE(GREATEST(coverage_through, scheduled_through), '-infinity') < interval_end)
+                OR no_progress_runs >= 3 OR consecutive_failures >= 3
              GROUP BY provider
         """)).fetchall()
-        stalled_by = {r[0]: (int(r[1]), r[2]) for r in stalled}
+        stalled_by = {r[0]: (int(r[1]), r[2], int(r[3]), int(r[4])) for r in stalled}
+        gaps = conn.execute(text("""
+            SELECT provider, reason, COUNT(*), MIN(interval_start)
+              FROM collection_gaps
+             WHERE resolved_at IS NULL AND recorded_at > NOW() - make_interval(hours => :h)
+             GROUP BY provider, reason
+        """), {"h": since_hours}).fetchall()
         pending = conn.execute(text("""
             SELECT provider, scope_key, interval_start, interval_end, coverage_through, consecutive_failures,
-                   last_error_code, updated_at
+                   last_error_code, updated_at, scheduled_through, progress_at, no_progress_runs,
+                   next_attempt_at, continuation
               FROM collection_checkpoints
-             WHERE continuation IS NOT NULL OR consecutive_failures >= 3
-             ORDER BY updated_at LIMIT 100
+             WHERE continuation IS NOT NULL OR consecutive_failures >= 3 OR no_progress_runs >= 3
+             ORDER BY COALESCE(progress_at, updated_at) LIMIT 100
         """)).fetchall()
+
+        def _iso(v):
+            return v.isoformat() if v else None
+
         return {
             "providers": [
-                {"provider": r[0], "last_success_at": r[1].isoformat() if r[1] else None,
-                 "last_run_at": r[2].isoformat() if r[2] else None, "failed": int(r[3]),
+                {"provider": r[0], "last_success_at": _iso(r[1]),
+                 "last_run_at": _iso(r[2]), "failed": int(r[3]),
                  "partial": int(r[4]), "quota_exhausted": int(r[5]), "empty_success": int(r[6]),
-                 "stalled": stalled_by.get(r[0], (0, None))[0],
-                 "stalled_oldest_interval_end": (
-                     stalled_by[r[0]][1].isoformat()
-                     if r[0] in stalled_by and stalled_by[r[0]][1] else None)}
+                 "stalled": stalled_by.get(r[0], (0, None, 0, 0))[0],
+                 "stalled_oldest_interval_end": _iso(stalled_by.get(r[0], (0, None, 0, 0))[1]),
+                 "no_progress": stalled_by.get(r[0], (0, None, 0, 0))[2],
+                 "repeatedly_failed": stalled_by.get(r[0], (0, None, 0, 0))[3]}
                 for r in providers],
             "errors": [{"provider": r[0], "error_code": r[1], "count": int(r[2])} for r in errors],
+            "gaps": [{"provider": r[0], "reason": r[1], "count": int(r[2]), "oldest_start": _iso(r[3])}
+                     for r in gaps],
             "pending_intervals": [
                 {"provider": r[0], "scope_key": r[1],
-                 "interval_start": r[2].isoformat() if r[2] else None,
-                 "interval_end": r[3].isoformat() if r[3] else None,
-                 "coverage_through": r[4].isoformat() if r[4] else None,
+                 "interval_start": _iso(r[2]), "interval_end": _iso(r[3]),
+                 "coverage_through": _iso(r[4]),
                  "consecutive_failures": int(r[5] or 0), "last_error_code": r[6],
-                 "updated_at": r[7].isoformat() if r[7] else None}
+                 "updated_at": _iso(r[7]), "scheduled_through": _iso(r[8]),
+                 "progress_at": _iso(r[9]), "no_progress_runs": int(r[10] or 0),
+                 "next_attempt_at": _iso(r[11]), "continuation": r[12]}
                 for r in pending],
         }
     except Exception as exc:  # noqa: BLE001
-        return {"error": str(exc), "providers": [], "errors": [], "pending_intervals": []}
+        return {"error": str(exc), "providers": [], "errors": [], "gaps": [], "pending_intervals": []}
     finally:
         if conn is not None:
             try:

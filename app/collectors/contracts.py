@@ -59,9 +59,11 @@ TRUNC_RETENTION = "retention_limit"
 TRUNC_NO_DATE_FILTER = "provider_no_date_filter"
 TRUNC_PARSE_PARTIAL = "parse_partial"
 #: The provider returned the most it will give for this query and there is no
-#: way to ask for more (a list API with no paging, or our own per-query page
-#: cap). Waiting does not help, so the checkpoint may advance; the run record
-#: keeps ``coverage_complete=False`` as the stated limitation.
+#: way to ask for more (a list API with no paging). Re-asking the same window
+#: returns the same page. This is NOT proven coverage: the checkpoint keeps
+#: ``coverage_through`` where it was. Whether the schedule may move past the
+#: window anyway is a separate loss policy (``collection_runs``), which records
+#: a gap when it does. A provider that can page must page instead.
 TRUNC_PAGE_CAP = "page_cap"
 
 #: Status codes that are a provider or network hiccup, not a bad query.
@@ -193,14 +195,20 @@ class CollectionResult:
 
     @property
     def may_advance_checkpoint(self) -> bool:
-        """Only a complete interval moves coverage forward. A 429, a timeout,
-        a parse error or an exhausted budget never does, whatever it managed
-        to return on the way. The one exception is a page cap: re-asking the
-        same window returns the same page, so holding it would stall the
-        scope for good (the firehose keywords did, 2-7 Oct 2026)."""
-        if self.status != STATUS_SUCCESS or self.parse_partial:
-            return False
-        return self.coverage_complete or self.truncated_reason == TRUNC_PAGE_CAP
+        """Only a complete interval moves proven coverage forward. A 429, a
+        timeout, a parse error, an exhausted budget or a provider's page cap
+        never does, whatever it managed to return on the way."""
+        return (self.status == STATUS_SUCCESS and self.coverage_complete
+                and not self.parse_partial)
+
+    @property
+    def non_exhaustive(self) -> bool:
+        """A successful run that stopped at the provider's own limit with no
+        way to ask for the rest: no continuation, coverage incomplete. Holding
+        the interval would only fetch the same page again."""
+        return (self.status == STATUS_SUCCESS and not self.coverage_complete
+                and not self.continuation and not self.parse_partial
+                and self.truncated_reason in (TRUNC_PAGE_CAP, TRUNC_PROVIDER_LIMIT))
 
     def mark_started(self) -> "CollectionResult":
         self.started_at = self.started_at or datetime.now(timezone.utc)

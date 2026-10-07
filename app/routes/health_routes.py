@@ -839,8 +839,11 @@ def build_collection_alerts(
                 f"no successful run for {provider} in {_hours(now - last_run)}h (never succeeded)"
             )
 
-    # Stalled scopes: the interval ended over a day ago and coverage never got
-    # there. One line per provider; its scopes are not repeated below.
+    # Stalled scopes: the interval ended over a day ago and neither coverage
+    # nor the schedule got there, or the last 3+ runs failed, or the last 3+
+    # runs moved neither coverage nor the continuation cursor. One line per
+    # provider; its scopes are not repeated below. The line clears only when
+    # the scopes move again.
     stalled_providers = set()
     for p in runs.get("providers", []) or []:
         n = int(p.get("stalled") or 0)
@@ -849,8 +852,23 @@ def build_collection_alerts(
         provider = p.get("provider") or "?"
         stalled_providers.add(provider)
         oldest = _parse_ts(p.get("stalled_oldest_interval_end"))
-        since = f" (oldest window ended {_hours(now - oldest)}h ago)" if oldest else ""
+        detail = []
+        if oldest:
+            detail.append(f"oldest window ended {_hours(now - oldest)}h ago")
+        if int(p.get("repeatedly_failed") or 0):
+            detail.append(f"{int(p['repeatedly_failed'])} failing 3+ times in a row")
+        if int(p.get("no_progress") or 0):
+            detail.append(f"{int(p['no_progress'])} not progressing")
+        since = f" ({'; '.join(detail)})" if detail else ""
         alerts.append(f"{n} stalled scope(s) for {provider}{since}")
+
+    # Windows the schedule skipped because they were older than the lookback
+    # are a real loss until a catch-up run refills them. Page-cap gaps from
+    # list APIs are the provider's stated limit and are reported, not alerted.
+    for g in runs.get("gaps", []) or []:
+        if g.get("reason") == "lookback_cap" and int(g.get("count") or 0) > 0:
+            alerts.append(f"{int(g['count'])} window(s) for {g.get('provider')} skipped past the "
+                          f"lookback; run a catch-up")
 
     for pi in runs.get("pending_intervals", []) or []:
         provider = pi.get("provider") or "?"
@@ -974,7 +992,7 @@ def _collect_collection_health() -> Dict[str, Any]:
             out[name] = None
             out["errors"][name] = str(exc)
 
-    section("runs", lambda: _runs_summary(db) if db else {"providers": [], "errors": [], "pending_intervals": []})
+    section("runs", lambda: _runs_summary(db) if db else {"providers": [], "errors": [], "gaps": [], "pending_intervals": []})
     section("quota", _quota_status)
     section("rejected_candidates", lambda: _rejected_stats(db) if db else {})
     section("feeds", lambda: _feed_health_rows(db) if db else [])

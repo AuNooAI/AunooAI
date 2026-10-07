@@ -1761,6 +1761,25 @@ t_collection_checkpoints = Table(
     Column('consecutive_failures', Integer, server_default=text('0'), nullable=False),
     Column('last_error_code', String(32)),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    # ip_001 (docs/pipelines/08_INGEST_FIX_SPEC.md, WP1)
+    Column('scheduled_through', DateTime(timezone=True)),
+    Column('progress_at', DateTime(timezone=True)),
+    Column('no_progress_runs', Integer, server_default=text('0'), nullable=False),
+    Column('next_attempt_at', DateTime(timezone=True)),
+)
+
+t_collection_gaps = Table(
+    'collection_gaps', metadata,
+    Column('id', BigInteger, primary_key=True),
+    Column('provider', String(40), nullable=False),
+    Column('scope_key', Text, nullable=False),
+    Column('interval_start', DateTime(timezone=True)),
+    Column('interval_end', DateTime(timezone=True)),
+    Column('reason', String(32), nullable=False),
+    Column('items', Integer),
+    Column('recorded_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('resolved_at', DateTime(timezone=True)),
+    Index('ix_collection_gaps_scope', 'provider', 'scope_key'),
 )
 
 t_rejected_candidates = Table(

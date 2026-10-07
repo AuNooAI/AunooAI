@@ -661,33 +661,17 @@ def test_default_collect_wraps_a_list_collector():
     assert res.succeeded and res.coverage_complete and res.provider == "plain"
     assert res.items[0]["_collector_provider"] == "plain" and res.items[0]["content_kind"] == "unknown"
     full = run(Plain().collect("full", "t", interval_start=START, interval_end=NOW, max_results=10))
-    # A full page from a list API is a page cap: coverage stays incomplete on
-    # the run record, but the checkpoint advances, because asking the same
-    # window again returns the same page (the 2-7 Oct 2026 firehose stall).
+    # A full page from a list API has no proven end and no way to ask for
+    # more. It never proves coverage; it is flagged non-exhaustive so the
+    # checkpoint's loss policy can record a gap. No invented continuation.
     assert full.succeeded and not full.coverage_complete and full.truncated_reason == c.TRUNC_PAGE_CAP
-    assert full.may_advance_checkpoint
+    assert not full.may_advance_checkpoint and full.non_exhaustive and full.continuation is None
     bad = run(Plain().collect("boom", "t", interval_start=START, interval_end=NOW))
     assert bad.failed and bad.error_code == c.ERR_TIMEOUT and bad.retryable
 
 
-def test_newsfirehose_accepts_aware_interval_bounds():
-    """The keyword monitor hands over timezone-aware bounds; the firehose
-    collector compares against the naive local clock. Mixing the two raised
-    TypeError on every poll for eight hours after the 1 Oct restart."""
-    from datetime import datetime, timedelta, timezone
-    from app.collectors.newsfirehose_collector import _naive_local
-    aware = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
-    out = _naive_local(aware)
-    assert out.tzinfo is None
-    # Same instant on the local clock, so arithmetic with datetime.now() works.
-    assert abs((out - aware.astimezone().replace(tzinfo=None)).total_seconds()) < 1
-    assert (datetime.now() - out) > timedelta(0)
-    naive = datetime(2026, 10, 1, 12, 0)
-    assert _naive_local(naive) is naive and _naive_local(None) is None and _naive_local("2026-10-01") == "2026-10-01"
-
-
 # ---------------------------------------------------------------------------
-# NewsFirehose paging (the 2-7 Oct 2026 stall)
+# NewsFirehose paging (docs/pipelines/08_INGEST_FIX_SPEC.md, WP1)
 # ---------------------------------------------------------------------------
 
 def _nf_row(i, when):
@@ -706,18 +690,28 @@ def _firehose(monkeypatch, handler, **env):
     return mod.NewsFirehoseCollector(), session
 
 
-def _nf_pages(total, newest=NOW - timedelta(minutes=1), step=timedelta(minutes=2), per_q=None):
+def _nf_pages(total, newest=NOW - timedelta(minutes=1), step=timedelta(minutes=2), per_q=None,
+              fail=None):
     """A /v1/search fake over ``total`` rows newest first, paged by the
     params the collector sends. ``per_q`` maps a q to its own row offset so
-    two OR-chunks can return overlapping rows."""
+    two OR-chunks can return overlapping rows. ``fail(q, page)`` may return
+    a FakeResponse to answer that page instead."""
     def handler(url, params, headers):
         page, size = int(params["page"]), int(params["page_size"])
+        if fail is not None:
+            out = fail(params["q"], page)
+            if out is not None:
+                return out
         base = (per_q or {}).get(params["q"], 0)
         ids = range(base + (page - 1) * size, min(base + total, base + page * size))
         rows = [_nf_row(i, newest - step * (i - base)) for i in ids]
         has_more = base + page * size < base + total
         return FakeResponse(200, {"status": "ok", "articles": rows, "has_more": has_more})
     return handler
+
+
+def _cursor(res):
+    return {k: v for k, v in (res.continuation or {}).items() if k != "q"}
 
 
 def test_newsfirehose_pages_until_has_more_is_false(monkeypatch):
@@ -741,82 +735,158 @@ def test_newsfirehose_stops_once_a_page_reaches_past_the_window(monkeypatch):
     assert len(res.items) == 30 and res.counts.filtered == 70
 
 
-def test_newsfirehose_page_cap_advances_and_says_so(monkeypatch):
-    coll, session = _firehose(monkeypatch, _nf_pages(5000, step=timedelta(seconds=1)),
-                              NEWSFIREHOSE_MAX_PAGES_PER_CHUNK=2)
+def test_newsfirehose_has_no_per_chunk_cap(monkeypatch):
+    """Until 7 Oct a 3-page cap per chunk advanced coverage past unread rows.
+    Now a broad keyword pages to the API's proven end."""
+    coll, session = _firehose(monkeypatch, _nf_pages(950, step=timedelta(seconds=10)),
+                              NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_MAX_PAGES_PER_CHUNK=2)
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(days=1), interval_end=NOW))
-    assert len(session.calls) == 2 and len(res.items) == 200
-    assert res.succeeded and not res.coverage_complete
-    assert res.truncated_reason == c.TRUNC_PAGE_CAP and res.may_advance_checkpoint
-    assert res.diagnostics["capped_chunks"] == [0]
+    assert len(session.calls) == 10 and len(res.items) == 950
+    assert res.succeeded and res.coverage_complete and res.may_advance_checkpoint
 
 
-def test_newsfirehose_pages_newer_than_the_window_do_not_use_up_the_cap(monkeypatch):
-    """The API filters by whole days. A stuck window ending at 13:56 first
-    returns everything published later that day; on 7 Oct the AI keyword's
-    three capped pages were all such rows and the run collected nothing."""
-    # 1,000 rows one minute apart from NOW; the window is NOW-10h .. NOW-5h,
-    # so the first 300 rows (5 hours) are newer than the window.
+def test_newsfirehose_pages_newer_than_the_window_are_read_through(monkeypatch):
+    """The API filters by whole days. A window ending mid-afternoon first
+    returns everything published later that day; those pages are read and
+    filtered, and the run goes on to the window itself."""
     coll, session = _firehose(monkeypatch, _nf_pages(1000, newest=NOW, step=timedelta(minutes=1)),
-                              NEWSFIREHOSE_MAX_PAGES_PER_CHUNK=2, NEWSFIREHOSE_OVERLAP_HOURS=0)
+                              NEWSFIREHOSE_OVERLAP_HOURS=0, NEWSFIREHOSE_MAX_PAGES=50)
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=10),
                            interval_end=NOW - timedelta(hours=5)))
-    assert [call["params"]["page"] for call in session.calls] == [1, 2, 3, 4, 5]
-    assert len(res.items) == 200 and res.truncated_reason == c.TRUNC_PAGE_CAP
+    # Rows 300..600 are the window; page 7 (rows 600..699) reaches past its start.
+    assert [call["params"]["page"] for call in session.calls] == [1, 2, 3, 4, 5, 6, 7]
+    assert len(res.items) == 301 and res.coverage_complete
 
 
-def test_newsfirehose_budget_returns_partial_and_resumes(monkeypatch):
+def test_newsfirehose_budget_returns_partial_and_resumes_with_one_page_replay(monkeypatch):
     handler = _nf_pages(450)
-    coll, session = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=2,
-                              NEWSFIREHOSE_MAX_PAGES_PER_CHUNK=10)
+    coll, session = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=2)
     first = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
     assert first.status == c.STATUS_PARTIAL and not first.may_advance_checkpoint
-    assert first.continuation == {"chunk": 0, "page": 3, "inwin": 2, "capped": []} and len(first.items) == 200
-    coll2, session2 = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=5,
-                                NEWSFIREHOSE_MAX_PAGES_PER_CHUNK=10)
+    assert first.truncated_reason == c.TRUNC_TIME_BUDGET and not first.coverage_complete
+    assert _cursor(first) == {"chunk": 0, "page": 3} and len(first.items) == 200
+    coll2, session2 = _firehose(monkeypatch, handler, NEWSFIREHOSE_MAX_PAGES=5)
     second = run(coll2.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW,
                                continuation=first.continuation))
-    assert [call["params"]["page"] for call in session2.calls] == [3, 4, 5]
-    assert second.succeeded and second.coverage_complete and len(second.items) == 250
+    # Page 2 is replayed because the sort has no tie-breaker; nothing is skipped.
+    assert [call["params"]["page"] for call in session2.calls] == [2, 3, 4, 5]
+    assert second.succeeded and second.coverage_complete
+    urls = {i["url"] for i in first.items} | {i["url"] for i in second.items}
+    assert len(urls) == 450
 
 
-def test_newsfirehose_or_chunks_are_deduplicated(monkeypatch):
-    terms = " OR ".join(f"term{i}" for i in range(12))   # 12 terms -> 2 chunks of 8 and 4
-    coll, session = _firehose(monkeypatch, None)
+def test_newsfirehose_continuation_for_another_query_is_discarded(monkeypatch):
+    coll, session = _firehose(monkeypatch, _nf_pages(50))
+    res = run(coll.collect("SOC", "t", interval_start=START, interval_end=NOW,
+                           continuation={"q": "something-else", "chunk": 3, "page": 9}))
+    assert session.calls[0]["params"]["page"] == 1 and res.coverage_complete
+    assert res.diagnostics["continuation_discarded"]
+
+
+def test_newsfirehose_failure_on_page_two_keeps_page_one(monkeypatch):
+    fail = lambda q, page: FakeResponse(503, {"detail": "busy"}) if page == 2 else None
+    coll, session = _firehose(monkeypatch, _nf_pages(450, fail=fail))
+    res = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_HTTP_5XX and res.retryable
+    assert len(res.items) == 100 and _cursor(res) == {"chunk": 0, "page": 2}
+    assert not res.may_advance_checkpoint
+
+
+def test_newsfirehose_failure_on_the_replayed_page_never_walks_the_cursor_back(monkeypatch):
+    broken = {"on": False}
+    fail = lambda q, page: FakeResponse(503, {"detail": "busy"}) if broken["on"] and page == 4 else None
+    coll, session = _firehose(monkeypatch, _nf_pages(900, fail=fail), NEWSFIREHOSE_MAX_PAGES=4)
+    first = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
+    assert _cursor(first) == {"chunk": 0, "page": 5}
+    broken["on"] = True
+    res = run(coll.collect("SOC", "t", interval_start=NOW - timedelta(days=3), interval_end=NOW,
+                           continuation=first.continuation))
+    assert session.calls[-1]["params"]["page"] == 4
+    assert res.failed and _cursor(res) == {"chunk": 0, "page": 5}
+
+
+def test_newsfirehose_or_chunks_are_all_read_and_deduplicated(monkeypatch):
+    terms = " OR ".join(f"term{i}" for i in range(20))   # 20 terms -> chunks of 8, 8, 4
+    coll, session = _firehose(monkeypatch, None, NEWSFIREHOSE_MAX_PAGES=50)
     chunks = coll._split_query_terms(coll._normalize_query(terms))
-    assert len(chunks) == 2
-    # The second chunk returns rows 30..79; rows 30..49 overlap the first chunk's 0..49.
-    session.handler = _nf_pages(50, per_q={chunks[0]: 0, chunks[1]: 30})
+    assert len(chunks) == 3 and all(len(ch.split(" OR ")) <= 8 for ch in chunks)
+    # Chunk 2 returns rows 30..179 and overlaps chunk 1's 0..149.
+    session.handler = _nf_pages(150, per_q={chunks[0]: 0, chunks[1]: 30, chunks[2]: 1000})
     res = run(coll.collect(terms, "t", interval_start=NOW - timedelta(days=3), interval_end=NOW))
     assert res.succeeded and res.coverage_complete
-    assert len(res.items) == 80 and res.counts.duplicate == 20
+    assert len(res.items) == 150 + 30 + 150 and res.counts.duplicate == 120
     assert {call["params"]["q"] for call in session.calls} == set(chunks)
+    assert len(session.calls) == 6
 
 
-def test_newsfirehose_to_date_is_the_day_after_the_interval_end(monkeypatch):
-    coll, session = _firehose(monkeypatch, _nf_pages(3))
-    end = datetime(2026, 10, 2, 15, 25, tzinfo=timezone.utc)
-    run(coll.collect("x", "t", interval_start=end - timedelta(hours=12), interval_end=end))
+def test_newsfirehose_failed_chunk_is_not_skipped(monkeypatch):
+    terms = " OR ".join(f"term{i}" for i in range(12))
+    coll, session = _firehose(monkeypatch, None)
+    chunks = coll._split_query_terms(coll._normalize_query(terms))
+    fail = lambda q, page: FakeResponse(401, {"detail": "bad key"}) if q == chunks[1] else None
+    session.handler = _nf_pages(20, per_q={chunks[0]: 0, chunks[1]: 100}, fail=fail)
+    res = run(coll.collect(terms, "t", interval_start=START, interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_AUTH and not res.retryable
+    assert len(res.items) == 20 and _cursor(res) == {"chunk": 1, "page": 1}
+
+
+@pytest.mark.parametrize("body,why", [
+    ({"articles": []}, "has_more"),
+    ({"articles": [], "has_more": "no"}, "has_more"),
+    ({"has_more": False}, "articles"),
+    ({"articles": [], "has_more": True}, "empty page"),
+    ("<html>gateway</html>", "JSON object"),
+])
+def test_newsfirehose_malformed_paging_is_never_a_proven_end(monkeypatch, body, why):
+    coll, session = _firehose(monkeypatch, lambda u, p, h: FakeResponse(200, body))
+    res = run(coll.collect("x", "t", interval_start=START, interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_PARSE and not res.may_advance_checkpoint
+    assert why in res.error_message
+
+
+def test_newsfirehose_date_params_are_utc_days_with_slack(monkeypatch):
+    coll, session = _firehose(monkeypatch, _nf_pages(3), NEWSFIREHOSE_OVERLAP_HOURS=0)
+    # Cross-midnight in Berlin, same day in UTC: 2 Oct 21:30 .. 23:30 UTC.
+    end = datetime(2026, 10, 2, 23, 30, tzinfo=timezone.utc)
+    run(coll.collect("x", "t", interval_start=end - timedelta(hours=2), interval_end=end))
     p = session.calls[0]["params"]
-    local_end = end.astimezone()
-    assert p["to_date"] == (local_end + timedelta(days=1)).strftime("%Y-%m-%d")
-    assert p["from_date"] <= (end - timedelta(hours=12)).astimezone().strftime("%Y-%m-%d")
+    assert p["from_date"] == "2026-10-01" and p["to_date"] == "2026-10-04"
 
 
-@pytest.mark.parametrize("status,code", [(422, c.ERR_HTTP_4XX), (500, c.ERR_HTTP_5XX), (429, c.ERR_QUOTA)])
-def test_newsfirehose_http_errors_never_look_like_an_empty_success(monkeypatch, status, code):
+def test_newsfirehose_boundary_rows_are_kept(monkeypatch):
+    """Rows exactly on the interval bounds, and rows just past local
+    midnight, survive the client-side filter."""
+    lo = datetime(2026, 10, 2, 22, 0, tzinfo=timezone.utc)   # 00:00 Berlin
+    hi = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
+    rows = [_nf_row(1, hi), _nf_row(2, datetime(2026, 10, 2, 23, 59, tzinfo=timezone.utc)),
+            _nf_row(3, lo), _nf_row(4, lo - timedelta(seconds=1))]
+    coll, session = _firehose(monkeypatch, lambda u, p, h: FakeResponse(
+        200, {"articles": rows, "has_more": False}), NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect("x", "t", interval_start=lo, interval_end=hi))
+    assert sorted(int(i["url"].rsplit("/", 1)[1]) for i in res.items) == [1, 2, 3]
+    assert res.counts.filtered == 1 and res.coverage_complete
+
+
+@pytest.mark.parametrize("status,code,retryable", [
+    (401, c.ERR_AUTH, False), (422, c.ERR_HTTP_4XX, False),
+    (500, c.ERR_HTTP_5XX, True), (429, c.ERR_QUOTA, True)])
+def test_newsfirehose_http_errors_never_look_like_an_empty_success(monkeypatch, status, code, retryable):
     coll, session = _firehose(monkeypatch, lambda u, p, h: FakeResponse(status, {"detail": "nope"}))
     res = run(coll.collect("x", "t", interval_start=START, interval_end=NOW))
-    assert res.failed and res.error_code == code and not res.may_advance_checkpoint
-    assert res.continuation == {"chunk": 0, "page": 1, "inwin": 0, "capped": []}
+    assert res.failed and res.error_code == code and res.retryable is retryable
+    assert not res.may_advance_checkpoint
+    assert _cursor(res) == {"chunk": 0, "page": 1}
 
 
-def test_newsfirehose_exception_is_a_failure(monkeypatch):
+@pytest.mark.parametrize("exc,code", [
+    (TimeoutError("slow"), c.ERR_TIMEOUT),
+    (ConnectionRefusedError("server stopped"), c.ERR_CONNECTION)])
+def test_newsfirehose_exception_is_a_failure(monkeypatch, exc, code):
     def boom(url, params, headers):
-        raise TimeoutError("slow")
+        raise exc
     coll, session = _firehose(monkeypatch, boom)
     res = run(coll.collect("x", "t", interval_start=START, interval_end=NOW))
-    assert res.failed and res.error_code == c.ERR_TIMEOUT and res.retryable
+    assert res.failed and res.error_code == code and res.retryable
 
 
 def test_newsfirehose_empty_query_sends_nothing(monkeypatch):
@@ -825,29 +895,68 @@ def test_newsfirehose_empty_query_sends_nothing(monkeypatch):
     assert res.succeeded and session.calls == []
 
 
-def test_newsfirehose_search_articles_to_date_is_the_next_day(monkeypatch):
-    """The list API used by Auspex and the MCP tools had the same midnight bug."""
+def _search_session(monkeypatch, responder):
     from app.collectors import newsfirehose_collector as mod
     monkeypatch.setenv("NEWSFIREHOSE_API_KEY", "k-nf")
-    sent = {}
+    sent = []
 
     class _Resp:
-        status = 200
-        content_type = "application/json"
+        def __init__(self, status, body):
+            self.status, self._body = status, body
+            self.content_type = "application/json"
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
-        async def json(self): return {"articles": []}
+        async def json(self, content_type=None): return self._body
+        async def text(self): return json.dumps(self._body)
 
     class _Sess:
         def __init__(self, *a, **k): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
         def get(self, url, params=None, headers=None):
-            sent.update(params)
-            return _Resp()
+            sent.append(dict(params))
+            return _Resp(*responder(params))
 
     monkeypatch.setattr(mod.aiohttp, "ClientSession", _Sess)
-    coll = mod.NewsFirehoseCollector()
-    run(coll.search_articles("x", "t", start_date=datetime(2026, 10, 1, 8, 0),
-                             end_date=datetime(2026, 10, 2, 17, 0)))
-    assert sent["to_date"] == "2026-10-03" and sent["from_date"] == "2026-10-01"
+    return mod.NewsFirehoseCollector(), sent
+
+
+def test_newsfirehose_search_articles_sends_utc_day_bounds(monkeypatch):
+    """The interactive search used by Auspex and the MCP tools."""
+    coll, sent = _search_session(monkeypatch, lambda p: (200, {"articles": []}))
+    run(coll.search_articles("x", "t", start_date=datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc),
+                             end_date=datetime(2026, 10, 2, 17, 0, tzinfo=timezone.utc)))
+    assert sent[0]["to_date"] == "2026-10-04" and sent[0]["from_date"] == "2026-09-30"
+
+
+def test_newsfirehose_search_articles_filters_to_the_requested_window(monkeypatch):
+    """No more 30-day widening: a 2-day request returns 2 days."""
+    now = datetime.now(timezone.utc)
+    rows = [_nf_row(i, now - timedelta(days=d)) for i, d in enumerate((0.5, 1.5, 5, 20))]
+    coll, sent = _search_session(monkeypatch, lambda p: (200, {"articles": rows}))
+    out = run(coll.search_articles("x", "t", max_results=10, start_date=now - timedelta(days=2)))
+    assert len(out) == 2
+
+
+def test_newsfirehose_search_articles_raises_when_every_chunk_fails(monkeypatch):
+    coll, sent = _search_session(monkeypatch, lambda p: (503, {"detail": "busy"}))
+    with pytest.raises(Exception):
+        run(coll.search_articles("x", "t"))
+
+
+def test_newsfirehose_too_broad_keyword_is_a_visible_configuration_failure(monkeypatch):
+    coll, session = _firehose(monkeypatch, _nf_pages(5000, step=timedelta(seconds=10)),
+                              NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3,
+                              NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_CONFIG and not res.retryable
+    assert res.items == [] and not res.may_advance_checkpoint
+    assert "too broad" in res.error_message and len(session.calls) == 3
+
+
+def test_newsfirehose_broad_limit_scales_with_the_window(monkeypatch):
+    # A 2-day window at 3 pages a day allows 6 pages per chunk; 5 pages completes.
+    coll, session = _firehose(monkeypatch, _nf_pages(450, step=timedelta(seconds=10)),
+                              NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=3)
+    res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(days=2), interval_end=NOW))
+    assert res.succeeded and res.coverage_complete and len(res.items) == 450

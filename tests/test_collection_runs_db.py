@@ -28,6 +28,7 @@ def db():
     try:
         conn.execute(text("DELETE FROM collection_runs WHERE provider = :p"), {"p": PROVIDER})
         conn.execute(text("DELETE FROM collection_checkpoints WHERE provider = :p"), {"p": PROVIDER})
+        conn.execute(text("DELETE FROM collection_gaps WHERE provider = :p"), {"p": PROVIDER})
         conn.execute(text("DELETE FROM rejected_candidates WHERE group_id = -999"))
         conn.commit()
     finally:
@@ -55,9 +56,10 @@ def test_checkpoint_only_advances_on_complete_success(db):
     assert cp is not None and cp.version == 0 and cp.coverage_through is None
     end1 = cp.interval_end
 
-    # A failure leaves coverage alone and keeps the interval.
+    # A failure leaves coverage alone, keeps the interval and backs off.
     assert commit_interval(db, cp, CollectionResult.failure(ERR_TIMEOUT, "ReadTimeout", retryable=True))
-    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1)) is None
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), ignore_backoff=True)
     assert cp2.coverage_through is None and cp2.interval_end == end1 and cp2.consecutive_failures == 1
 
     # A partial run keeps the interval and stores the continuation.
@@ -110,54 +112,110 @@ def test_gate_version_is_order_and_case_insensitive():
     assert gate_version(["a"], 0.5) != gate_version(["a"], 0.6)
 
 
-def test_page_cap_advances_and_a_continuation_holds(db):
-    """A page cap moves coverage (re-asking returns the same page); a
-    successful run that stopped with a continuation keeps the interval."""
-    from app.collectors.contracts import CollectionResult, TRUNC_PAGE_CAP
+def _gaps(db, scope):
+    conn = db._temp_get_connection()
+    try:
+        return conn.execute(text("SELECT reason, interval_start, interval_end, items FROM collection_gaps "
+                                 "WHERE provider = :p AND scope_key = :s ORDER BY id"),
+                            {"p": PROVIDER, "s": scope}).fetchall()
+    finally:
+        conn.close()
+
+
+def test_a_continuation_holds_and_counts_as_progress_not_failure(db):
+    from app.collectors.contracts import CollectionResult, TRUNC_TIME_BUDGET
     from app.services.collection_runs import claim_interval, commit_interval
-    scope = "scope:cap"
+    scope = "scope:cont"
     cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
     end1 = cp.interval_end
     early = CollectionResult.ok([{"url": "a"}])
     early.coverage_complete = False
     early.continuation = {"after": "t3_x"}
-    assert commit_interval(db, cp, early) and not cp.advanced
+    assert commit_interval(db, cp, early) and not cp.advanced and cp.progressed
     cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
     assert cp2.interval_end == end1 and cp2.continuation == {"after": "t3_x"} and cp2.consecutive_failures == 0
 
+    # The same cursor again: no progress, not a failure, and the scope backs off.
+    same = CollectionResult.partial([], truncated_reason=TRUNC_TIME_BUDGET, continuation={"after": "t3_x"})
+    assert commit_interval(db, cp2, same) and not cp2.progressed
+    assert claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1)) is None
+    cp3 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), ignore_backoff=True)
+    assert cp3.consecutive_failures == 0 and cp3.no_progress_runs == 1 and cp3.coverage_through is None
+
+
+def test_non_exhaustive_page_moves_the_schedule_and_records_a_gap(db, monkeypatch):
+    """A list API's full page never proves coverage. Under the default
+    ``advance`` policy the schedule moves past the window and the window is
+    written to collection_gaps; coverage_through stays where it was."""
+    from app.collectors.contracts import CollectionResult, TRUNC_PAGE_CAP
+    from app.services.collection_runs import claim_interval, commit_interval, health_summary
+    monkeypatch.delenv("COLLECTION_NON_EXHAUSTIVE_POLICY", raising=False)
+    scope = "scope:cap"
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    start1, end1 = cp.interval_start, cp.interval_end
+    capped = CollectionResult.ok([{"url": "b"}] * 10)
+    capped.coverage_complete = False
+    capped.truncated_reason = TRUNC_PAGE_CAP
+    assert commit_interval(db, cp, capped) and cp.scheduled and not cp.advanced
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    assert cp2.coverage_through is None and cp2.scheduled_through == end1
+    assert cp2.interval_start == end1 and cp2.consecutive_failures == 0
+    assert [(g[0], g[1], g[2], g[3]) for g in _gaps(db, scope)] == [("page_cap", start1, end1, 10)]
+    summary = health_summary(db, since_hours=1)
+    assert any(g["provider"] == PROVIDER and g["reason"] == "page_cap" for g in summary["gaps"])
+
+
+def test_non_exhaustive_page_under_hold_keeps_the_interval(db, monkeypatch):
+    from app.collectors.contracts import CollectionResult, TRUNC_PAGE_CAP
+    from app.services.collection_runs import claim_interval, commit_interval
+    monkeypatch.setenv("COLLECTION_NON_EXHAUSTIVE_POLICY", "hold")
+    scope = "scope:hold"
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
+    end1 = cp.interval_end
     capped = CollectionResult.ok([{"url": "b"}])
     capped.coverage_complete = False
     capped.truncated_reason = TRUNC_PAGE_CAP
-    assert commit_interval(db, cp2, capped) and cp2.advanced
-    cp3 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
-    assert cp3.coverage_through == end1 and cp3.continuation is None
+    assert commit_interval(db, cp, capped) and not cp.scheduled and not cp.advanced
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), ignore_backoff=True)
+    assert cp2.interval_end == end1 and cp2.consecutive_failures == 0 and cp2.no_progress_runs == 1
+    assert _gaps(db, scope) == []
 
 
-def test_stall_valve_advances_an_old_window_but_never_a_failure(db, monkeypatch):
-    from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, TRUNC_PROVIDER_LIMIT
+def test_an_old_unfinished_window_is_never_skipped(db):
+    """The stall valve is gone: however long a window has been stuck, a
+    run that did not finish it leaves coverage where it was."""
+    from app.collectors.contracts import CollectionResult, ERR_TIMEOUT, TRUNC_TIME_BUDGET
     from app.services.collection_runs import claim_interval, commit_interval, health_summary
-    monkeypatch.setenv("CHECKPOINT_STALL_HOURS", "72")
     scope = "scope:stall"
     cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
     end1 = cp.interval_end
-    stuck = CollectionResult.ok([{"url": "a"}])
-    stuck.coverage_complete = False
-    stuck.truncated_reason = TRUNC_PROVIDER_LIMIT
+    late = end1 + timedelta(days=10)
+    stuck = CollectionResult.partial([{"url": "a"}], truncated_reason=TRUNC_TIME_BUDGET,
+                                     continuation={"chunk": 0, "page": 4})
+    assert commit_interval(db, cp, stuck, now=late) and not cp.advanced
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=late, ignore_backoff=True)
+    assert cp2.coverage_through is None and cp2.interval_end == end1
+    for _ in range(3):
+        assert commit_interval(db, cp2, CollectionResult.failure(ERR_TIMEOUT, "slow", retryable=True), now=late)
+        cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=late, ignore_backoff=True)
+    assert cp2.coverage_through is None and cp2.consecutive_failures == 3
+    # The failures kept the cursor of the page that failed.
+    assert cp2.continuation == {"chunk": 0, "page": 4}
+    summary = health_summary(db, since_hours=1)
+    mine = [p for p in summary["providers"] if p["provider"] == PROVIDER]
+    pend = [p for p in summary["pending_intervals"] if p["scope_key"] == scope]
+    assert pend and pend[0]["consecutive_failures"] == 3
 
-    # Within the stall window: held, counted as a failure as before.
-    assert commit_interval(db, cp, stuck, now=end1 + timedelta(hours=12)) and not cp.advanced
-    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
-    assert cp2.interval_end == end1 and cp2.coverage_through is None
 
-    # A failure past the stall window is still held: outages stay visible.
-    late = end1 + timedelta(hours=73)
-    assert commit_interval(db, cp2, CollectionResult.failure(ERR_TIMEOUT, "slow", retryable=True), now=late)
-    assert not cp2.advanced
-    cp3 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
-    assert cp3.coverage_through is None
-
-    # The same non-failing run past the stall window advances.
-    assert commit_interval(db, cp3, stuck, now=late) and cp3.advanced
-    assert stuck.diagnostics.get("stall_advanced") is True
-    cp4 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1))
-    assert cp4.coverage_through == end1 and cp4.last_error_code == "stalled_advanced"
+def test_lookback_cap_records_the_skipped_stretch_as_a_gap(db):
+    from app.collectors.contracts import CollectionResult
+    from app.services.collection_runs import claim_interval, commit_interval
+    scope = "scope:lookback"
+    t0 = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    cp = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=t0)
+    assert commit_interval(db, cp, CollectionResult.ok([]), now=t0)
+    later = t0 + timedelta(days=10)
+    cp2 = claim_interval(db, PROVIDER, scope, lookback=timedelta(days=1), now=later)
+    assert cp2.interval_start == later - timedelta(days=1)
+    gaps = _gaps(db, scope)
+    assert len(gaps) == 1 and gaps[0][0] == "lookback_cap" and gaps[0][1] == t0

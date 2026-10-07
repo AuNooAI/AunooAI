@@ -179,3 +179,22 @@ def test_pending_interval_ages_from_its_window_not_from_the_last_retry():
     }
     alerts = health_routes.build_collection_alerts(runs, [], [], now=NOW, intervals={"bluesky": 60})
     assert alerts == ["pending continuation for bluesky kw:9 older than 2 intervals (30h)"]
+
+
+def test_alert_builder_names_failing_and_non_progressing_scopes_and_lookback_gaps():
+    runs = {
+        "providers": [{"provider": "newsfirehose", "last_success_at": _iso(timedelta(minutes=5)),
+                       "last_run_at": _iso(timedelta(minutes=5)), "failed": 0, "partial": 3,
+                       "quota_exhausted": 0, "empty_success": 0, "stalled": 4,
+                       "stalled_oldest_interval_end": _iso(timedelta(hours=120)),
+                       "repeatedly_failed": 1, "no_progress": 2}],
+        "errors": [],
+        "gaps": [{"provider": "thenewsapi", "reason": "page_cap", "count": 9, "oldest_start": None},
+                 {"provider": "newsapi", "reason": "lookback_cap", "count": 2, "oldest_start": None}],
+        "pending_intervals": [],
+    }
+    alerts = health_routes.build_collection_alerts(runs, [], [], now=NOW, intervals=INTERVALS)
+    assert ("4 stalled scope(s) for newsfirehose (oldest window ended 120h ago; "
+            "1 failing 3+ times in a row; 2 not progressing)") in alerts
+    assert any("newsapi skipped past the lookback" in a for a in alerts)
+    assert not any("thenewsapi" in a for a in alerts)

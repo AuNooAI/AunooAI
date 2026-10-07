@@ -244,11 +244,13 @@ class ArticleCollector(ABC):
         """Collect over a fixed interval and report the outcome.
 
         The default wraps ``search_articles``. A full page from a list API has
-        no proven end, so it is reported as coverage incomplete. It is a page
-        cap, not a resumable truncation: the list API cannot be asked for the
-        next page, so holding the interval would re-fetch the same page on
-        every run. The checkpoint advances and the run record keeps the gap.
-        Fewer results than asked for is complete.
+        no proven end, so it is reported as coverage incomplete with
+        ``TRUNC_PAGE_CAP`` and no continuation: the list API cannot be asked
+        for the next page, and an invented offset would be a lie. Proven
+        coverage does not move; ``collection_runs.commit_interval`` applies
+        the loss policy for such windows and records a gap. A provider that
+        can page overrides this method. Fewer results than asked for is
+        complete.
         An exception becomes a failed result with a classified error code.
         """
         res = self.new_result(query, interval_start, interval_end)

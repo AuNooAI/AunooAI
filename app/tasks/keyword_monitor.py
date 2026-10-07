@@ -78,6 +78,17 @@ _ENTITY_PREFIXES = ("tech:", "company:", "person:", "location:")
 SEARCH_TIMEOUT_SECONDS = 120
 
 
+def _followup_rounds() -> int:
+    """Extra collection rounds per keyword for a provider that stopped at its
+    budget and moved its cursor (``COLLECTION_FOLLOWUP_ROUNDS``, default 2,
+    at most 10). Each round is bounded by the provider's own page and time
+    budget and by ``SEARCH_TIMEOUT_SECONDS``."""
+    try:
+        return max(0, min(10, int(os.getenv("COLLECTION_FOLLOWUP_ROUNDS", "2"))))
+    except ValueError:
+        return 2
+
+
 def _social_page_size() -> int:
     """Posts to ask a social provider for, per platform and keyword, per run."""
     try:
@@ -753,84 +764,7 @@ class KeywordMonitor:
                     # continuation. The interval is fixed before the request
                     # so a partial run can resume the same window.
                     lookback = timedelta(days=self.search_date_range)
-                    claims = {}
-                    for provider in self.collectors:
-                        cp = await asyncio.to_thread(
-                            claim_interval, self.db, provider, f"kw:{keyword_id}", lookback=lookback)
-                        if cp is None:
-                            logger.info(f"{provider}: interval for keyword {keyword_id} is leased elsewhere; skipping")
-                            continue
-                        claims[provider] = cp
 
-                    # MULTI-COLLECTOR: Search across all active collectors in parallel
-                    providers_in_order = list(claims.keys())
-                    search_tasks = [
-                        self._search_with_collector(
-                            provider=provider,
-                            collector=self.collectors[provider],
-                            keyword_text=keyword_text,
-                            topic=topic,
-                            start_date=claims[provider].interval_start,
-                            end_date=claims[provider].interval_end,
-                            continuation=claims[provider].continuation,
-                        )
-                        for provider in providers_in_order
-                    ]
-                    results = await asyncio.gather(*search_tasks, return_exceptions=True)
-
-                    outcomes = {}
-                    for provider, result in zip(providers_in_order, results):
-                        if isinstance(result, BaseException):
-                            result = CollectionResult.from_exception(result)
-                            result.provider = provider
-                        outcomes[provider] = result
-
-                    def _finish_runs():
-                        """Commit each provider's checkpoint and write its run
-                        record. Only a complete success moves coverage; a
-                        partial or retryable failure keeps the interval and
-                        its continuation for the next cycle."""
-                        for provider, result in outcomes.items():
-                            cp = claims.get(provider)
-                            if cp is None:
-                                continue
-                            try:
-                                commit_interval(self.db, cp, result)
-                                record_run(
-                                    self.db, result, scope_kind="keyword", scope_id=str(keyword_id),
-                                    checkpoint_before=cp.coverage_through,
-                                    checkpoint_after=cp.interval_end if cp.advanced else cp.coverage_through)
-                            except Exception as run_err:  # noqa: BLE001
-                                logger.warning(f"{provider}: run bookkeeping failed for keyword {keyword_id}: {run_err}")
-
-                    all_articles, messages = summarize_outcomes(keyword_text, outcomes)
-                    for level, message in messages:
-                        getattr(logger, level, logger.info)(message)
-
-                    # Deduplicate articles across providers
-                    articles = self._deduplicate_articles(all_articles)
-
-                    if not articles:
-                        await asyncio.to_thread(_finish_runs)
-                        continue
-
-                    # A group that declares a country wants that country's PRESS.
-                    # No collector can give us that — see app/services/source_country
-                    # for the measurements — so we resolve the publisher ourselves
-                    # and drop what does not belong before anything is ingested or
-                    # enriched, which is also where the saving is.
-                    articles = self._filter_by_source_country(articles, keyword_text)
-                    if not articles:
-                        await asyncio.to_thread(_finish_runs)
-                        continue
-
-                    logger.info(f"Found {len(articles)} unique articles for keyword: {keyword_text} (from {len(all_articles)} total across collectors)")
-                    # Log details of first few articles to help debug
-                    for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
-                        logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
-
-                    # FIRST: Process each article and save to database
-                    # Run in thread to avoid blocking the event loop during sync DB calls
                     def _save_articles_batch(articles_to_save, save_topic, save_keyword_id):
                         """Save articles to DB in a thread (sync DB calls).
                         Returns (saved_count, failed_count). A failed insert is
@@ -876,27 +810,126 @@ class KeywordMonitor:
                         return saved_count, failed_count
 
                     loop = asyncio.get_event_loop()
-                    saved_now, failed_now = await loop.run_in_executor(
-                        None, _save_articles_batch, articles, topic, keyword_id
-                    )
-                    new_articles_count += saved_now
-                    if failed_now:
-                        # Not every item reached the database, so no provider's
-                        # interval is complete: downgrade each successful result
-                        # to partial so commit_interval keeps the interval for
-                        # the next cycle instead of advancing coverage past it.
-                        logger.warning(
-                            f"{failed_now} of {len(articles)} results for '{keyword_text}' failed to save; "
-                            f"checkpoints stay put so the interval is collected again")
-                        for _prov, _res in outcomes.items():
-                            if _res.may_advance_checkpoint:
-                                _res.status = STATUS_PARTIAL
-                                _res.coverage_complete = False
-                                _res.truncated_reason = _res.truncated_reason or "persist_failed"
-                            _res.diagnostics["persist_failed"] = failed_now
-                    # The items are persisted; now the checkpoints may move
-                    # and the run records say what each provider did.
-                    await loop.run_in_executor(None, _finish_runs)
+
+                    # Rounds: the first claims every provider. A provider that
+                    # stopped at its own page/time budget but moved its cursor
+                    # gets up to COLLECTION_FOLLOWUP_ROUNDS more rounds now,
+                    # so a backlog (a broad keyword, or a window left behind by
+                    # an outage) drains without waiting a whole cycle. Each
+                    # round saves its items before its checkpoints move.
+                    collected: List[Dict] = []
+                    pending_providers = list(self.collectors)
+                    for round_no in range(1 + _followup_rounds()):
+                        claims = {}
+                        for provider in pending_providers:
+                            cp = await asyncio.to_thread(
+                                claim_interval, self.db, provider, f"kw:{keyword_id}",
+                                lookback=lookback, ignore_backoff=round_no > 0)
+                            if cp is None:
+                                logger.info(f"{provider}: keyword {keyword_id} is leased elsewhere or backing off; skipping")
+                                continue
+                            claims[provider] = cp
+                        if not claims:
+                            break
+
+                        # MULTI-COLLECTOR: Search across all active collectors in parallel
+                        providers_in_order = list(claims.keys())
+                        search_tasks = [
+                            self._search_with_collector(
+                                provider=provider,
+                                collector=self.collectors[provider],
+                                keyword_text=keyword_text,
+                                topic=topic,
+                                start_date=claims[provider].interval_start,
+                                end_date=claims[provider].interval_end,
+                                continuation=claims[provider].continuation,
+                            )
+                            for provider in providers_in_order
+                        ]
+                        results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+                        outcomes = {}
+                        for provider, result in zip(providers_in_order, results):
+                            if isinstance(result, BaseException):
+                                result = CollectionResult.from_exception(result)
+                                result.provider = provider
+                            outcomes[provider] = result
+
+                        def _finish_runs(outcomes=outcomes, claims=claims):
+                            """Commit each provider's checkpoint and write its run
+                            record. Only a complete success moves coverage; a
+                            partial or failed run keeps the interval and its
+                            continuation for the next round or cycle."""
+                            for provider, result in outcomes.items():
+                                cp = claims.get(provider)
+                                if cp is None:
+                                    continue
+                                try:
+                                    commit_interval(self.db, cp, result)
+                                    record_run(
+                                        self.db, result, scope_kind="keyword", scope_id=str(keyword_id),
+                                        checkpoint_before=cp.coverage_through,
+                                        checkpoint_after=cp.interval_end if cp.advanced else cp.coverage_through)
+                                except Exception as run_err:  # noqa: BLE001
+                                    logger.warning(f"{provider}: run bookkeeping failed for keyword {keyword_id}: {run_err}")
+
+                        all_articles, messages = summarize_outcomes(keyword_text, outcomes)
+                        for level, message in messages:
+                            getattr(logger, level, logger.info)(message)
+
+                        # Deduplicate articles across providers
+                        round_articles = self._deduplicate_articles(all_articles)
+
+                        # A group that declares a country wants that country's PRESS.
+                        # No collector can give us that — see app/services/source_country
+                        # for the measurements — so we resolve the publisher ourselves
+                        # and drop what does not belong before anything is ingested or
+                        # enriched, which is also where the saving is.
+                        if round_articles:
+                            round_articles = self._filter_by_source_country(round_articles, keyword_text)
+
+                        if round_articles:
+                            logger.info(f"Found {len(round_articles)} unique articles for keyword: {keyword_text} "
+                                        f"(from {len(all_articles)} total across collectors, round {round_no + 1})")
+                            for i, article in enumerate(round_articles[:3]):
+                                logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
+
+                            # FIRST: save every article. Sync DB calls run in a thread.
+                            saved_now, failed_now = await loop.run_in_executor(
+                                None, _save_articles_batch, round_articles, topic, keyword_id
+                            )
+                            new_articles_count += saved_now
+                            if failed_now:
+                                # Not every item reached the database, so no provider's
+                                # interval is complete: downgrade each successful result
+                                # to partial so commit_interval keeps the interval for
+                                # the next cycle instead of advancing coverage past it.
+                                logger.warning(
+                                    f"{failed_now} of {len(round_articles)} results for '{keyword_text}' failed to save; "
+                                    f"checkpoints stay put so the interval is collected again")
+                                for _prov, _res in outcomes.items():
+                                    if _res.may_advance_checkpoint or _res.non_exhaustive:
+                                        _res.status = STATUS_PARTIAL
+                                        _res.coverage_complete = False
+                                        _res.truncated_reason = _res.truncated_reason or "persist_failed"
+                                    _res.diagnostics["persist_failed"] = failed_now
+                            collected.extend(round_articles)
+                        # The items are persisted; now the checkpoints may move
+                        # and the run records say what each provider did.
+                        await loop.run_in_executor(None, _finish_runs)
+
+                        pending_providers = [
+                            p for p, r in outcomes.items()
+                            if r.status == STATUS_PARTIAL and claims[p].progressed
+                            and r.truncated_reason not in ("persist_failed",)]
+                        if not pending_providers:
+                            break
+                        logger.info(f"Follow-up round for keyword '{keyword_text}': {pending_providers} "
+                                    f"stopped at their budget with a cursor that moved")
+
+                    articles = self._deduplicate_articles(collected) if collected else []
+                    if not articles:
+                        continue
 
                     # SECOND: Now run auto-ingest pipeline on the saved articles.
                     # Social-only groups (reddit/bluesky) SKIP the heavy news pipeline
