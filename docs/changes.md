@@ -1,5 +1,108 @@
 # Changes
 
+## 2026-10-07 — Emerging topics: timelines built from the right articles
+
+### Goal
+Oliver reported that none of the emerging-topic timelines on bugfixing or wileytest were
+correct and that they were full of unrelated stories. His example was "Meta's Free AI Agent vs
+Google Paywall Strategy" under Market Monitoring SOC Automation, whose timeline listed the FTC,
+IBM, Exabeam and AiStrike. None of that topic's 30 articles mentioned Meta or Google.
+
+The timeline-writing step (`deep_analyzer.py`) was not at fault. It summarises whatever
+articles a topic is given, and each topic was given the wrong ones. Four separate faults caused
+that, listed below in pipeline order.
+
+### Fix · Leave out articles the ingest relevance gate rejected (`899d785a`)
+**`theme_proposer.py`** read every article row, both for the sample the model proposes themes
+from and for each theme's article search. Ingest keeps the articles its relevance gate rejects
+(`ingest_status = 'filtered_relevance'`). On wileytest in the week to 7 Oct that was 21,765
+rejected rows against 3,882 approved, so most of what the model saw had already been judged
+off-topic. That is how "Fort Hood Shooter Firing Squad Approval" became an emerging topic under
+Patent Cliffs, which holds 17 rejected Fort Hood and Flydubai articles. Both queries now apply
+`article_visibility.readable_sql`, the rule every other reader uses.
+
+### Fix · Find a theme's articles by the names it is about (`9546401d`)
+Each theme's articles came from a vector search on its search phrase alone, and the article
+embeddings cannot rank a short query by subject. On wileytest, "Gemini 4 Argon" scored 0.77
+cosine against a Gemini launch article and 0.85 against two missile tests. Its 30 nearest
+articles held none of that week's 67 Gemini articles. **`_assign_one_theme`** now ranks first
+the articles whose title or summary names the theme's `key_entities` (by how many they name),
+then fills the rest from the vector search. Names under 3 characters are skipped, and LIKE
+wildcards are escaped.
+
+### Fix · The relevance check keeps only what it approved (`45a0adab`)
+**`article_validator.py`** judged only the first 15 of a theme's 30 articles and kept the other
+15 unread. When the model's reply did not parse, it kept all 30. On bugfixing's 09:44 run,
+8 of 9 SOC themes had every judged article rejected and survived on the unread half.
+"Flydubai Flight Cockpit Incident" shipped with 15 articles and 0 approved. The Meta theme's
+reply was cut off, so it kept all 30. The check now judges every article, 15 per call, and keeps
+an article only on an explicit "relevant" verdict at confidence 0.7 or above. Articles are
+labelled A1, A2 … so the reply no longer echoes long URLs, which is what pushed it past the
+token cap. An unparseable reply gets one retry, and a model error now keeps nothing. Themes left
+with fewer than 3 articles were already dropped by `theme_validator.py`.
+**`emerging_topics_service.py`** now passes every assigned article to the check, not just the
+first 15.
+
+### Fix · Every proposed theme names something specific (`32aacae1`)
+The theme prompt in **`theme_proposer.py`** allowed labels made of generic words, such as
+"Physical AI Era in Warehouse Robotics". A broad label lets the check accept any article using
+the same phrase, and that timeline picked up an eSIM launch and a telco award. Each label must
+now name a company, product, person, organisation, law or event, and at least 3 sampled
+articles must cover it. The key names, which also drive the search above, must be written
+exactly as the articles write them.
+
+### Fix · A relabelled story updates its topic, not a second one (`c8c6e959`)
+**`_save_emerging_topic`** matched a new theme to an existing topic by label words only. After
+the prompt change reworded labels, wileytest had 11 pairs of active topics holding the same
+articles. For example, "Novartis-Abogen $7.2B mRNA Therapy Deal" sat beside "Big Pharma China
+mRNA Licensing Mega-Deals" with the same 6 articles. After the exact-label lookup, a theme now
+updates the active topic in its scope that shares the most articles with it, when they share at
+least 2 and at least half of the smaller topic's articles. Retired topics are left out.
+
+### Ops · Bad topics retired, hidden good ones restored (database, no code)
+- bugfixing: retired topics 1668-1673, the six SOC topics built by the old code. Topic 1667
+  stays active.
+- wileytest: retired all 330 active topics, all built by the old code (same change as the
+  Retire button: `status='retired', consecutive_detections=0`).
+- wileytest: restored 29 of those. The label match also looks at retired topics, and a
+  re-detected retired topic stays retired on purpose, so fresh detections from later runs had
+  landed in retired rows and were hidden. They were found through `topic_history.captured_at`,
+  because the update does not touch `updated_at`.
+- wileytest: retired the older topic in each of the 11 duplicate pairs, 10 topics in all
+  (4012 was the older half of two pairs).
+
+### Verification
+- `pytest tests/test_emerging_topics_pipeline.py`: 72 passed. New tests cover batching, the
+  retry, dropping unread articles, entity patterns and shared-article matching.
+- Dry runs on real data with the real model, nothing saved. Meta and Flydubai went to 0
+  approved articles. On wileytest, Gemini 4 Argon went from 0 to 30 approved. FlyDubai
+  (Geopolitical Hotspots) also went from 0 to 30. The Patent Cliffs sample went from 250 rows to
+  95 readable ones, with none of the Fort Hood or Flydubai stories.
+- The check approved 8 of 8 real Gemini articles at confidence 0.85-0.98. That ruled it out
+  as the reason Gemini found nothing.
+- bugfixing rerun at 10:33: 9 themes proposed, 1 kept. Topic 1667 now holds 6 articles and
+  5 timeline entries, all about agentic SOC launches.
+- wileytest reruns: 39 topics at 12:46-13:55 and more at 14:55-15:59, with labels that fit their
+  parent topic. Four timelines spot-checked against their articles.
+- Now: wileytest has 74 active topics; bugfixing's SOC scope has 1.
+
+### Propagation
+- All five commits are on bugfixing, wiley and wileytest. All three were restarted after
+  `c8c6e959`, with no tracebacks.
+- No other monolith site has these fixes (oviva, sunstar, panaya, abm, wbm and the rest).
+- `article_visibility.py` is older on wiley and wileytest than on bugfixing, but
+  `readable_sql(alias)` is the same on all three.
+
+### Lessons
+- When a timeline looks wrong, list the topic's `article_uris` titles before touching any prompt.
+- A cost cap in a relevance check must never mean that unread items pass.
+- The DeBERTa article embeddings work for article-to-article similarity but not for short
+  queries. Do not rely on vector search alone to find a named story.
+- A mass retirement interacts with the retired-topic match. Check `topic_history` after the next
+  run for retired rows it updated.
+- In the Bash tool, `pkill -f "<string>"` and `pgrep -f` match their own shell and kill it
+  (exit 144). Use `pgrep -f "[r]estart_when_quiet.sh"`.
+
 ## 2026-10-07 — Ingest pipeline fix specs: complete firehose paging, recorded relevance decisions, embedding repair, locked analysis prompts
 
 ### Goal
