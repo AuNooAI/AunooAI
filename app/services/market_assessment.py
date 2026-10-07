@@ -3518,7 +3518,7 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
                f". The {len(top3)} vendors with {top3[-1]['n']} or more "
                "developments account for ")
             + f"{_pct(dist['top3_share'])} of them ({top3_txt})."
-            + (f" {quiet} vendors were watched and had none." if quiet else "")
+            + (f" {quiet} vendor{'' if quiet == 1 else 's'} {'was' if quiet == 1 else 'were'} watched and had none." if quiet else "")
             + (f" {unread} are not fully collected yet." if unread else ""),
             evidence=_vendor_lines(dist["by_vendor"], "n", "developments",
                                    singular="development", limit=5),

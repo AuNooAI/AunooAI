@@ -1899,6 +1899,10 @@ def _clip(text_value: str, limit: int) -> str:
     return (cut or text_value[:limit]) + "…"
 
 
+def _n_posts(n: int) -> str:
+    return f"{n} post" if n == 1 else f"{n} posts"
+
+
 def _norm_words(text_value: str) -> str:
     """Text reduced to comparable words, for spotting a repeated sentence."""
     return re.sub(r"[^a-z0-9 ]", " ",
@@ -4220,8 +4224,13 @@ def _v2_lead(dev: Dict[str, Any], images: Optional[Dict[str, str]] = None,
     summary = _summary_unless_duplicate(dev)
     if summary:
         out.append(f'<p class="n-story-sum">{esc(_clip(summary, 480))}</p>')
-    if dev.get("why_it_matters"):
-        out.append(f'<p class="n-why">{esc(dev["why_it_matters"])}</p>')
+    why = dev.get("why_it_matters") or ""
+    # A press-reported event has no reading of its own, so its "why it
+    # matters" can be the summary again, clipped: Noom's Adweek story printed
+    # the same sentence twice under its headline.
+    if why and not (summary and _norm_words(why.rstrip("\u2026."))[:80]
+                    in _norm_words(summary)):
+        out.append(f'<p class="n-why">{esc(why)}</p>')
     bits = [_vendor_line(dev, logos) if logos else esc(vendors), esc(_dev_date(dev)),
             esc(_dev_sources(dev)), esc(dev.get("provenance_label") or "")]
     out.append('<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>")
@@ -4728,7 +4737,7 @@ def _v2_motion(rows: List[Dict[str, Any]],
                        f'{_fill_style(logos, r["vendor"])}"></div></div>'
                        f'<div class="v2-bar-n">{n:,}</div>'
                        + (_delta(r["vendor"], "reactions", n) or
-                          f'<span class="v2-move same">{int(r.get("measured") or r.get("own_posts") or 0)} posts</span>')
+                          f'<span class="v2-move same">{_n_posts(int(r.get("measured") or r.get("own_posts") or 0))}</span>')
                        + '</div>')
         out.append("</div>")
     if by_earned:
