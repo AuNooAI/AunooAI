@@ -38,6 +38,7 @@ _KIND_WORDS = {
     "executive_appointment": "an executive appointment", "market_exit": "a market exit",
     "market_entry": "a market entry", "research": "published research",
     "award": "an award", "contract": "a contract",
+    "incident": "an incident such as a data breach, outage, lawsuit or recall",
 }
 
 _QUESTION = {

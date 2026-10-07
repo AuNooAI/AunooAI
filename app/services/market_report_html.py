@@ -2479,6 +2479,7 @@ _KIND_COLOUR = {
     "significant_hiring": "var(--n-green)", "headcount_change": "var(--n-green)",
     # Amber, matching the Research firms panel, so the two read as one subject.
     "research": "var(--n-amber)",
+    "incident": "#ce2c31",
 }
 
 #: Colour for an observation state's dot.
@@ -3685,8 +3686,9 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                  "subline": "Analysis and notes written by the Cyberfuturists team."},
     "moves": {"heading": "Market moves", "colour": "var(--n-purple)",
               "thing": "market move",
-              "subline": "Deals, funding, partnerships, leadership changes "
-                         "and named customers."},
+              "subline": "Deals, funding, partnerships, leadership changes, "
+                         "named customers, and incidents such as breaches "
+                         "or lawsuits."},
     "wider": {"heading": "Wider market", "colour": "var(--n-purple)",
               "thing": "move outside the vendor list",
               "subline": "Deals and launches by companies outside the vendor "

@@ -811,7 +811,8 @@ def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
 
 
 def job_postings(conn, market_id: int,
-                 brand_id: Optional[int] = None) -> List[Dict[str, Any]]:
+                 brand_id: Optional[int] = None, *,
+                 days: Optional[int] = None) -> List[Dict[str, Any]]:
     """The job listings themselves, with their URLs.
 
     The hiring analysis counts openings and the vendor page counts them again,
@@ -823,10 +824,18 @@ def job_postings(conn, market_id: int,
     if brand_id is not None:
         where.append("s.brand_id = :b")
         params["b"] = brand_id
+    # The same window and the same duplicate rule as hiring(), so a list shown
+    # under a count of open roles is the roles that count is made of. Without
+    # them Noom's 22 listed "Agentic Engineer (New Grad)" three times: once
+    # from its own board, a LinkedIn copy, and a listing gone since September.
+    if days:
+        where.append("s.observed_at >= :since")
+        params["since"] = _iso_days_ago(days)
 
     rows = [dict(r) for r in conn.execute(text(f"""
         SELECT DISTINCT ON (s.provider_item_id)
                s.brand_id, b.display_name AS vendor,
+               s.source AS source,
                s.data->>'title' AS title,
                s.data->>'location' AS location,
                s.data->>'seniority' AS seniority,
@@ -844,6 +853,8 @@ def job_postings(conn, market_id: int,
         ORDER BY s.provider_item_id, s.observed_at DESC
     """), params).mappings().all()]
 
+    from app.services.market_lists import drop_cross_source_duplicates
+    rows = drop_cross_source_duplicates(rows)
     for row in rows:
         row["function_group"] = _group_function(row.get("function"))
     rows.sort(key=lambda r: (r["vendor"], r["title"] or ""))

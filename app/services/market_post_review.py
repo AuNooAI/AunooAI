@@ -93,7 +93,8 @@ For each post decide what it is:
 - "signal": states a fact about the company or the market. A product launch or
   capability, a funding round, a named customer or design win, a partnership,
   an acquisition, an award, a senior hire, headcount or office news, a research
-  finding, a published benchmark.
+  finding, a published benchmark, or an incident at the company (a data breach,
+  outage, lawsuit, regulator action or product recall).
 - "commentary": substantive analysis or argument about the market with no new
   fact about the company in it. Worth reading for context.
 - "noise": conference or booth presence, "come see us", generic recruiting,
@@ -101,7 +102,7 @@ For each post decide what it is:
   hype with nothing specific behind it.
 
 Also give a kind: launch, funding, customer, partnership, acquisition, award,
-hiring, research, opinion, event, other.
+hiring, research, incident, opinion, event, other.
 
 A post whose author is shown as @handle is by a person we follow — an analyst
 or practitioner, not a vendor. For them a substantive argument or observation
@@ -235,7 +236,10 @@ reports it. When two companies share the news — an acquisition, a partnership 
 name the one the headline leads with.
 
 Second, what kind of development it reports: launch, funding, customer,
-partnership, acquisition, award, hiring, research, opinion, event, other.
+partnership, acquisition, award, hiring, research, incident, opinion, event,
+other. "incident" is something adverse that happened to the company: a data
+breach or cyberattack, an outage, a lawsuit, a regulator's fine or
+investigation, a product recall.
 
 Then a verdict:
 - "signal": the article reports a specific development at the named company.
@@ -503,7 +507,7 @@ _CHECK_CONCURRENCY = 4
 #: Kinds that become a development on the page. A wrong one of these is what
 #: matters; confusing two kinds that are never shown is harmless.
 EVENT_KINDS = ("launch", "funding", "customer", "partnership", "acquisition",
-               "hiring")
+               "hiring", "incident")
 
 _CHECK_CRITERIA = {
     "supports": "The post states it or directly implies it, including every "
@@ -535,6 +539,9 @@ KIND_CRITERIA = {
              "a contract or funded award from a government or customer.",
     "hiring": "A named person has joined the company or been appointed to a role.",
     "research": "The company publishes a study, survey, benchmark or threat research.",
+    "incident": "Something adverse happened to the company or its product: a data "
+                "breach or cyberattack, an outage, a lawsuit, a regulator's fine, "
+                "investigation or warning, or a product recall or withdrawal.",
     "other": "Anything else: a newsletter, event, webinar, opinion, recap, "
              "financial results, promotion, or plans for the future.",
 }
@@ -546,7 +553,8 @@ def _check_questions(item: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             "type": "noul",
             "instructions": ("Does `post` announce a specific new development at "
                              "the company that has happened: a launch, a deal, a "
-                             "customer, a hire, a funding round, published research?"),
+                             "customer, a hire, a funding round, published research, "
+                             "or an incident such as a breach, outage or lawsuit?"),
             "criteria": {
                 "true": "It announces something specific the company has done or "
                         "that has happened to it, including a named customer's "
@@ -738,7 +746,7 @@ the company (it is commentary, a newsletter, event promotion, a preview, a recap
 or coverage of someone else), set "verdict" to "commentary" or "noise".
 
 Kinds: launch, funding, customer, partnership, acquisition, award, hiring,
-research, other.
+research, incident, other.
 {kinds}
 
 For "customer": "name" is the organisation that buys or uses the product, exactly
@@ -1453,8 +1461,15 @@ def _author(row: Dict[str, Any]) -> str:
     return str((meta or {}).get("author") or "") if isinstance(meta, dict) else ""
 
 
-def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str, Any]]:
-    about = f"{market_name}" + (f" ({', '.join(terms[:8])})" if terms else "")
+def _social_questions(market_name: str, terms: List[str],
+                      vendors: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
+    # The market's name alone is not enough: a customer's market is named after
+    # the customer ("Oviva"), so the question read "Is this post about Oviva?"
+    # and every post about another tracked vendor failed it, HelloBetter's data
+    # breach included. Naming the vendors makes the question the market's.
+    about = f"the {market_name} market" + (f" ({', '.join(terms[:8])})" if terms else "")
+    if vendors:
+        about += f", whose companies include {', '.join(vendors[:12])}"
     return {
         "on_topic": {
             "type": "noul",
@@ -1489,14 +1504,15 @@ def _social_questions(market_name: str, terms: List[str]) -> Dict[str, Dict[str,
 
 
 def check_social_one(text_value: str, market_name: str,
-                     terms: List[str]) -> Optional[Dict[str, Any]]:
+                     terms: List[str],
+                     vendors: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
     from app.services import typesafe_client
 
     if not typesafe_client.is_configured() or not (text_value or "").strip():
         return None
     out = typesafe_client.system_one(
         {"post": text_value[:CHECK_SOURCE_CHARS]},
-        _social_questions(market_name, terms),
+        _social_questions(market_name, terms, vendors),
         use_case="services.market_post_review:check_social")
     if not out:
         return None
@@ -1537,6 +1553,17 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600,
         name = conn.execute(text("SELECT name FROM bw_markets WHERE id = :m"),
                             {"m": market_id}).scalar() or ""
         terms = market_terms(conn, market_id)
+        if not terms:
+            # A market with no collection phrases of its own still has the
+            # phrases it reads the corpus with.
+            from app.services.market_corpus import context_terms
+            terms = context_terms(conn, market_id)
+        vendors = [r[0] for r in conn.execute(text("""
+            SELECT b.display_name FROM bw_market_brands mb
+              JOIN bw_brands b ON b.id = mb.brand_id
+             WHERE mb.market_id = :m AND mb.role = 'vendor'
+             ORDER BY mb.sort_order NULLS LAST, b.display_name
+        """), {"m": market_id}).fetchall()]
         since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
         rows = conn.execute(text("""
             SELECT ma.article_uri, a.title, a.summary
@@ -1556,7 +1583,7 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600,
 
         def one(r):
             body = f"{r[1] or ''}\n{r[2] or ''}".strip()
-            return r[0], check_social_one(body, name, terms)
+            return r[0], check_social_one(body, name, terms, vendors)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=_CHECK_CONCURRENCY) as pool:
             results = list(pool.map(one, rows))

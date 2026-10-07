@@ -306,6 +306,12 @@ def drop_cross_source_duplicates(rows: List[Dict[str, Any]]
     direction only: if a company has two distinct roles sharing a title, its own
     board has both of them, so dropping the LinkedIn copy loses nothing.
 
+    LinkedIn also lists one role once per city: Noom's "Commercial Systems
+    Manager" was a New York and a Princeton listing, where Noom's own board has
+    one job naming both cities. So a LinkedIn listing whose title the vendor
+    already has on LinkedIn is dropped too. A company's own board is left
+    alone, because it lists each opening separately.
+
     Shared with ``market_analysis.hiring`` so the count on a card and the count
     in its drill-down cannot drift apart — they did, by exactly these 39.
     """
@@ -314,15 +320,18 @@ def drop_cross_source_duplicates(rows: List[Dict[str, Any]]
         if row.get("source") == "ats_jobs":
             own_board.setdefault(row.get("brand_id"), set()).add(
                 _normalize_title(row.get("title")))
-    if not own_board:
-        return list(rows)
 
     kept = []
+    seen_linkedin: set = set()
     for row in rows:
         title_key = _normalize_title(row.get("title"))
-        if (row.get("source") != "ats_jobs" and title_key
-                and title_key in own_board.get(row.get("brand_id"), set())):
-            continue
+        if row.get("source") != "ats_jobs" and title_key:
+            if title_key in own_board.get(row.get("brand_id"), set()):
+                continue
+            key = (row.get("brand_id"), title_key)
+            if key in seen_linkedin:
+                continue
+            seen_linkedin.add(key)
         kept.append(row)
     return kept
 

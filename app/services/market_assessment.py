@@ -56,6 +56,9 @@ EVENT_TYPES: "OrderedDict[str, str]" = OrderedDict([
     ("acquisition", "Acquisition"),
     ("market_exit", "Market exit or shutdown"),
     ("market_entry", "Market entry"),
+    # A breach, outage, lawsuit or regulator action. Ranked with the deals:
+    # a customer data breach matters to a buyer as much as a funding round.
+    ("incident", "Incident"),
     ("funding", "Funding"),
     ("customer", "Customer evidence"),
     ("product_expansion", "Product expansion"),
@@ -81,7 +84,7 @@ _FAMILY = {
     "market_entry": "ownership", "funding": "capital",
     "customer": "customer", "partnership": "partnership",
     "executive_appointment": "people", "significant_hiring": "hiring",
-    "headcount_change": "headcount",
+    "headcount_change": "headcount", "incident": "incident",
 }
 
 PRODUCT_TYPES = frozenset({"product_launch", "product_expansion"})
@@ -111,7 +114,7 @@ _REVIEW_KIND_MAP = {
     "launch": "product_launch", "funding": "funding", "customer": "customer",
     "partnership": "partnership", "acquisition": "acquisition",
     "hiring": "executive_appointment",
-    "research": "research",
+    "research": "research", "incident": "incident",
 }
 
 
@@ -2631,7 +2634,7 @@ def _hiring_candidates(conn, market_id: int, days: int) -> List[Dict[str, Any]]:
         if n < MIN_OPENINGS_FOR_HIRING:
             continue
         try:
-            postings = man.job_postings(conn, market_id, v.get("brand_id"))
+            postings = man.job_postings(conn, market_id, v.get("brand_id"), days=days)
         except Exception:                                          # noqa: BLE001
             postings = []
         evidence = []
