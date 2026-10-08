@@ -187,7 +187,8 @@ def _badge_strength(label: str) -> str:
     return key if key in {"strong", "moderate", "emerging", "high", "medium", "low"} else "moderate"
 
 
-def _render_category(category: dict, idx: int, refs: Optional[dict] = None) -> str:
+def _render_category(category: dict, idx: int, refs: Optional[dict] = None,
+                     public: bool = False) -> str:
     name = category.get("category_name") or f"Category {idx+1}"
     desc = category.get("category_description") or ""
     n_articles = category.get("articles_analyzed")
@@ -198,6 +199,14 @@ def _render_category(category: dict, idx: int, refs: Optional[dict] = None) -> s
     implications  = category.get("7_strategic_implications") or ""
     decision_windows = category.get("8_key_decision_windows") or []
     timeframe = category.get("9_timeframe_analysis") or {}
+    if public:
+        # Sections 7-9 are advice to the organisation the run was made for:
+        # the prompt asks what {org_name} should do, with owners and success
+        # metrics. On the public market site that organisation is the
+        # publisher, so they read as its business plan (revenue, licensing,
+        # acquisition), not as findings about the coverage. Readers get
+        # sections 1-6.
+        implications, decision_windows, timeframe = "", [], {}
 
     cons_pct = confidence.get("majority_agreement")
     cons_pct_int = int(cons_pct) if isinstance(cons_pct, (int, float)) else None
@@ -432,7 +441,8 @@ def _render_category(category: dict, idx: int, refs: Optional[dict] = None) -> s
     return "\n".join(parts)
 
 
-def _render_key_insights(insights: list, refs: Optional[dict] = None) -> str:
+def _render_key_insights(insights: list, refs: Optional[dict] = None,
+                         public: bool = False) -> str:
     insights = [i for i in (insights or []) if isinstance(i, dict)]
     if not insights:
         return ""
@@ -440,7 +450,9 @@ def _render_key_insights(insights: list, refs: Optional[dict] = None) -> str:
     for ins in insights:
         quote = ins.get("quote") or ""
         source = ins.get("source") or ""
-        relevance = ins.get("relevance") or ""
+        # "relevance" is why the insight matters to the profile's
+        # organisation; the public page keeps the quote and its source.
+        relevance = "" if public else (ins.get("relevance") or "")
         if not quote:
             continue
         parts.append('<div class="insight">')
@@ -459,8 +471,13 @@ def build_consensus_html(
     *,
     generated_at: Optional[str] = None,
     model_used: Optional[str] = None,
+    public: bool = False,
 ) -> bytes:
     """Render the Consensus Analysis for a topic as standalone HTML.
+
+    ``public=True`` is the reader-facing page on a market site: it leaves
+    out the advice written for the run's organisational profile (sections
+    7-9 and each key insight's relevance line).
 
     ``payload`` is the parsed ``consensus_analysis_runs.raw_output`` dict.
     Expected keys: ``categories[]``, ``key_insights[]``, ``generated_at``,
@@ -513,11 +530,11 @@ def build_consensus_html(
                                       eyebrow="CROSS-SOURCE THEMES"))
         for i, cat in enumerate(categories):
             if isinstance(cat, dict):
-                body_parts.append(_render_category(cat, i, refs))
+                body_parts.append(_render_category(cat, i, refs, public))
         body_parts.append('</section>')
 
     # Cross-category key insights
-    body_parts.append(_render_key_insights(key_insights, refs))
+    body_parts.append(_render_key_insights(key_insights, refs, public))
 
     # Numbered references — resolves the inline [n] citations on paper too.
     if refs:

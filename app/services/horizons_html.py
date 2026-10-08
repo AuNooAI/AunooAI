@@ -337,8 +337,12 @@ def build_horizons_html(
     generated_at: Optional[str] = None,
     model_used: Optional[str] = None,
     articles: Optional[list] = None,
+    public: bool = False,
 ) -> bytes:
     """Render a Future Horizons analysis as a standalone HTML page.
+
+    ``public=True`` is the reader-facing page on a market site: the cards
+    leave out the action window written for the run's organisational profile.
 
     ``scenarios`` is the ``raw_output.scenarios`` array (list of
     ``{type, title, description, timeframe, sentiment}`` dicts).
@@ -384,7 +388,8 @@ def build_horizons_html(
     # Executive Summary cards (the React tab's `ExecutiveSummaryCard` content).
     # Pass ``articles`` so [N] markers in card body text link directly to
     # the publisher URL (not just an in-document jump).
-    body_parts.append(render_executive_summary_cards(summaries or [], articles=articles))
+    body_parts.append(render_executive_summary_cards(summaries or [], articles=articles,
+                                                     public=public))
 
     # Three Horizons Columns — H1/H2/H3 side-by-side with the full scenario
     # cards (timeframe / title / description / sentiment chip).

@@ -1974,6 +1974,19 @@ def get_enhanced_prompt_template(persona: str = "executive", customer_type: str 
 # TAB-SPECIFIC PROMPT GENERATION FUNCTIONS
 # ============================================================================
 
+def _year_vars() -> Dict[str, Any]:
+    """Today and the year offsets the consensus and horizons prompts use.
+
+    Their examples used to be fixed years (2025, 2025-2040), and the model
+    copied them: an October 2026 run gave "2025" milestones, which were
+    already past. The prompts now carry {today} and {year_plus_N}."""
+    now = datetime.now()
+    out: Dict[str, Any] = {"today": now.date().isoformat(), "current_year": now.year}
+    for n in (1, 2, 5, 7, 8, 10, 12, 15):
+        out[f"year_plus_{n}"] = now.year + n
+    return out
+
+
 def generate_consensus_analysis_prompt(
     topic: str,
     articles: List,
@@ -2015,7 +2028,8 @@ def generate_consensus_analysis_prompt(
             "action_vocabulary": action_vocabulary,
             "org_name": org_name,
             "org_type": org_type,
-            "prompt_focus": prompt_template.get('focus', 'Strategic decision-making and competitive positioning')
+            "prompt_focus": prompt_template.get('focus', 'Strategic decision-making and competitive positioning'),
+            **_year_vars(),
         }
     )
 
@@ -2317,7 +2331,8 @@ def generate_future_horizons_prompt(
             "org_context": f"CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL scenario analysis must be framed from the perspective of a {org_type} organization and their sphere of influence.{org_context}\n\nIMPORTANT: Frame all scenarios from the perspective of a {org_type} organization. Consider how these trends affect and are shaped by {org_type} organizations.",
             "action_vocabulary": action_vocabulary,
             "org_name": org_name,
-            "org_type": org_type
+            "org_type": org_type,
+            **_year_vars(),
         }
     )
 

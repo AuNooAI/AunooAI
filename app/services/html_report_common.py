@@ -362,7 +362,8 @@ def html_document(title: str, body: str) -> str:
     )
 
 
-def render_executive_summary_cards(cards: list, articles: list | None = None) -> str:
+def render_executive_summary_cards(cards: list, articles: list | None = None,
+                                   public: bool = False) -> str:
     """Reusable Executive Summary card stack — same shape used by both the
     Topic Report HTML and the standalone Future Horizons HTML. Each ``card``
     is one entry from ``analysis_versions_v2[horizons_exec_summary_*]``.
@@ -389,7 +390,10 @@ def render_executive_summary_cards(cards: list, articles: list | None = None) ->
         fork = c.get("decision_fork") or {}
         fa = fork.get("condition_a") or {}
         fb = fork.get("condition_b") or {}
-        aw = c.get("action_window") or {}
+        # The action window ("Your window") is what the profile's organisation
+        # should do. On a public market site that is the publisher, so readers
+        # would see its to-do list; public pages leave it out.
+        aw = {} if public else (c.get("action_window") or {})
         aw_a = aw.get("assessment") or {}
         aw_p = aw.get("positioning") or {}
 

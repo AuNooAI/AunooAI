@@ -398,7 +398,9 @@ async def tick() -> Dict[str, Any]:
             logger.exception("could not refresh collection policies")
 
         markets = conn.execute(text(
-            "SELECT id, name FROM bw_markets WHERE enabled = TRUE ORDER BY id"
+            # config is read by the foresight refresh (topic and profile);
+            # without it that step found no topic and never ran.
+            "SELECT id, name, config FROM bw_markets WHERE enabled = TRUE ORDER BY id"
         )).mappings().all()
         now = datetime.now(timezone.utc)
         for market in markets:

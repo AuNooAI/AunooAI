@@ -74,6 +74,21 @@ def profile_for(market: Dict[str, Any]) -> Optional[int]:
     return int(pid) if pid else None
 
 
+def show_advice(market: Dict[str, Any]) -> bool:
+    """Whether the public pages print the advice written for the profile
+    (consensus sections 7-9, the horizons action window). Off by default:
+    with a publisher profile that advice is the publisher's own business
+    plan. A market whose profile is its reader turns it on with
+    ``foresight.show_advice``."""
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    return bool((cfg.get("foresight") or {}).get("show_advice"))
+
+
 def _raw(value: Any) -> Dict[str, Any]:
     """raw_output is JSON, sometimes JSON inside a JSON string."""
     for _ in range(2):
@@ -335,7 +350,8 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
     if kind == "consensus":
         from app.services.consensus_html import build_consensus_html
         blob = build_consensus_html(market["name"], raw, generated_at=generated_at,
-                                    model_used=model_used)
+                                    model_used=model_used,
+                                    public=not show_advice(market))
     else:
         from app.database import get_database_instance
         from app.services.horizons_html import build_horizons_html
@@ -347,7 +363,8 @@ def render(conn, kind: str, market: Dict[str, Any], *, run_id: Optional[str] = N
             logger.debug("no executive summary for horizons run %s", run["id"])
         blob = build_horizons_html(market["name"], raw.get("scenarios") or [], summaries,
                                    generated_at=generated_at, model_used=model_used,
-                                   articles=_horizons_articles(conn, run["id"]))
+                                   articles=_horizons_articles(conn, run["id"]),
+                                   public=not show_advice(market))
     html = blob.decode("utf-8") if isinstance(blob, bytes) else str(blob)
     html = _restyle(html)
     head_extra, top, foot = _chrome(market, kind, run, history, front_href)
@@ -398,6 +415,11 @@ async def refresh(conn, market: Dict[str, Any], now: datetime, *, force: bool = 
     topic = topic_for(market)
     if not topic:
         return []
+    if not profile_for(market):
+        # No profile means the tenant default, which on this tenant is
+        # another customer's: the runs would be written for them and
+        # published on this market's site. Refresh only markets that name one.
+        return []
     due = []
     for kind in KINDS:
         last = newest_run_at(conn, kind, topic)
@@ -415,8 +437,7 @@ async def refresh(conn, market: Dict[str, Any], now: datetime, *, force: bool = 
     params = {"model": DEFAULT_MODEL, "timeframe_days": TIMEFRAME_DAYS, "persona": "analyst",
               "enable_caching": "false"}
     profile = profile_for(market)
-    if profile:
-        params["profile_id"] = profile
+    params["profile_id"] = profile
     cookies = {"session": _session_cookie(SESSION_USER)}
     headers = {"X-Forwarded-Proto": "https"}
     done: List[str] = []

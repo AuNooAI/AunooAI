@@ -83,3 +83,64 @@ def test_render_rejects_a_run_of_another_topic():
     finally:
         c.rollback()
         c.close()
+
+
+def test_public_consensus_page_leaves_out_the_advice_to_the_profile_org():
+    # The run's sections 7-9 and each insight's relevance line are written
+    # for the organisational profile, which on a market site is the
+    # publisher. aisocnews.com printed them as the publisher's business plan.
+    from app.services.consensus_html import build_consensus_html
+
+    payload = {
+        "categories": [{
+            "category_name": "Agentic SOC",
+            "category_description": "Sources agree triage is automating.",
+            "7_strategic_implications": "PUBLISHER-REVENUE-MODEL",
+            "8_key_decision_windows": [{"action": "PUBLISHER-ACTION", "urgency": "high"}],
+            "9_timeframe_analysis": {
+                "immediate": "PUBLISHER-NOW",
+                "key_milestones": [{"year": 2027, "milestone": "PUBLISHER-MILESTONE",
+                                    "significance": "PUBLISHER-ACQUISITION"}],
+            },
+        }],
+        "key_insights": [{"quote": "Triage works first.", "source": "Expert Consensus",
+                          "relevance": "PUBLISHER-SHOULD"}],
+    }
+    public = build_consensus_html("AI in the SOC", payload, public=True).decode()
+    assert "Sources agree triage is automating." in public
+    assert "Triage works first." in public
+    assert "PUBLISHER-" not in public
+
+    operator = build_consensus_html("AI in the SOC", payload).decode()
+    for marker in ("PUBLISHER-REVENUE-MODEL", "PUBLISHER-ACTION", "PUBLISHER-MILESTONE",
+                   "PUBLISHER-SHOULD"):
+        assert marker in operator
+
+
+def test_refresh_skips_a_market_without_a_profile():
+    # The tenant default profile belongs to another customer; a run made
+    # with it would be published on this market's site.
+    import asyncio
+    market = {"id": 1830, "config": {"collection": {"topic_name": "EV"}}}
+    assert asyncio.run(mf.refresh(None, market, datetime.now(), force=True)) == []
+
+
+def test_public_horizons_cards_leave_out_the_action_window():
+    from app.services.html_report_common import render_executive_summary_cards
+
+    card = {"topic_title": "Platforms absorb the category",
+            "opening_statement": "Sources expect consolidation.",
+            "decision_fork": {"condition_a": {"condition": "Funding dries up",
+                                              "outcome": "Two survivors"}},
+            "action_window": {"assessment": {"timeframe": "0-6 months",
+                                             "action": "PUBLISHER-TODO"}}}
+    public = render_executive_summary_cards([card], public=True)
+    assert "Two survivors" in public
+    assert "PUBLISHER-TODO" not in public and "Your window" not in public
+    assert "PUBLISHER-TODO" in render_executive_summary_cards([card])
+
+
+def test_show_advice_is_off_unless_the_market_turns_it_on():
+    assert mf.show_advice({"config": {}}) is False
+    assert mf.show_advice({"config": {"foresight": {"profile_id": 9}}}) is False
+    assert mf.show_advice({"config": '{"foresight": {"show_advice": true}}'}) is True
