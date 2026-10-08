@@ -211,17 +211,17 @@ class Research:
             
     def set_topic(self, topic_name: str):
         """Set the current topic for analysis."""
-        logger.info(f"🎯 set_topic called with: '{topic_name}'")
+        logger.debug(f"🎯 set_topic called with: '{topic_name}'")
 
         # Sanitize the requested name — UI text wrapping introduces stray spaces and
         # newlines. Uses the same helper load_config() keys by, so the two cannot
         # drift apart and make a configured topic unreachable.
         if topic_name:
             topic_name = normalize_topic_name(topic_name)
-            logger.info(f"🧹 Sanitized topic name to: '{topic_name}'")
+            logger.debug(f"🧹 Sanitized topic name to: '{topic_name}'")
 
-        logger.info(f"🎯 Current topic before: '{self.current_topic}'")
-        logger.info(f"🎯 Available topics: {list(self.topic_configs.keys())}")
+        logger.debug(f"🎯 Current topic before: '{self.current_topic}'")
+        logger.debug(f"🎯 Available topics: {list(self.topic_configs.keys())}")
 
         if not topic_name:
             logger.warning("⚠️ Attempted to set empty topic name")
@@ -256,7 +256,7 @@ class Research:
             logger.info(f"✅ Set current topic to: '{topic_name}'")
             logger.info(f"✅ Topic has {len(self.topic_configs[topic_name].get('categories', []))} categories")
         else:
-            logger.info(f"✅ Topic already set to: '{topic_name}'")
+            logger.debug(f"✅ Topic already set to: '{topic_name}'")
 
     @property
     def CATEGORIES(self):
@@ -941,15 +941,15 @@ class Research:
             raise
 
     async def get_categories(self, topic=None):
-        logger.info(f"🔍 get_categories called for topic: '{topic}'")
-        logger.info(f"🔍 Current topic before set_topic: '{self.current_topic}'")
-        logger.info(f"🔍 Available topics in config: {list(self.topic_configs.keys())}")
+        logger.debug(f"🔍 get_categories called for topic: '{topic}'")
+        logger.debug(f"🔍 Current topic before set_topic: '{self.current_topic}'")
+        logger.debug(f"🔍 Available topics in config: {list(self.topic_configs.keys())}")
         try:
             if topic:
                 self.set_topic(topic)
-                logger.info(f"🔍 Current topic after set_topic: '{self.current_topic}'")
+                logger.debug(f"🔍 Current topic after set_topic: '{self.current_topic}'")
             categories = self.CATEGORIES
-            logger.info(f"✅ Returning {len(categories)} categories for topic '{self.current_topic}': {categories}")
+            logger.debug(f"✅ Returning {len(categories)} categories for topic '{self.current_topic}': {categories}")
             return categories
         except Exception as e:
             logger.error(f"❌ Error getting categories for topic {topic}: {str(e)}")

@@ -45,6 +45,22 @@ def time_to_impact_windows(options: List[str], today: date) -> str:
     return ("Counted from today, the options cover these calendar windows. Pick the one\n"
             "that contains the date the impact is expected:\n" + "\n".join(lines) + "\n")
 
+
+def option_list(options) -> str:
+    """Join a topic's allowed labels for the prompt.
+
+    A plain comma join is ambiguous when a label itself contains a comma: the
+    model read "AI Copyright, Regulation, and Antitrust" as three labels and
+    answered "Regulation, and Antitrust" or "AI Copyright", which validation
+    then rejected (about 110 articles every 6 hours filed as "Other" on
+    bugfixing, October 2026). Such a list is quoted, one label per pair of
+    quotes; a list without commas in its labels keeps the plain join.
+    """
+    options = list(options or [])
+    if any("," in str(o) for o in options):
+        return ", ".join(f'"{o}"' for o in options)
+    return ", ".join(str(o) for o in options)
+
 class PromptTemplateError(Exception):
     pass
 
@@ -194,14 +210,14 @@ Output Format (JSON Object):
         template = self.get_template(prompt_type)
         
         # Format lists as comma-separated strings
-        kwargs["categories"] = ', '.join(kwargs.get("categories", []))
-        kwargs["future_signals"] = ', '.join(kwargs.get("future_signals", []))
-        kwargs["sentiment_options"] = ', '.join(kwargs.get("sentiment_options", []))
+        kwargs["categories"] = option_list(kwargs.get("categories", []))
+        kwargs["future_signals"] = option_list(kwargs.get("future_signals", []))
+        kwargs["sentiment_options"] = option_list(kwargs.get("sentiment_options", []))
         today = datetime.now(timezone.utc).date()
         kwargs.setdefault("time_to_impact_windows", time_to_impact_windows(
             kwargs.get("time_to_impact_options", []), today))
-        kwargs["time_to_impact_options"] = ', '.join(kwargs.get("time_to_impact_options", []))
-        kwargs["driver_types"] = ', '.join(kwargs.get("driver_types", []))
+        kwargs["time_to_impact_options"] = option_list(kwargs.get("time_to_impact_options", []))
+        kwargs["driver_types"] = option_list(kwargs.get("driver_types", []))
         # Without today's date the model guesses the year from its training
         # data and measures time to impact from there ("2027 is about three
         # years away" in September 2026).

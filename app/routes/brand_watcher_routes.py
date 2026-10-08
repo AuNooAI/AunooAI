@@ -2798,7 +2798,8 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
         # rows as owned so the metrics leave them out (bw_owned).
         try:
             from app.services.bw_owned import tag_owned_articles
-            tag_owned_articles(conn, brand_id=brand_id)
+            # A full scan of the untagged articles; keep it off the event loop.
+            await _bw_asyncio.to_thread(tag_owned_articles, conn, brand_id=brand_id)
         except Exception as oe:
             logger.warning(f"BW Run {run_id}: owned-article tagging failed: {oe}")
 

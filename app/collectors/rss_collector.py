@@ -383,14 +383,14 @@ class RSSCollector(ArticleCollector):
             fetched_text = response.text or ""
 
         text = clean_feed_text(fetched_text)
-        feed = feedparser.parse(text)
+        feed = await asyncio.to_thread(feedparser.parse, text)  # CPU-bound; keep off the event loop
         if feed.bozo and _DECLARATION_NOT_AT_START in str(feed.get("bozo_exception") or ""):
             # Something other than whitespace sat before the declaration
             # (a stray byte, a comment). Cut to the first tag and try once
             # more; the retry is recorded so a feed that needs it is visible.
             start = text.find("<?xml")
             if start > 0:
-                feed = feedparser.parse(text[start:])
+                feed = await asyncio.to_thread(feedparser.parse, text[start:])
                 result.diagnostics["hygiene_retry"] = True
 
         entries = list(feed.entries or [])
@@ -678,7 +678,7 @@ class RSSCollector(ArticleCollector):
                 response.raise_for_status()
                 content = response.text
 
-            feed = feedparser.parse(content)
+            feed = await asyncio.to_thread(feedparser.parse, content)
 
             if feed.bozo and not feed.entries:
                 return {

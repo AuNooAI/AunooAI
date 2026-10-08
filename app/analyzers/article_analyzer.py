@@ -80,6 +80,37 @@ _KNOWN_HEADERS = (
 )
 
 
+
+def match_option(value, options):
+    """Map a model's label answer back to the topic's exact label.
+
+    Strips quotes the model may copy from a quoted option list, fixes case,
+    and recovers a label cut at one of its own commas: "Regulation, and
+    Antitrust" or "AI Copyright" become "AI Copyright, Regulation, and
+    Antitrust" when exactly one label matches. Anything else is returned
+    unchanged so the caller's validation still rejects it.
+    """
+    if not isinstance(value, str):
+        return value
+    answer = value.strip().strip('"\'').strip()
+    by_lower = {str(o).lower(): o for o in options or []}
+    if answer.lower() in by_lower:
+        return by_lower[answer.lower()]
+    if not answer:
+        return value
+    hits = set()
+    for opt in options or []:
+        parts = [p.strip().lower() for p in str(opt).split(",")]
+        if len(parts) < 2:
+            continue
+        runs = {", ".join(parts[:k]) for k in range(1, len(parts))}
+        runs |= {", ".join(parts[k:]) for k in range(1, len(parts))}
+        if answer.lower() in runs:
+            hits.add(opt)
+    if len(hits) == 1:
+        return hits.pop()
+    return value
+
 class ArticleAnalyzerError(Exception):
     pass
 
@@ -618,6 +649,7 @@ Article text:
 
         # Validate category (allow "Other" as fallback even if not in list)
         if 'category' in validated:
+            validated['category'] = match_option(validated['category'], categories)
             original_category = validated['category']
             if original_category and original_category not in categories and original_category != "Other":
                 logger.warning(f"Invalid category from AI: '{original_category}'. "

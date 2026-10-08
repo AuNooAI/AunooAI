@@ -60,24 +60,40 @@ def tag_owned_articles(conn, brand_id: Optional[int] = None, uris: Optional[List
     domains = brand_domains(conn, brand_id)
     if not domains:
         return 0
-    changed = 0
-    for bid, doms in domains.items():
-        for dom in doms:
-            sql = (f"UPDATE articles SET bias_source = :tag WHERE bias_source IS NULL"
-                   f" AND ({_HOST_SQL} = :dom OR {_HOST_SQL} = :www OR {_HOST_SQL} LIKE :sub)")
-            params = {"tag": f"owned:{dom}", "dom": dom, "www": f"www.{dom}", "sub": f"%.{dom}"}
-            if uris:
-                sql += " AND uri = ANY(:uris)"
-                params["uris"] = list(uris)
-            try:
-                changed += conn.execute(text(sql), params).rowcount or 0
-            except Exception as e:
-                logger.warning("bw_owned: tagging %s failed: %s", dom, e)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                return changed
+    doms = sorted({d for ds in domains.values() for d in ds})
+    # One pass over the untagged rows for every domain at once. Each row's host
+    # is split into itself and its parent domains (news.acme.com -> acme.com),
+    # so an equality join covers the bare, www. and sub-domain cases. The old
+    # loop ran one full-table scan per domain: 143 domains took up to 260s on
+    # bugfixing, and it held the event loop the whole time.
+    uri_filter = " AND uri = ANY(:uris)" if uris else ""
+    sql = f"""
+        WITH h AS (
+            SELECT uri, string_to_array({_HOST_SQL}, '.') AS parts
+            FROM articles WHERE bias_source IS NULL{uri_filter}
+        ), m AS (
+            SELECT DISTINCT ON (h.uri) h.uri, d.dom
+            FROM h
+            CROSS JOIN LATERAL generate_series(1, cardinality(h.parts)) AS i
+            JOIN unnest(CAST(:doms AS text[])) AS d(dom)
+              ON d.dom = array_to_string(h.parts[i:], '.')
+            ORDER BY h.uri, length(d.dom) DESC
+        )
+        UPDATE articles a SET bias_source = 'owned:' || m.dom
+        FROM m WHERE a.uri = m.uri AND a.bias_source IS NULL
+    """
+    params = {"doms": doms}
+    if uris:
+        params["uris"] = list(uris)
+    try:
+        changed = conn.execute(text(sql), params).rowcount or 0
+    except Exception as e:
+        logger.warning("bw_owned: tagging failed: %s", e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return 0
     if commit and changed:
         conn.commit()
     if changed:
