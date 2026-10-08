@@ -87,8 +87,10 @@ def match_option(value, options):
     Strips quotes the model may copy from a quoted option list, fixes case,
     and recovers a label cut at one of its own commas: "Regulation, and
     Antitrust" or "AI Copyright" become "AI Copyright, Regulation, and
-    Antitrust" when exactly one label matches. Anything else is returned
-    unchanged so the caller's validation still rejects it.
+    Antitrust" when exactly one label matches. It also recovers a label whose
+    bracketed part was dropped: "Immediate" becomes "Immediate (0-3 months)".
+    Anything else is returned unchanged so the caller's validation still
+    rejects it.
     """
     if not isinstance(value, str):
         return value
@@ -100,6 +102,9 @@ def match_option(value, options):
         return value
     hits = set()
     for opt in options or []:
+        if " (" in str(opt) and answer.lower() == _drop_brackets(str(opt)).lower():
+            hits.add(opt)
+            continue
         parts = [p.strip().lower() for p in str(opt).split(",")]
         if len(parts) < 2:
             continue
@@ -110,6 +115,11 @@ def match_option(value, options):
     if len(hits) == 1:
         return hits.pop()
     return value
+
+
+def _drop_brackets(label: str) -> str:
+    """"Immediate (0-3 months)" -> "Immediate"."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", label).strip()
 
 class ArticleAnalyzerError(Exception):
     pass
@@ -641,6 +651,7 @@ Article text:
 
         # Validate time_to_impact
         if 'time_to_impact' in validated:
+            validated['time_to_impact'] = match_option(validated['time_to_impact'], time_to_impact_options)
             original_impact = validated['time_to_impact']
             if original_impact and original_impact not in time_to_impact_options:
                 logger.warning(f"Invalid time_to_impact from AI: '{original_impact}'. "
