@@ -1,5 +1,158 @@
 # Changes
 
+## 2026-10-08 — aisocnews.com: every vendor is now searched by name on Bluesky, X and Reddit
+
+### Goal
+The user asked which aisocnews.com vendors (bugfixing, market 2) we collect no social posts for.
+On LinkedIn the gap was small. Elsewhere it was large. Only 46 of the 116 vendors were searched
+by name, and only on Bluesky. X and Reddit got just eight general phrases, so 66 vendors had
+never had an X, Bluesky or Reddit post linked to them. The user asked for the missing names to
+be added to Bluesky, and for every firm name to be searched on Reddit and X as well.
+
+### Finding · LinkedIn gaps (reported, not changed)
+LinkedIn company posts reach a vendor through its `bw_vendor_identifiers` row of kind
+`linkedin_company_url`, which `linkedin_url_map()` in **`app/services/market_collect.py`**
+reads. SOCAI has no such row, so it gets no LinkedIn collection at all. Six vendors have a URL
+but have never had a post: HTCD, Joon, Mave, Tencycle, Trellix and Variance. Tencycle's URL is
+`/company/tencyle`, which looks misspelled. Variance's URL still points at its old name
+(`/company/intrinsicsafety`). Twelve more vendors have had no post since 26 Aug – 8 Sep. We
+changed none of this; it is listed under "what's next".
+
+### Config · Bluesky vendor group filled in (DB only, not in git)
+We added 69 rows to `monitored_keywords` for `keyword_groups` 32, "SOC Automation - Vendor
+Social (Bluesky)". The group now holds 115 vendor terms. Two rules decided the search form:
+- Large firms are searched by their SOC product or with a SOC qualifier: "Microsoft Sentinel",
+  "IBM SOC", "Splunk SOC", "ServiceNow SecOps", "Google SecOps". A bare "Microsoft" would
+  return mostly unrelated posts.
+- Names that are also ordinary words got " security" added, matching the group's existing
+  style: "Joon security", "Cantina security", "Rilian security".
+
+### Config · new X and Reddit vendor group (DB only, not in git)
+We created `keyword_groups` row 440, "SOC Automation - Vendor Social (X, Reddit)". It has topic
+"Market Monitoring SOC Automation", `providers ["xpoz"]` and `social_platforms
+["twitter","reddit"]`. Its other settings copy group 32: a daily check, a 7-day window, and a
+0.45 relevance cutoff. It holds 117 terms: group 32's 115, plus `7ai` and `"Dropzone AI"`. We
+left out Instagram and TikTok because they add little for B2B security firms and each platform
+is a separate paid xpoz call. The SQL is in the session scratchpad only.
+
+### Verification
+- Group 440's first run went from 09:59:45 to 10:27:43 with no `last_error`. xpoz returned
+  1,003 X posts and 557 Reddit posts that passed its word filter, and we stored 625 new
+  articles.
+- By 15:19 the AI scoring step had rated all 625, using `SOCIAL_EVAL_MODEL=claude-haiku-4-5`.
+  273 of them passed the 0.45 cutoff.
+- The market's matching step put 102 of the posts into market 2 and linked them to 25 vendors.
+  The biggest counts were Splunk (12), Exabeam (9), 7AI (9) and PRE Security (8).
+- Group 32 has not run with the new names yet. Its next check is 2026-10-09 08:15.
+
+### Propagation
+These are database changes on bugfixing only. Market 2 exists only there, so no other site
+needs them, and there is nothing to commit or restart. This entry is the only record of the
+change outside the database.
+
+### Lessons
+- xpoz runs with `XPOZ_TERM_MATCH=root` by default (**`app/collectors/xpoz_collector.py`**), so
+  only the first word of a keyword has to appear in a post. Adding " security" to a collision
+  name therefore does nothing on X or Reddit. Six names — Joon, guarddog, WiseBee, Spectrum,
+  Variance and PRE — passed only 0 to 2 of their 9 to 28 rated posts each. Each of those posts
+  still costs one Haiku rating.
+- Some of that noise gets past both the cutoff and the matching step. Posts linked to PRE
+  Security include a TryHackMe course called "Pre Security". Posts linked to Spectrum Security
+  include an Nmap tip about "full-spectrum security".
+- The "/100" in keyword_monitor's `requests_today: N/100` log line is a fixed string. Nothing
+  enforces it for xpoz.
+
+### Fix · PRE Security, Spectrum Security and guarddog stop collecting other people's posts
+The new searches showed that three vendors were being linked to posts about something else:
+- **PRE Security:** airport "pre security checks" and TryHackMe's "Pre Security" course.
+- **Spectrum Security:** "full-spectrum security", Charter's "Spectrum Security Shield", an
+  FAA "electromagnetic spectrum security" story, and the Spectrum arena's security staff.
+- **guarddog:** a dog post tagged #guarddog.
+
+**Root cause.** The name-matching step in **`app/services/market_corpus.py`**
+(`attribute_vendors`) believes a third-party post that names a vendor only when the post also
+contains the market's word ("security") or one of its phrases. "PRE Security" and "Spectrum
+Security" contain that word, so the name passed its own check. We measured a rule that
+ignores the vendor's own name for every vendor, but it would also have dropped real funding
+news for Fig Security, Method Security, Twine Security and Spectrum itself. So we did not
+change the rule for everyone.
+
+**Code.** A vendor can now carry its own context list, `bw_brands.config['name_context']`.
+`vendor_name_terms()` reads it. A new `_kept_hits()` applies it: when a vendor has the list,
+one of its words must appear, and the market's word no longer counts for that vendor. Vendors
+without the list behave exactly as before. The vendor's own site and names with a digit or a
+dot are still always believed. We added three tests in **`tests/test_market_corpus_names.py`**,
+built from the real 8 Oct posts.
+
+**Config (DB only, not in git):**
+- PRE Security (`bw_brands` 98): `name_context` is AI, cyber, cybersecurity, SOC, SecOps,
+  XDR, EDR, threat, predictive, AgentGuard and SignalGate. `news_keyword_excludes` is
+  TryHackMe and THM.
+- Spectrum Security (148): `name_context` is detection, SIEM, SOC, SecOps, threat, cyber,
+  cybersecurity, AI, Blue Team, infosec, stealth, seed and funding. `news_keyword_excludes` is
+  "full-spectrum security" (with an ordinary hyphen and with U+2011), "full spectrum
+  security", "Spectrum Security Shield" and "electromagnetic spectrum".
+- guarddog (119): `brand_keywords` changed from `["guarddog"]` to `["GuardDog AI",
+  "guarddog.ai"]`. The bare word also matches Datadog's open-source GuardDog scanner and dog
+  posts. In social groups 32 and 440 the search term changed from `guarddog` to `"GuardDog AI"`.
+
+**Existing links.** We re-judged all 41 name-matched links for the three vendors under the new
+rules. It came out 22 to drop and 19 to keep, and every one of the 22 is a wrong-company post
+(7 PRE, 14 Spectrum, 1 guarddog). The 19 kept links include PRE's AgentGuard launch, Spectrum's $19M seed round and its
+Blue Team Con sponsorship. (We ran the removal for all batches together; the counts are under
+"Cleanup" below.)
+
+**Embed Security (`bw_brands` 109), same day.** Its name is also a verb phrase ("DevOps teams
+must embed security into the pipeline"). A context list cannot separate the two, because the
+verb posts also say AI and threat. So it gets exclusion phrases only, and no code change was
+needed for it. There are 18 phrases in `news_keyword_excludes`: "to / must / can / helps embed
+security", and "embed security" followed by into, in, from, early, directly, controls,
+evaluators, behaviors, practices, throughout, across, at, "and threat" or "and data". We left
+out a bare "embed security and" because it would also hit "Embed Security and <partner>
+announce". Re-judging its 32 name-matched links came out 20 to drop and 12 to keep. All 20 are
+the verb, and all 12 are the company: its own blog, its SOC 2 news and its BSidesLV sponsorship.
+The same cleanup removed the 20 links.
+
+**Sweep of the other vendors, same day.** We checked every vendor's name-matched links in two
+passes. The first pass flagged links where the name never appears in the vendor's own
+capitalisation. That flagged 7AI, Exaforce and AiStrike, but only for capitalisation; their
+posts are real. In the second pass we read all 289 third-party links for vendors whose names
+are two or more ordinary words. Seven more vendors had wrong-company posts, 13 in all:
+- **Method Security (93):** Spring Security's "method security annotations" CVEs, and "an
+  attack method. Security company Trellix…". Excludes: "method security annotations", "attack
+  method security", "Spring Security".
+- **Daylight Security (120):** "brighter-than-daylight security lights". Excludes cover
+  "daylight security light(s)" and "than(-)daylight security".
+- **Legion Security (102):** the romance novel "Chasing Ashley (Guardian Legion Security)".
+  Exclude: "Guardian Legion".
+- **Radiant Security (91):** a magazine essay titled "Radiant Security: Migration's Anxious
+  Remediations". Excludes: "parapraxis", "Anxious Remediations".
+- **Variance (89):** an arXiv paper with "an intrinsic security problem". Five "intrinsic
+  security …" phrase excludes.
+- **Secure.com (130):** urlscan.io bot posts about look-alike domains (`hr-secure.com`,
+  `scholar-secure.com`), and a 7AI post linked only through a `whois-secure.com` address.
+  Exclude: "urlscan".
+- **Kai Security (157):** a streamer's bodyguards ("denied … by Kai security"). It gets a
+  `name_context` list (AI, SOC, cyber, cybersecurity, agentic, threat, security operations,
+  startup, funding, raises), because no fixed phrase marks the noise.
+
+Re-judging these seven vendors' links dropped exactly those 13 and kept the rest. Microsoft's
+62 links are real, but 56 of them are one advert ("Microsoft Security Copilot agents unify
+alerts…") posted again and again. That is a duplication problem, not a matching one, and we
+left it alone.
+
+**Cleanup, all four batches.** We restarted the service at 16:11 on the user's say-so, while
+three people were using the site. Without the restart, the old code would have re-created the
+links on the next market run. Then we ran one transaction:
+- We deleted 55 links across 11 vendors from `bw_article_categories`.
+- We deleted 53 `bw_market_articles` rows: the `method = 'vendor_name'` rows for articles with
+  no other vendor on them. The other two articles stay in the market through another vendor.
+- We marked 66 `bw_entity_mentions` rows `false_positive`, with
+  `metadata.false_positive_reason` set, rather than deleting them.
+
+Replaying the rules afterwards over the 11 vendors' remaining name-matched links gave 97 kept
+and 0 to drop.
+
 ## 2026-10-08 — Brand Watcher digest: sentiment counted per article, figures labelled with their window, and the brand's part in each story named
 
 ### Goal

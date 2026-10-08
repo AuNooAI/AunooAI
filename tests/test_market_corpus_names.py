@@ -120,6 +120,37 @@ def test_a_token_with_a_digit_or_a_dot_cannot_be_a_dictionary_word(term, expecte
     assert mcorp._distinctive(term) is expected
 
 
+_PRE = {"brand_id": 98, "vendor": "PRE Security", "terms": ["PRE Security"],
+        "excludes": ["TryHackMe"], "context": ["AI", "cyber", "SOC"]}
+
+
+def _kept(text_, vendor, *, own_site=False, in_context=True):
+    hits = mcorp._vendor_hits(text_, [vendor])
+    return mcorp._kept_hits(hits, text_, own_site=own_site,
+                            in_context=in_context)
+
+
+def test_a_vendors_own_context_replaces_the_market_word_in_its_name():
+    # Real posts on X, 8 Oct 2026. The market word "security" is inside the
+    # name, so the market rule alone would have kept both airport posts.
+    assert _kept("Don't forget all the pre security checks", _PRE) == []
+    assert _kept("There also is a lovely speakeasy pre security.", _PRE) == []
+    assert len(_kept("PRE Security Introduces AgentGuard to Predict and Stop "
+                     "AI Agents Before They Go Rogue", _PRE)) == 1
+
+
+def test_a_vendors_own_context_still_yields_to_its_own_site_and_excludes():
+    assert len(_kept("Pre security, the blog", _PRE, own_site=True)) == 1
+    assert _kept("I just completed Pre Security on TryHackMe. Cyber "
+                 "Security 101 next", _PRE) == []
+
+
+def test_a_vendor_without_its_own_context_keeps_the_market_rule():
+    plain = _v(1, "Prophet Security", ["Prophet Security"])
+    assert len(_kept("Prophet Security raises", plain, in_context=True)) == 1
+    assert _kept("Prophet Security raises", plain, in_context=False) == []
+
+
 # ---------------------------------------------------------------------------
 # The write path, rolled back
 # ---------------------------------------------------------------------------

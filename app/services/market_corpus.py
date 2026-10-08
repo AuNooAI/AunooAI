@@ -429,6 +429,11 @@ def vendor_name_terms(conn, market_id: int) -> List[Dict[str, Any]]:
     is not this market's coverage. ``config.news_keyword_excludes`` is carried
     through so the per-brand negative list Brand Watcher honours is honoured
     here too.
+
+    ``config.name_context`` is the vendor's own context list (see
+    :func:`_kept_hits`). It exists for a name that already contains the
+    market's word: "PRE Security" carries "security", so the market rule is
+    met by the name alone and "pre security checks" at an airport passed it.
     """
     rows = conn.execute(text("""
         SELECT b.id, b.display_name, b.brand_keywords, b.product_keywords,
@@ -453,9 +458,12 @@ def vendor_name_terms(conn, market_id: int) -> List[Dict[str, Any]]:
         cfg = cfg if isinstance(cfg, dict) else {}
         excludes = [str(x).strip() for x in (cfg.get("news_keyword_excludes") or [])
                     if str(x).strip()]
+        context = [str(x).strip() for x in (cfg.get("name_context") or [])
+                   if str(x).strip()]
         if terms:
             out.append({"brand_id": int(brand_id), "vendor": display_name,
-                        "terms": terms, "excludes": excludes})
+                        "terms": terms, "excludes": excludes,
+                        "context": context})
     return out
 
 
@@ -575,6 +583,32 @@ def _vendor_hits(text_content: str, vendors: Sequence[Dict[str, Any]]
                 hits.append((vendor, term))
                 break
     return hits
+
+
+def _kept_hits(hits: Sequence[Tuple[Dict[str, Any], str]], content: str, *,
+               own_site: bool, in_context: bool
+               ) -> List[Tuple[Dict[str, Any], str]]:
+    """The hits the context rule believes.
+
+    A page on the vendor's own site and a name that cannot be a word
+    (:func:`_distinctive`) are always kept. Otherwise a vendor with its own
+    ``context`` list must have one of those words in the text, and the
+    market's context does not count for it: the market word is part of such a
+    vendor's name. Every other vendor needs the market's context
+    (``in_context``), as before.
+    """
+    from app.routes.brand_watcher_routes import _mentions
+
+    kept: List[Tuple[Dict[str, Any], str]] = []
+    for vendor, term in hits:
+        if own_site or _distinctive(term):
+            kept.append((vendor, term))
+        elif vendor.get("context"):
+            if any(_mentions(content, c) for c in vendor["context"]):
+                kept.append((vendor, term))
+        elif in_context:
+            kept.append((vendor, term))
+    return kept
 
 
 def _link_entity(conn, uri: str, brand_id: int, term: str,
@@ -723,9 +757,9 @@ def attribute_vendors(conn, market_id: int, *,
         host = _host(row["uri"])
         own_site = bool(host) and any(host == d or host.endswith("." + d)
                                       for d in domains)
-        in_context = own_site or not contexts or \
-            any(p.search(content) for p in contexts)
-        kept = [(v, t) for v, t in hits if in_context or _distinctive(t)]
+        in_context = not contexts or any(p.search(content) for p in contexts)
+        kept = _kept_hits(hits, content, own_site=own_site,
+                          in_context=in_context)
         for v, t in hits:
             if (v, t) not in kept:
                 without_context += 1
