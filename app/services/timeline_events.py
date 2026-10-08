@@ -298,8 +298,8 @@ def _detect_sentiment_shift(conn, scope_type, scope_id, target, day_articles) ->
     p = {"d0": (target - timedelta(days=7)).isoformat(), "d1": target.isoformat()}
     if scope_type == "brand":
         row = conn.execute(text(f"""
-            SELECT COUNT(*) FILTER (WHERE {_NEG_SQL}) AS neg,
-                   COUNT(*) FILTER (WHERE COALESCE(a.sentiment,'') <> '') AS scored
+            SELECT COUNT(DISTINCT a.uri) FILTER (WHERE {_NEG_SQL}) AS neg,
+                   COUNT(DISTINCT a.uri) FILTER (WHERE COALESCE(a.sentiment,'') <> '') AS scored
             FROM articles a
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :bid
             WHERE a.submission_date >= :d0 AND a.submission_date < :d1

@@ -4322,7 +4322,7 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 nemp_lines.append("Sub-ratings (weakest first): " + ", ".join(
                     f"{k} {v}" for k, v in sorted(_subs.items(), key=lambda x: x[1])))
         _gr = conn.execute(text("""
-            SELECT a.sentiment, COUNT(*) FROM articles a
+            SELECT a.sentiment, COUNT(DISTINCT a.uri) FROM articles a
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :bid
             WHERE a.news_source = 'Glassdoor'
               AND a.publication_date >= :start AND a.publication_date <= :end

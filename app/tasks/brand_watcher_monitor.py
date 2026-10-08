@@ -729,14 +729,16 @@ def evaluate_adverse_alerts(db) -> int:
                                 f"high_reach_negative|{bid}|{_uris_sig(new_set)}"):
                             created += 1
 
-            # 3) News net-negative over the window.
+            # 3) News net-negative over the window. Counts are per article:
+            #    bw_article_categories holds one row per category, so COUNT(*)
+            #    counted an article with three categories three times.
             rc = rule("news_net_negative")
             if rc.get("enabled"):
                 row = conn.execute(_text(f"""
                     SELECT
-                      COUNT(*) FILTER (WHERE {_POS_SENT_SQL}) AS pos,
-                      COUNT(*) FILTER (WHERE {_NEG_SENT_SQL}) AS neg,
-                      COUNT(*) FILTER (WHERE sentiment IS NOT NULL AND sentiment <> '') AS scored
+                      COUNT(DISTINCT a.uri) FILTER (WHERE {_POS_SENT_SQL}) AS pos,
+                      COUNT(DISTINCT a.uri) FILTER (WHERE {_NEG_SENT_SQL}) AS neg,
+                      COUNT(DISTINCT a.uri) FILTER (WHERE sentiment IS NOT NULL AND sentiment <> '') AS scored
                     FROM articles a
                     JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                     WHERE a.publication_date >= to_char(now() - (:wd || ' days')::interval,'YYYY-MM-DD')

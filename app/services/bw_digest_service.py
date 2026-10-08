@@ -336,9 +336,9 @@ def _compose_digest(conn, period_days: int):
     stats: dict = {}
     for bid, bname, _bcfg in brands:
         row = conn.execute(text(f"""
-            SELECT COUNT(*) FILTER (WHERE {_POS}) AS pos,
-                   COUNT(*) FILTER (WHERE {_NEG}) AS neg,
-                   COUNT(*) FILTER (WHERE COALESCE(sentiment,'') <> '') AS scored
+            SELECT COUNT(DISTINCT a.uri) FILTER (WHERE {_POS}) AS pos,
+                   COUNT(DISTINCT a.uri) FILTER (WHERE {_NEG}) AS neg,
+                   COUNT(DISTINCT a.uri) FILTER (WHERE COALESCE(sentiment,'') <> '') AS scored
             FROM articles a
             JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
             WHERE a.publication_date >= to_char(now() - (:d || ' days')::interval,'YYYY-MM-DD')
@@ -383,8 +383,8 @@ def _compose_digest(conn, period_days: int):
         _gd = ((_cfg.get("glassdoor_overview") or {}).get("data")) or None
         if _gd and _gd.get("rating") is not None:
             _gr = conn.execute(text(f"""
-                SELECT COUNT(*) FILTER (WHERE {_POS}) AS pos,
-                       COUNT(*) FILTER (WHERE {_NEG}) AS neg
+                SELECT COUNT(DISTINCT a.uri) FILTER (WHERE {_POS}) AS pos,
+                       COUNT(DISTINCT a.uri) FILTER (WHERE {_NEG}) AS neg
                 FROM articles a
                 JOIN bw_article_categories bac ON bac.article_uri = a.uri AND bac.brand_id = :b
                 WHERE a.news_source = 'Glassdoor'
@@ -429,14 +429,17 @@ def _compose_digest(conn, period_days: int):
             p = payload if isinstance(payload, dict) else json.loads(payload or "{}")
             line = f"- 🔔 {title}"
             if rule_name == "news_net_negative" and p.get("scored"):
-                # Older events carry the window only in the body text.
                 wd = p.get("window_days")
-                if wd is None:
+                if wd is not None:
+                    line += (f" — {_window_label(int(wd))}, {p.get('pos', 0)}+ / "
+                             f"{p.get('neg', 0)}− of {p['scored']} scored")
+                else:
+                    # Events from before 2026-10-08 counted one row per
+                    # category, so their counts are inflated: show only the
+                    # window, read from the body text.
                     m = _ALERT_WINDOW_RE.search(body or "")
-                    wd = int(m.group(1)) if m else None
-                when = f"{_window_label(int(wd))}, " if wd else ""
-                line += (f" — {when}{p.get('pos', 0)}+ / {p.get('neg', 0)}− "
-                         f"of {p['scored']} scored")
+                    if m:
+                        line += f" — {_window_label(int(m.group(1)))}"
             section.append(line)
             if p.get("category"):
                 spike_cats.append(p["category"])
