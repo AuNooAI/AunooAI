@@ -1,5 +1,96 @@
 # Changes
 
+## 2026-10-08 — Brand Watcher digest: sentiment counted per article, figures labelled with their window, and the brand's part in each story named
+
+### Goal
+Oviva's adverse-media digest of 8 Oct raised three questions. Why was an ASA story filed under
+Juniper? Why did Juniper's news sentiment read 0 on one line and -25 on the next? And where had
+3 of the 5 negative articles behind the -25 alert gone? Each answer turned out to be a defect,
+and we fixed all three on every Brand Watcher site.
+
+### The ASA story was correctly filed under Juniper
+The LBC article (`lbc.co.uk/article/watchdog-bans-glp1-ads-5HjdjW9_2`) says the ASA "made three
+further rulings against MedExpress, Juniper and the Care Pharmacy". The relevance check scored
+it 0.7 and said so in `overall_match_explanation`. The digest hid this because its "What's
+driving it" line was written from the article summary. That summary is about the sector ("the
+ASA banned advertisements for oral weight loss drugs") and never names Juniper.
+
+### Fix · Narration names the brand's part in the story (`d192ef35`)
+**`bw_digest_service.py`** has two new helpers. `_brand_names` returns the brand's display name
+plus its `brand_keywords`. `_brand_passages` pulls up to two sentences that name the brand from
+`raw_articles.raw_markdown`. `_brand_narration` now takes (title, summary, passage) for each
+driver article. The prompt tells the model to say what part the brand plays in each story. When
+the stored text doesn't name the brand, the model must say the coverage is about the sector.
+
+The first version of the prompt made the model hedge ("the articles alleged that Juniper was
+named"). It also relabelled the alert as a "customer-defined status". Two added instructions fix
+both: keep the source's own wording, and don't restate the alerts or their numbers.
+
+### Fix · Every sentiment figure names its window (`d192ef35`)
+The digest's sentiment line counts the digest period, which is one day for a daily digest. The
+`news_net_negative` alert counts its rule window, which is 7 days. Neither line said which, so
+the two figures looked like one figure contradicting itself. The digest now prints "News
+sentiment, last day: …". It also adds the alert's own window and counts to the alert line.
+**`brand_watcher_monitor.py`** now stores `window_days` in the alert payload. The prompt for
+the digest's opening paragraph now forbids comparing figures from different windows.
+
+### Fix · Sentiment counts articles, not category rows (`213e04fe`)
+`bw_article_categories` has one row per (article, brand, category). So `COUNT(*)` over a join to
+it counted an article once for each category label. The 3 "missing" negative Juniper articles
+never existed. The 2 real negatives carried 3 and 2 category labels, which made 5 rows. When the
+alert fired, its window held 20 category rows but only 8 articles. The net score was -25 either
+way, by coincidence, so only the counts were wrong.
+
+These queries now use `COUNT(DISTINCT a.uri)`:
+- the `news_net_negative` alert (`brand_watcher_monitor.py`)
+- the digest's sentiment and Glassdoor-review lines (`bw_digest_service.py`)
+- the brand report's Glassdoor-review count (`brand_watcher_routes.py`)
+- the timeline's 7-day negative share (`timeline_events.py`)
+
+The investor query in `brand_watcher_routes.py` filters to one category, so it already counted
+each article once.
+
+Alert events recorded before this fix still hold the inflated counts in their payload. For
+those events, the digest shows only the window, which it reads from the "over the last N days"
+text in the alert body. It shows counts only on events that carry `window_days`.
+
+### Verification
+- I rendered the digest against Oviva's database without sending it. Juniper's lines read "News
+  sentiment, last day: 0 (0+ / 0− of 8 scored)" and "🔔 Juniper: news sentiment net-negative
+  (-25) — last 7 days".
+- Narration, three runs on the LBC article, all after the prompt fix: each named the ASA
+  rulings against MedExpress, Juniper and the Care Pharmacy, with no hedging. With the
+  brand-naming passage removed, the model said the coverage was about the sector.
+- Recounting the alert's window as it stood at firing time (10-07 13:44): 20 category rows,
+  but 8 articles, with 0 positive and 2 negative.
+- Impact over 7 days, net score counted by category row vs by article: Oviva Juniper -10 vs -13,
+  Noom +19 vs +23, WeightWatchers +26 vs +30. Wileytest Pearson +56 vs +43, Wiley +15 vs +25.
+- Weekly digest render, read-only with the AI narration stubbed out: oviva, wileytest, abm,
+  panaya, sunstar and wbm all rendered cleanly.
+
+### Propagation
+Both commits are on canonical (bugfixing, branch `fix/ingest-pipeline-spec`). We copied the
+four files to every site that has `bw_digest_service.py`. The live trees were left uncommitted,
+as usual. Every replaced file has a `.bak-digestwindow-*` or `.bak-digestfix-*` copy next to it.
+
+- Restarted and running: bugfixing, oviva, wiley, wileytest (09:33, after a topic-detection
+  run), abm, panaya, sunstar and wbm. None logged a traceback after restart.
+- Copied but not running: abbott, bwtemplate, ibaset, interroll and pbm. These sites were
+  already stopped with an encrypted `.env`, so we couldn't render them against their databases.
+  They passed `py_compile` and pyflakes, with no undefined names. They load the fix on their
+  next start.
+- abbott, ibaset, interroll and pbm run an older digest that uses `gpt-5.4-mini` and has no
+  `CLINICAL_STYLE_SHORT`. Three parts of the patch didn't apply, so we ported them by hand:
+  the narration helpers and prompt, the window note in the opening-paragraph prompt, and the
+  sentiment line. We also changed the Glassdoor-review count to count articles there.
+
+### Lessons
+- `bw_article_categories` is one row per category. Count `DISTINCT a.uri` unless the query
+  filters to a single category. When a brand count looks wrong, check for duplicate category
+  rows before hunting for deleted articles.
+- An article summary describes the story, not the brand's part in it. Brand narration needs
+  the sentences that name the brand.
+
 ## 2026-10-07 — Emerging topics: timelines built from the right articles
 
 ### Goal
