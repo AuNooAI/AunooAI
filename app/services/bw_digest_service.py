@@ -43,26 +43,92 @@ def _md_link(title: str, url: Optional[str]) -> str:
     return f"[{t}]({url})"
 
 
+def _brand_names(conn, brand_id: int, display_name: str) -> list:
+    """The display name plus the brand's own keywords, longest first."""
+    names = {display_name}
+    try:
+        row = conn.execute(text(
+            "SELECT brand_keywords FROM bw_brands WHERE id = :b"), {"b": brand_id}).fetchone()
+        kws = row[0] if row else None
+        if isinstance(kws, str):
+            kws = json.loads(kws or "[]")
+        names.update(k for k in (kws or []) if isinstance(k, str) and len(k) >= 3)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"brand keywords unavailable for {brand_id}: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    return sorted(names, key=len, reverse=True)
+
+
+def _brand_passages(conn, uri: str, names: list, limit: int = 2) -> str:
+    """Sentences from the stored article text that name the brand.
+
+    The article summary describes the story, not the brand's part in it: an
+    ASA ruling against three firms is summarised as "the ASA banned ads for
+    weight-loss drugs", and the digest then reads as if the brand was tagged
+    for a sector story. The sentence that names the brand is the evidence.
+    Empty when there is no stored text or the brand is not named in it.
+    """
+    try:
+        row = conn.execute(text(
+            "SELECT raw_markdown FROM raw_articles WHERE uri = :u"), {"u": uri}).fetchone()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"raw text unavailable for {uri}: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return ""
+    body = (row[0] or "") if row else ""
+    if not body or not names:
+        return ""
+    pat = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b", re.I)
+    hits = []
+    for sent in re.split(r"(?<=[.!?])\s+|\n+", body):
+        sent = sent.strip()
+        if pat.search(sent) and 20 <= len(sent) <= 400 and sent not in hits:
+            hits.append(sent)
+            if len(hits) >= limit:
+                break
+    return " … ".join(hits)
+
+
 def _brand_narration(brand: str, alert_titles: list, articles: list) -> Optional[str]:
     """1-2 sentence narration of what is behind a brand's alerts.
 
-    Grounded in the driver articles' titles + summaries only. Best-effort:
-    returns None on failure and the digest ships with bare headline links.
+    Grounded in the driver articles' titles, summaries and the sentences that
+    name the brand (``articles`` is a list of (title, summary, passage)).
+    Best-effort: returns None on failure and the digest ships with bare
+    headline links.
     """
     if not articles:
         return None
     try:
         from app.ai_models import LiteLLMModel
         model = LiteLLMModel.get_instance("bedrock-kimi-k2-5")
-        art_block = "\n".join(
-            f"- {t}: {sm}" if sm else f"- {t}" for t, sm in articles[:6]
-        )
+        blocks = []
+        for t, sm, passage in articles[:6]:
+            b = f"- {t}: {sm}" if sm else f"- {t}"
+            b += (f"\n  Where {brand} is named: {passage}" if passage
+                  else f"\n  ({brand} is not named in the stored text.)")
+            blocks.append(b)
+        art_block = "\n".join(blocks)
         prompt = (
             f"Alerts fired for the brand \"{brand}\":\n"
             + "\n".join(f"- {t}" for t in alert_titles[:5])
             + "\n\nThe articles behind them (title: summary):\n" + art_block[:3500]
             + "\n\nIn 1-2 plain sentences, say what this coverage is actually "
             "about — the concrete stories/themes, named specifically. "
+            f"Say what part {brand} itself plays in each story, using the "
+            f"'Where {brand} is named' lines: for example, named in a ruling, "
+            "quoted, or mentioned in passing alongside other firms. If the "
+            f"stored text does not name {brand}, say the coverage is about the "
+            "sector rather than about it. State what the 'Where named' text "
+            "states as it states it: do not add 'alleged' or 'reportedly' "
+            "unless that text does. Describe the coverage only: do not restate "
+            "the alerts, their numbers, or give them any other label. "
             "Observations only, no advice, nothing not present in the "
             "articles." + CLINICAL_STYLE_SHORT +
             " No preamble, no bullets — just the sentence(s)."
@@ -109,7 +175,10 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
             " Never state a number or fact that is not in the "
             "bullets, and never refer to a previous value the bullets do not "
             "give — no 'an unspecified higher level', no 'from an earlier "
-            "level'. Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
+            "level'. Each sentiment figure names its own time window (last "
+            "day, last 7 days): keep the window with the number, and never set "
+            "figures from different windows against each other. "
+            "Net-sentiment numbers: MORE NEGATIVE = WORSE (-38 is "
             "worse than -26) — do not compare them the wrong way round. No "
             "greeting, no markdown, no bullet points — just the "
             "paragraph.\n\nFACTS:\n" + facts[:6000]
@@ -124,6 +193,19 @@ def _prose_summary(facts: str, period_label: str) -> Optional[str]:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"bw digest prose lead failed ({e}) — sending without it")
         return None
+
+
+def _window_label(days: int) -> str:
+    """'last day' / 'last 7 days' — every sentiment figure names its window.
+
+    The digest's own sentiment line counts the digest period while the
+    net-negative alert counts the rule's window (7 days by default). Unlabelled,
+    the two read as one figure that contradicts itself.
+    """
+    return "last day" if days == 1 else f"last {days} days"
+
+
+_ALERT_WINDOW_RE = re.compile(r"over the last (\d+) days")
 
 
 _DIGEST_MEMORY_DAYS = 14  # how far back "already covered in a digest" reaches
@@ -289,10 +371,12 @@ def _compose_digest(conn, period_days: int):
                 if comp_avg is not None:
                     d = net - comp_avg
                     bench = f" — competitor avg {'+' if comp_avg > 0 else ''}{comp_avg} ({'+' if d > 0 else ''}{d})"
-                section.append(f"- News sentiment: **{'+' if net > 0 else ''}{net}** "
+                section.append(f"- News sentiment, {_window_label(period_days)}: "
+                               f"**{'+' if net > 0 else ''}{net}** "
                                f"({pos}+ / {neg}− of {scored} scored){bench}")
             else:
-                section.append(f"- News sentiment: {pos}+ / {neg}− of {scored} scored "
+                section.append(f"- News sentiment, {_window_label(period_days)}: "
+                               f"{pos}+ / {neg}− of {scored} scored "
                                 "(too few articles to score)")
         # Employee signal (cached Glassdoor aggregates + reviews landed this period).
         _cfg = bcfg if isinstance(bcfg, dict) else json.loads(bcfg or "{}")
@@ -330,8 +414,8 @@ def _compose_digest(conn, period_days: int):
         # the period (e.g. daily-keyed sentiment alerts spanning two calendar
         # days) previously produced duplicate lines in the digest.
         events = conn.execute(text("""
-            SELECT title, payload, rule FROM (
-                SELECT DISTINCT ON (title) title, payload, rule, created_at FROM bw_alert_events
+            SELECT title, payload, rule, body FROM (
+                SELECT DISTINCT ON (title) title, payload, rule, body, created_at FROM bw_alert_events
                 WHERE brand_id = :b AND rule <> 'digest'
                   AND created_at >= now() - (:d || ' days')::interval
                 ORDER BY title, created_at DESC
@@ -341,9 +425,19 @@ def _compose_digest(conn, period_days: int):
         has_neg_alert = False
         has_social_alert = False
         _SOCIAL_RULES = {"neg_social_spike", "high_reach_negative", "new_critic", "coordinated_negative"}
-        for title, payload, rule_name in events:
-            section.append(f"- 🔔 {title}")
+        for title, payload, rule_name, body in events:
             p = payload if isinstance(payload, dict) else json.loads(payload or "{}")
+            line = f"- 🔔 {title}"
+            if rule_name == "news_net_negative" and p.get("scored"):
+                # Older events carry the window only in the body text.
+                wd = p.get("window_days")
+                if wd is None:
+                    m = _ALERT_WINDOW_RE.search(body or "")
+                    wd = int(m.group(1)) if m else None
+                when = f"{_window_label(int(wd))}, " if wd else ""
+                line += (f" — {when}{p.get('pos', 0)}+ / {p.get('neg', 0)}− "
+                         f"of {p['scored']} scored")
+            section.append(line)
             if p.get("category"):
                 spike_cats.append(p["category"])
             if "net-negative" in (title or ""):
@@ -416,10 +510,11 @@ def _compose_digest(conn, period_days: int):
             credible = [r for r in drivers if not _low_cred(r)]
             low_cred = [r for r in drivers if _low_cred(r)]
             if credible:
+                _names = _brand_names(conn, bid, bname)
                 narration = _brand_narration(
                     bname,
                     [e[0] for e in events],
-                    [(r[0], r[3]) for r in credible],
+                    [(r[0], r[3], _brand_passages(conn, r[1], _names)) for r in credible],
                 )
                 if narration:
                     section.append(f"- What's driving it: {narration}")

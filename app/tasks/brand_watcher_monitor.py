@@ -770,7 +770,8 @@ def evaluate_adverse_alerts(db) -> int:
                                     f"News coverage of {bname} over the last {rc['window_days']} days is net {net} "
                                     f"({pos} positive / {neg} negative of {scored} scored)"
                                     + (f" — down from {prev_net} at the last alert." if prev_net is not None else "."),
-                                    {"net": net, "pos": pos, "neg": neg, "scored": scored},
+                                    {"net": net, "pos": pos, "neg": neg, "scored": scored,
+                                     "window_days": rc["window_days"]},
                                     f"news_net_negative|{bid}|{net}"):
                                 created += 1
 
