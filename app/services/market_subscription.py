@@ -1,6 +1,6 @@
 """The intelligence feed: monthly subscriptions sold from the front page.
 
-One plan. **MCP access** ($279/month) is a bearer key for the app's MCP
+One plan. **MCP access** ($139/month; $279 until 2026-10-08) is a bearer key for the app's MCP
 server, so the buyer's AI tools query the data directly instead of reading
 it off a page.
 
@@ -68,7 +68,7 @@ MCP_SERVICE_EMAIL = "mcp-subscriber@aisocnews.com"
 
 PLANS: Dict[str, Dict[str, Any]] = {
     "mcp": {
-        "label": "MCP access", "cents": 27900,
+        "label": "MCP access", "cents": 13900,
         "env_price": "STRIPE_PRICE_SUB_MCP",
         "blurb": "A key for our MCP server. Claude, ChatGPT or your own agents "
                  "query the articles, posts, vendor profiles and sentiment "

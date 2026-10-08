@@ -2354,7 +2354,7 @@ def _subscribe_line(market_id: int) -> str:
     # MCP server, so an agent queries the data instead of scraping the page.
     return (f'<p>Everything here is open to read. <a href="{msub.subscribe_href(market_id)}">'
             "MCP access</a> gives Claude, ChatGPT or your own agents a key to "
-            "query this data directly, for $279 a month.</p>")
+            "query this data directly, for $139 a month.</p>")
 
 
 def _contact_panel(market_id: int, market_name: str, *, trial: bool) -> str:

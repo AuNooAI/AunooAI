@@ -1,5 +1,50 @@
 # Changes
 
+## 2026-10-08 — aisocnews.com: MCP access now costs $139 a month, down from $279
+
+### Goal
+The user asked for the price of the aisocnews.com subscription (bugfixing, market 2, sold at
+`/api/market-monitor/markets/2/subscribe`) to drop to $139 a month, then for the old $279 price
+to be archived and the docs updated. MCP access is the only plan; it gives a buyer's AI tools a
+key to query the data.
+
+### Ops · new Stripe price, old one archived
+Stripe prices cannot be edited, so we created a new one and switched the app over to it.
+
+| | before | after |
+|---|---|---|
+| Price in use | `price_1UDhWVKKEEttoL4k4tcPEdbk`, $279/month | `price_1UOHsMKKEEttoL4kndkhpk8c`, $139/month |
+| Old price | active | `active=false` |
+| Product `prod_VE9qgiCSBCWNfa` "AI SOC News MCP access" | active | unchanged, still active |
+
+Nobody was paying the old price. The only subscription ever made on it was the $0 test from
+2026-09-09, cancelled the same day. The archive call checked this itself and would have refused
+if any subscription on that price were still live. It also refused to run if the app still
+pointed at the old price.
+
+### Config · `.env`
+`STRIPE_PRICE_SUB_MCP` now holds the new price ID. We backed the file up first to
+`.env.bak-mcp139-*`, and exactly one line changed.
+
+### Code
+- **`app/services/market_subscription.py`**: the plan amount is `13900` cents, so the subscribe
+  page reads $139/mo. The module docstring records the old price and the date it changed.
+- **`app/services/market_report_html.py`**: `_subscribe_line()`, the sentence in the market
+  page's contact panel, now says "for $139 a month".
+
+### Verified after the restart
+- The front page, the market page and `/subscribe` on aisocnews.com each show $139 once, and
+  none shows $179 or $279.
+- A live Checkout session on the configured price came back at 13900 USD and was expired again
+  straight away.
+- Stripe refuses a Checkout session on the old price: "The price specified is inactive".
+
+### Docs
+`docs/product/2026-10-06-use-cases-from-live-sites.md` was out of date before this change, since
+it still quoted the $179 plan withdrawn on 2026-09-22. It now gives the current offer. The
+2026-09-09 and 2026-09-22 product notes are dated records, so each got a one-line note pointing
+here instead of a rewrite. New product note: `docs/product/2026-10-08-mcp-access-139.md`.
+
 ## 2026-10-08 — aisocnews.com: every vendor is now searched by name on Bluesky, X and Reddit
 
 ### Goal

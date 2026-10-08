@@ -1,6 +1,8 @@
 # The market report is free to read, and it stopped reporting things that never happened
 _2026-09-22 · aisocnews.com, the public AI-in-the-SOC market report; the same report on the oviva and panaya sites_
 
+> **Price changed.** MCP access dropped from $279 to $139 a month on 2026-10-08. See `docs/product/2026-10-08-mcp-access-139.md`.
+
 ## What shipped
 
 **The whole report is open.** Every vendor, every figure, every chart, no sign-in and no blur.
