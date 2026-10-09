@@ -1401,6 +1401,7 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                        tags, bio, profile_url, topics, verified, brand_context,
                        avatar_url, posts_count, last_profiled_at,
                        metadata->>'market_role' AS role,
+                       metadata->>'audience_role' AS audience_role,
                        metadata->>'market_org' AS org,
                        last_profiled_at IS NOT NULL AS profiled
                   FROM social_accounts
@@ -1435,7 +1436,16 @@ def top_voices(conn, market_id: int, days: Optional[int] = None,
                 # The service stores it under the brand's name; for a market
                 # it is the account's part in the market.
                 "relation": hit["brand_context"],
-                "role": hit["role"],
+                # "practitioner" is the profiler's catch-all for anyone in the
+                # market's field: on oviva it covered 62 patients, 12
+                # clinicians and 8 customers, and readers took it for
+                # "clinician". The same profile read names the audience, so
+                # that is the role shown; the raw reading stays in market_role.
+                "role": (hit["audience_role"]
+                         if hit["role"] == "practitioner"
+                         and hit["audience_role"] not in (None, "", "unknown")
+                         else hit["role"]),
+                "market_role": hit["role"],
                 "org": hit["org"],
                 "last_profiled_at": (str(hit["last_profiled_at"])
                                      if hit["last_profiled_at"] else None),

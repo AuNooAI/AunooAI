@@ -47,7 +47,7 @@ ROLE_LABELS: Dict[str, Dict[str, str]] = {
     "investor":     {"label": "Investors",     "plural": "investors",     "hint": "Shareholders, equity analysts and VCs"},
     "brand":        {"label": "Brand voice",   "plural": "brand accounts", "hint": "The company, its regional and product accounts, affiliates or paid promotion"},
     "retailer":     {"label": "Retailers",     "plural": "retailers",     "hint": "Shops, pharmacies, online sellers and distributors selling the brand's products"},
-    "competitor":   {"label": "Competitors",   "plural": "competitors",   "hint": "What rival brands' registered accounts posted in the window, plus any rival posting about this brand. Sentiment is toward the rival's own brand"},
+    "competitor":   {"label": "Competitors",   "plural": "competitors",   "hint": "Posts by rival brands' registered accounts that mention this brand"},
     # Publisher set (voices_personas.PUBLISHER, VOICES_PERSONAS=publisher).
     "author":          {"label": "Authors",          "plural": "authors",          "hint": "People sharing their own paper, book or chapter, or their submission experience"},
     "editor_reviewer": {"label": "Editors & reviewers", "plural": "editors and reviewers", "hint": "Journal editors, editorial boards and peer reviewers speaking in that role"},
@@ -637,14 +637,17 @@ def rival_brands(conn, brand_id: int) -> Dict[int, str]:
 
 def competitor_posts(conn, *, brand_id: int, days_back: int,
                      min_relevance: float) -> List[Dict[str, Any]]:
-    """What the rivals' own registered accounts posted in the window.
+    """Posts by rivals' registered accounts that mention this brand.
 
     A rival's post lands under the rival's own topic, never this brand's,
     so the registry join in ``apply_registered_owners`` alone found no
     competitor on sunstar (0 of 86 registered accounts had a post under
-    another brand). This reads those posts where they are: every social post
-    by an account registered to a rival brand, above the same relevance
-    floor as the rest of the view. Same shape as ``_rows``.
+    another brand). This reads those posts where they are, but only the ones
+    with a mention row for this brand: a rival's own marketing that never
+    names the brand is not a voice about it. On oviva all 8 rival posts in
+    the 90-day view were Zanadio, Noom and HelloBetter promoting themselves,
+    and a report counted them as competitor voices about Oviva (9 Oct 2026).
+    Same shape as ``_rows``.
     """
     rivals = rival_brands(conn, brand_id)
     if not rivals:
@@ -669,6 +672,9 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
                                       SPLIT_PART(a.news_source, ':', 2))) = LOWER(sa.platform)
                  WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
                    AND i.brand_id IN :rivals
+                   AND EXISTS (SELECT 1 FROM bw_entity_mentions m
+                                WHERE m.article_uri = a.uri AND m.brand_id = :brand
+                                  AND m.status <> 'false_positive')
                    AND ({src})
                    AND COALESCE(a.topic_alignment_score, 0) >= :min_rel
                    AND a.publication_date >= :sd AND a.publication_date <= :ed
@@ -676,7 +682,8 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
                                     WHERE r.article_uri = a.uri AND r.status = 'false_positive')
                  ORDER BY a.uri
             """).bindparams(bindparam("rels", expanding=True), bindparam("rivals", expanding=True)),
-                {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals)}
+                {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals),
+                 "brand": brand_id}
             ).mappings().all()
     except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
         logger.debug("voices: competitor posts lookup failed: %s", e)
@@ -828,8 +835,8 @@ def voices(conn, *, brand_id: int, display_name: str, days_back: int = 90,
     by_role: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for p in posts:
         by_role[p["author_role"]].append(p)
-    # Rivals' own posts fill the Competitors row. They are not about this
-    # brand, so they stay out of the totals and the classified count.
+    # Rivals' posts that mention this brand fill the Competitors row. They
+    # stay out of the totals and the classified count all the same.
     seen = {p["uri"] for p in posts}
     for p in competitor_posts(conn, brand_id=brand_id, days_back=days_back,
                               min_relevance=min_relevance):
