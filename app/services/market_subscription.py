@@ -70,9 +70,8 @@ PLANS: Dict[str, Dict[str, Any]] = {
     "mcp": {
         "label": "MCP access", "cents": 13900,
         "env_price": "STRIPE_PRICE_SUB_MCP",
-        "blurb": "A key for our MCP server. Claude, ChatGPT or your own agents "
-                 "query the vendor benchmarks, vendor detail and metrics we do "
-                 "not publish, and the articles and posts behind them."},
+        "blurb": "Query vendor benchmarks, profiles, funding, hiring and the "
+                 "articles behind them from Claude, ChatGPT or your own agents."},
 }
 
 
@@ -522,24 +521,37 @@ def _whats_inside(totals: Optional[Dict[str, int]]) -> str:
     return (
         "<h2>What the key adds</h2>"
         "<ul>"
-        f"<li><strong>Vendor benchmarks.</strong> {each.capitalize()} against the rest of "
-        "the market on headcount, headcount change, hiring, funding, earned mentions and "
-        "announcements, with its rank, percentile and the market median.</li>"
-        "<li><strong>Vendor detail.</strong> Profiles with headcount, funding, founding year "
-        "and identifiers, each with its source and date, and each vendor's dated history, "
-        "so you can ask what changed since a given day.</li>"
-        "<li><strong>The metrics behind the pages.</strong> Funding by stage with shared "
-        "investors, hiring by function and region, coverage split into earned and owned, "
-        "and the vendors the Maturity Map could not rate, with the reading each one "
+        f"<li>Benchmarks for {each} on headcount, headcount change, hiring, funding, "
+        "earned mentions and announcements, with rank, percentile and the market "
+        "median.</li>"
+        "<li>Vendor profiles with headcount, funding, founding year and identifiers, each "
+        "with its source and date, and a dated history of each vendor's events.</li>"
+        "<li>Funding by stage and shared investors, hiring by function and region, and "
+        "coverage split into earned and owned.</li>"
+        "<li>The vendors the Maturity Map could not rate, and the reading each one "
         "lacks.</li>"
-        "<li><strong>The collected articles and posts.</strong> With their sources, dates, "
-        "sentiment and trust signals, rather than the counts drawn from them.</li>"
-        "</ul>"
-        "<p>Ask your assistant how a vendor compares with the market, or what changed this "
-        "week, and it answers from the data, with the sources behind it.</p>"
-        f'<p>For topics beyond this market, <a href="{AGENTIC_URL}">agentic.aunoo.ai</a> '
-        "gives your AI tools sourced news and foresight on any topic you choose, with a "
-        "free workspace to start.</p>")
+        "<li>The collected articles and posts, with their sources, dates, sentiment and "
+        "trust signals.</li>"
+        "</ul>")
+
+
+_AGENTS_CSS = """<style>
+.mm-v2 .v2-inq .agents-card { margin-top:var(--s-6); background:var(--wrap); border:1px solid var(--sidebar-border);
+  border-top:2px solid var(--accent); border-radius:var(--r-card); padding:var(--s-5) var(--s-6); }
+.mm-v2 .v2-inq .agents-card h2 { margin:0 0 var(--s-2); font-size:var(--fs-h3); }
+.mm-v2 .v2-inq .agents-card p { margin:0 0 var(--s-4); }
+</style>"""
+
+
+def _agents_card() -> str:
+    """A card at the foot of the page for readers who want more than this
+    market: Aunoo for Agents, the same kind of access on any topic."""
+    return (_AGENTS_CSS + '<section class="agents-card">'
+            "<h2>Want more markets or topics?</h2>"
+            "<p>Aunoo for Agents gives Claude, ChatGPT or your own agents sourced news and "
+            "foresight on any topic you choose. Start with a free workspace.</p>"
+            f'<a class="mm-btn" href="{AGENTIC_URL}">Check out Aunoo for Agents</a>'
+            "</section>")
 
 
 def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href: str,
@@ -568,10 +580,9 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
                 f'<span class="price">{fmt_amount(opt["cents"])}/mo</span>'
                 f'<p>{esc(opt["blurb"])}</p></label>')
     inner = (
-        "<section><p>The news, charts and reports on this site are free to read. They show "
-        "what we found, not everything we collect. A subscription adds the data we do "
-        "not publish, through a key for our MCP server, so your own AI tools can query "
-        "it directly.</p>"
+        "<section><p>The news, charts and reports on this site are free to read. A "
+        "subscription adds a key for our MCP server, which lets Claude, ChatGPT or your "
+        "own agents query data the pages do not show.</p>"
         + _whats_inside(totals)
         + (f'<p class="err" role="alert">{esc(error)}</p>' if error else "")
         + f'<form method="post" action="{esc(action)}">'
@@ -585,11 +596,12 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
         '<p class="fine">Prices in US dollars, billed monthly by Stripe; we never see your card. '
         "Cancel any time from the Stripe receipt; access runs to the end of the paid month. "
         "The access link and key are for you and your team, not for republication.</p>"
-        "</form></section>")
+        "</form></section>" + _agents_card())
     return _shell(market, title=f"MCP access — {market['name']}",
                   kicker="MCP access", h1="Put this market in your AI tools",
-                  sub="A monthly key for our MCP server, with the benchmarks, vendor "
-                      "detail and metrics we do not publish.",
+                  sub="Benchmark any vendor against the market, check its funding, "
+                      "headcount and history, and see what changed this week, without "
+                      "leaving Claude, ChatGPT or your own agents.",
                   inner=inner, front_href=front_href, about_href=about_href)
 
 
