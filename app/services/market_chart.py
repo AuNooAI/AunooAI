@@ -14,6 +14,7 @@ change, and "weeks at #1" must not change with them. Movement, peak, weeks on
 the chart and weeks at #1 are derived from the stored rows when read.
 """
 
+import json
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,22 @@ CHART_SIZE = 40
 BACKFILL_WEEKS = 8
 
 _TZ = ZoneInfo("Europe/Berlin")
+
+
+DEFAULT_TITLE = "Top {n} Movers"
+
+
+def title(market: Dict[str, Any], n: int) -> str:
+    """The card's name: ``config.chart.title`` with ``{n}`` for the number
+    of places, or the default."""
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    tmpl = ((cfg.get("chart") or {}).get("title") or DEFAULT_TITLE)
+    return tmpl.replace("{n}", str(n))
 
 
 def last_frozen_week(today: Optional[date] = None) -> date:
@@ -148,11 +165,62 @@ def derive(history: Dict[date, Dict[int, int]]) -> List[Dict[str, Any]]:
     return out
 
 
+# What a row says moved the vendor, in reader's words. Own posts and the
+# Crunchbase score are left out: a vendor posting more is not news, and the
+# Crunchbase score is a second-hand reading.
+_DRIVERS = ("launches", "headcount_pct", "jobs_per_head", "mentions")
+# Only an input in the top quarter of the rated vendors counts as a driver.
+_DRIVER_PERCENTILE = 75.0
+_STAGES = {"executors": "Executing", "innovators": "Scaling",
+           "established": "Building", "emerging": "Emerging"}
+_BANDS = {"accelerating": "Accelerating", "growing": "Growing",
+          "holding": "Holding"}
+
+
+def _driver_text(key: str, value: float) -> Optional[str]:
+    n = round(value)
+    if key == "launches" and n > 0:
+        return f"{n} launch{'es' if n != 1 else ''} and partnerships"
+    if key == "headcount_pct" and value > 0:
+        return f"headcount +{value:.0f}%"
+    if key == "jobs_per_head" and n > 0:
+        return f"{n} open role{'s' if n != 1 else ''} per 100 staff"
+    if key == "mentions" and n > 0:
+        return f"{n} earned mention{'s' if n != 1 else ''}"
+    return None
+
+
+def describe(rated: Dict[str, Any], week_end: date,
+             days: int = 90) -> Dict[str, Any]:
+    """The map's reading of one vendor, as the card's metadata line: its
+    stage and band, the two inputs that most lifted its momentum, and a
+    funding round inside the momentum window."""
+    inputs = rated.get("inputs") or {}
+    ranked = sorted(
+        ((k, inputs[k]) for k in _DRIVERS
+         if isinstance(inputs.get(k), dict)
+         and float(inputs[k].get("percentile") or 0) >= _DRIVER_PERCENTILE),
+        key=lambda kv: -float(kv[1].get("percentile") or 0))
+    drivers = [t for t in (_driver_text(k, float(v.get("value") or 0))
+                           for k, v in ranked) if t][:2]
+    funded = None
+    f = rated.get("funded") or {}
+    try:
+        when = date.fromisoformat(str(f.get("date"))[:10]) if f.get("date") else None
+    except ValueError:
+        when = None
+    if when and f.get("round") and week_end - timedelta(days=days) <= when <= week_end:
+        funded = f"{f['round']}, {when.strftime('%b %Y')}"
+    return {"stage": _STAGES.get(rated.get("tier") or ""),
+            "band_label": _BANDS.get(rated.get("band") or ""),
+            "drivers": drivers, "funded": funded}
+
+
 def chart(conn, market_id: int) -> Dict[str, Any]:
     """The newest stored week, ready for the front page card."""
     rows = conn.execute(text("""
         SELECT c.week_start, c.brand_id, c.rank, c.momentum, c.band,
-               b.display_name AS vendor
+               c.horizon_id, b.display_name AS vendor
         FROM bw_market_vendor_chart c
         JOIN bw_brands b ON b.id = c.brand_id
         WHERE c.market_id = :m
@@ -166,9 +234,21 @@ def chart(conn, market_id: int) -> Dict[str, Any]:
         history.setdefault(r["week_start"], {})[r["brand_id"]] = r["rank"]
         info[r["brand_id"]] = r  # ends on the newest week's row
     week = max(history)
+    # The map run the newest week was taken from, for the metadata line.
+    horizon_ids = {info[b]["horizon_id"] for b in history[week]
+                   if info[b]["horizon_id"] is not None}
+    rated: Dict[int, Dict[str, Any]] = {}
+    if horizon_ids:
+        for (result,) in conn.execute(text(
+                "SELECT result FROM bw_market_horizon WHERE id = ANY(:ids)"),
+                {"ids": list(horizon_ids)}).fetchall():
+            for v in (result or {}).get("rated") or []:
+                if v.get("brand_id") is not None:
+                    rated[int(v["brand_id"])] = v
     out = []
     for d in derive(history):
         r = info[d["brand_id"]]
-        out.append(dict(d, vendor=r["vendor"], momentum=r["momentum"],
+        meta = describe(rated.get(d["brand_id"]) or {}, week + timedelta(days=6))
+        out.append(dict(d, **meta, vendor=r["vendor"], momentum=r["momentum"],
                         band=r["band"]))
     return {"week_start": week, "rows": out}

@@ -3344,24 +3344,37 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-bar-name a:hover { color:var(--accent-ink); }
 /* The weekly Top 40: rank, move, then name over a meta line; two columns
    of five on a wide screen, one on a phone */
-.mm-v2 .v2-chart { list-style:none; margin:var(--s-3) 0 0; padding:0; columns:2; column-gap:var(--s-6); }
-.mm-v2 .v2-chart-row { display:grid; grid-template-columns:2.2em 4.6em minmax(0,1fr); gap:var(--s-2);
-  align-items:center; padding:var(--s-2) 0; border-bottom:1px solid var(--sidebar-border);
-  break-inside:avoid; }
-.mm-v2 .v2-chart-rank { font-size:var(--fs-h3); font-weight:600; text-align:right;
+.mm-v2 .v2-chart { list-style:none; margin:0; padding:0; }
+.mm-v2 .v2-chart-head, .mm-v2 .v2-chart-row { display:grid; gap:var(--s-3); align-items:center;
+  grid-template-columns:2.2em 4.6em minmax(0,1fr) 4em 3.4em 3em 5.2em; }
+.mm-v2 .v2-chart-head { margin-top:var(--s-3); padding-bottom:var(--s-1);
+  border-bottom:1px solid var(--sidebar-border); font-size:var(--fs-micro); color:var(--text-muted);
+  text-transform:uppercase; letter-spacing:.04em; }
+.mm-v2 .v2-chart-head span:nth-child(n+4) { text-align:right; }
+.mm-v2 .v2-chart-row { padding:var(--s-3) 0; border-bottom:1px solid var(--sidebar-border); }
+.mm-v2 .v2-chart-rank { font-size:var(--fs-h2); font-weight:600; text-align:right; line-height:1;
   font-variant-numeric:tabular-nums; color:var(--text-primary); }
 .mm-v2 .v2-chart-top .v2-chart-rank { color:var(--accent-ink); }
 .mm-v2 .v2-chart-move { text-align:center; }
 .mm-v2 .v2-chart-tag { font-size:var(--fs-micro); font-weight:600; color:var(--accent-ink);
   text-transform:uppercase; letter-spacing:.04em; }
-.mm-v2 .v2-chart-who { display:grid; min-width:0; }
+.mm-v2 .v2-chart-who { display:grid; gap:2px; min-width:0; }
 .mm-v2 .v2-chart-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  font-size:var(--fs-small); font-weight:500; color:var(--text-primary); }
-.mm-v2 .v2-chart-meta { font-size:var(--fs-micro); color:var(--text-muted); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
+  font-size:var(--fs-body,var(--fs-small)); font-weight:600; color:var(--text-primary); }
+.mm-v2 .v2-chart-meta { font-size:var(--fs-micro); color:var(--text-secondary); }
+.mm-v2 .v2-chart-why { font-size:var(--fs-micro); color:var(--text-muted); }
+.mm-v2 .v2-chart-mstats { display:none; font-size:var(--fs-micro); color:var(--text-muted); }
+.mm-v2 .v2-chart-n { text-align:right; font-size:var(--fs-small); font-variant-numeric:tabular-nums;
+  color:var(--text-secondary); }
+.mm-v2 .v2-chart-score { font-weight:600; color:var(--text-primary); }
 .mm-v2 .v2-chart-more summary { cursor:pointer; margin-top:var(--s-3); font-size:var(--fs-meta);
   font-weight:500; color:var(--accent-ink); }
-@media (max-width:640px) { .mm-v2 .v2-chart { columns:1; } }
+@media (max-width:640px) {
+  .mm-v2 .v2-chart-head { display:none; }
+  .mm-v2 .v2-chart-row { grid-template-columns:2em 4.2em minmax(0,1fr) 2.6em; gap:var(--s-2); }
+  .mm-v2 .v2-chart-row .v2-chart-n:not(.v2-chart-score) { display:none; }
+  .mm-v2 .v2-chart-mstats { display:block; }
+}
 /* Who moved: compact disclosure rows */
 .mm-v2 .v2-mv { border-bottom:1px solid var(--sidebar-border); padding:0; }
 .mm-v2 .v2-mv:last-child { border-bottom:0; }
@@ -4797,8 +4810,12 @@ def _ordinal(n: int) -> str:
     return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
 
+def _cap(text_: str) -> str:
+    return text_[:1].upper() + text_[1:]
+
+
 def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
-              map_href: Optional[str] = None) -> str:
+              map_href: Optional[str] = None, title: Optional[str] = None) -> str:
     """The weekly Top 40: the vendors with the most momentum on the Market
     Maturity Map at the close of last week, with each one's move against the
     week before, as a music chart prints it. ``chart`` is
@@ -4826,30 +4843,43 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
             move = '<span class="v2-chart-tag">Re-entry</span>'
         else:
             move = '<span class="v2-chart-tag">New</span>'
-        meta = []
-        if r["last_week"] is not None:
-            meta.append(f"Last week {r['last_week']}")
-        if r["weeks_on"] > 1:
-            meta.append(f"Peak {r['peak']}")
-            meta.append(f"{r['weeks_on']} wks")
+        # The metadata line: where the map puts the vendor and what moved it.
+        meta = [m for m in (r.get("stage"), r.get("band_label")) if m]
         if r["rank"] == 1 and r["weeks_at_1"] > 1:
             meta.insert(0, f"{_ordinal(r['weeks_at_1'])} week at #1")
-        meta.append(f"Momentum {float(r.get('momentum') or 0):.0f}")
+        drivers = list(r.get("drivers") or [])
+        if r.get("funded"):
+            drivers.append(f"raised {r['funded']}")
+        lw = "–" if r["last_week"] is None else str(r["last_week"])
+        # The stat columns, repeated in the line for a phone, where the
+        # columns are hidden.
+        stats = f"Last week {lw} · Peak {r['peak']} · {r['weeks_on']} wks"
         return ('<li class="v2-chart-row' + (' v2-chart-top' if r["rank"] == 1 else '') + '">'
                 f'<span class="v2-chart-rank">{r["rank"]}</span>'
                 f'<span class="v2-chart-move">{move}</span>'
                 f'<span class="v2-chart-who"><span class="v2-chart-name">'
                 f'{_mark(logos, r["vendor"])}{esc(r["vendor"])}</span>'
-                f'<span class="v2-chart-meta">{esc(" · ".join(meta))}</span></span></li>')
+                + (f'<span class="v2-chart-meta">{esc(" · ".join(meta))}</span>' if meta else '')
+                + (f'<span class="v2-chart-why">{esc(_cap(", ".join(drivers)))}</span>'
+                   if drivers else '')
+                + f'<span class="v2-chart-mstats">{esc(stats)}</span></span>'
+                f'<span class="v2-chart-n">{lw}</span>'
+                f'<span class="v2-chart-n">{r["peak"]}</span>'
+                f'<span class="v2-chart-n">{r["weeks_on"]}</span>'
+                f'<span class="v2-chart-n v2-chart-score">'
+                f'{float(r.get("momentum") or 0):.0f}</span></li>')
 
+    head = ('<div class="v2-chart-head" aria-hidden="true"><span></span><span></span>'
+            '<span>Vendor</span><span>Last wk</span><span>Peak</span><span>Wks</span>'
+            '<span>Momentum</span></div>')
     shown, rest = rows[:_V2_CHART_SHOWN], rows[_V2_CHART_SHOWN:]
     how = ("momentum on the Market Maturity Map" if not map_href else
            f'<a href="{esc(map_href)}">momentum on the Market Maturity Map</a>')
-    out = [f'<h2>The Top {len(rows)}</h2>',
+    out = [f'<h2>{esc(title or f"Top {len(rows)} Movers")}</h2>',
            f'<p class="v2-subline">Week of {esc(span)} · ranked by {how}: '
            'headcount change, hiring, launches and partnerships, earned '
            'mentions and the vendor\'s own posts over 90 days.</p>',
-           '<ol class="v2-chart">' + "".join(_row(r) for r in shown) + '</ol>']
+           head + '<ol class="v2-chart">' + "".join(_row(r) for r in shown) + '</ol>']
     if rest:
         out.append(f'<details class="v2-chart-more"><summary>Show {shown[-1]["rank"] + 1}'
                    f'–{rest[-1]["rank"]}</summary>'
@@ -5390,7 +5420,8 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
             chart = dict(chart, rows=ent.filter_rows(
                 chart["rows"], allowed_brand_ids, allowed_names))
         chart_card = _v2_chart(chart, logos, "?" + _relink(
-            link_params, days=days, view="report") + "#mm-horizon")
+            link_params, days=days, view="report") + "#mm-horizon",
+            title=mch.title(market, len(chart.get("rows") or [])))
         if chart_card:
             body.append('<section class="v2-card v2-wide v2-chart-card" id="v2-chart">'
                         + chart_card + '</section>')

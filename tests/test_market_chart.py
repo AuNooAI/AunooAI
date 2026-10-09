@@ -78,17 +78,18 @@ def _chart(n):
 
 def test_card_rows_and_toggle():
     html = _v2_chart(_chart(40))
-    assert "The Top 40" in html
+    assert "Top 40 Movers" in html
     assert "3rd week at #1" in html
     assert "&#9650; 1" in html
     assert "Show 11–40" in html
-    assert "Momentum 80" in html
+    assert 'v2-chart-score">80<' in html
+    assert "Last wk" in html and "Peak" in html
     assert html.count('class="v2-chart-row') == 40
 
 
 def test_card_without_rest_has_no_toggle():
     html = _v2_chart(_chart(6))
-    assert "The Top 6" in html and "<details" not in html
+    assert "Top 6 Movers" in html and "<details" not in html
 
 
 def test_card_empty():
@@ -117,3 +118,35 @@ def test_compute_week_reads_the_newest_map_run_and_skips_acquired(monkeypatch):
     assert [(r["brand_id"], r["rank"], r["horizon_id"]) for r in rows] == [(5, 1, 77)]
     assert seen["params"]["start"].isoformat().startswith("2026-09-07T00:00:00+02")
     assert seen["params"]["end"].date() == date(2026, 9, 14)
+
+
+def test_card_metadata_line():
+    chart = _chart(1)
+    chart["rows"][0].update(stage="Executing", band_label="Accelerating",
+                            drivers=["15 launches and partnerships"],
+                            funded="Series A, Aug 2026")
+    html = _v2_chart(chart)
+    assert "3rd week at #1 · Executing · Accelerating" in html
+    assert "15 launches and partnerships, raised Series A, Aug 2026" in html
+
+
+def test_describe_picks_top_quarter_drivers_and_recent_funding():
+    rated = {"tier": "executors", "band": "accelerating",
+             "funded": {"date": "2026-08-07", "round": "Series A"},
+             "inputs": {
+                 "launches": {"value": 15.0, "percentile": 99.0},
+                 "headcount_pct": {"value": 8.6, "percentile": 80.0},
+                 "mentions": {"value": 17.0, "percentile": 70.0},
+                 "posts": {"value": 99.0, "percentile": 100.0}}}
+    d = mc.describe(rated, date(2026, 10, 4))
+    assert d["stage"] == "Executing" and d["band_label"] == "Accelerating"
+    assert d["drivers"] == ["15 launches and partnerships", "headcount +9%"]
+    assert d["funded"] == "Series A, Aug 2026"
+    assert mc.describe(rated, date(2027, 1, 30))["funded"] is None
+
+
+def test_title_from_market_config():
+    assert mc.title({"config": None}, 40) == "Top 40 Movers"
+    cfg = {"chart": {"title": "Agentic SOC Top {n} Movers"}}
+    assert mc.title({"config": cfg}, 40) == "Agentic SOC Top 40 Movers"
+    assert mc.title({"config": '{"chart": {"title": "X {n}"}}'}, 12) == "X 12"
