@@ -220,9 +220,12 @@ def collection_state(conn, market_id: int, source: str) -> Dict[str, Any]:
            AND p.source = :s
     """), {"m": market_id, "s": source}).mappings().all()]
 
-    registry_total = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    registry_total = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
          WHERE market_id = :m AND role <> 'excluded'
+           AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
 
     eligible_rows = [r for r in policies if r["eligible"] and r["enabled"]]

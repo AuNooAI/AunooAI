@@ -5684,8 +5684,8 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
 
     period_range = _fmt_range(*pc["current_range"]) if pc else None
     period_txt = (period_range or f"last {days} days")
-    vendor_count = (overview["coverage"]["registry"]
-                    - overview["coverage"]["excluded"])
+    # The canonical count: leaves out excluded and acquired vendors.
+    vendor_count = overview["coverage"]["vendors"]
     registry_total = vendor_count
 
     sov_block = sov or {}

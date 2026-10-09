@@ -1,5 +1,101 @@
 # Changes
 
+## 2026-10-09 — aisocnews.com registry: wrong-company funding data retired, System Two renamed Detections AI
+
+All changes are in the bugfixing database (market 2). There is no code change and nothing to
+commit except this entry.
+
+### Fix · four vendors showed another company's Crunchbase funding
+The Crunchbase addresses for four vendors were guessed from the vendor name in August
+(`provenance.source = 'slug_guess'`), and each one pointed at a different company:
+- **Nua (`bw_brands` 131):** Nua, an Indian women's hygiene brand (nuawoman.com). This is
+  where the "Series C" came from.
+- **Redblock (106):** RedBlock, a blockchain issuance firm (redblock.network), marked closed.
+- **Cantina (152):** a different company called Cantina (kindreduncommon.com).
+- **Variance (89):** Variance, a charting company (variancecharts.com).
+
+We found them by comparing each Crunchbase record's website with the vendor's own domain. Of the
+91 vendors that have a Crunchbase record, only these four were wrong.
+
+For each of the four we did three things:
+- We closed the `crunchbase_url` identifier (`valid_to` set, `provenance.closed_reason`).
+- We re-labelled its 5 `bw_vendor_snapshots` rows from `snapshot_type = 'funding'` to
+  `'funding_wrong_company'` (20 rows in total). Every funding reader filters on `'funding'`, so
+  the rows drop out of the site but stay in the table.
+- We marked its `bw_entity_observations` rows `status = 'rejected'` with an
+  `invalidation_reason` (60 rows in total).
+
+Then we ran `entity_scheduler.seed_policies(conn, 'crunchbase_company')`. All four Crunchbase
+policies are now `eligible = false`, "no Crunchbase profile on file", so nothing re-fetches
+the wrong records.
+
+We added no replacement addresses. Web searches found the right companies (Redblock in 645
+Ventures' portfolio, Cantina's $8M July 2026 launch, Variance in Y Combinator's W23 batch) but
+no Crunchbase page we could verify, and we did not want to guess again.
+
+### Config · System Two Security is now Detections AI
+Its LinkedIn page became "detections.ai" between 20 Aug and 2 Sep, under the same company ID
+(`/company/detectionsai`). systemtwosecurity.com now serves the Detections AI site ("Detection
+engineering deserves better"). Its headcount jump from 6 to 16 and its followers jump from
+4,397 to 10,291 came with the rename, so they look like the page change rather than growth.
+- We renamed `bw_brands` 95 to "Detections AI (was System Two Security)" and its `name` to
+  `detections-ai`.
+- `brand_keywords` is now "Detections AI", "detections.ai" and "System Two Security".
+  `news_keyword_excludes` lists "detections AI-powered / AI-driven / AI-based", so a phrase
+  like "threat detections AI-powered" does not match.
+- We added `domain` and `website_url` identifiers for detections.ai and kept the old domain.
+  We marked the LinkedIn identifier verified, since both sites link to it.
+- We added `"Detections AI"` and `detections.ai` to keyword groups 16, 32 and 440, keeping
+  `"System Two Security"`.
+
+### Finding · Wirespeed was already marked acquired
+`bw_market_vendor_controls` already had Wirespeed (49060) as `acquired` by Coalition, dated
+2025-11-06 and set on 15 Sep, so we changed nothing. That status only affects the maturity map,
+where Wirespeed is listed rather than placed. The vendor counts and lists exclude only
+`status = 'incumbent'` (`market_publish.not_incumbent`, `market_analysis._NOT_INCUMBENT_MB`,
+`market_benchmark`), so acquired, closed and pivoted vendors still count as live vendors there.
+
+### Fix · acquired vendors drop out of the vendor counts
+The user asked for acquired vendors to stop counting as vendors. **`app/services/market_publish.py`**
+gets `is_acquired(mb)`, an SQL fragment that is true when `bw_market_vendor_controls.status =
+'acquired'`, and `acquired_ids(conn, market_id)`. We applied it in these places:
+- **`_vendor_coverage`**, the canonical vendor count: acquired vendors leave `watching`,
+  `paused` and `vendors`, and a new `acquired` field counts them. `registry` now equals
+  excluded + acquired + watching + paused. `observed` and the quiet-vendor count leave them out
+  too, so "N of {vendors}" figures stay consistent.
+- **`market_report_html.py`**: the public report's header read registry minus excluded. It now
+  reads `coverage["vendors"]`.
+- **`market_monitor_routes.py`**: the `list_markets` and `get_market` header counts. `get_market`
+  also returns `acquired`.
+- **Six "vendors in scope" denominators**: four in `market_analysis.py`, one in
+  `market_assessment.py` and one in `market_metrics.py`. They feed sentences on the site such as
+  "54 of 116 vendors had a development" and "23 of 116 vendors have public job listings".
+- **`market_assessment.vendor_observation`**: the list of vendors that each get an observation
+  state. Its `total` is the denominator of the "had a development" finding.
+- **The "had a development" finding** now takes its numerator from the same list
+  (`counts["material_change"]`). Before, Wirespeed's development was counted in the 54 while
+  Wirespeed was left out of the total.
+
+Live check on aisocnews.com after the 09:37 restart: "53 of 114 vendors had a development",
+"23 of 114 vendors have public job listings", and the states add up (53 + 51 + 10 = 114). There
+were no tracebacks after the restart.
+
+Two vendors are marked acquired: Wirespeed (Coalition) and Radiant Security. Kenzo is also
+marked acquired but is already excluded, so it stays in that column. Market 2 now counts 114
+vendors, down from 116. Closed and pivoted vendors still count, because the user asked about
+acquired only. On market 2 one pivoted vendor (Zaun) is already excluded.
+
+**Redblock was marked closed because of the wrong Crunchbase record.** A sweep on 31 Aug set
+its control row to `closed` because "Crunchbase lists the company as closed". That record was
+RedBlock, the blockchain firm retired above. The real Redblock is active: it had 9 LinkedIn
+posts in the 30 days to 8 Oct, launched SailPoint AI agent deployment in March 2026, and has
+open jobs. We set the row back to `active`, with a note giving the old status and the reason.
+
+Tests: a new **`tests/test_market_vendor_counts.py`** checks that the coverage parts add up to
+the registry, and that marking a vendor acquired, in a rolled-back transaction, moves it out of
+`vendors` and `watching` and into `acquired`. The assessment, benchmark, horizon, metrics,
+report and lists suites passed: 251 passed and 1 skipped.
+
 ## 2026-10-08 — aisocnews.com: MCP access now costs $139 a month, down from $279
 
 ### Goal
@@ -58,10 +154,29 @@ be added to Bluesky, and for every firm name to be searched on Reddit and X as w
 LinkedIn company posts reach a vendor through its `bw_vendor_identifiers` row of kind
 `linkedin_company_url`, which `linkedin_url_map()` in **`app/services/market_collect.py`**
 reads. SOCAI has no such row, so it gets no LinkedIn collection at all. Six vendors have a URL
-but have never had a post: HTCD, Joon, Mave, Tencycle, Trellix and Variance. Tencycle's URL is
-`/company/tencyle`, which looks misspelled. Variance's URL still points at its old name
-(`/company/intrinsicsafety`). Twelve more vendors have had no post since 26 Aug – 8 Sep. We
-changed none of this; it is listed under "what's next".
+but have never had a post: HTCD, Joon, Mave, Tencyle, Trellix and Variance. Variance's URL
+still points at its old name (`/company/intrinsicsafety`). Twelve more vendors have had no post
+since 26 Aug – 8 Sep.
+
+### Fix · Tencyle was misspelled in our registry, not on LinkedIn (DB only, not in git)
+At first we read Tencyle's `/company/tencyle` URL as a typo. It is not. The company is
+Tencyle: tencyle.com is titled "Tencyle - Your SOC, on Autopilot" and links to
+`linkedin.com/company/tencyle`. The misspelling was ours. `bw_brands` 132 was named
+"Tencycle", and the social search terms we added that morning copied it. We renamed the
+vendor to Tencyle (`display_name`, `name`, `brand_keywords`) and changed the keyword in groups
+16, 32 and 440. We closed the guessed Crunchbase address `/organization/tencycle` and opened
+`/organization/tencyle`, still marked as a guess. We marked the LinkedIn identifier verified,
+citing the site footer. The LinkedIn collection itself was working: the weekly profile pull
+succeeds (460 followers on 7 Oct) and the post pull succeeded on 8 Oct with no posts returned,
+so Tencyle most likely has not posted. No article in the database names it.
+
+### Finding · SOCAI has no LinkedIn page of its own
+socai.eu ("SOC AI | AI-Powered Cybersecurity") is a product site of the AIR Institute, a
+non-profit AI research foundation in Salamanca; the site's legal notice names it. The site
+links to no social accounts, and a web search found no SOCAI company page. We added no
+identifier. Pointing SOCAI at the AIR Institute's page would file a research institute's posts
+and headcount under an AI SOC vendor. The user decided to leave SOCAI without LinkedIn
+coverage, so don't add the AIR Institute page.
 
 ### Config · Bluesky vendor group filled in (DB only, not in git)
 We added 69 rows to `monitored_keywords` for `keyword_groups` 32, "SOC Automation - Vendor

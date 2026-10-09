@@ -3000,11 +3000,15 @@ def vendor_observation(conn, market_id: int, days: int = 30, *,
     changed_names = {(v.get("vendor") or "").lower() for d in events
                      for v in d["vendors"]}
 
-    vendors = [dict(r) for r in conn.execute(text("""
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so they get no observation
+    # state and are not in ``total``, the denominator of the findings.
+    vendors = [dict(r) for r in conn.execute(text(f"""
         SELECT b.id AS brand_id, b.display_name AS vendor,
                mb.collection_enabled
           FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
          WHERE mb.market_id = :m AND mb.role <> 'excluded'
+           AND NOT {is_acquired("mb")}
          ORDER BY b.display_name
     """), {"m": market_id}).mappings().all()]
     required = required_observation_sources()
@@ -3052,9 +3056,12 @@ def source_coverage(conn, market_id: int) -> List[Dict[str, Any]]:
     hides which of them is short."""
     from app.services import market_metrics as mmet
 
-    registry_total = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    registry_total = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
          WHERE market_id = :m AND role <> 'excluded'
+           AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
     rows = [dict(r) for r in conn.execute(text("""
         SELECT p.source,
@@ -3564,9 +3571,14 @@ def candidate_findings(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         if len(top3) > 5:
             top3_txt += f", and {len(top3) - 5} more"
         signals = dist.get("signals") or 0
+        # The numerator comes from the same vendor list as registry_total, so
+        # an acquired vendor's development cannot be counted over a total
+        # that leaves it out.
+        with_change = (counts["material_change"] if "material_change" in counts
+                       else dist["vendors_with_change"])
         out.append(_finding(
             "change_concentration",
-            f"{dist['vendors_with_change']} of {registry_total} vendors had a "
+            f"{with_change} of {registry_total} vendors had a "
             "development.",
             f"{dist['total']} developments in {days} days"
             + (f", plus {signals} hiring or headcount signals" if signals else "")

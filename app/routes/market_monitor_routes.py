@@ -390,14 +390,17 @@ async def list_markets(session=Depends(verify_session_api)):
     def _work():
         conn = _conn()
         try:
-            rows = conn.execute(text("""
+            from app.services.market_publish import is_acquired
+            rows = conn.execute(text(f"""
                 SELECT m.id, m.name, m.slug, m.question, m.description,
                        m.enabled, m.is_public, m.created_at, m.updated_at,
                        m.market_scope_description, m.inclusion_criteria,
                        m.exclusion_criteria,
-                       COUNT(mb.id) FILTER (WHERE mb.role <> 'excluded') AS vendors,
+                       COUNT(mb.id) FILTER (WHERE mb.role <> 'excluded'
+                                            AND NOT {is_acquired("mb")}) AS vendors,
                        COUNT(mb.id) FILTER (WHERE mb.collection_enabled
-                                            AND mb.role <> 'excluded') AS collecting,
+                                            AND mb.role <> 'excluded'
+                                            AND NOT {is_acquired("mb")}) AS collecting,
                        COUNT(mb.id) FILTER (WHERE mb.is_public) AS public_vendors
                 FROM bw_markets m
                 LEFT JOIN bw_market_brands mb ON mb.market_id = m.id
@@ -455,13 +458,18 @@ async def get_market(market_id: int, session=Depends(verify_session_api)):
         conn = _conn()
         try:
             market = _load_market(conn, market_id)
-            counts = conn.execute(text("""
-                SELECT COUNT(*) FILTER (WHERE role = 'vendor') AS vendors,
+            from app.services.market_publish import is_acquired
+            counts = conn.execute(text(f"""
+                SELECT COUNT(*) FILTER (WHERE role = 'vendor'
+                                        AND NOT {is_acquired("mb")}) AS vendors,
                        COUNT(*) FILTER (WHERE role = 'excluded') AS excluded,
+                       COUNT(*) FILTER (WHERE role <> 'excluded'
+                                        AND {is_acquired("mb")}) AS acquired,
                        COUNT(*) FILTER (WHERE collection_enabled
-                                        AND role <> 'excluded') AS collecting,
+                                        AND role <> 'excluded'
+                                        AND NOT {is_acquired("mb")}) AS collecting,
                        COUNT(*) FILTER (WHERE is_public) AS public_vendors
-                FROM bw_market_brands WHERE market_id = :m
+                FROM bw_market_brands mb WHERE market_id = :m
             """), {"m": market_id}).mappings().first()
             market["counts"] = dict(counts or {})
             market["open_review_tasks"] = conn.execute(text(

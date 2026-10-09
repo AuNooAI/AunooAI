@@ -41,7 +41,8 @@ there.
   vendors with phrase-like names will need the same check when they are added.
 - **Cost.** Each search on X and Reddit is a paid call, and each post costs one AI rating. The
   six common-word names bring in many posts that the scoring step then throws away.
-- **LinkedIn gaps remain.** SOCAI has no LinkedIn page on file. Tencycle's page address looks
-  misspelled. Six vendors, Trellix among them, have never had a LinkedIn post collected. We
-  haven't fixed any of this.
+- **LinkedIn gaps.** Tencyle was misspelled in our own vendor list, and we fixed that. Its
+  LinkedIn page is collected but hasn't posted. SOCAI is a product of a Spanish research
+  institute and has no LinkedIn page of its own, so it still has no LinkedIn coverage. Five
+  other vendors, Trellix among them, have never had a LinkedIn post collected.
 - **Bluesky is not verified yet.** The new Bluesky names first run on 9 October.

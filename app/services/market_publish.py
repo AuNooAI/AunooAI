@@ -69,6 +69,25 @@ def not_incumbent(mb: str = "mb") -> str:
             f" AND vc.status = 'incumbent')")
 
 
+def is_acquired(mb: str = "mb") -> str:
+    """SQL: the registry row ``mb`` is marked acquired on the horizon controls.
+
+    A bought company is no longer an independent vendor, so every vendor count
+    leaves it out and reports it under ``acquired`` instead. Its collection is
+    left as it is; the acquirer's news about it is still worth reading.
+    """
+    return (f"EXISTS (SELECT 1 FROM bw_market_vendor_controls vc"
+            f" WHERE vc.market_id = {mb}.market_id AND vc.brand_id = {mb}.brand_id"
+            f" AND vc.status = 'acquired')")
+
+
+def acquired_ids(conn, market_id: int) -> set:
+    """Brand ids marked acquired on this market."""
+    return {int(r[0]) for r in conn.execute(text(
+        "SELECT brand_id FROM bw_market_vendor_controls"
+        " WHERE market_id = :m AND status = 'acquired'"), {"m": market_id}).fetchall()}
+
+
 def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
     """Registry size split by role and collection state.
 
@@ -80,15 +99,21 @@ def _vendor_coverage(conn, market_id: int) -> Dict[str, Any]:
     count) did not — two vendor counts on the same screen that could
     legitimately disagree by exactly the excluded count. ``vendors`` here is
     the canonical figure: watching + paused, matching list_markets.
+
+    An acquired vendor (:func:`is_acquired`) is in none of watching, paused or
+    vendors; ``acquired`` counts it, so registry = excluded + acquired +
+    watching + paused.
     """
-    row = dict(conn.execute(text("""
+    row = dict(conn.execute(text(f"""
         SELECT COUNT(*) AS registry,
                COUNT(*) FILTER (WHERE role = 'excluded') AS excluded,
-               COUNT(*) FILTER (WHERE collection_enabled AND role <> 'excluded')
-                   AS watching,
-               COUNT(*) FILTER (WHERE NOT collection_enabled AND role <> 'excluded')
-                   AS paused
-        FROM bw_market_brands WHERE market_id = :m
+               COUNT(*) FILTER (WHERE role <> 'excluded' AND {is_acquired("mb")})
+                   AS acquired,
+               COUNT(*) FILTER (WHERE collection_enabled AND role <> 'excluded'
+                                AND NOT {is_acquired("mb")}) AS watching,
+               COUNT(*) FILTER (WHERE NOT collection_enabled AND role <> 'excluded'
+                                AND NOT {is_acquired("mb")}) AS paused
+        FROM bw_market_brands mb WHERE market_id = :m
     """), {"m": market_id}).mappings().first() or {})
     row["vendors"] = (row.get("watching") or 0) + (row.get("paused") or 0)
     return row
@@ -1131,11 +1156,12 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     # ``role <> 'excluded'`` to match every other figure in this block. Without
     # it the excluded vendor was counted here and nowhere else, so the tile read
     # "38 of 82 watched, 83 observed at least once" — more observed than exist.
-    coverage["observed"] = conn.execute(text("""
+    coverage["observed"] = conn.execute(text(f"""
         SELECT COUNT(DISTINCT s.brand_id) FROM bw_vendor_snapshots s
         JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
                                  AND mb.market_id = :m
                                  AND mb.role <> 'excluded'
+                                 AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
 
     funding = dict(conn.execute(text("""
@@ -1269,8 +1295,11 @@ def build_overview(conn, market: Dict[str, Any], *, days: int = 30
     # Quiet still means quiet on everything matched to the vendor, `articles`
     # rather than `earned`: a vendor whose own posts are the only thing we saw
     # is not a vendor we saw nothing from.
+    # Counted against coverage["vendors"], which leaves acquired vendors out.
+    _acq = acquired_ids(conn, market_id)
     quiet = [r for r in activity
-             if not r["posts"] and not r["jobs"] and not r["articles"]]
+             if not r["posts"] and not r["jobs"] and not r["articles"]
+             and r.get("brand_id") not in _acq]
 
     corpus: Dict[str, Any] = {}
     if conn.execute(text("SELECT to_regclass('bw_market_articles')")).scalar():

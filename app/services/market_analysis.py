@@ -203,9 +203,12 @@ def signal_noise(conn, market_id: int, *, days: Optional[int] = None
         GROUP BY 1 ORDER BY n DESC, kind
     """), params).mappings().all()]
 
-    in_scope = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    in_scope = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
         WHERE market_id = :m AND role <> 'excluded'
+          AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
 
     return {
@@ -651,9 +654,12 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
         entry["by_function"][group] = entry["by_function"].get(group, 0) + 1
         entry["by_role"][role] = entry["by_role"].get(role, 0) + 1
 
-    in_scope = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    in_scope = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
         WHERE market_id = :m AND role <> 'excluded'
+          AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
 
     return {
@@ -1048,9 +1054,12 @@ def share_of_voice(conn, market_id: int, days: Optional[int] = None,
         row["own_share"] = (round(row["own_posts"] / own_total, 4)
                             if own_total else None)
 
-    in_scope = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    in_scope = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
         WHERE market_id = :m AND role <> 'excluded'
+          AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
 
     # Read once and reused by the quiet/unmeasured split and by the metric
@@ -1851,9 +1860,12 @@ def career_moves(conn, market_id: int, *, days: Optional[int] = None,
     """), params).mappings().all()]
     rows.sort(key=lambda r: r.get("published") or "", reverse=True)
 
-    in_scope = conn.execute(text("""
-        SELECT COUNT(*) FROM bw_market_brands
+    from app.services.market_publish import is_acquired
+    # Acquired vendors are no longer independent, so not in scope.
+    in_scope = conn.execute(text(f"""
+        SELECT COUNT(*) FROM bw_market_brands mb
         WHERE market_id = :m AND role <> 'excluded'
+          AND NOT {is_acquired("mb")}
     """), {"m": market_id}).scalar() or 0
     vendors_with_moves = len({r["brand_id"] for r in rows})
 
