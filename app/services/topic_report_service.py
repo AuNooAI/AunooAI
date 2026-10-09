@@ -465,7 +465,8 @@ async def generate_executive_summary_for_run(
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
-        call_kwargs["max_tokens"] = 8000
+        # Sonnet 5 needs ~1.65x the tokens of Sonnet 4.5 for the same text (gate, 9 Oct 2026); it wrote up to 5,360 tokens here.
+        call_kwargs["max_tokens"] = 12000
         call_kwargs["temperature"] = 0.6
 
     started = _time.time()
@@ -597,6 +598,43 @@ async def _humanize_report_prose(raw_output: dict) -> None:
     if rewritten:
         logger.info("humanize: rewrote %d/%d topic-report prose fields",
                     rewritten, len(targets))
+
+
+def _parse_horizons_reply(raw_response: str) -> dict:
+    """The Three Horizons reply as a dict: fences stripped, outer braces
+    taken, json_repair as the fallback. Raises RuntimeError when nothing
+    usable comes out."""
+    # Strip ```json fences + grab outer braces.
+    s = (raw_response or "").strip()
+    if s.startswith("```"):
+        s = s.strip("`").lstrip()
+        if s.lower().startswith("json"):
+            s = s[4:].lstrip()
+    if "{" in s and "}" in s:
+        s = s[s.find("{"): s.rfind("}") + 1]
+    try:
+        parsed = json.loads(s)
+    except Exception as e:
+        # Sonnet 5 sometimes finishes normally with malformed JSON (a trailing
+        # comma at char 2619 in the 9 Oct 2026 gate). json_repair fixes that;
+        # a repaired result only counts when it still has its scenarios.
+        parsed = None
+        try:
+            import json_repair
+            repaired = json_repair.loads(s)
+            if isinstance(repaired, dict) and repaired.get("scenarios"):
+                parsed = repaired
+                logger.info("rerun horizons: strict parse failed (%s), json_repair recovered %d scenarios",
+                            e, len(repaired["scenarios"]))
+        except Exception:
+            pass
+        if parsed is None:
+            snippet = (raw_response or "")[:300].replace("\n", " | ")
+            raise RuntimeError(
+                f"Three Horizons response was not valid JSON: {e}. "
+                f"First 300 chars: {snippet!r}"
+            )
+    return parsed
 
 
 async def _rerun_future_horizons_for_topic(
@@ -731,7 +769,8 @@ async def _rerun_future_horizons_for_topic(
         call_kwargs["reasoning_effort"] = minimal_reasoning_effort(model)
         call_kwargs["max_completion_tokens"] = 16000
     else:
-        call_kwargs["max_tokens"] = 8000
+        # Sonnet 5 needs ~1.65x the tokens of Sonnet 4.5 for the same text (gate, 9 Oct 2026).
+        call_kwargs["max_tokens"] = 12000
         call_kwargs["temperature"] = 0.7
 
     started = _time.time()
@@ -753,22 +792,7 @@ async def _rerun_future_horizons_for_topic(
             f"available and the OPENAI_API_KEY is valid for it."
         )
 
-    # Strip ```json fences + grab outer braces.
-    s = (raw_response or "").strip()
-    if s.startswith("```"):
-        s = s.strip("`").lstrip()
-        if s.lower().startswith("json"):
-            s = s[4:].lstrip()
-    if "{" in s and "}" in s:
-        s = s[s.find("{"): s.rfind("}") + 1]
-    try:
-        parsed = json.loads(s)
-    except Exception as e:
-        snippet = (raw_response or "")[:300].replace("\n", " | ")
-        raise RuntimeError(
-            f"Three Horizons response was not valid JSON: {e}. "
-            f"First 300 chars: {snippet!r}"
-        )
+    parsed = _parse_horizons_reply(raw_response)
 
     scenarios = parsed.get("scenarios") or []
     if not scenarios:

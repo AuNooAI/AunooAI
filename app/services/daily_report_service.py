@@ -1262,7 +1262,7 @@ Return JSON:
                     {"role": "user", "content": user},
                 ],
                 "response_format": {"type": "json_object"},
-                **_llm_token_kwargs(model, output_tokens=1500),
+                **_llm_token_kwargs(model, output_tokens=3000),
             }
             if not is_reasoning_model(model):
                 call_kwargs["temperature"] = agent_config.get('temperature', 0.1)
@@ -1510,16 +1510,26 @@ Present strategic considerations that inform executive judgment, not replace it.
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
-                **_llm_token_kwargs(model, output_tokens=3000),
+                # Sonnet 4.5 used up to 2,695 of 3,000. Sonnet 5 needs ~1.65x
+                # the tokens for the same text and was cut off at 3,000 in the
+                # 9 Oct 2026 gate.
+                **_llm_token_kwargs(model, output_tokens=6000),
             }
             if not is_reasoning_model(model):
                 call_kwargs["temperature"] = temperature
             response = await litellm.acompletion(**call_kwargs)
 
             raw = response.choices[0].message.content or ""
-            logger.info("Briefing synthesis: %s returned %d chars for '%s'",
-                        model, len(raw), briefing_name)
+            finish = getattr(response.choices[0], "finish_reason", None)
+            logger.info("Briefing synthesis: %s returned %d chars (finish=%s) for '%s'",
+                        model, len(raw), finish, briefing_name)
             result = extract_json_response(raw)
+            # A cut-off reply fails the outer parse, and extract_json_response
+            # then returns the first inner object it can decode: a theme or an
+            # action, with no themes list. That came out as a briefing with 0
+            # themes and 0 decision points, logged as complete.
+            if not isinstance(result, dict) or not isinstance(result.get("themes"), list):
+                raise ValueError(f"reply has no themes list (finish={finish}, {len(raw)} chars)")
             logger.info(f"Synthesis complete for '{briefing_name}'")
             return result
 

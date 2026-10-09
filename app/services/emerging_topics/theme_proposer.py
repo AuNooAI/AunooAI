@@ -371,7 +371,8 @@ class ThemeProposer:
             )
 
         try:
-            response = await model.generate(prompt, max_tokens=2000)
+            # Sonnet 4.5 used up to 1,698 of 2,000; Sonnet 5 needs ~1.65x the tokens of Sonnet 4.5 for the same text (gate, 9 Oct 2026).
+            response = await model.generate(prompt, max_tokens=4000)
         except Exception as exc:
             logger.error(f"Theme proposal model call failed: {exc}")
             raise RuntimeError(f"Theme proposal model call failed: {exc}") from exc

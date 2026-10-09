@@ -945,7 +945,8 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=4000
+                # Sonnet 4.5 used up to 3,036; Sonnet 5 needs ~1.65x the tokens of Sonnet 4.5 for the same text (gate, 9 Oct 2026).
+                max_tokens=8000
             )
             
             content = response.choices[0].message.content.strip()
@@ -1007,7 +1008,7 @@ Return ONLY a JSON array of {shortfall} article(s)."""}
                     **resolve_litellm_call_params(request.model),
                     messages=retry_messages,
                     temperature=0.1,
-                    max_tokens=4000,
+                    max_tokens=8000,
                 )
 
                 retry_content = retry_response.choices[0].message.content

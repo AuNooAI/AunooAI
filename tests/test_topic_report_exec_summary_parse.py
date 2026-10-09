@@ -69,3 +69,22 @@ def test_exec_summary_skips_reply_with_no_object(monkeypatch):
     out, saved = _run(monkeypatch, "I could not produce the summary.")
     assert out is None
     assert saved == {}
+
+
+# The Three Horizons reply: Sonnet 5 finished normally with a trailing comma
+# at char 2619 and the whole topic report failed (9 Oct 2026 gate).
+HORIZONS = {"topic_briefing": {"headline": "h"}, "scenarios": [{"type": "H1", "title": "t"}]}
+
+
+@pytest.mark.parametrize("raw", [
+    json.dumps(HORIZONS),
+    "```json\n" + json.dumps(HORIZONS) + "\n```",
+    '{"topic_briefing": {"headline": "h",}, "scenarios": [{"type": "H1", "title": "t"},]}',
+])
+def test_horizons_reply_parses(raw):
+    assert trs._parse_horizons_reply(raw)["scenarios"][0]["type"] == "H1"
+
+
+def test_horizons_reply_without_scenarios_still_raises():
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        trs._parse_horizons_reply('{"topic_briefing": {"headline": "h",}')

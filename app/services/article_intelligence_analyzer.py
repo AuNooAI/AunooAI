@@ -652,7 +652,10 @@ Respond with JSON:
                 **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
-                max_tokens=1500,
+                # 1500 cut most standard-tier replies off on Sonnet 4.5 (the
+                # ledger shows calls stopping at exactly 1,500 tokens), and a
+                # cut-off reply parses to an empty contradictions list.
+                max_tokens=4000,
                 response_format={"type": "json_object"}
             )
 
@@ -702,7 +705,10 @@ Respond with JSON:
                 **resolve_litellm_call_params(self.config.analysis_model),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.config.analysis_temperature,
-                max_tokens=1500,
+                # 1500 cut most standard-tier replies off on Sonnet 4.5 (the
+                # ledger shows calls stopping at exactly 1,500 tokens), and a
+                # cut-off reply parses to an empty contradictions list.
+                max_tokens=4000,
                 response_format={"type": "json_object"}
             )
 

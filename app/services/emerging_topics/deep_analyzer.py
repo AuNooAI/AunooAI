@@ -422,7 +422,8 @@ When analyzing organization_implications, specifically address how this topic af
             if hasattr(model, 'generate'):
                 # 2000 cut kimi's JSON off around 10k characters on three
                 # sunstar runs (6 and 7 Sep 2026); the full analysis needs more.
-                response = await model.generate(prompt, max_tokens=6000)
+                # Sonnet 4.5 used up to 4,039; Sonnet 5 needs ~1.65x the tokens of Sonnet 4.5 for the same text (gate, 9 Oct 2026).
+                response = await model.generate(prompt, max_tokens=12000)
             else:
                 logger.error("Model does not have generate method")
                 return result
