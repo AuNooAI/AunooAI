@@ -602,7 +602,9 @@ async def _poll_market(conn, market: Dict[str, Any], now: datetime) -> int:
     # Before spending on anything new, claim what is already paid for.
     runs += await _reconcile_open_jobs(conn, market)
     runs += _discover_candidates(conn, market, now)
-    runs += _match_corpus(conn, market, now)
+    # The corpus scan is synchronous SQL plus scoring over up to 50,000
+    # articles; on the event loop it froze bugfixing for 69s (9 Oct 2026).
+    runs += await asyncio.to_thread(_match_corpus, conn, market, now)
     runs += await _review_posts(conn, market, now)
     runs += _extract_events(conn, market, now)
     runs += await _collect_followed(conn, market, now)
