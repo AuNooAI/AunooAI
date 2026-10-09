@@ -1,5 +1,116 @@
 # Changes
 
+## 2026-10-09 — Site freezes traced and fixed; category and time-to-impact labels stop getting lost; Voices labels and profiles corrected
+
+### Goal
+Bugfixing logged 129 event-loop stalls in 6 hours on 8 October: the whole site stops
+answering while one is in progress. Seven passed 30 seconds and one lasted 260 seconds. The
+same log showed the AI analysis step rejecting about 110 category labels and 97 time-to-impact
+labels a day. A review of an Oviva report then found three Voices errors that would distort
+audience counts for a client.
+
+### Fix · Brand Watcher owned-article tagging froze the site for up to 260s
+**`app/services/bw_owned.py`** and **`app/routes/brand_watcher_routes.py`**, commit `b3a66c1c`.
+`tag_owned_articles` ran one full scan of `articles` per brand domain: 143 domains at about
+0.6s each, on the event loop, four times a day. It now matches every domain in one pass (a
+host's parent domains joined by equality) and runs on a worker thread: 1.4s instead of 93s,
+same 2,658 rows. The journal shows no log lines from 20:20:00 to 20:24:10 on 8 Oct, the run
+that froze the site. The 02:24 run on 9 Oct took 35 seconds and froze nothing.
+
+### Fix · feed parsing and Firecrawl scrapes ran on the event loop
+**`app/collectors/rss_collector.py`** (`b3a66c1c`) and **`app/research.py`** (`d50a8bde`).
+`feedparser.parse` took about 30% of the process's GIL time in a 4-minute sample. Firecrawl's
+SDK `scrape()` blocks for up to 30s. `d25b0f57` (7 Oct, "Ingest scrapes after the relevance
+gate") moved most scrapes from the batch path, which used `run_in_executor`, to a one-at-a-time
+path that called the SDK on the loop. That is why the stalls are new: 15 on 6 Oct, 229 on 7 Oct,
+344 on 8 Oct. Of 40 stalls of 5s or more overnight, 28 began within 3 seconds of a scrape
+(354 of 546 seconds frozen). All three calls now run through `asyncio.to_thread`.
+
+### Fix · the Market Monitor corpus scan ran on the event loop
+**`app/tasks/market_monitor.py`**, commit `61780f80`. A four-hour py-spy recording (15:11–19:10)
+caught two stalls of 3s or more outside startup: 69s and 11.3s. In both the main thread was in
+`_match_corpus` → `market_corpus.scan`: `attribute_vendors` (about 32s of SQL),
+`attribute_owned_pages` (about 11s) and the scoring. The tick now awaits it via
+`asyncio.to_thread`. Only this hunk was committed; the file carries another session's 10
+uncommitted lines.
+
+### Ops · topic logging
+**`app/research.py`**, `b3a66c1c`. `set_topic` and `get_categories` wrote about 216,000 INFO lines
+in 6 hours, more than half the service log. The routine lines are now DEBUG.
+
+### Fix · category names with commas were split by the AI analysis step
+**`app/analyzers/prompt_templates.py`** and **`app/analyzers/article_analyzer.py`**, `b3a66c1c`.
+The prompt joined a topic's allowed labels with commas, so the model read "AI Copyright,
+Regulation, and Antitrust" as three labels and answered "Regulation, and Antitrust"; the
+analyzer then filed the article as "Other" (about 110 every 6 hours). `option_list()` now quotes
+a label list when any label contains a comma; other lists render as before. `match_option()`
+maps a fragment cut at the label's own comma back to the single label it belongs to. The 7 days
+before the fix had 673 AI-topic articles in "Other"; they were not re-analysed.
+
+### Fix · time-to-impact answers without their range
+**`app/analyzers/article_analyzer.py`**, commit `948da4d8`. The model answered "Immediate" where
+the label is "Immediate (0-6 months)", and the analyzer left the field empty: 97 times in 24
+hours on bugfixing. `match_option()` now accepts a label with its bracketed range dropped when
+exactly one label matches. "Soon", "Unknown" and sentences are still rejected.
+
+### Fix · Voices: "practitioner" shown as the account's role
+**`app/services/market_analysis.py`**, commit `c389fbc5`. Top voices returned the profiler's raw
+`market_role`, and "practitioner" covers anyone in the field: on Oviva, 62 patients, 12
+clinicians and 8 customers. It now shows the profile's audience when the role is
+"practitioner", and returns the raw reading as `market_role`. Oviva's top 40 now read 22 patients
+and 7 clinicians.
+
+### Fix · Voices: rivals' own posts counted as voices about the brand
+**`app/services/audience_voices.py`**, commits `c389fbc5` and `9385dc33`. The Competitors row
+listed every post by a rival's registered account. On Oviva all 8 were Zanadio, Noom and
+HelloBetter promoting themselves, none naming Oviva. `competitor_posts()` now keeps only rival
+posts with a mention row for the brand. New brand setting
+`bw_brands.config.voices_competitor_own_posts` (absent = off) restores the old row; it is on for
+all brands on sunstar (201 rival posts in the 90-day view) and abm (Aunoo's row back to 24).
+
+### Fix · market profiles stored with no role
+**`app/services/social_profile_service.py`**, commits `4170beb3`, `9ec5bc41` and `f1c258c8`.
+The parser dropped any role outside its fixed list.
+- An audience word in the role slot now maps to a role: journalist → analyst_or_press,
+  employee → vendor_staff, brand → vendor, retailer → reseller, and any other person word in the
+  site's audience list (patient, reader, librarian …) → practitioner, kept as the audience.
+- "investor" is an eighth market role (Voices maps it to the investor audience).
+- A "journal_society" answer reads as the vendor's own voice when its organisation matches a
+  market vendor or the market name (whole words only), otherwise as practitioner.
+
+### Ops · profiles built and re-read
+Profiled Oviva's 10 and abm's 16 unprofiled top-40 market accounts. Re-read every profile with
+no market role: 91 (bugfixing 20, wileytest 53, panaya 8, sunstar 5, abm 5). All now have one.
+
+### Verification
+- Bugfixing stalls, outside the 3 minutes after each of 18 restarts: 2.9 an hour and 18 seconds
+  frozen an hour over 6 hours, against about 26 an hour and 68 seconds overnight.
+- `bw_owned`: old and new matching return the same 2,658 rows; a rolled-back run restored 25
+  cleared tags exactly.
+- RSS tests 50 passed; scrape-path tests 72 passed; analyzer tests show the same 10 failures and
+  1 error as HEAD.
+- Live data after each Voices and profiler change, with the figures above; the parser changes
+  checked with a stand-in model ("professional", "Patient", "reader", "investor", a Wiley
+  journal, an organisation "AI" against the market "AI in the SOC").
+
+### Propagation
+- `b3a66c1c`, `948da4d8`, `d50a8bde`: bugfixing, wiley, wileytest (edited in place; their files
+  differ). `bw_owned.py` copied whole.
+- Voices and profiler changes: oviva, sunstar, abm, wileytest, panaya, as each applies.
+  wileytest has no `market_analysis.py` and no Market Monitor.
+- `61780f80`: abm, oviva, sunstar, panaya (restarted); bugfixing restart queued until its users
+  leave.
+- Backups on each site: `*.bak-compmention-20261009`, `*.bak-practrole-20261009`,
+  `*.bak-roleparse-20261009`, `*.bak-investor-20261009`, `*.bak-corpusthread-20261009`.
+
+### Lessons
+- An "Event loop lag Ns" warning is logged when the stall ends; look at the lines before
+  (warning time − N), not before the warning.
+- A whole-process freeze shows as minutes with no log lines from any thread; the last line
+  before the gap names the culprit.
+- Run the restart check on its own before restarting. Once I chained them, and wileytest
+  restarted with a user mid-way through sharing a briefing (the email had already gone).
+
 ## 2026-10-09 — aisocnews.com subscriptions: the MCP key reaches the vendor benchmark, and the subscribe page says what it adds
 
 ### Goal
