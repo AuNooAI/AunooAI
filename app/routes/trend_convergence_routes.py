@@ -726,6 +726,13 @@ async def generate_trend_convergence(
 
         logger.info(f"Found {len(articles)} articles for analysis")
 
+        # The same rule as the topic-report decks: blocked publishers,
+        # aggregators, press-release wires and repeated headlines never
+        # become numbered evidence in a report that goes to a customer.
+        from app.services.report_corpus import filter_report_corpus
+        # The rows are RowMappings; the filter skips anything not a dict.
+        articles = filter_report_corpus([dict(a) for a in articles], topic=topic)
+
         # Filter by source quality if specified
         filtered_articles = filter_articles_by_source_quality(articles, source_quality)
         logger.info(f"After source quality filter ({source_quality}): {len(filtered_articles)} articles")

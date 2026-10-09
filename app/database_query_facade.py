@@ -806,7 +806,10 @@ class DatabaseQueryFacade:
                 raw_articles_table,
                 articles.c.uri == raw_articles_table.c.uri
             )
-        ).where(and_(*conditions, story_clause(articles)))
+        ).where(and_(*conditions, story_clause(articles),
+                     # The consensus and horizons reports read from here; they
+                     # must not be written from what quality control rejected.
+                     readable_clause(articles)))
         if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
             statement = statement.order_by(articles.c.publication_date.desc().nullslast(), articles.c.title.asc())
         else:

@@ -42,6 +42,11 @@ _DEFAULT_BLOCKED_SOURCES = (
     # naturalnews.com, which is why it slipped through. It put two articles
     # into a rebuilt United States deck for an oral-health customer.
     "naturalhealth365.com",
+    # Rewrites other outlets' stories and gets the facts wrong: a "60 GWh"
+    # Sagunto groundbreaking (the plant is 29.1 GWh, ground broken in 2023)
+    # and a "1,000-vehicle" BYD figure no other outlet carries. Both became
+    # findings in a battery consensus report (9 Oct 2026).
+    "webpronews.com",
 )
 
 
