@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 from app.services import market_chart as mc
-from app.services.market_report_html import _ordinal, _spark, _v2_chart
+from app.services.market_report_html import _ordinal, _trend_spark, _v2_chart
 
 W1, W2, W3, W4 = (date(2026, 9, 7) + timedelta(days=7 * i) for i in range(4))
 
@@ -164,12 +164,20 @@ def test_card_trend_column_and_weeks_on_chart():
 
 
 def test_spark_gap_and_empty():
-    svg = _spark([50.0, None, 60.0, 70.0], 50, 70)
+    svg = _trend_spark([50.0, None, 60.0, 70.0], 50, 70)
     # the lone first point has no segment; the gap splits the line
     assert svg.count("<polyline") == 1
-    assert _spark([None, None], 0, 100) == ""
+    assert _trend_spark([None, None], 0, 100) == ""
 
 
 def test_post_enabled_flag():
     assert mc.post_enabled({"config": {"chart": {"linkedin_post": True}}})
     assert not mc.post_enabled({"config": {"chart": {"title": "x"}}})
+
+
+def test_trend_spark_does_not_shadow_the_report_spark():
+    # Both live in market_report_html; the later definition used to replace
+    # the Analyst View's _spark(values, *, label=...) and 500 view=report.
+    import inspect
+    from app.services import market_report_html as mrh
+    assert "label" in inspect.signature(mrh._spark).parameters

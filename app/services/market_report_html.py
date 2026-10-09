@@ -4810,13 +4810,10 @@ def _v2_motion(rows: List[Dict[str, Any]],
 _V2_CHART_SHOWN = 10
 
 
-def _ordinal(n: int) -> str:
-    if 10 <= n % 100 <= 20:
-        return f"{n}th"
-    return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+from app.services.market_chart import _ordinal  # noqa: E402  (shared with the post)
 
 
-def _spark(points: List[Optional[float]], lo: float, hi: float,
+def _trend_spark(points: List[Optional[float]], lo: float, hi: float,
            w: int = 84, h: int = 22) -> str:
     """A vendor's weekly momentum as a small line on a shared scale. A week
     the map did not rate the vendor is a gap, not a zero."""
@@ -4915,7 +4912,7 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
                 + f'<span class="v2-chart-mstats">{esc(stats)}</span></span>'
                 f'<span class="v2-chart-n">{lw}</span>'
                 f'<span class="v2-chart-n">{r["peak"]}</span>'
-                f'<span class="v2-chart-trend">{_spark(r.get("trend") or [], lo, hi)}</span>'
+                f'<span class="v2-chart-trend">{_trend_spark(r.get("trend") or [], lo, hi)}</span>'
                 f'<span class="v2-chart-n v2-chart-score">{score}</span></li>')
 
     head = ('<div class="v2-chart-head" aria-hidden="true"><span></span><span></span>'
