@@ -647,7 +647,8 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
     names the brand is not a voice about it. On oviva all 8 rival posts in
     the 90-day view were Zanadio, Noom and HelloBetter promoting themselves,
     and a report counted them as competitor voices about Oviva (9 Oct 2026).
-    Same shape as ``_rows``.
+    A brand with ``voices_competitor_own_posts`` on gets every rival post, as
+    before. Same shape as ``_rows``.
     """
     rivals = rival_brands(conn, brand_id)
     if not rivals:
@@ -672,9 +673,10 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
                                       SPLIT_PART(a.news_source, ':', 2))) = LOWER(sa.platform)
                  WHERE i.relationship IN :rels AND i.status = 'verified' AND i.valid_to IS NULL
                    AND i.brand_id IN :rivals
-                   AND EXISTS (SELECT 1 FROM bw_entity_mentions m
-                                WHERE m.article_uri = a.uri AND m.brand_id = :brand
-                                  AND m.status <> 'false_positive')
+                   AND (:own_posts OR EXISTS (
+                            SELECT 1 FROM bw_entity_mentions m
+                             WHERE m.article_uri = a.uri AND m.brand_id = :brand
+                               AND m.status <> 'false_positive'))
                    AND ({src})
                    AND COALESCE(a.topic_alignment_score, 0) >= :min_rel
                    AND a.publication_date >= :sd AND a.publication_date <= :ed
@@ -683,7 +685,7 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
                  ORDER BY a.uri
             """).bindparams(bindparam("rels", expanding=True), bindparam("rivals", expanding=True)),
                 {**params, "rels": list(_OWNED_RELATIONSHIPS), "rivals": list(rivals),
-                 "brand": brand_id}
+                 "brand": brand_id, "own_posts": _competitor_own_posts(conn, brand_id)}
             ).mappings().all()
     except Exception as e:  # noqa: BLE001 - the registry ships with Entity Intelligence
         logger.debug("voices: competitor posts lookup failed: %s", e)
@@ -710,6 +712,27 @@ def competitor_posts(conn, *, brand_id: int, days_back: int,
         })
     out.sort(key=lambda p: p["publication_date"] or "", reverse=True)
     return out
+
+
+def _competitor_own_posts(conn, brand_id: int) -> bool:
+    """Per-brand switch, ``bw_brands.config.voices_competitor_own_posts``.
+
+    Off (the default): the Competitors row holds only rival posts that
+    mention this brand, so nothing in it reads as a voice about the brand
+    that is not one. On: every post by a rival's registered account, the
+    rivals' own marketing included. Sunstar has it on, because its rivals
+    rarely name it and the row exists there to show what they say.
+    Absent means off.
+    """
+    try:
+        with _guard(conn):
+            v = conn.execute(text(
+                "SELECT config->>'voices_competitor_own_posts' FROM bw_brands WHERE id = :b"),
+                {"b": brand_id}).scalar()
+    except Exception as e:  # noqa: BLE001 - config is optional
+        logger.debug("voices: competitor own-posts switch lookup failed: %s", e)
+        return False
+    return str(v).strip().lower() in ("true", "1", "yes", "on")
 
 
 def _customers_are_patients(conn, brand_id: int) -> bool:
