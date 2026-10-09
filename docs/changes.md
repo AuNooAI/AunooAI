@@ -503,6 +503,23 @@ weeks at #1 went from 4 to 3, and one vendor changed from Re-entry to New.
   cut off emerging-topic detection run 4030. It is marked failed after 161 seconds. It repeats
   on a schedule; four other runs had completed that day.
 
+### Incident · the Analyst View returned a 500 for two hours
+- **What happened:** the trend line commit `e13283b8` added `_spark(points, lo, hi)` to
+  `market_report_html.py`. That module already defined `_spark(values, *, label)` for the
+  Analyst View (`view=report`). The later definition replaced the earlier one.
+- **Effect:** every `view=report` request failed with `TypeError: _spark() got an unexpected
+  keyword argument 'label'`, from the 14:30 restart until 16:24. The log shows 26 failed
+  requests, including the user's own. The front page and the chart were not affected.
+- **Found:** the user reported "Internal Server Error". The traceback was in the journal.
+- **Fixed in `3f24443a`:** the chart's helper is now `_trend_spark`. The same commit moved
+  `_ordinal` to `market_chart.py`. A new test fails if the Analyst View's `_spark` loses its
+  `label` parameter.
+- **Checked:** none of the other names this session added collides with an existing one.
+- **Restarted at 16:24** on the user's instruction. That cut off emerging-topic detection run
+  4035, which is now marked failed. It repeats on a schedule.
+- **Verified:** after the restart, `view=report` returns 200 (925,309 bytes) from the backend,
+  and the user's own request at 16:24:51 returned 200.
+
 ### Verification
 - `pytest tests/test_market_chart.py tests/test_market_weekly_post.py` passes, 23 tests.
 - **Chart table:** market 2 has five weeks, 31 Aug to 28 Sep, each with 40 rows and no gaps in
@@ -537,6 +554,9 @@ weeks at #1 went from 4 to 3, and one vendor changed from Re-entry to New.
 - **Text the model writes that goes out under a person's name needs checks in code.** Require a
   citation per sentence, a vendor-name match against the cited facts, and drop any uncited
   sentence that names something the cited text doesn't.
+- **Before adding a top-level name to a large module, grep for it.** Python lets a second `def`
+  silently replace the first. `market_report_html.py` is over 5,000 lines long, and `_spark`
+  already existed there.
 
 ## 2026-10-09 — Keyword monitor: slow groups no longer block the rest; social vendor searches checked and trimmed
 
