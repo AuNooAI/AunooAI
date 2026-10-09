@@ -318,6 +318,48 @@ async def get_market_briefings(ctx=None, market: str | None = None, market_id: i
     return out if isinstance(out, dict) else {"market_id": mid, "briefings": out}
 
 
+async def get_vendor_benchmark(ctx=None, vendor: str | None = None,
+                               vendor_id: int | None = None, market: str | None = None,
+                               market_id: int | None = None, days: int = 30,
+                               metrics: str | None = None) -> dict[str, Any]:
+    """One vendor against the measured market: its value, rank, percentile and
+    the market median for each metric, with the top vendors named. The same
+    comparison as the operator's Benchmark view; none of it is on the public
+    pages."""
+    _module_on("market_monitor")
+    from app.services import market_benchmark as mbench
+    from app.routes.market_monitor_routes import _load_market
+    conn = _conn()
+    try:
+        mid = _market_id(conn, market, market_id)
+        if vendor_id is None:
+            if not vendor:
+                raise ToolError("pass vendor (a name from get_market_vendors) or vendor_id")
+            row = conn.execute(text("""
+                SELECT b.id FROM bw_market_brands mb JOIN bw_brands b ON b.id = mb.brand_id
+                 WHERE mb.market_id = :m AND mb.role <> 'excluded'
+                   AND (LOWER(b.display_name) = LOWER(:n) OR LOWER(b.name) = LOWER(:n))
+                 LIMIT 1"""), {"m": mid, "n": vendor.strip()}).fetchone()
+            if not row:
+                raise ToolError(f"no vendor {vendor!r} in this market; see get_market_vendors")
+            vendor_id = int(row[0])
+        keys = [k.strip() for k in metrics.split(",") if k.strip()] if metrics else None
+        if keys:
+            bad = [k for k in keys if k not in mbench.METRICS]
+            if bad:
+                raise ToolError(f"unknown metric {bad[0]!r}; one of {', '.join(mbench.METRICS)}")
+        market_row = _load_market(conn, mid)
+        try:
+            res = await asyncio.to_thread(
+                mbench.benchmarks, conn, market_row, int(vendor_id),
+                days=max(1, min(int(days), 365)), metric_keys=keys, include_cohort=True)
+        except KeyError as exc:
+            raise ToolError(str(exc).strip("'\""))
+        return _plain(res)
+    finally:
+        conn.close()
+
+
 HANDLERS = {
     "list_brands": list_brands,
     "get_brand_stats": get_brand_stats,
@@ -331,4 +373,5 @@ HANDLERS = {
     "get_market_top_voices": get_market_top_voices,
     "get_market_horizon": get_market_horizon,
     "get_market_briefings": get_market_briefings,
+    "get_vendor_benchmark": get_vendor_benchmark,
 }

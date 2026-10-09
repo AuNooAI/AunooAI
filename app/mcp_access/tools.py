@@ -304,6 +304,19 @@ TOOLS: dict[str, ToolSpec] = {
         },
         timeout=60.0,
     ),
+    "get_vendor_benchmark": ToolSpec(
+        name="get_vendor_benchmark",
+        description="One vendor benchmarked against the rest of its market: for each metric (headcount, headcount change, own posts, earned mentions, announcements, open and new job listings, funding, activity index) its value, rank, percentile and the market median, with the top vendors named. Activity and scale, not performance.",
+        properties={
+            "vendor": {"type": "string", "description": "Vendor name from get_market_vendors"},
+            "vendor_id": {"type": "integer"},
+            "market": {"type": "string"},
+            "market_id": {"type": "integer"},
+            "days": {"type": "integer", "default": 30, "description": "Window for the period metrics (1-365)"},
+            "metrics": {"type": "string", "description": "Comma-separated subset of the metric keys; omit for all"},
+        },
+        timeout=90.0,
+    ),
     "get_market_briefings": ToolSpec(
         name="get_market_briefings",
         description="The most recent market briefings (monthly narrative reports) for a market.",

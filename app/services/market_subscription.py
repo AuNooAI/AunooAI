@@ -71,8 +71,8 @@ PLANS: Dict[str, Dict[str, Any]] = {
         "label": "MCP access", "cents": 13900,
         "env_price": "STRIPE_PRICE_SUB_MCP",
         "blurb": "A key for our MCP server. Claude, ChatGPT or your own agents "
-                 "query the articles, posts, vendor profiles and sentiment "
-                 "directly, instead of reading them off a page."},
+                 "query the vendor benchmarks, vendor detail and metrics we do "
+                 "not publish, and the articles and posts behind them."},
 }
 
 
@@ -466,12 +466,14 @@ def notify(c, row: Dict[str, Any], market: Dict[str, Any], *,
         lines = [f"{first},", "",
                  f"Thank you. Your {market['name']} intelligence feed is active "
                  f"({amount}/month); Stripe sends the receipt separately.", "",
-                 "This link opens the whole site, with every vendor and every figure. "
-                 "Bookmark it and treat it like a password:", link]
+                 "This link opens the market pages. Bookmark it and treat it like a "
+                 "password:", link]
         guide = help_href(row.get("site"), int(row["market_id"]))
         if mcp_key:
             lines += ["",
-                      "Your MCP key, for Claude, ChatGPT or your own agents:", mcp_key, "",
+                      "Your MCP key, for Claude, ChatGPT or your own agents. It "
+                      "reaches the vendor benchmarks, vendor detail and metrics "
+                      "we do not publish:", mcp_key, "",
                       f"Point your MCP client at {mcp_url} and send the key as "
                       "a bearer token (Authorization: Bearer <key>). This mail is "
                       "the only place the key appears; we store only a hash.", "",
@@ -504,29 +506,40 @@ def roster_counts(c, market_id: int) -> Dict[str, int]:
     return {"total": int(total), "named": min(ent.public_vendor_limit(), int(total))}
 
 
+# Where the same kind of access lives for other topics: Aunoo's own MCP
+# workspace, free to start (user, 9 Oct 2026).
+AGENTIC_URL = "https://agentic.aunoo.ai"
+
+
 def _whats_inside(totals: Optional[Dict[str, int]]) -> str:
-    """What the key reaches. This used to list what the free view held back;
-    since 2026-09-22 it holds back nothing, so the honest version describes
-    the layer under the pages rather than a tier above them."""
-    if not totals:
-        return ""
-    total = totals["total"]
+    """What the key adds. The pages are free to read, but they show the
+    findings, not the data under them: the per-vendor benchmarks, the vendor
+    detail and most of the metrics are not published (user, 9 Oct 2026),
+    and the key is how a subscriber's tools reach them. Each item names an
+    MCP tool a key can call today; nothing here is promised ahead of it."""
+    total = (totals or {}).get("total")
+    each = f"each of the {total} vendors" if total else "each vendor"
     return (
-        "<h2>What the key reaches</h2>"
-        f"<p>The pages report on all {total} vendors we monitor in this market, and they "
-        "are free to read. The MCP server gives your tools the layer underneath them:</p>"
+        "<h2>What the key adds</h2>"
         "<ul>"
-        "<li>The collected articles and posts themselves, with their sources and dates, "
-        "rather than the counts drawn from them.</li>"
-        f"<li>Vendor profiles and sentiment for all {total} vendors, queryable by name, "
-        "by period, or by what changed.</li>"
-        "<li>Marketing reach data: each vendor's audience, posting activity, engagement "
-        "and earned coverage, as numbers your own model can compare.</li>"
-        "<li>The announcements as we collect them — launches, funding, partnerships, "
-        "customer wins — so an agent can watch the market without polling a page.</li>"
+        f"<li><strong>Vendor benchmarks.</strong> {each.capitalize()} against the rest of "
+        "the market on headcount, headcount change, hiring, funding, earned mentions and "
+        "announcements, with its rank, percentile and the market median.</li>"
+        "<li><strong>Vendor detail.</strong> Profiles with headcount, funding, founding year "
+        "and identifiers, each with its source and date, and each vendor's dated history, "
+        "so you can ask what changed since a given day.</li>"
+        "<li><strong>The metrics behind the pages.</strong> Funding by stage with shared "
+        "investors, hiring by function and region, coverage split into earned and owned, "
+        "and the vendors the Maturity Map could not rate, with the reading each one "
+        "lacks.</li>"
+        "<li><strong>The collected articles and posts.</strong> With their sources, dates, "
+        "sentiment and trust signals, rather than the counts drawn from them.</li>"
         "</ul>"
-        "<p>Ask your assistant what changed this week and it answers from the data, "
-        "with the articles behind it, instead of you reading a chart and guessing.</p>")
+        "<p>Ask your assistant how a vendor compares with the market, or what changed this "
+        "week, and it answers from the data, with the sources behind it.</p>"
+        f'<p>For topics beyond this market, <a href="{AGENTIC_URL}">agentic.aunoo.ai</a> '
+        "gives your AI tools sourced news and foresight on any topic you choose, with a "
+        "free workspace to start.</p>")
 
 
 def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href: str,
@@ -555,10 +568,10 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
                 f'<span class="price">{fmt_amount(opt["cents"])}/mo</span>'
                 f'<p>{esc(opt["blurb"])}</p></label>')
     inner = (
-        "<section><p>Every page on this site is open: every vendor named, every figure, "
-        "every chart, no sign-in. There is nothing to buy in order to read it. What a "
-        "subscription buys is a key for our MCP server, so your own tools can ask the "
-        "data questions instead of you reading the answer off a chart.</p>"
+        "<section><p>The news, charts and reports on this site are free to read. They show "
+        "what we found, not everything we collect. A subscription adds the data we do "
+        "not publish, through a key for our MCP server, so your own AI tools can query "
+        "it directly.</p>"
         + _whats_inside(totals)
         + (f'<p class="err" role="alert">{esc(error)}</p>' if error else "")
         + f'<form method="post" action="{esc(action)}">'
@@ -575,8 +588,8 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
         "</form></section>")
     return _shell(market, title=f"MCP access — {market['name']}",
                   kicker="MCP access", h1="Put this market in your AI tools",
-                  sub="A monthly key for our MCP server. The pages stay free; "
-                      "this is for asking the data questions directly.",
+                  sub="A monthly key for our MCP server, with the benchmarks, vendor "
+                      "detail and metrics we do not publish.",
                   inner=inner, front_href=front_href, about_href=about_href)
 
 
@@ -591,7 +604,7 @@ def build_done_page(market: Dict[str, Any], row: Optional[Dict[str, Any]], *,
         inner = (f"<section><p>Thank you. Your {esc(PLANS[row['plan']]['label'])} subscription "
                  f"is active ({fmt_amount(int(row['amount_cents']))}/month). A mail to "
                  f"{esc(row['email'])} repeats everything below.</p>"
-                 f'<p><a class="mm-btn big" href="{esc(link)}">Open the full dataset</a></p>'
+                 f'<p><a class="mm-btn big" href="{esc(link)}">Open the market pages</a></p>'
                  '<p class="fine">Bookmark that link and treat it like a password.</p>'
                  + (("<p>Your MCP key, shown only here and in the mail:</p>"
                      f"<p><code>{esc(mcp_key)}</code></p>"
@@ -602,7 +615,7 @@ def build_done_page(market: Dict[str, Any], row: Optional[Dict[str, Any]], *,
                      "and VS Code.</p>") if mcp_key else "")
                  + "</section>")
         kicker, h1, sub = "Intelligence feed", "Your access is ready", \
-            "The link below opens the whole site from now on."
+            "Your MCP key and the setup guide are below."
     elif row and paid:
         inner = ("<section><p>Your subscription is active, and your access link went to "
                  f"{esc(row['email'])} the moment payment cleared.</p>"
