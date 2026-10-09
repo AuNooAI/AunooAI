@@ -216,6 +216,38 @@ def describe(rated: Dict[str, Any], week_end: date,
             "drivers": drivers, "funded": funded}
 
 
+# How many weeks of momentum each row's line shows.
+TREND_WEEKS = 12
+
+
+def _trends(conn, market_id: int, weeks: List[date]) -> Dict[int, List[Optional[float]]]:
+    """Each vendor's momentum at the close of each chart week, oldest first,
+    None where the map did not rate it. Read from the map run each week was
+    taken from, which rates every vendor, so a line runs on through weeks
+    the vendor spent outside the 40."""
+    if not weeks:
+        return {}
+    runs = conn.execute(text("""
+        SELECT week_start, MIN(horizon_id) AS horizon_id
+        FROM bw_market_vendor_chart
+        WHERE market_id = :m AND week_start = ANY(:w) AND horizon_id IS NOT NULL
+        GROUP BY 1
+    """), {"m": market_id, "w": weeks}).fetchall()
+    run_week = {h: w for w, h in runs}
+    if not run_week:
+        return {}
+    points: Dict[int, Dict[date, float]] = {}
+    for h, brand_id, momentum in conn.execute(text("""
+        SELECT h.id, (v->>'brand_id')::int, (v->>'momentum')::float
+        FROM bw_market_horizon h,
+             jsonb_array_elements(h.result->'rated') v
+        WHERE h.id = ANY(:ids) AND v ? 'brand_id' AND v->>'brand_id' IS NOT NULL
+    """), {"ids": list(run_week)}).fetchall():
+        if momentum is not None:
+            points.setdefault(brand_id, {})[run_week[h]] = momentum
+    return {b: [p.get(w) for w in weeks] for b, p in points.items()}
+
+
 def chart(conn, market_id: int) -> Dict[str, Any]:
     """The newest stored week, ready for the front page card."""
     rows = conn.execute(text("""
@@ -245,10 +277,12 @@ def chart(conn, market_id: int) -> Dict[str, Any]:
             for v in (result or {}).get("rated") or []:
                 if v.get("brand_id") is not None:
                     rated[int(v["brand_id"])] = v
+    trends = _trends(conn, market_id, sorted(history)[-TREND_WEEKS:])
     out = []
     for d in derive(history):
         r = info[d["brand_id"]]
         meta = describe(rated.get(d["brand_id"]) or {}, week + timedelta(days=6))
+        meta["trend"] = trends.get(d["brand_id"]) or []
         out.append(dict(d, **meta, vendor=r["vendor"], momentum=r["momentum"],
                         band=r["band"]))
     return {"week_start": week, "rows": out}

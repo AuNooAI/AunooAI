@@ -3346,7 +3346,7 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
    of five on a wide screen, one on a phone */
 .mm-v2 .v2-chart { list-style:none; margin:0; padding:0; }
 .mm-v2 .v2-chart-head, .mm-v2 .v2-chart-row { display:grid; gap:var(--s-3); align-items:center;
-  grid-template-columns:2.2em 4.6em minmax(0,1fr) 4em 3.4em 3em 5.2em; }
+  grid-template-columns:2.2em 4.6em minmax(0,1fr) 4em 3.4em 88px 5.2em; }
 .mm-v2 .v2-chart-head { margin-top:var(--s-3); padding-bottom:var(--s-1);
   border-bottom:1px solid var(--sidebar-border); font-size:var(--fs-micro); color:var(--text-muted);
   text-transform:uppercase; letter-spacing:.04em; }
@@ -3367,12 +3367,18 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-chart-n { text-align:right; font-size:var(--fs-small); font-variant-numeric:tabular-nums;
   color:var(--text-secondary); }
 .mm-v2 .v2-chart-score { font-weight:600; color:var(--text-primary); }
+.mm-v2 .v2-chart-trend { display:flex; justify-content:flex-end; }
+.mm-v2 .v2-spark { display:block; overflow:visible; }
+.mm-v2 .v2-spark polyline { fill:none; stroke:var(--accent); stroke-width:1.6;
+  stroke-linejoin:round; stroke-linecap:round; }
+.mm-v2 .v2-spark circle { fill:var(--accent-ink); }
 .mm-v2 .v2-chart-more summary { cursor:pointer; margin-top:var(--s-3); font-size:var(--fs-meta);
   font-weight:500; color:var(--accent-ink); }
 @media (max-width:640px) {
   .mm-v2 .v2-chart-head { display:none; }
-  .mm-v2 .v2-chart-row { grid-template-columns:2em 4.2em minmax(0,1fr) 2.6em; gap:var(--s-2); }
-  .mm-v2 .v2-chart-row .v2-chart-n:not(.v2-chart-score) { display:none; }
+  .mm-v2 .v2-chart-row { grid-template-columns:2em 4.2em minmax(0,1fr) 64px; gap:var(--s-2); }
+  .mm-v2 .v2-chart-row .v2-chart-n { display:none; }
+  .mm-v2 .v2-spark { width:64px; height:20px; }
   .mm-v2 .v2-chart-mstats { display:block; }
 }
 /* Who moved: compact disclosure rows */
@@ -4810,6 +4816,40 @@ def _ordinal(n: int) -> str:
     return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
 
 
+def _spark(points: List[Optional[float]], lo: float, hi: float,
+           w: int = 84, h: int = 22) -> str:
+    """A vendor's weekly momentum as a small line on a shared scale. A week
+    the map did not rate the vendor is a gap, not a zero."""
+    if not any(p is not None for p in points):
+        return ""
+    span = (hi - lo) or 1.0
+    n = len(points)
+    step = (w - 4) / max(n - 1, 1)
+
+    def xy(i: int, v: float) -> str:
+        return f"{2 + i * step:.1f},{h - 2 - (v - lo) / span * (h - 4):.1f}"
+
+    lines, run = [], []
+    for i, v in enumerate(points):
+        if v is None:
+            if run:
+                lines.append(run)
+            run = []
+        else:
+            run.append(xy(i, v))
+    if run:
+        lines.append(run)
+    last_i = max(i for i, v in enumerate(points) if v is not None)
+    first = next(v for v in points if v is not None)
+    last = points[last_i]
+    lx, ly = xy(last_i, last).split(",")
+    body = "".join(f'<polyline points="{" ".join(r)}"/>' for r in lines if len(r) > 1)
+    return (f'<svg class="v2-spark" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
+            f'role="img" aria-label="Momentum {first:.0f} to {last:.0f} over {n} weeks">'
+            f'<title>Momentum {first:.0f} → {last:.0f} over {n} weeks</title>{body}'
+            f'<circle cx="{lx}" cy="{ly}" r="2"/></svg>')
+
+
 def _cap(text_: str) -> str:
     return text_[:1].upper() + text_[1:]
 
@@ -4828,6 +4868,11 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
     end = week + timedelta(days=6)
     span = (f"{week.day} {week.strftime('%b')} – {end.day} {end.strftime('%b')}"
             if week.month != end.month else f"{week.day}–{end.day} {end.strftime('%b')}")
+    # One vertical scale for every row's line, so a reader can compare the
+    # level as well as the slope.
+    pts = [p for r in rows for p in (r.get("trend") or []) if p is not None]
+    lo = max(0.0, (min(pts) // 10) * 10) if pts else 0.0
+    hi = min(100.0, -(-max(pts) // 10) * 10) if pts else 100.0
 
     def _row(r: Dict[str, Any]) -> str:
         status = r["status"]
@@ -4850,10 +4895,15 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
         drivers = list(r.get("drivers") or [])
         if r.get("funded"):
             drivers.append(f"raised {r['funded']}")
+        # Weeks on the chart only while it says something; past four it is
+        # most of the record and every long-running row would read the same.
+        if 2 <= r["weeks_on"] <= 4:
+            meta.append(f"{_ordinal(r['weeks_on'])} week on chart")
         lw = "–" if r["last_week"] is None else str(r["last_week"])
+        score = f"{float(r.get('momentum') or 0):.0f}"
         # The stat columns, repeated in the line for a phone, where the
         # columns are hidden.
-        stats = f"Last week {lw} · Peak {r['peak']} · {r['weeks_on']} wks"
+        stats = f"Last week {lw} · Peak {r['peak']} · Momentum {score}"
         return ('<li class="v2-chart-row' + (' v2-chart-top' if r["rank"] == 1 else '') + '">'
                 f'<span class="v2-chart-rank">{r["rank"]}</span>'
                 f'<span class="v2-chart-move">{move}</span>'
@@ -4865,12 +4915,12 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
                 + f'<span class="v2-chart-mstats">{esc(stats)}</span></span>'
                 f'<span class="v2-chart-n">{lw}</span>'
                 f'<span class="v2-chart-n">{r["peak"]}</span>'
-                f'<span class="v2-chart-n">{r["weeks_on"]}</span>'
-                f'<span class="v2-chart-n v2-chart-score">'
-                f'{float(r.get("momentum") or 0):.0f}</span></li>')
+                f'<span class="v2-chart-trend">{_spark(r.get("trend") or [], lo, hi)}</span>'
+                f'<span class="v2-chart-n v2-chart-score">{score}</span></li>')
 
     head = ('<div class="v2-chart-head" aria-hidden="true"><span></span><span></span>'
-            '<span>Vendor</span><span>Last wk</span><span>Peak</span><span>Wks</span>'
+            '<span>Vendor</span><span>Last wk</span><span>Peak</span>'
+            f'<span>Trend, {len(next((r["trend"] for r in rows if r.get("trend")), [])) or 1} wks</span>'
             '<span>Momentum</span></div>')
     shown, rest = rows[:_V2_CHART_SHOWN], rows[_V2_CHART_SHOWN:]
     how = ("momentum on the Market Maturity Map" if not map_href else

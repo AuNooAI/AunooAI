@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 from app.services import market_chart as mc
-from app.services.market_report_html import _ordinal, _v2_chart
+from app.services.market_report_html import _ordinal, _spark, _v2_chart
 
 W1, W2, W3, W4 = (date(2026, 9, 7) + timedelta(days=7 * i) for i in range(4))
 
@@ -150,3 +150,21 @@ def test_title_from_market_config():
     cfg = {"chart": {"title": "Agentic SOC Top {n} Movers"}}
     assert mc.title({"config": cfg}, 40) == "Agentic SOC Top 40 Movers"
     assert mc.title({"config": '{"chart": {"title": "X {n}"}}'}, 12) == "X 12"
+
+
+def test_card_trend_column_and_weeks_on_chart():
+    chart = _chart(2)
+    chart["rows"][0]["trend"] = [70.0, None, 78.0, 80.4]
+    chart["rows"][1]["trend"] = [60.0, 65.0, 70.0, 72.0]
+    html = _v2_chart(chart)
+    assert "Trend, 4 wks" in html
+    assert html.count('<svg class="v2-spark"') == 2
+    assert "4th week on chart" in html
+    assert "Momentum 70 → 80 over 4 weeks" in html
+
+
+def test_spark_gap_and_empty():
+    svg = _spark([50.0, None, 60.0, 70.0], 50, 70)
+    # the lone first point has no segment; the gap splits the line
+    assert svg.count("<polyline") == 1
+    assert _spark([None, None], 0, 100) == ""
