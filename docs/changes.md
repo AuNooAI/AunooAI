@@ -1,5 +1,80 @@
 # Changes
 
+## 2026-10-09 — aisocnews.com subscriptions: the MCP key reaches the vendor benchmark, and the subscribe page says what it adds
+
+### Goal
+The subscribe page said every page was open, and that the key added nothing but MCP access to
+the same data. The user corrected this: the per-vendor benchmarks, the vendor detail and other
+metrics are not published. They also asked for a pointer to agentic.aunoo.ai for other topics.
+They then rejected two rounds of copy, which had AI-writing patterns and items of no use to a
+buyer.
+
+### Feature · `get_vendor_benchmark` MCP tool
+Commit `2c38fc9c`.
+- **Where:** **`app/mcp_access/brand_tools.py`** and **`app/mcp_access/tools.py`**.
+- **What it returns:** one vendor against its market on the nine `market_benchmark.METRICS`
+  (headcount, headcount change, own posts, earned mentions, announcements, open and new job
+  listings, funding, activity index). For each metric it gives the vendor's value, its
+  percentile, the market median and average, the top 20 vendors by name, collection freshness
+  and measured coverage.
+- **Arguments:** a vendor by name or `vendor_id`, plus optional `days` (1–365) and `metrics`
+  subset.
+- **Before this,** the benchmark was only on the operator side (`/markets/{id}/vendors/{brand_id}/benchmarks`,
+  which needs a session), so the subscribe page could not truthfully offer it.
+
+**Why the copy had to change:** we checked what a subscriber's key actually reaches. Since
+`1bbf6fbe` (22 Sep), `ent.resolve()` returns full access to everyone, so the access link
+(`?key=`) unlocks nothing extra on a public market. The thank-you page's "Open the full dataset"
+button and the buyer email's "opens the whole site, with every vendor and every figure" were
+therefore false. We fixed both in `2c38fc9c`.
+
+### Copy · the subscribe page
+Commits `da9233c5` and `a7b28aa8`. The file is **`app/services/market_subscription.py`**.
+- **Subtitle:** "Benchmark any vendor against the market, check its funding, headcount and
+  history, and see what changed this week, without leaving Claude, ChatGPT or your own agents."
+- **Intro:** the pages are free to read, and the key lets your AI tools query the data behind
+  them.
+- **"What the key adds":** four items, each backed by a tool a key can call today:
+  - how each vendor compares (`get_vendor_benchmark`);
+  - the sourced profile and dated record (`get_market_vendors`, `get_entity`, `get_timeline`);
+  - who funds the market and who is hiring (`get_market_analysis`);
+  - the searchable articles and posts (the search tools).
+- **Plan description:** "One key for you and your team, for any MCP client."
+- **`_agents_card()`:** a card at the foot of the page, "Want more markets or topics?", with the
+  button "Check out Aunoo for Agents" linking to `AGENTIC_URL` = https://agentic.aunoo.ai.
+- **The buyer email's key line** says what the key reaches.
+
+**Removed after review against Wikipedia's "Signs of AI writing":**
+- a closing summary flourish;
+- bold inline labels on list items;
+- two "X, not Y" contrasts;
+- the jargon items (Maturity Map "could not rate", earned/owned, trust signals);
+- "Claude, ChatGPT or your own agents" used four times;
+- a plan description that repeated the subtitle.
+
+### Verification
+- `pytest tests/test_mcp_vendor_benchmark.py tests/test_mcp_jsonrpc.py` passes, 14 tests. The
+  other MCP test files pass too, 46 tests.
+- **Live call:** `get_vendor_benchmark(vendor="Exaforce", market_id=2)` returned 9 metrics, each
+  with 20 named top vendors. Earned mentions came back as 15, in the 97th percentile, against a
+  market median of 0. An unknown vendor gets a `ToolError`.
+- **Live page:** after the last restart and a cache clear, `curl -L https://aisocnews.com/subscribe`
+  shows the new subtitle, the four items, the new plan description and the Aunoo for Agents
+  card, and no Maturity Map item. The new process logged no tracebacks.
+- **Not run:** `tests/test_market_subscription.py`, because it inserts into and deletes from the
+  live `market_subscriptions` table.
+
+### Propagation
+- Bugfixing / aisocnews.com only. There were three restarts, each with `jobs=0`.
+- The MCP tool is in bugfixing's `app/mcp_access`. The other monolith sites' MCP servers
+  (Oviva, Panaya and the rest) don't have it.
+
+### Lessons
+- **Review every line of public copy against the guide and for buyer value before showing it.**
+  When the user flags one line, re-review the whole piece.
+- **Check what the product actually delivers before writing what a subscription "adds".** The
+  first copy promised a benchmark that no key could reach.
+
 ## 2026-10-09 — Market reports: customer wins must be in the market, open roles are counted as open, and a sponsored webinar on aisocnews.com
 
 ### Goal
