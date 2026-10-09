@@ -16,6 +16,18 @@ CARDS = {"summaries": [{"title": "A", "body": "x"}, {"title": "B", "body": "y"}]
 GOOD = json.dumps(CARDS)
 
 
+def _run_fresh(coro):
+    # nest_asyncio (imported by other tests) swaps asyncio.run for one that
+    # reuses the current loop, which an earlier test may have closed.
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
 def _run(monkeypatch, raw):
     saved = {}
 
@@ -34,7 +46,7 @@ def _run(monkeypatch, raw):
     reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))])
     monkeypatch.setattr(litellm, "completion", lambda **kw: reply)
 
-    out = asyncio.run(trs.generate_executive_summary_for_run(
+    out = _run_fresh(trs.generate_executive_summary_for_run(
         "run-1", "Topic", [{"title": "s"}], model="claude-sonnet-5"))
     return out, saved
 
