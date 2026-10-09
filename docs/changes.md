@@ -290,6 +290,179 @@ We also gave the markets a profile, because the refresh skips a market without o
 - The saas `venv` cannot run saas scripts that import `app.database`; use `/usr/bin/python3`,
   which is what `saas.aunoo.ai.service` runs.
 
+## 2026-10-09 — aisocnews.com: the Agentic SOC Top 40 Movers chart, and a weekly LinkedIn post about the week
+
+### Goal
+The user asked for a Billboard-style card at the top of the aisocnews.com front page. It shows
+the top 40 vendors with up and down arrows, new entries and weeks at #1. During the day they
+asked for:
+- a composite score, based on the Market Maturity Map ratings;
+- a single column with metadata;
+- the name "Agentic SOC Top 40 Movers";
+- a way to show momentum over time;
+- a weekly LinkedIn post about what the vendors did, in the format of their own 2 Oct post.
+
+### Feature · the chart ranks vendors by momentum on the Market Maturity Map
+Commit `a36842ba`.
+
+- **How it ranks:** a vendor's place is its momentum score on the map run that closed the week.
+  Momentum is the map's existing composite of six measures over 90 days, each a percentile
+  among the rated vendors:
+  - headcount change, 0.30;
+  - launches and partnerships, 0.25;
+  - open roles per 100 staff, 0.15;
+  - earned mentions, 0.15;
+  - Crunchbase growth, 0.10;
+  - the vendor's own posts, 0.05.
+
+  Ties break on the map's scale score, then on name.
+- **What the map provides:** it rates 87–93 vendors per run and has stored one run a day since
+  27 Aug. So every week already has a reading, and the chart makes no AI calls of its own.
+
+**`alembic/versions/mm_033_vendor_chart.py`** adds `bw_market_vendor_chart`.
+- It has one row per (market, week, vendor): `rank`, `momentum`, `scale`, `band`, plus
+  `horizon_id`, which points to the map run it came from.
+- **Why weeks are stored:** the map's weights are configuration and will change, and "weeks at
+  #1" must not change with them. So each week's 40 places are copied in when the week closes.
+- Movement, peak, weeks on the chart and weeks at #1 are worked out when the page reads the
+  table. Deleting or re-running a week therefore recalculates them all.
+
+**`app/services/market_chart.py`** does the work.
+- **Weeks** run Monday to Sunday, Berlin time. A week freezes on the Monday after it closes,
+  using the map's newest run inside that week.
+- Acquired vendors are left out (`acquired_ids`). The first run goes back up to 8 weeks, and a
+  week with no map run is skipped.
+- **`app/tasks/market_monitor.py`**: `_refresh_chart` runs on every tick for each enabled
+  market.
+
+### Feature · the card
+Commits `a36842ba`, `1b7a383b` and `e13283b8`. It is built by `_v2_chart` in
+**`app/services/market_report_html.py`**.
+- **Placement:** it is the first card in the main column, above the lead story. Ten rows show,
+  and "Show 11–40" opens the rest.
+- **Layout:** one column. Each row shows rank, then move (▲/▼/=, New or Re-entry), then the
+  vendor, then Last week, Peak, a trend line, and the momentum score.
+- **The metadata line** under each name comes from that week's map run:
+  - the vendor's stage and band, for example "Executing · Accelerating";
+  - up to two momentum inputs where the vendor is in the top quarter of rated vendors (launches
+    and partnerships, headcount change, open roles per 100 staff, earned mentions);
+  - any funding round in the last 90 days;
+  - "Nth week at #1" for the leader, from its second week;
+  - "Nth week on chart", only for weeks 2 to 4.
+- **The trend line** (`_spark`) is an inline SVG of the vendor's weekly momentum over up to 12
+  weeks. All rows share one vertical scale. It reads the map run behind each week, which rates
+  about 90 vendors, so the line continues through weeks outside the 40. A week the map didn't
+  rate is a gap, not a zero.
+- **The title** comes from `config.chart.title`, where `{n}` is the number of places. It
+  defaults to "Top {n} Movers". Market 2 has "Agentic SOC Top {n} Movers" (DB only).
+- **Restricted readers** see only the vendors they are allowed to see (`ent.filter_rows`).
+- **Failure handling:** if the chart read fails, the page rolls back the database connection
+  and drops the card.
+
+### Feature · the weekly LinkedIn post
+Commit `838dab36`. The user rejected a first, chart-only draft, because it said why vendors
+moved instead of what they did.
+
+**`app/services/market_weekly_post.py`** follows the shape of the user's own 2 Oct post:
+1. A line naming the market and the week.
+2. Bullets of developments, grouped by kind.
+3. The chart movers, then open roles, then whether anything was acquired.
+4. One sentence on the pattern, then the vendor count and the link.
+
+**Who writes what:**
+- **The development bullets:** the standard model tier (`claude-sonnet-4-5`) writes them from
+  `market_briefing.build_facts` for the week.
+  - They cover specialists only.
+  - Each bullet is one kind, in this order: launches, open source, partners and integrations,
+    funding, analyst mentions.
+  - Job ads, events, customer quotes, threat research and general AI model releases are left
+    out.
+- **The code checks every sentence.** A sentence must cite a supplied fact. Any tracked vendor
+  it names must be one its cited facts are about, or one named in their titles. A sentence that
+  fails is dropped. Each bullet has at most three cited sentences after an uncited lead.
+- **The uncited summary** is dropped if it names anything (a place, company or report) that the
+  bullets don't mention.
+- **Code, not the model, writes** the movers line, the open-roles line and the acquisitions
+  line. The open-roles line uses `market_analysis.hiring`. It states the change from the count
+  stored with the previous week's post.
+
+**Storage and delivery:**
+- **`alembic/versions/mm_034_weekly_post.py`** adds `bw_market_weekly_posts`: content, sources,
+  `open_roles`, `model_used` and `sent_at`, unique per (market, week).
+- **The scheduler:** when a week freezes and `config.chart.linkedin_post` is on, `_refresh_chart`
+  calls `mwp.send`. It composes and stores the post, then mails it once to
+  `MARKET_TRIAL_NOTIFY_EMAIL`, with each bullet's sources listed under it.
+- **The route:** `GET /api/market-monitor/markets/{id}/weekly-post.txt` returns the newest
+  stored post.
+- **Nothing posts to LinkedIn.** The user tags the vendors and pastes the post themselves.
+
+**Why the model changed:** on the first live run, the cheap model (`bedrock-kimi-k2-5`) wrote
+"Exabeam is now on the CrowdStrike Marketplace", citing Exaforce's post. We switched to the
+standard tier and added the vendor-name check. On the final run, the summary check dropped a
+closing sentence that named Fortinet when no bullet mentions it.
+
+### Rejected · ranking on coverage, or on "Most active vendors"
+We measured both before choosing the map.
+- **Third-party coverage alone** could not fill the chart: only 7–20 vendors a week had any.
+- **Developments**, the measure behind "Most active vendors", gave 13–28 vendors a week. Most had
+  exactly one, so the order would have come down to the name.
+- **Momentum** fills 40 places every week. Since September the median vendor moved 1–3 places a
+  week.
+
+### Data · the week of 24 Aug removed from the chart (DB only)
+The map's run for that week rated 40 vendors; every later run rated 87–93. Momentum is a
+percentile among the rated vendors, so that week was not comparable, and several trend lines
+jumped by about 30 points. We deleted its 40 rows, so the history now starts on 31 Aug. 7AI's
+weeks at #1 went from 4 to 3, and one vendor changed from Re-entry to New.
+
+### Incident · an early version went live for a few minutes, and one job was cut off
+- **What happened:** something other than this session applied the first version of `mm_033`
+  (the coverage-ranked version, with `earned`/`total` columns). It also restarted bugfixing at
+  11:15 and 11:18, which made aisocnews.com show "The Top 20". We checked that the table held
+  only those rows (101 for market 2, 19 for market 1830). Then we ran `alembic downgrade
+  subd_001` and `upgrade mm_033`, cleared the nginx cache and backfilled.
+- **A 500 error:** one front-page request returned a 500 at 11:25. The old process's chart
+  query hit the changed columns, and `_safe` left the transaction aborted. That request was our
+  own check. The rollback guard above came from this.
+- **A cut-off job:** at about 12:24 we restarted with `jobs=1` showing in the quiet check, which
+  cut off emerging-topic detection run 4030. It is marked failed after 161 seconds. It repeats
+  on a schedule; four other runs had completed that day.
+
+### Verification
+- `pytest tests/test_market_chart.py tests/test_market_weekly_post.py` passes, 23 tests.
+- **Chart table:** market 2 has five weeks, 31 Aug to 28 Sep, each with 40 rows and no gaps in
+  the ranks. No acquired vendors are stored.
+- **Live page:** after the 15:30:48 restart and a cache clear, aisocnews.com shows "Agentic SOC
+  Top 40 Movers" with 40 rows and 40 trend lines. Exaforce is #1, up 1 from 7AI. The new
+  process logged no tracebacks.
+- **Weekly post:** the 28 Sep week was composed with the live data on `claude-sonnet-4-5` and
+  stored. It is 1,401 characters, with `open_roles` 184. Its bullets were
+  checked against their sources by hand.
+  - **Mail:** at the user's request we mailed it to `MARKET_TRIAL_NOTIFY_EMAIL` with `mwp.mail`
+    and set its `sent_at`. The first automatic mail is due on Monday 12 Oct, for the week of
+    5 Oct.
+
+### Propagation
+- Bugfixing / aisocnews.com only. These are features, so they stay on the site that asked.
+- `mm_033` and `mm_034` are applied on DB `test`.
+- **Database-only state, not in git:**
+  - market 2's `config.chart` holds the title, `linkedin_post: true` and the `post_url`;
+  - the 24 Aug week was deleted;
+  - the 28 Sep post is stored.
+- Market 1830 (EV Battery Cells) shows the chart as "Top 13 Movers" and has the post off.
+
+### Lessons
+- **ALWAYS roll back after a failed read on a shared page connection.** `_safe` alone leaves the
+  transaction aborted, and every later read on the page then fails.
+- **A file in a shared tree can go live before you finish it.** Another session restarted
+  bugfixing and applied a half-written migration. Write a migration's final schema before saving
+  it in the tree.
+- **NEVER restart on a non-zero `jobs` signal,** even when the user has asked for restarts. Wait,
+  or say so.
+- **Text the model writes that goes out under a person's name needs checks in code.** Require a
+  citation per sentence, a vendor-name match against the cited facts, and drop any uncited
+  sentence that names something the cited text doesn't.
+
 ## 2026-10-09 — Keyword monitor: slow groups no longer block the rest; social vendor searches checked and trimmed
 
 ### Incident · no SOC keyword group ran for 16 hours
@@ -666,6 +839,92 @@ links on the next market run. Then we ran one transaction:
 Replaying the rules afterwards over the 11 vendors' remaining name-matched links gave 97 kept
 and 0 to drop.
 
+## 2026-10-08 — Market foresight pages: written for the buyer, refreshed monthly, dated from today
+
+### Goal
+aisocnews.com's Consensus page (`?view=v2&page=consensus`) was printing the publisher's own
+business plan. Readers saw lines such as "generates sustainable revenue through methodology
+licensing and advisory", "positions for acquisition or strategic partnership" and "establish
+relationships with PE/VC for deal flow intelligence". The user asked for the reports to be
+written for a cybersecurity buyer instead. All code is in `50409536`.
+
+### Root cause · the reports were advice to the publisher
+The consensus prompt (`data/prompts/consensus_analysis/current.json`) writes sections 7-9
+(strategic implications, key decision windows, timeframe analysis and milestones) as advice to
+`{org_name}`, with owners and success metrics. The market used profile 9, "Cyberfuturists —
+AI SOC market readers", whose organisation type is "Independent industry analyst and
+publisher". So the AI wrote a plan for the publisher, and the public page printed all of it.
+That profile's `custom_context` already said "write for the market, not for one company". It
+was added on 1 Oct, after the only run (6 Sep), and one line of context cannot outweigh
+sections the template requires.
+
+### Fix · public pages hide advice unless the market's profile is its reader (`50409536`)
+**`consensus_html.py`** `build_consensus_html(public=True)` leaves out sections 7-9 and each
+key insight's `relevance` line. **`html_report_common.py`**
+`render_executive_summary_cards(public=True)` leaves out the horizons `action_window` (the
+"Your window" block). **`horizons_html.py`** passes `public` through. **`market_foresight.py`**
+`show_advice(market)` reads `bw_markets.config['foresight']['show_advice']`, and `render()`
+passes `public=not show_advice(market)`. The default is off, so a market with a publisher
+profile cannot leak its plan again. The operator download in `trend_convergence_routes.py`
+still renders everything.
+
+### Config · buyer profile for AI in the SOC (DB, not in git)
+We created `organizational_profiles` row 10, "AI SOC buyer — enterprise security team". The
+five list fields are stored as JSON arrays. Its `custom_context` says to write for a buyer of
+AI SOC technology and never to mention or advise an analyst firm or publisher. We left
+profile 9 alone because it is the tenant default (`is_default = t`). Market 2 now has
+`foresight = {"profile_id": 10, "show_advice": true}`. We hid six runs in
+`foresight_hidden_runs`:
+- the four runs made for the publisher: consensus `3a973c5f`, `04f55957`; horizons
+  `624b5db6`, `b252475b`
+- the first two buyer runs, which still had 2025 milestones: `e0a9b72d`, `9467caa7`
+
+### Fix · the monthly refresh never ran (`50409536`)
+`tick()` in **`app/tasks/market_monitor.py`** selected only `id, name` from `bw_markets`, so
+`market_foresight.refresh()` called `topic_for()` on a row with no config, got None, and
+returned. Every consensus and horizons run before today was made by hand. The tick now selects
+`config`. `refresh()` also returns early when the market has no `foresight.profile_id`,
+because the tenant default profile belongs to another customer. EV Battery Cells (market 1830)
+has none, so it is skipped.
+
+### Fix · prompt years come from today's date (`50409536`)
+The consensus prompt's examples used 2025 (milestones, outlier years, "Immediate (2025)"). The
+future-horizons prompt fixed every scenario to "2025-2040". The model copied them, so the first
+buyer run, made in October 2026, had milestones such as "2025: First procurement cycles
+rejecting MTTR-only vendor claims". Both prompts now open with `TODAY IS {today}` and use
+`{current_year}` and `{year_plus_N}`. A new `_year_vars()` in **`trend_convergence_routes.py`**
+fills them for `generate_consensus_analysis_prompt` and `generate_future_horizons_prompt`. The
+prompt files before this change are kept as `*.bak-years-20261008` (untracked).
+
+### Verification
+- `pytest tests/test_market_foresight.py tests/test_trend_prompt_years.py`: 11 passed,
+  1 failed. The failure is `test_restyle_swaps_palette_inside_styles_and_the_wiley_eyebrow`.
+  It was already failing before today: it expects hex colours, and `_restyle` now writes CSS
+  variables.
+- Both prompts built with today's date had no unfilled placeholder and no "2025". The consensus
+  example bands read 2026-2028 and the horizons bands 2026-2041.
+- The first automatic refresh fired at 09:22 after the tick fix (consensus `04f55957`, horizons
+  `b252475b`, 6 summary cards).
+- The final runs after the 12:16 restart are consensus `4e3be1f5` (3 categories) and horizons
+  `a602a2a2` (11 scenarios, 6 cards). Every milestone, outlier and consensus-window year is
+  2026 or later, and neither run mentions Cyberfuturists, revenue, sponsorship or editorial
+  work.
+- With the nginx cache cleared, the live consensus page shows Strategic Implications, Key
+  Decision Windows and Key Milestones in all 3 categories. The live horizons page shows 6
+  "Your window" blocks. Neither page contains "Cyberfuturists should" or "revenue model".
+
+### Propagation
+bugfixing only, which serves aisocnews.com. We restarted it at 09:24 and again at 12:16, each
+time after `restart_when_quiet.sh --check` showed no users, chat or jobs. The code is not on
+any other site. The prompt-year fix would help any site that runs consensus or horizons
+reports. The tick fix would start monthly refreshes on any other market site that sets
+`foresight.profile_id`.
+
+### Lessons
+- A public page built from a profile-driven run must not print the advice written for that
+  profile unless the profile is the reader.
+- Never write fixed years into prompt examples. The model copies them. Pass today's date.
+
 ## 2026-10-08 — Brand Watcher digest: sentiment counted per article, figures labelled with their window, and the brand's part in each story named
 
 ### Goal
@@ -756,6 +1015,62 @@ as usual. Every replaced file has a `.bak-digestwindow-*` or `.bak-digestfix-*` 
   rows before hunting for deleted articles.
 - An article summary describes the story, not the brand's part in it. Brand narration needs
   the sentences that name the brand.
+
+## 2026-10-07 — Market jobs: a category for LinkedIn postings after Bright Data dropped it
+
+### Goal
+Bright Data emailed on 7 Oct that its "LinkedIn job listings – discover by keyword" dataset
+(`gd_lpfll7v5hcqtkxl6l`) no longer collects `job_function`, because LinkedIn stopped showing it
+publicly. We checked the stored data, and the field had already been empty since 1 Oct. Every
+LinkedIn job collected since then had no category, on bugfixing, Panaya, Sunstar, Oviva and abm.
+Nothing crashed, because readers already handle an empty category. But the hiring charts read
+the newest copy of each posting, so they filed nearly all LinkedIn jobs under "not stated".
+
+### Fix · Reuse the old label, otherwise guess from the title (`de5d9c73`)
+**`brightdata_linkedin.py`** `map_job_listing` now guesses the job family from the title when
+`job_function` is empty. It uses `_function_of` from `ats_collector.py`, the word list the
+job-board collector already uses. The guess goes in a separate `function_hint` key, so readers
+can tell a guess from LinkedIn's own label. A title that matches no word gets no key at all.
+The hiring charts and lists already read `function` first and `function_hint` second.
+
+**`market_collect.py`** `ingest_jobs` looks up the newest stored snapshot of the same posting
+that has a real `function`. If one exists, it copies that label in and drops the guess.
+
+**`entity_event_extractors/jobs.py`** now falls back to `function_hint` before `'unspecified'`.
+
+The commit message says the copied label also stops a posting being stored again as changed.
+That does not hold in practice. Bright Data's `posted_date` differs between runs, so a posting
+gets a new snapshot either way. Sunstar's 13:29 run stored 41 postings, and in the 5 we
+compared, `posted_date` was the only field that differed from the previous copy.
+
+### Data backfill (all five databases, run by hand)
+First, rows with no `function` got the label from an earlier copy of the same posting. Then a
+title guess went into `function_hint` on whatever was left.
+
+| Site (DB) | Label copied | Title guess | Still none |
+|---|---|---|---|
+| bugfixing (`test`) | 171 | 131 | 141 |
+| Panaya | 87 | 12 | 4 |
+| Sunstar | 36 | 7 | 40 |
+| Oviva | 126 | 6 | 13 |
+| abm | 1 | 64 | 2 |
+
+The word list was written for tech and security jobs, so it rarely matches Sunstar's dental and
+Oviva's healthcare titles ("Senior Commercial Counsel, Oral Health" gets no guess).
+
+### Verification
+- `pytest tests/test_market_collection.py`: 89 passed, 7 failed. The same 7 fail on the
+  unchanged files. The new test, `test_a_posting_without_job_function_gets_a_title_guess`,
+  passes.
+- Sunstar's first run on the new code (13:29) stored 41 LinkedIn postings: 15 with a copied
+  label, 7 with a title guess, 19 with neither.
+
+### Propagation
+- bugfixing: committed in `de5d9c73`; restarted at 13:00 by `scripts/restart_when_quiet.sh`.
+- Oviva, Panaya, Sunstar, abm: files copied (`market_collect.py` by patch, because those trees
+  differ), restarted at 12:37. Left uncommitted, as live trees are.
+- bwtemplate: files copied, service not running.
+- wiley, wileytest: they do not have `brightdata_linkedin.py`, so nothing to copy.
 
 ## 2026-10-07 — Emerging topics: timelines built from the right articles
 
@@ -1109,7 +1424,7 @@ does not rewrite old keys, because the stored rows do not record their collector
   `asyncio.to_thread`, so it never blocked. My edit didn't compile, which is how I found out, and
   I reverted it.
 
-## 2026-10-07 — Market Monitor: Oviva's market page fixed end to end; incidents, press checks and hiring counts in canonical
+## 2026-10-07 — Market Monitor: Oviva's market page fixed end to end, then every market site; incidents, press checks, hiring counts, brand setting
 
 ### Goal
 Oliver reviewed Oviva's market page (`oviva.aunoo.ai/api/market-monitor/markets/1/report.html`).
@@ -1194,14 +1509,82 @@ roles all read as "other". A clinical group now comes first.
 - The acquisitions highlight read "Leidos acquired Leidos on 5 October". When the buyer found is
   the tracked vendor itself, it now names the company bought: "Leidos acquired Analogic".
 
-### Oviva-only edits (prod tree, not committed)
+### Feature · Read blocked sites through Firecrawl (`c8782a1b`)
+Some sites refuse this server outright, whatever user agent it sends: BlinkOps (its blog feed
+answered 403 from 17 Jul 2026), and HelloBetter, Voy and Juniper on Oviva's market. The new
+**`app/services/firecrawl_fetch.py`** fetches a page's raw body through Firecrawl's scrape API.
+**`rss_collector.py`**, the vendor page poll and vendor feed discovery in
+**`vendor_web_collector.py`** call it only after a 403, 429 or 503, so Firecrawl bills for
+blocked sites alone. Feed discovery reads only the homepage that way, to keep calls down. It is
+on whenever `FIRECRAWL_API_KEY` is set; `FIRECRAWL_FALLBACK=0` turns it off. The vendor web
+collector's user agent is browser-style now, like the feed reader's.
+
+### Fix · An ad campaign is not a launch (`8c45da95`)
+Adweek's piece on Noom's "Lose for Keeps" ad was filed as a product launch, and Jev agreed at
+0.61. The launch definition in the vendor, press and correction prompts, and in Jev's kind
+criteria, in **`market_post_review.py`** now says an advertising or marketing campaign is kind
+"other".
+
+### Fix · Social counts no longer include news (`8c45da95`)
+Seven queries in **`market_analysis.py`** picked social rows with `social_meta IS NOT NULL`,
+which news rows pass because they store JSON `null`. Three were already safe, because they also
+require an author. All seven now exclude JSON `null`. The others counted news as social: the
+mentions-per-platform query, the engagement list and two engagement counts.
+
+### Feature · The site's brand is a setting (`876c3a61`)
+aisocnews's pages carried the Cyberfuturists byline, a "Cyberfuturists" kicker above the title,
+an About page naming Oliver Rochford Ltd as data controller, and a Cyberfuturists feed author. On
+Oviva these were hand-edited out of the production tree. The new **`app/services/market_brand.py`**
+reads `MARKET_SITE_BRAND` per site. `cyberfuturists`, the default, leaves aisocnews exactly as it
+was: the rendered text of its front page, report and news page is identical before and after.
+`aunoo` gives an Aunoo byline, "Market monitor" above the title, no About page or footer links,
+and Aunoo as feed and piece author. **`market_report_html.py`**, **`market_publish.py`**,
+**`market_briefing.py`** and the report route read it. In the routes file we staged only our
+four-line change, because the other session's uncommitted job-function hook sits in the same file.
+
+### Fix · Market lists match their cards; two stale tests corrected (`3e181e46`)
+The four market tests that had failed all day each test live data, and two of them found real bugs:
+- The jobs list ran 3 over the hiring count (241 against 238). **`market_lists.jobs()`** took
+  `MAX(title)` across a listing's sightings. Nebulock's board renamed "Sr Content Marketing
+  Manager" to "Senior …", `MAX()` kept "Sr", and the LinkedIn copy no longer matched the
+  own-board title. The list now reads the newest title, as `hiring()` does.
+- A voice's list held posts its card did not count (19 against 15). **`voice_posts()`** now
+  applies the card's two filters: not excluded by the review, and topic alignment of at least 0.4.
+- "A vendor's own website is not third-party coverage" compared URLs. The rule is per vendor on
+  purpose: Simbian's blog post on XDR integrations is owned for Simbian and third-party coverage
+  for Dropzone AI, Intezer and CrowdStrike. The test now compares (article, vendor) pairs.
+- The report test expected "collected records", copy that `d9abad37` changed on 30 Aug.
+
+### Feature · Panaya gets the press review (prod tree, not committed)
+Panaya ran an older pipeline with no press review at all, so press-only stories and
+press-reported incidents could not reach its page. We ported it from canonical: the press block
+(prompt, candidates, judgement, storage, Jev check) into panaya's **`market_post_review.py`**,
+**`entity_event_extractors/coverage.py`** copied in and switched on in the extractor registry,
+and the press call added to the scheduled review in **`app/tasks/market_monitor.py`**. The first
+run read 10 articles, and the coverage extractor created 1 event and attached press to 5 that
+panaya already had. 4 of those moved from "the vendor's own claim" to one independent source, and
+UiPath's Test Cloud launch is now reported by multiple independent sources.
+
+### Ops · Provider keys and brand settings (`.env`, not in git)
+- NewsData: bugfixing's key was blank, so it logged "NewsData.io API key not found" (12 times
+  since 6 Oct). We copied the key Oviva, sunstar and both Wiley sites share. abm and panaya are
+  blank too and were left alone, because that shared key already hits its daily cap mid-day.
+- Firecrawl: only wiley and wileytest had a key that worked. We copied it to bugfixing, Oviva,
+  abm, panaya and sunstar.
+- `MARKET_SITE_BRAND=aunoo` set on Oviva, abm, panaya and sunstar. bugfixing keeps the default
+  Cyberfuturists brand for aisocnews.
+
+### Oviva edits (prod tree, not committed)
 All in `/home/orochford/tenants/oviva.aunoo.ai`, with `.bak-*-20261007` or scratchpad backups:
-- Cyberfuturists branding removed: byline "Made with Aunoo", kicker "Market monitor", About page
-  off (it named Oliver Rochford Ltd as data controller), feed author Aunoo.
+- Branding: first hand-edited out, then converted to the brand setting, so Oviva's
+  `market_report_html.py`, `market_publish.py`, `market_briefing.py` and report route now carry
+  canonical's brand code, with `MARKET_SITE_BRAND=aunoo` in its `.env`. With the setting switched
+  to `cyberfuturists` for a test, the Cyberfuturists byline and About link came back.
 - Incumbent support ported from canonical into `market_horizon.py`, the map renderer, three
   headcount queries in `market_publish.py` and the vendor-status route.
-- Every canonical fix above, patched by hand: Oviva's copies of these files are far behind
-  canonical, so no file was copied wholesale.
+- Every canonical fix above, patched by hand. Oviva's files fork from a September version, and
+  canonical's market code needs newer modules and tables Oviva lacks, so no file was copied
+  wholesale. The voice-list fix was left out: Oviva's voice card does not filter either.
 
 ### Oviva data and config changes (database, not in git)
 - Market 1 `config.context_terms` set to eight health phrases (DiGA, digital health
@@ -1219,6 +1602,21 @@ All in `/home/orochford/tenants/oviva.aunoo.ai`, with `.bak-*-20261007` or scrat
 - Runs made by hand: the daily review, press re-reviews, the vendor-credit check, the social check
   over 31 days, the coverage extractor, one LinkedIn profile read for HelloBetter (run 578), and
   two maturity-map refreshes.
+- HelloBetter's feed `https://hellobetter.de/feed/`, found through Firecrawl, added as
+  `rss_feeds` id 6 (topic "Brand Monitoring HelloBetter"). Juniper's
+  `myjuniper.com/media-centre` added to its page-poll pages. Voy's blog was not added: it is
+  consumer health articles, not company news.
+
+### Sunstar data change (database, not in git)
+Sunstar's Oral Care market had no `context_terms`, so it fell back to the AI-SOC phrases: 4,554
+vendor mentions in 30 days were turned away and 145 kept. A dry run compared three lists, and we
+set the products list: toothpaste, toothbrush, electric toothbrush, mouthwash, dental floss,
+interdental. The scan then linked 1,321 articles to vendors and added 1,977 to the market (3,128
+in all). Vendor news kept went from 6 to 46 in 30 days. The cost is consumer chatter: social posts
+naming a vendor went from 91 to 1,376, and 788 Reddit posts naming no vendor came in, which the
+daily review and Jev's social check filter before the page. The clinical terms (gum disease,
+tooth decay, denture) were left out, because they pulled in more patient posts still. No
+security-phrase articles had reached the market, so none were removed.
 
 ### Verification
 - Oviva front page rendered after each round. The final render shows the MindFIT launch as the
@@ -1234,23 +1632,52 @@ All in `/home/orochford/tenants/oviva.aunoo.ai`, with `.bak-*-20261007` or scrat
 - Signed feeds on Oviva: 200 for `feed.xml` and `feed.json` with a valid pair, 404 with a bad one.
 - `pytest` on the four market test files: the same four tests fail before and after these
   changes. All four test live data; the job-list test's gap stays at 3 listings either way.
+  With the RSS tests added after the Firecrawl change: 242 passed, the same 4 failed.
+- Firecrawl: the BlinkOps feed answered 403 direct and returned 100 items through the fallback,
+  newest 29 Sep. Feed discovery found `hellobetter.de/feed/` and nothing for Voy or Juniper.
+- Ad campaigns: after the definition change, a re-read of Oviva's press files Noom's ad story as
+  "other". Oviva's developments went from six to five; the breach and MindFIT are unchanged.
+- Social counts: on aisocnews, 34 of 223 "social mentions" in the last 30 days were news rows
+  with JSON `null` (SQL count over `bw_article_categories` for market 2).
+- NewsData: no "key not found" lines on bugfixing since its 17:10 restart.
+- Brand setting: aisocnews's rendered text identical before and after `876c3a61`. On abm,
+  panaya, sunstar and Oviva the front page shows no Cyberfuturists text, "Market monitor" above
+  the title and no About link; Oviva's About page answers 404.
+- Tests after `3e181e46`: market and RSS suites, 246 passed, none failed.
+- Deploy to panaya and sunstar: built in scratch and tested in a full copy of each site against
+  its own database (all touched modules imported, all three page types rendered, the job and
+  voice lists run) before copying in. That test caught two misplaced patch hunks and one import
+  sunstar's older code lacked.
+- Panaya press review: 10 articles read; coverage extractor created 1 event and corroborated 5;
+  vendor-credit check confirmed 2. 4 of panaya's 20 developments now carry outside press.
 
 ### Propagation
-- Canonical: all ten commits above. The first two are on `fix/market-monitor-voices-relevance`
-  and `fix/ingest-pipeline-spec`; the rest only on `fix/ingest-pipeline-spec`, because another
-  session moved the shared tree to that branch mid-session. Only this session's files went into
-  them.
-- bugfixing restarted at 12:50 with all of it except `08cbb503`, which loads at the next restart
-  and changes no aisocnews figure.
-- Oviva: every change live; restarted last after `08cbb503`.
-- Other sites (sunstar, abm, panaya, …) have none of the market fixes. abm's
-  `market_report_html.py` matched canonical this morning; the rest have drifted.
+- Canonical: fourteen commits, `bdb97fab` to `3e181e46`. The first two are on
+  `fix/market-monitor-voices-relevance` and `fix/ingest-pipeline-spec`; the rest only on
+  `fix/ingest-pipeline-spec`, because another session moved the shared tree to that branch
+  mid-session. Only this session's files went into them.
+- bugfixing: restarted at 20:30 by the other session, after our last code commit at 19:02, so
+  everything is live. The BlinkOps feed (`rss_feeds` id 57) is back on, read through Firecrawl.
+- Oviva: every change live, the brand setting included.
+- abm: canonical HEAD's files copied in, except its routes file, where the other session had
+  added its job-function hook at 17:15; there only our two route commits were patched in.
+  Restarted.
+- panaya and sunstar: our 14 commits applied by patch to scratch copies of their own files,
+  17 failed pieces fixed by hand, then tested and copied in. panaya also has the press review
+  port above. sunstar's voice-list fix was left out (its card does not filter). Both restarted.
+- bwtemplate: the same 16 files as abm, byte for byte. Its service is stopped, so nothing was
+  restarted. Its `.env` is encrypted while stopped, so it has no `MARKET_SITE_BRAND` or Firecrawl
+  key; a site cloned from it needs both added.
+- None of the tenant-tree edits are committed; the backups are in the session scratchpad.
 
 ### Lessons
 - A customer market inherits the AI-SOC phrases unless `config.context_terms` is set. Set it
   when a market is created.
-- `social_meta IS NOT NULL` selects news rows too. Seven queries in `market_analysis.py` still
-  use it and are unchecked.
+- `social_meta IS NOT NULL` selects news rows too. Check for JSON `null` as well
+  (`social_meta::text <> 'null'`).
+- Deploying patches to a drifted site: `patch -F3` can apply a hunk "with fuzz" in the wrong place
+  and still report success. Build in scratch, test in a full copy of the site against its own
+  database, and review every fuzzy hunk before copying in.
 - Another session can switch the shared tree's branch mid-session. Commit by explicit path, and
   check the branch first.
 - A restart that loads the tree also loads other sessions' uncommitted code. Check `git status`
