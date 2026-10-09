@@ -27,7 +27,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
-from app.ai_models import resolve_litellm_call_params
+from app.ai_models import extract_json_response, resolve_litellm_call_params
 from app.model_tiers import default_model
 from app.ai_models import is_reasoning_model
 from app.services.report_style import CLINICAL_STYLE
@@ -497,8 +497,32 @@ async def generate_executive_summary_for_run(
                 summary_data = json.loads(s[s.find("{"): s.rfind("}") + 1])
             except Exception:
                 summary_data = None
+    if summary_data is None and "{" in (raw or ""):
+        # Sonnet 5 replies that the two strict parses above reject: a stray
+        # quote or trailing comma, or braces in prose after the object.
+        # json_repair on the whole object goes first. extract_json_response
+        # alone is not enough: when the outer object fails it decodes the
+        # first inner {...} it can, which here is one card, and the run saved
+        # 0 cards as if it had worked. So a result only counts when it has
+        # the summaries list.
+        candidates = []
+        try:
+            import json_repair
+            candidates.append(json_repair.loads(raw[raw.find("{"):]))
+        except Exception:
+            pass
+        try:
+            candidates.append(extract_json_response(raw))
+        except Exception:
+            pass
+        summary_data = next((c for c in candidates
+                             if isinstance(c, dict) and isinstance(c.get("summaries"), list)), None)
+        if summary_data is not None:
+            logger.info("exec summary: strict parse failed, lenient parse recovered %d cards",
+                        len(summary_data["summaries"]))
     if not isinstance(summary_data, dict):
-        logger.warning("exec summary: JSON parse failed — skipping")
+        logger.warning("exec summary: JSON parse failed — skipping (%d chars, head=%r, tail=%r)",
+                       len(raw or ""), (raw or "")[:120], (raw or "")[-120:])
         return None
 
     # Offset-aware local time. utcnow() produced a naive UTC string, so a
