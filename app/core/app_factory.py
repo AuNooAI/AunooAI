@@ -145,6 +145,7 @@ async def lifespan(app: FastAPI):
             ("app.tasks.timeline_task", "run_timeline_task", 30, "timeline mementos"),
             ("app.tasks.forecast_tracker_monitor", "run_forecast_tracker_monitor", 30, "forecast tracker monitor"),
             ("app.tasks.wiley_candidate_scheduler", "run_wiley_candidate_scheduler", 45, "Wiley candidate scheduler"),
+            ("app.tasks.foresight_refresh", "run_foresight_refresh", 120, "foresight refresh"),
         ]
         # Retry sweep for quarantined_config / enrichment_failed articles
         # (spec work package 22). Off only when the flag is "0".
