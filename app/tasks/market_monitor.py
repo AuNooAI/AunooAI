@@ -426,6 +426,13 @@ async def tick() -> Dict[str, Any]:
                 logger.exception("market %s topics refresh failed",
                                  market["id"])
             try:
+                await _refresh_chart(dict(market))
+            except Exception:
+                conn.rollback()
+                summary["errors"] += 1
+                logger.exception("market %s vendor chart refresh failed",
+                                 market["id"])
+            try:
                 # The public Consensus and Three-Horizons pages read the
                 # newest stored run; one new run of each a month.
                 from app.services import market_foresight as mf
@@ -471,6 +478,24 @@ async def _refresh_horizon(conn, market: Dict[str, Any], now: datetime) -> None:
     row_id = await asyncio.to_thread(_work)
     logger.info("market %s: stored maturity map row %s (daily refresh)",
                 market["id"], row_id)
+
+
+async def _refresh_chart(market: Dict[str, Any]) -> None:
+    """Freeze the weekly vendor chart once a week is ready. Most ticks find
+    nothing to do; the check and any compute run in a thread on their own
+    connection, since a backfill is several sequential reads."""
+    def _work() -> list:
+        from app.services import market_chart as mc
+        own = get_database_instance()._temp_get_connection()
+        try:
+            return mc.refresh(own, market["id"])
+        finally:
+            own.close()
+
+    weeks = await asyncio.to_thread(_work)
+    if weeks:
+        logger.info("market %s: froze vendor chart weeks %s", market["id"],
+                    ", ".join(w.isoformat() for w in weeks))
 
 
 # "Being discussed" and "Emerging" on the front page read the newest stored

@@ -3342,6 +3342,26 @@ html[data-theme="dark"] .mm-v2 .n-theme .n-theme-sun { display:none; }
 .mm-v2 .v2-move.down { color:var(--m-orange); }
 .mm-v2 .v2-move.same { color:var(--text-subtle); }
 .mm-v2 .v2-bar-name a:hover { color:var(--accent-ink); }
+/* The weekly Top 40: rank, move, then name over a meta line; two columns
+   of five on a wide screen, one on a phone */
+.mm-v2 .v2-chart { list-style:none; margin:var(--s-3) 0 0; padding:0; columns:2; column-gap:var(--s-6); }
+.mm-v2 .v2-chart-row { display:grid; grid-template-columns:2.2em 4.6em minmax(0,1fr); gap:var(--s-2);
+  align-items:center; padding:var(--s-2) 0; border-bottom:1px solid var(--sidebar-border);
+  break-inside:avoid; }
+.mm-v2 .v2-chart-rank { font-size:var(--fs-h3); font-weight:600; text-align:right;
+  font-variant-numeric:tabular-nums; color:var(--text-primary); }
+.mm-v2 .v2-chart-top .v2-chart-rank { color:var(--accent-ink); }
+.mm-v2 .v2-chart-move { text-align:center; }
+.mm-v2 .v2-chart-tag { font-size:var(--fs-micro); font-weight:600; color:var(--accent-ink);
+  text-transform:uppercase; letter-spacing:.04em; }
+.mm-v2 .v2-chart-who { display:grid; min-width:0; }
+.mm-v2 .v2-chart-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:var(--fs-small); font-weight:500; color:var(--text-primary); }
+.mm-v2 .v2-chart-meta { font-size:var(--fs-micro); color:var(--text-muted); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.mm-v2 .v2-chart-more summary { cursor:pointer; margin-top:var(--s-3); font-size:var(--fs-meta);
+  font-weight:500; color:var(--accent-ink); }
+@media (max-width:640px) { .mm-v2 .v2-chart { columns:1; } }
 /* Who moved: compact disclosure rows */
 .mm-v2 .v2-mv { border-bottom:1px solid var(--sidebar-border); padding:0; }
 .mm-v2 .v2-mv:last-child { border-bottom:0; }
@@ -4768,6 +4788,75 @@ def _v2_motion(rows: List[Dict[str, Any]],
     return "".join(out)
 
 
+_V2_CHART_SHOWN = 10
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
+              map_href: Optional[str] = None) -> str:
+    """The weekly Top 40: the vendors with the most momentum on the Market
+    Maturity Map at the close of last week, with each one's move against the
+    week before, as a music chart prints it. ``chart`` is
+    ``market_chart.chart()``, already reduced to the vendors the reader may
+    see. The top ten show; the rest open below."""
+    rows = chart.get("rows") or []
+    week = chart.get("week_start")
+    if not rows or week is None:
+        return ""
+    end = week + timedelta(days=6)
+    span = (f"{week.day} {week.strftime('%b')} – {end.day} {end.strftime('%b')}"
+            if week.month != end.month else f"{week.day}–{end.day} {end.strftime('%b')}")
+
+    def _row(r: Dict[str, Any]) -> str:
+        status = r["status"]
+        if status == "up":
+            move = (f'<span class="v2-move up" title="Up from {r["last_week"]}">'
+                    f'&#9650; {r["move"]}</span>')
+        elif status == "down":
+            move = (f'<span class="v2-move down" title="Down from {r["last_week"]}">'
+                    f'&#9660; {-r["move"]}</span>')
+        elif status == "same":
+            move = '<span class="v2-move same" title="Same place as last week">=</span>'
+        elif status == "reentry":
+            move = '<span class="v2-chart-tag">Re-entry</span>'
+        else:
+            move = '<span class="v2-chart-tag">New</span>'
+        meta = []
+        if r["last_week"] is not None:
+            meta.append(f"Last week {r['last_week']}")
+        if r["weeks_on"] > 1:
+            meta.append(f"Peak {r['peak']}")
+            meta.append(f"{r['weeks_on']} wks")
+        if r["rank"] == 1 and r["weeks_at_1"] > 1:
+            meta.insert(0, f"{_ordinal(r['weeks_at_1'])} week at #1")
+        meta.append(f"Momentum {float(r.get('momentum') or 0):.0f}")
+        return ('<li class="v2-chart-row' + (' v2-chart-top' if r["rank"] == 1 else '') + '">'
+                f'<span class="v2-chart-rank">{r["rank"]}</span>'
+                f'<span class="v2-chart-move">{move}</span>'
+                f'<span class="v2-chart-who"><span class="v2-chart-name">'
+                f'{_mark(logos, r["vendor"])}{esc(r["vendor"])}</span>'
+                f'<span class="v2-chart-meta">{esc(" · ".join(meta))}</span></span></li>')
+
+    shown, rest = rows[:_V2_CHART_SHOWN], rows[_V2_CHART_SHOWN:]
+    how = ("momentum on the Market Maturity Map" if not map_href else
+           f'<a href="{esc(map_href)}">momentum on the Market Maturity Map</a>')
+    out = [f'<h2>The Top {len(rows)}</h2>',
+           f'<p class="v2-subline">Week of {esc(span)} · ranked by {how}: '
+           'headcount change, hiring, launches and partnerships, earned '
+           'mentions and the vendor\'s own posts over 90 days.</p>',
+           '<ol class="v2-chart">' + "".join(_row(r) for r in shown) + '</ol>']
+    if rest:
+        out.append(f'<details class="v2-chart-more"><summary>Show {shown[-1]["rank"] + 1}'
+                   f'–{rest[-1]["rank"]}</summary>'
+                   '<ol class="v2-chart">' + "".join(_row(r) for r in rest) + '</ol></details>')
+    return "".join(out)
+
+
 def _recent_movers(devs: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
     """The newest dated developments worth a mover row, newest first.
 
@@ -5285,6 +5374,26 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         covers = mfe.image_urls(featured)
         if covers:
             images = {u: img for u, img in images.items() if img not in covers}
+        # The weekly Top 40, first in the main column. A metric surface, so
+        # a restricted reader sees only the vendors they may see.
+        from app.services import market_chart as mch
+        # Rolled back on failure: a failed query leaves the transaction
+        # aborted, and every read after it on this page then fails too (a
+        # 500 on 9 Oct 2026 while the table's columns were changing).
+        try:
+            chart = mch.chart(conn, market["id"])
+        except Exception as exc:                                  # noqa: BLE001
+            conn.rollback()
+            logger.warning("front page vendor chart failed: %s", exc)
+            chart = {}
+        if teaser and chart.get("rows"):
+            chart = dict(chart, rows=ent.filter_rows(
+                chart["rows"], allowed_brand_ids, allowed_names))
+        chart_card = _v2_chart(chart, logos, "?" + _relink(
+            link_params, days=days, view="report") + "#mm-horizon")
+        if chart_card:
+            body.append('<section class="v2-card v2-wide v2-chart-card" id="v2-chart">'
+                        + chart_card + '</section>')
         body.append('<section class="v2-lead" id="v2-lead">')
         lead = parts["lead"]
         findings = assessment.get("findings") or []
