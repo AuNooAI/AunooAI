@@ -1,5 +1,57 @@
 # Changes
 
+## 2026-10-09 — Keyword monitor: slow groups no longer block the rest; social vendor searches checked and trimmed
+
+### Incident · no SOC keyword group ran for 16 hours
+The keyword monitor ran due groups one at a time, oldest-checked first. Two groups are very
+slow. "AI" (group 9) took 23:35–03:10 for 8,972 articles. "Geopolitical Hotspots" (group 10)
+ran from 03:10 to 08:18 without finishing; one broad OR query ("border clash | skirmish |
+incursion…") took 70 minutes. A run only moved its group's `next_check_at` forward when it
+finished. So each service restart (22:13, 23:34 and 08:18, then four of ours at 08:38, 09:29,
+09:33 and 09:37) left group 10 due and still the oldest, and the queue started over with it.
+Ten groups had been due since 15:36 on 8 Oct, including SOC Automation - Market Watch (16) and
+the Bluesky vendor group (32), and none of them ran.
+
+### Fix · parallel collection lanes, and a claim when a run starts
+- **`app/tasks/keyword_monitor.py`**: `run_keyword_monitor` now dispatches through
+  `_dispatch_due_groups`. Up to `KEYWORD_MONITOR_LANES` groups (default 2, capped at 6) run at
+  once. Each lane has its own `KeywordMonitor`, because `check_single_group` swaps the monitor's
+  collectors and settings for the group it runs. Every 60 seconds the dispatcher collects
+  finished runs and starts due groups on free lanes. A running group is never started twice.
+  `check_due_groups` is unchanged for any other caller.
+- **`app/database_query_facade.py`**: a new `claim_keyword_group(group_id, retry_seconds)`
+  moves `next_check_at` forward by `KEYWORD_MONITOR_CLAIM_SECONDS` (default 3600) when a run
+  starts. A run that finishes overwrites it with the normal interval. A run cut off by a restart
+  now goes behind the other due groups and retries an hour later. One limit remains: a group that
+  has never been checked (`last_checked_at IS NULL`) stays due whatever `next_check_at` says.
+- **Tests:** **`tests/test_keyword_monitor_lanes.py`** uses fake monitors. It checks that a slow
+  group holds one lane while the next group runs beside it, that a running group is not started
+  twice, and the lane-count bounds. All keyword-monitor tests pass (13).
+- **Not changed:** why groups 9 and 10 are slow. It looks like broad OR keywords with every hit
+  going through the AI analysis step one at a time. The lanes stop that from blocking everything
+  else, but those two groups still take hours.
+
+**Verification:** after the 10:06 restart the log shows "2 collection lane(s)", then groups 10
+and 21 starting together, both claimed until 11:06.
+
+### Check · first Bluesky run with all vendor names
+We ran group 32 by hand at 09:59 through `check_single_group`, since the queue was blocked. It
+searched 117 terms and stored 229 new posts. All 229 were rated, and 71 passed the 0.45 cutoff.
+Only 22 terms returned anything. CrowdStrike (74), Rapid7 (45) and SentinelOne (27) made up most
+of the volume, while the phrase-like names stayed quiet (PRE Security 3, Cantina 6, IBM 2, Joon
+1). The only wrong-company post seen was an SFO museum post about a gallery "pre-security"; it
+scored 0.00, and PRE's `name_context` keeps it from being linked. One real post was lost to the
+cutoff: PRE Security's AgentGuard launch scored 0.20, because the scorer reads it as AI-agent
+security rather than SOC.
+
+### Config · eight zero-yield terms dropped from the X/Reddit group (DB only)
+After one day, eight terms in group 440 had each brought 7–26 posts, with at most 2 passing the
+cutoff and none linked to a vendor. Together that is 139 of the group's 655 posts, about a fifth
+of its daily Haiku ratings. We deleted them from group 440 only; they stay in the Bluesky group
+(32). The eight are IBM SOC, WiseBee, Wraithwatch, Variance security, SOCAI, Joon security,
+"Spectrum Security" and "GuardDog AI". Group 440 now has 111 terms. To restore them, re-insert
+them into `monitored_keywords` with `group_id = 440`.
+
 ## 2026-10-09 — aisocnews.com registry: wrong-company funding data retired, System Two renamed Detections AI
 
 All changes are in the bugfixing database (market 2). There is no code change and nothing to

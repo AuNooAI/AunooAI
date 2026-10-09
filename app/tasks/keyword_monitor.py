@@ -1806,6 +1806,78 @@ class KeywordMonitor:
         return results
 
 
+def _lane_count() -> int:
+    """How many keyword groups may collect at once (KEYWORD_MONITOR_LANES).
+
+    With one lane a slow group held every other group back: on 9 Oct 2026
+    Geopolitical Hotspots ran 03:10-08:18 without finishing (one broad
+    keyword took 70 minutes) and no SOC group ran for 16 hours.
+    """
+    try:
+        return max(1, min(6, int(os.getenv("KEYWORD_MONITOR_LANES", "2"))))
+    except ValueError:
+        return 2
+
+
+def _claim_seconds() -> int:
+    """How long a started group stays claimed if its run never finishes
+    (KEYWORD_MONITOR_CLAIM_SECONDS, default one hour)."""
+    try:
+        return max(60, int(os.getenv("KEYWORD_MONITOR_CLAIM_SECONDS", "3600")))
+    except ValueError:
+        return 3600
+
+
+async def _dispatch_due_groups(monitors: List["KeywordMonitor"],
+                               running: Dict[int, Any]) -> Dict:
+    """Collect finished runs, then start due groups on the free lanes.
+
+    Each lane has its own ``KeywordMonitor``, because ``check_single_group``
+    swaps the monitor's collectors and settings for the group it is running.
+    A group already running is never started again, and a group is claimed
+    (``claim_keyword_group``) as it starts, so a restart mid-run puts it
+    behind the other due groups instead of in front of them.
+
+    Returns the same summary shape ``check_due_groups`` does, for the runs
+    that finished since the last call.
+    """
+    results: Dict[str, Any] = {"groups_checked": 0, "total_articles": 0, "errors": []}
+    for gid, (task, _mon, name) in list(running.items()):
+        if not task.done():
+            continue
+        running.pop(gid)
+        try:
+            outcome = task.result() or {}
+        except Exception as e:  # noqa: BLE001 - check_single_group catches its own
+            outcome = {"success": False, "error": str(e)}
+        results["groups_checked"] += 1
+        results["total_articles"] += outcome.get("new_articles", 0) or 0
+        if not outcome.get("success"):
+            results["errors"].append({"group_id": gid, "group_name": name,
+                                      "error": outcome.get("error")})
+
+    busy = {id(m) for _t, m, _n in running.values()}
+    free = [m for m in monitors if id(m) not in busy]
+    if not free:
+        return results
+
+    due = [g for g in monitors[0].db.facade.get_due_keyword_groups()
+           if g["id"] not in running]
+    if not due:
+        return results
+    logger.info(f"Found {len(due)} keyword group(s) due for collection; "
+                f"{len(free)} of {len(monitors)} lane(s) free, "
+                f"{len(running)} running")
+    for group, mon in zip(due, free):
+        try:
+            mon.db.facade.claim_keyword_group(group["id"], _claim_seconds())
+        except Exception as e:  # noqa: BLE001 - an unclaimed run still runs
+            logger.warning(f"Could not claim group {group['id']}: {e}")
+        task = asyncio.create_task(mon.check_single_group(group))
+        running[group["id"]] = (task, mon, group.get("name"))
+    return results
+
+
 async def run_keyword_monitor():
     """Background task to periodically check keywords using per-group scheduling.
 
@@ -1818,6 +1890,12 @@ async def run_keyword_monitor():
 
     # Per-group scheduling: check every 60 seconds for due groups
     CHECK_INTERVAL_SECONDS = 60
+
+    # One monitor per lane; groups run in parallel up to the lane count.
+    lanes = _lane_count()
+    monitors = [monitor] + [KeywordMonitor(db) for _ in range(lanes - 1)]
+    running: Dict[int, Any] = {}
+    logger.info(f"Keyword monitor: {lanes} collection lane(s)")
 
     logger.info("Keyword monitor background task started (per-group scheduling mode)")
     _background_task_status["running"] = True
@@ -1862,8 +1940,8 @@ async def run_keyword_monitor():
                 _background_task_status["last_error"] = None
 
                 try:
-                    # Check all due groups (per-group scheduling)
-                    result = await monitor.check_due_groups()
+                    # Start due groups on free lanes; collect finished runs
+                    result = await _dispatch_due_groups(monitors, running)
 
                     if result["groups_checked"] > 0:
                         logger.info(

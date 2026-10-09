@@ -4276,6 +4276,24 @@ class DatabaseQueryFacade:
 
         self._execute_with_rollback(query, params)
 
+    def claim_keyword_group(self, group_id: int, retry_seconds: int):
+        """Push a group's next check forward as its run starts.
+
+        A run only sets next_check_at when it finishes, so a restart mid-run
+        left the group due and still the oldest by last_checked_at: it was
+        picked first again and restarted from scratch, ahead of every other
+        due group. Claiming moves it to the back for ``retry_seconds``; a run
+        that finishes overwrites this with the normal interval.
+        """
+        query = text("""
+            UPDATE keyword_groups
+            SET next_check_at = NOW() + (:retry_seconds * INTERVAL '1 second'),
+                updated_at = NOW()
+            WHERE id = :group_id
+        """)
+        self._execute_with_rollback(query, {'group_id': group_id,
+                                            'retry_seconds': int(retry_seconds)})
+
     def get_all_keyword_groups_with_schedule_info(self):
         """Get all keyword groups with schedule info for API listing.
 
