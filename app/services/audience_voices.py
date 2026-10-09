@@ -170,6 +170,7 @@ MARKET_ROLE_MAP = {
     "analyst_or_press": "journalist",
     "reseller": "brand",
     "promoter_or_bot": "brand",
+    "investor": "investor",        # market role added 9 Oct 2026
     "unrelated": None,             # says nothing about who they are; keep the post's reading
 }
 # The identity shadow's affiliation answer, in the same shape. "promoter"

@@ -28,7 +28,7 @@ _MARKETER = re.compile(r"\bseo\b|growth\s+hack|digital\s+marketing|"
 # The part an account plays in a market, when profiled for one. Stored in
 # social_accounts.metadata as market_role / market_org / market.
 MARKET_ROLES = ("vendor", "vendor_staff", "practitioner", "analyst_or_press",
-                "reseller", "promoter_or_bot", "unrelated")
+                "reseller", "promoter_or_bot", "investor", "unrelated")
 # Audience words the model sometimes writes in the market-role slot. Each is
 # a person in the market's field, which is what "practitioner" means, so the
 # role is read as practitioner and the word kept as the audience. On abm,
@@ -42,7 +42,7 @@ _FIELD_AUDIENCE_WORDS = {"patient", "clinician", "caregiver", "customer", "profe
 # market role stay unmapped.
 _AUDIENCE_TO_ROLE = {"journalist": "analyst_or_press", "employee": "vendor_staff",
                      "brand": "vendor", "retailer": "reseller"}
-_NO_MARKET_ROLE = {"unknown", "competitor", "investor", "journal_society", "unclassified"}
+_NO_MARKET_ROLE = {"unknown", "competitor", "unclassified"}
 
 
 def _role_from_audience_word(word: str) -> Optional[str]:
@@ -389,7 +389,7 @@ class SocialProfileService:
                 "(works in the market's field or uses its products: a clinician or patient "
                 "for a health market, a security team member for a security market, a "
                 "librarian or researcher for a publishing market), analyst_or_press, reseller, "
-                'promoter_or_bot, unrelated>", '
+                'promoter_or_bot, investor (an investor, fund or VC account), unrelated>", '
                 '"organisation": "<the company the account is or works for, or null>", '
                 # Which side of the market the account speaks from. "practitioner"
                 # covers both the GP who prescribes and the patient on the
@@ -423,6 +423,12 @@ class SocialProfileService:
             if role_fields:
                 role = str(obj.get("role") or "").strip().lower().replace(" ", "_")
                 aud = str(obj.get("audience") or "").strip().lower().replace(" ", "_")
+                if role == "journal_society":
+                    # A journal or society account. Whether it is the market
+                    # vendor's own (a journal the publisher runs) needs the
+                    # market's vendor list, so _resolve_journal decides later.
+                    out["journal"] = True
+                    role = "practitioner"
                 if role not in MARKET_ROLES:
                     mapped = _role_from_audience_word(role)
                     if mapped:
@@ -515,9 +521,36 @@ class SocialProfileService:
             "brand_context": summary.get("brand_context"),
             "sample_posts": top[:12],
             "last_profiled_at": _now(),
-            "metadata": self._market_meta(summary, context, ident),
+            "metadata": self._market_meta(self._resolve_journal(db, summary, context), context, ident),
         }
         return self._upsert(db, row)
+
+    @staticmethod
+    def _resolve_journal(db, summary: Dict, context: Optional[str]) -> Dict:
+        """A journal or society account is the publisher's own voice when its
+        organisation is one of the market's vendors (or the market itself, on
+        a site whose "market" is the brand): Acta Paediatrica on the Wiley
+        market. Otherwise it stays a practitioner, someone in the field."""
+        if not summary.get("journal") or not context:
+            return summary
+        org = (summary.get("organisation") or "").strip().lower()
+        if not org:
+            return summary
+        names = {context.strip().lower()}
+        try:
+            conn = db._temp_get_connection()
+            names |= {str(r[0]).strip().lower() for r in conn.execute(sql_text("""
+                SELECT b.display_name FROM bw_markets m
+                  JOIN bw_market_brands mb ON mb.market_id = m.id
+                  JOIN bw_brands b ON b.id = mb.brand_id
+                 WHERE LOWER(m.name) = LOWER(:ctx)"""), {"ctx": context}).fetchall() if r[0]}
+        except Exception as e:  # noqa: BLE001 - site without markets: the context alone
+            logger.debug("journal vendor lookup failed: %s", e)
+        # Whole-word match only: a bare substring let an organisation "AI"
+        # match the market "AI in the SOC".
+        if any(n and (org == n or re.search(rf"\b{re.escape(n)}\b", org)) for n in names):
+            return {**summary, "role": "vendor", "audience": "brand"}
+        return summary
 
     @staticmethod
     def _market_meta(summary: Dict, context: Optional[str],
@@ -559,7 +592,8 @@ class SocialProfileService:
              WHERE id = :id
         """), {"summary": summary.get("summary"), "topics": json.dumps(summary.get("topics") or []),
                "brand_context": summary.get("brand_context"),
-               "metadata": json.dumps(self._market_meta(summary, context, ident)), "id": stored["id"]})
+               "metadata": json.dumps(self._market_meta(self._resolve_journal(db, summary, context),
+                                                        context, ident)), "id": stored["id"]})
         try:
             conn.commit()
         except Exception:  # noqa: BLE001
