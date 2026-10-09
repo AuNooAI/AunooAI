@@ -1146,6 +1146,9 @@ def setup_market_collection(conn, db, market_id: int, market_name: str, *,
 
 CRUNCHBASE_SOURCE = "crunchbase_company"
 JOBS_SOURCE = "linkedin_jobs"
+#: Listings asked for per company in a LinkedIn jobs run. A company that comes
+#: back with this many may have more, so its missing listings say nothing.
+JOBS_PER_COMPANY = 20
 PITCHBOOK_SOURCE = "pitchbook_company"
 ZOOMINFO_SOURCE = "zoominfo_company"
 INDEED_SOURCE = "indeed_jobs"
@@ -1247,13 +1250,51 @@ def ingest_crunchbase(conn, *, run: Dict[str, Any], records: List[dict],
     return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched}
 
 
+def record_run_coverage(conn, run_id: int, *, seen_item_ids: List[str],
+                        uncovered_brand_ids: Sequence[int] = ()) -> None:
+    """Record on a run which listings it saw, and which vendors it did not
+    fully cover.
+
+    ``store_snapshot`` writes nothing for an unchanged listing, so without
+    this a run cannot say a listing was still there, and an open role reads
+    as last seen on the day we first saw it. ``market_lists.jobs`` compares
+    runs on these fields to tell open listings from gone ones.
+
+    Merged as sets, so a batch delivered twice (webhook and poll) records the
+    same thing once.
+    """
+    conn.execute(text("""
+        UPDATE bw_collection_runs
+           SET metrics = COALESCE(metrics, '{}'::jsonb) || jsonb_build_object(
+                   'seen_item_ids', (
+                       SELECT COALESCE(jsonb_agg(DISTINCT x), '[]'::jsonb) FROM (
+                           SELECT jsonb_array_elements_text(
+                                      COALESCE(metrics->'seen_item_ids', '[]'::jsonb)) AS x
+                           UNION
+                           SELECT jsonb_array_elements_text(CAST(:seen AS JSONB))
+                       ) u),
+                   'uncovered_brand_ids', (
+                       SELECT COALESCE(jsonb_agg(DISTINCT y), '[]'::jsonb) FROM (
+                           SELECT jsonb_array_elements(
+                                      COALESCE(metrics->'uncovered_brand_ids', '[]'::jsonb)) AS y
+                           UNION
+                           SELECT jsonb_array_elements(CAST(:unc AS JSONB))
+                       ) v))
+         WHERE id = :r
+    """), {"r": run_id, "seen": json.dumps([str(i) for i in seen_item_ids]),
+           "unc": json.dumps(sorted({int(b) for b in uncovered_brand_ids}))})
+
+
 def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
                 url_to_brand: Dict[str, int]) -> Dict[str, int]:
-    """Store job listings as hiring observations, one per posting."""
+    """Store job listings as hiring observations, one per posting, and record
+    on the run which listings it saw (``record_run_coverage``)."""
     from app.services.brightdata_linkedin import (
         map_job_listing, normalize_linkedin_key,
     )
 
+    seen: List[str] = []
+    per_brand: Dict[int, int] = {}
     stored = unchanged = unmatched = 0
     provider_errors = sum(
         1 for r in records
@@ -1283,6 +1324,8 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
             if earlier:
                 mapped["function"] = earlier
                 mapped.pop("function_hint", None)
+        seen.append(mapped["posting_id"])
+        per_brand[brand_id] = per_brand.get(brand_id, 0) + 1
         if store_snapshot(
             conn, market_id=run["market_id"], brand_id=brand_id,
             source=JOBS_SOURCE, snapshot_type="job_posting",
@@ -1291,6 +1334,11 @@ def ingest_jobs(conn, *, run: Dict[str, Any], records: List[dict],
             stored += 1
         else:
             unchanged += 1
+    # A company at the cap may have listings we were not sent. A run with
+    # error records closes as "partial", which market_lists already ignores.
+    record_run_coverage(
+        conn, run["id"], seen_item_ids=seen,
+        uncovered_brand_ids=[b for b, n in per_brand.items() if n >= JOBS_PER_COMPANY])
     return {"stored": stored, "unchanged": unchanged, "unmatched": unmatched,
             "provider_errors": provider_errors}
 

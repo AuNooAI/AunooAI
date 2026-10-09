@@ -569,6 +569,43 @@ _NOT_INCUMBENT_MB = ("NOT EXISTS (SELECT 1 FROM bw_market_vendor_controls vc"
                      " AND vc.status = 'incumbent')")
 
 
+#: The statuses ``market_lists.jobs`` gives a listing a recent run still saw.
+_OPEN_STATUSES = ("currently_observed", "newly_observed")
+
+
+def open_listings(conn, market_id: int, brand_id: Optional[int] = None, *,
+                  days: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Job listings open as far as we can tell: present in the latest run
+    that fully covered the vendor, or, where no run can say yet, first seen
+    within ``days`` (default 30).
+
+    This used to filter snapshots on ``observed_at``. An unchanged listing
+    writes no new snapshot, so that date is when we first saw a listing, not
+    when we last saw it open: the 7-day page counted the roles that appeared
+    that week (115) and called them open roles, and a role open since
+    September dropped out of the count. The runs record what they saw
+    (``market_collect.record_run_coverage``), and ``market_lists.jobs`` reads
+    that, so the count and the list behind it now agree.
+
+    Market-wide, large incumbents are left out, as ``market_lists.jobs``
+    does: their hundreds of openings would swamp the specialists'.
+    """
+    from app.services import market_lists as ml
+
+    rows = ml.jobs(conn, market_id, brand_id=brand_id, page_size=1,
+                   include_all=True).get("_all") or []
+    since = _iso_days_ago(days or 30)
+    out = []
+    for r in rows:
+        first = r.get("first_seen")
+        first_iso = first.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(first, "strftime") \
+            else str(first or "")
+        if r["status"] in _OPEN_STATUSES or (
+                r["status"] == "first_observation" and first_iso >= since):
+            out.append(r)
+    return out
+
+
 def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any]:
     """What the market is hiring for, grouped and per vendor.
 
@@ -577,45 +614,10 @@ def hiring(conn, market_id: int, *, days: Optional[int] = None) -> Dict[str, Any
     the thinnest analysis here — job listings exist for a handful of vendors —
     so the coverage figure is the first thing a reader should see.
 
-    ``days`` filters to postings last *observed* within the window — the
-    closest this snapshot table gets to "opened in this period," since a
-    listing has no open date of its own, only repeated observations of it
-    still being live.
+    Counts the listings open now (``open_listings``). ``days`` only decides
+    how far back a listing no run has confirmed yet may have been first seen.
     """
-    window = ""
-    params: Dict[str, Any] = {"m": market_id}
-    if days:
-        window = "AND s.observed_at >= :since"
-        params["since"] = _iso_days_ago(days)
-
-    rows = [dict(r) for r in conn.execute(text(f"""
-        SELECT DISTINCT ON (s.provider_item_id)
-               b.id AS brand_id, b.display_name AS vendor,
-               s.source AS source,
-               s.data->>'title' AS title,
-               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
-               -- the department in `function_hint`; LinkedIn fills `function`.
-               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
-               s.data->>'seniority' AS seniority,
-               s.data->>'employment_type' AS employment_type,
-               s.data->>'location' AS location
-        FROM bw_vendor_snapshots s
-        JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
-                                 AND mb.market_id = :m AND mb.role <> 'excluded'
-                                 AND {_NOT_INCUMBENT_MB}
-        JOIN bw_brands b ON b.id = s.brand_id
-        WHERE s.snapshot_type = 'job_posting'
-              {window}
-        ORDER BY s.provider_item_id, s.observed_at DESC
-    """), params).mappings().all()]
-
-    # One role published on both LinkedIn and the company's own board is one
-    # role. Both were being counted, so this aggregate said 188 where the
-    # drill-down behind it said 149 — and a card that disagrees with its own
-    # records is worse than either number alone. The rule lives in
-    # market_lists so the two cannot drift apart.
-    from app.services.market_lists import drop_cross_source_duplicates
-    rows = drop_cross_source_duplicates(rows)
+    rows = open_listings(conn, market_id, days=days)
 
     by_function: Dict[str, int] = {}
     by_role: Dict[str, int] = {}
@@ -834,51 +836,14 @@ def drilldown(conn, market_id: int, name: str) -> Dict[str, Any]:
 def job_postings(conn, market_id: int,
                  brand_id: Optional[int] = None, *,
                  days: Optional[int] = None) -> List[Dict[str, Any]]:
-    """The job listings themselves, with their URLs.
-
-    The hiring analysis counts openings and the vendor page counts them again,
-    and neither offered a way to read one. Every posting carries a LinkedIn URL
-    and always did — the count was the only thing ever surfaced.
+    """The job listings themselves, with their URLs: the open listings the
+    hiring count is made of (``open_listings``), so a list shown under a count
+    of open roles is the roles that count is made of.
     """
-    where = ["s.snapshot_type = 'job_posting'", "mb.market_id = :m"]
-    params: Dict[str, Any] = {"m": market_id}
-    if brand_id is not None:
-        where.append("s.brand_id = :b")
-        params["b"] = brand_id
-    else:
-        where.append(_NOT_INCUMBENT_MB)
-    # The same window and the same duplicate rule as hiring(), so a list shown
-    # under a count of open roles is the roles that count is made of. Without
-    # them Noom's 22 listed "Agentic Engineer (New Grad)" three times: once
-    # from its own board, a LinkedIn copy, and a listing gone since September.
-    if days:
-        where.append("s.observed_at >= :since")
-        params["since"] = _iso_days_ago(days)
-
-    rows = [dict(r) for r in conn.execute(text(f"""
-        SELECT DISTINCT ON (s.provider_item_id)
-               s.brand_id, b.display_name AS vendor,
-               s.source AS source,
-               s.data->>'title' AS title,
-               s.data->>'location' AS location,
-               s.data->>'seniority' AS seniority,
-               -- ATS boards (Greenhouse, Lever…) leave `function` empty and put
-               -- the department in `function_hint`; LinkedIn fills `function`.
-               COALESCE(NULLIF(s.data->>'function', ''), s.data->>'function_hint') AS function,
-               s.data->>'employment_type' AS employment_type,
-               s.data->>'posted_date' AS posted_date,
-               s.data->>'url' AS url,
-               s.observed_at
-        FROM bw_vendor_snapshots s
-        JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
-        JOIN bw_brands b ON b.id = s.brand_id
-        WHERE {' AND '.join(where)}
-        ORDER BY s.provider_item_id, s.observed_at DESC
-    """), params).mappings().all()]
-
-    from app.services.market_lists import drop_cross_source_duplicates
-    rows = drop_cross_source_duplicates(rows)
+    rows = open_listings(conn, market_id, brand_id, days=days)
     for row in rows:
+        row.setdefault("posted_date", row.get("posted_at"))
+        row.setdefault("observed_at", row.get("last_seen"))
         row["function_group"] = _group_function(row.get("function"))
     rows.sort(key=lambda r: (r["vendor"], r["title"] or ""))
     return rows

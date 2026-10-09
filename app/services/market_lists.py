@@ -369,7 +369,8 @@ def _job_run_history(conn, market_id: int
     """
     rows = conn.execute(text("""
         SELECT r.id, r.brand_id, r.source, r.requested_brand_ids,
-               r.metrics->'seen_item_ids' AS seen_item_ids
+               r.metrics->'seen_item_ids' AS seen_item_ids,
+               r.metrics->'uncovered_brand_ids' AS uncovered_brand_ids
           FROM bw_collection_runs r
          WHERE r.market_id = :m AND r.source = ANY(:sources)
            AND r.status = 'succeeded'
@@ -387,6 +388,12 @@ def _job_run_history(conn, market_id: int
             covered.add(int(row["brand_id"]))
         for bid in (row["requested_brand_ids"] or []):
             covered.add(int(bid))
+        # Vendors the run asked for but did not fully see: a careers board
+        # that would not load, or a LinkedIn search that hit its per-company
+        # cap. Their missing listings are not evidence of anything.
+        uncovered = row["uncovered_brand_ids"]
+        if isinstance(uncovered, list):
+            covered -= {int(b) for b in uncovered}
         for bid in covered:
             history.setdefault((bid, row["source"]), []).append(int(row["id"]))
         # What the run reported seeing, where it recorded that. None means the

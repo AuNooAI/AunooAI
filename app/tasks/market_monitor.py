@@ -1581,11 +1581,9 @@ async def _poll_ats_jobs(conn, market: Dict[str, Any], now: datetime,
             sch.record_success(conn, ats.SOURCE_JOBS, [row["brand_id"]])
             conn.commit()
 
-        conn.execute(text("""
-            UPDATE bw_collection_runs
-               SET metrics = metrics || CAST(:m AS JSONB)
-             WHERE id = :r
-        """), {"m": json.dumps({"seen_item_ids": seen_items}), "r": run_id})
+        # A board that could not be read is not evidence its listings closed.
+        mc.record_run_coverage(conn, run_id, seen_item_ids=seen_items,
+                               uncovered_brand_ids=failed_ids)
         if failed_ids:
             sch.record_failure(conn, ats.SOURCE_JOBS, failed_ids,
                                error="hiring board unreadable")
@@ -1928,7 +1926,8 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
         else:
             result = await client.trigger_jobs(
-                companies, webhook_url=callback_url(run_id),
+                companies, limit_per_input=mc.JOBS_PER_COMPANY,
+                webhook_url=callback_url(run_id),
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))

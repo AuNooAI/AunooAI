@@ -116,11 +116,18 @@ def test_mm16_a_voice_drilldown_reads_the_same_population_as_the_card(conn, mark
 
 
 def test_mm16_jobs_drilldown_matches_the_hiring_count(conn, market):
+    """The hiring count is the open listings, and every one of them is in the
+    jobs list. The list also keeps the listings that have gone, each with its
+    status, so it is the larger of the two."""
     from app.services import market_analysis as man
 
     hiring = man.hiring(conn, market)
-    listed = ml.jobs(conn, market, page_size=ml.MAX_PAGE_SIZE)
-    assert listed['meta']['pagination']['total'] == hiring['openings']
+    open_ids = {r['provider_item_id'] for r in man.open_listings(conn, market)}
+    listed = ml.jobs(conn, market, page_size=1, include_all=True)['_all']
+    assert len(open_ids) == hiring['openings']
+    assert open_ids <= {r['provider_item_id'] for r in listed}
+    assert all(r['status'] != 'no_longer_observed'
+               for r in listed if r['provider_item_id'] in open_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +276,8 @@ def _jobs_vendor(conn, market_id: int):
 def _add_run(conn, market_id: int, *, status: str, truncated: bool,
              brand_id: int, offset_minutes: int,
              source: str = 'linkedin_jobs',
-             saw: Optional[List[str]] = None) -> int:
+             saw: Optional[List[str]] = None,
+             uncovered: Optional[List[int]] = None) -> int:
     """A run of a job source.
 
     ``saw`` is what the run reported seeing. An empty list means it ran and
@@ -282,6 +290,8 @@ def _add_run(conn, market_id: int, *, status: str, truncated: bool,
         metrics['truncated'] = True
     if saw is not None:
         metrics['seen_item_ids'] = saw
+    if uncovered is not None:
+        metrics['uncovered_brand_ids'] = uncovered
     return conn.execute(text("""
         INSERT INTO bw_collection_runs
             (market_id, source, provider, status, started_at,
@@ -310,6 +320,24 @@ def test_mm14_absent_from_two_complete_runs_is_no_longer_observed(conn, market):
                    page_size=ml.MAX_PAGE_SIZE)['data']
     mine = [r for r in rows if r['provider_item_id'] == item]
     assert mine and mine[0]['status'] == 'no_longer_observed'
+
+
+def test_a_run_that_did_not_fully_cover_a_vendor_cannot_mark_its_listing_gone(conn, market):
+    """A careers board that would not load, or a LinkedIn search that hit its
+    per-company cap, saw only part of the vendor's listings. The run records
+    the vendor as uncovered, and its missing listings stay open."""
+    brand_id, item, source = _jobs_vendor(conn, market)
+    _add_run(conn, market, status='succeeded', truncated=False,
+             brand_id=brand_id, offset_minutes=10, source=source, saw=[],
+             uncovered=[brand_id])
+    _add_run(conn, market, status='succeeded', truncated=False,
+             brand_id=brand_id, offset_minutes=20, source=source, saw=[],
+             uncovered=[brand_id])
+
+    rows = ml.jobs(conn, market, brand_id=brand_id,
+                   page_size=ml.MAX_PAGE_SIZE)['data']
+    mine = [r for r in rows if r['provider_item_id'] == item]
+    assert mine and mine[0]['status'] != 'no_longer_observed'
 
 
 def test_mm13_a_failed_or_truncated_run_cannot_mark_a_listing_gone(conn, market):
