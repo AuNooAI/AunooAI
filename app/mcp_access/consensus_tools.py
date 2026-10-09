@@ -33,6 +33,23 @@ SCAN_LIMIT = 20
 STALE_DAYS = 14
 _RESPONSE_BYTES = 192 * 1024
 
+#: How to lay the answer out, returned with the data because many clients
+#: never show the consensus_outliers prompt to the assistant.
+DISPLAY = (
+    "To SHOW consensus (not just describe it): one card per category, leading with the "
+    "cards. Each card: the name; a horizontal stacked bar from consensus_type.distribution "
+    "(positive #16a34a, neutral #94a3b8, critical #dc2626, summing to 100); "
+    "confidence.majority_agreement as a percent with confidence.consensus_strength; "
+    "timeline.consensus_window.label; and an outliers row, a green up-triangle per "
+    "optimistic_outliers item and a red down-triangle per pessimistic_outliers item, each "
+    "with its scenario and year. Then a Key insights list. Above the cards a stat row: "
+    "themes (number of categories), articles_analyzed, and the most common consensus_window "
+    "end year. Inter font, light cards (bg #faf9fb, border #dbd8e0), pink #d6409f accents, "
+    "text #211f26. Use the categories and numbers as given; never add, rename or re-round "
+    "one. Always include the outliers. A standalone HTML file must be self-contained: "
+    "inline CSS and SVG, no ES modules, no fetch."
+)
+
 #: The stored category keys carry a number for display order; the tool
 #: returns plain names.
 _CATEGORY_KEYS = {
@@ -135,6 +152,7 @@ def _get_consensus_sync(topic: str, include_articles: bool) -> dict[str, Any]:
             "is the share that agree on the category's main claim. Text cites articles as [n]; "
             "n is the id in article_list."
         ),
+        "display": DISPLAY,
     }
     if age_days is not None and age_days > STALE_DAYS:
         out["stale"] = (f"This analysis is {age_days} days old. Say so when you use it; a fresh "
@@ -166,8 +184,9 @@ SPECS: dict[str, ToolSpec] = {
             "categories, each with the share of sources positive, neutral or critical, how "
             "strongly they agree, the expected timeframe, optimistic and pessimistic outliers, "
             "key articles and strategic implications, plus the article list the text cites. "
-            "Reads the newest saved run (no new analysis is started); check age_days. Omit "
-            "topic to list the topics that have one."
+            "Reads the newest saved run (no new analysis is started); check age_days. The "
+            "answer carries `display`, how to show it. Omit topic to list the topics that "
+            "have one."
         ),
         properties={
             "topic": {"type": "string",

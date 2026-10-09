@@ -159,7 +159,8 @@ def test_tools_call_errors(client):
 def test_prompts(client):
     r = _rpc(client, {"jsonrpc": "2.0", "id": 9, "method": "prompts/list"})
     names = [p["name"] for p in r.json()["result"]["prompts"]]
-    assert names == ["topic_briefing", "deep_dive", "keyword_scan"]
+    assert names == ["consensus_outliers", "future_horizons", "voices_report", "brand_briefing",
+                     "topic_briefing", "deep_dive", "keyword_scan"]
     r = _rpc(client, {"jsonrpc": "2.0", "id": 10, "method": "prompts/get",
                       "params": {"name": "deep_dive", "arguments": {"query": "chip exports", "topic": "AI"}}})
     msg = r.json()["result"]["messages"][0]

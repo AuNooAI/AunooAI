@@ -378,7 +378,10 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
             "suggestion with probabilities, or none when no tool is needed. "
             "For 'what has happened with X' or 'anything new on X', prefer "
             "get_timeline and what_changed (the site's own dated memory, with "
-            "the articles each event was computed from) over a fresh search."
+            "the articles each event was computed from) over a fresh search. "
+            "To show a topic's consensus or Future Horizons, follow the "
+            "`display` field in get_consensus / get_horizons (prompts "
+            "consensus_outliers and future_horizons hold the full layout)."
         ),
     }
     # The brand and market names, so a model can go straight to the brand
@@ -586,3 +589,15 @@ from . import consensus_tools as _consensus_tools  # noqa: E402
 
 TOOLS.update(_consensus_tools.SPECS)
 _LOCAL_HANDLERS.update(_consensus_tools.HANDLERS)
+
+# ── Future Horizons: the newest saved run of the Horizons tab, and its chart ─
+from . import horizons_tools as _horizons_tools  # noqa: E402
+
+TOOLS.update(_horizons_tools.SPECS)
+_LOCAL_HANDLERS.update(_horizons_tools.HANDLERS)
+
+# ── Entities: profile fields, dated events and mentions per company ────────
+from . import entity_tools as _entity_tools  # noqa: E402
+
+TOOLS.update(_entity_tools.SPECS)
+_LOCAL_HANDLERS.update(_entity_tools.HANDLERS)

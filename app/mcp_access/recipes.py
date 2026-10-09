@@ -172,7 +172,74 @@ SKELETON:
     return [_user_message(text)]
 
 
+def _render_consensus_outliers(args: dict[str, Any]) -> list[dict[str, Any]]:
+    topic = args.get("topic")
+    clause = f'topic="{topic}"' if topic else "a topic from get_consensus with no topic (it lists the topics that have one)"
+    text = f"""You are running Aunoo's **consensus & outliers** recipe. GOAL: an artifact that recreates the site's Consensus view for one topic, on-brand.
+
+STEP 1: DATA. Call `get_consensus` with {clause}. Use only what it returns; do not add, rename or re-round categories. Per category: name, consensus_type.distribution (positive / neutral / critical percentages), confidence.majority_agreement, confidence.consensus_strength, timeline.consensus_window (label, start_year, end_year), optimistic_outliers and pessimistic_outliers (scenario, year, details), strategic_implications. Also key_insights, articles_analyzed, written_for, age_days.
+
+STEP 2: BUILD THE ARTIFACT (React, or plain HTML), to this spec:
+- Header "Consensus Analysis" with the topic name, subtitle "Where coverage converges, where it diverges, and what it points to." If written_for is set, say who the analysis was written for. If age_days is over 14, say how old it is.
+- A stat row: Themes tracked (number of categories), Source articles (articles_analyzed), Peak window (the most common consensus_window end year).
+- One card per category: the name; a horizontal stacked sentiment bar, positive green #16a34a, neutral slate #94a3b8, critical red #dc2626, summing to 100; majority_agreement as a percent beside consensus_strength; the consensus_window label; an outliers row with a green up-triangle per optimistic outlier and a red down-triangle per pessimistic outlier, each with its scenario and year.
+- Below the cards, a "Key insights" list from key_insights.
+- Styling: Inter font, pink accent #d6409f, text #211f26, cards bg #faf9fb with border #dbd8e0. Responsive.
+
+OUTPUT FORMAT: a standalone HTML file must be self-contained: inline all CSS, no ES-module imports, no <script type="module">, no fetch (all are blocked when the file is opened from disk). Plain HTML, inline CSS and inline SVG bars need no JS; if you need a chart library, load it as a UMD <script src>.
+
+RULES: the outliers are the point of this view; always include them. Present the analysis's own text and numbers; do not add advice of your own. Lead with the cards. Citations [n] in the text refer to the id in article_list; render them as links to that article's url."""
+    return [_user_message(text)]
+
+
+def _render_future_horizons(args: dict[str, Any]) -> list[dict[str, Any]]:
+    topic = args.get("topic")
+    clause = f'topic="{topic}"' if topic else "a topic from get_horizons with no topic (it lists the topics that have one)"
+    text = f"""You are running Aunoo's **future horizons** recipe. GOAL: a Future Horizons view for one topic, on-brand.
+
+STEP 1: THE S-CURVE CHART. The scenarios MUST sit on the curve. Pick ONE method:
+
+METHOD A (simplest): call `render_horizons_chart` with {clause} and paste the returned image_svg VERBATIM. It already has every scenario plotted on its curve. Wrap it in a div at width:100% so it scales.
+
+METHOD B: build a numbered-dots chart yourself (cleaner for a topic with many scenarios):
+- Use the scenarios from `get_horizons` (STEP 2).
+- Draw three S-curves over a year axis from the current year to the largest timeline_end, y-axis labelled "relative prevalence": Current/H1 declining in #d6409f, Transition/H2 cresting in the middle in #8e4ec6, Future/H3 rising in #0090ff, each filled at about 15 percent opacity.
+- Number the scenarios 1..N in get_horizons order. Plot each as a numbered dot on its horizon's curve, at the midpoint of timeline_start and timeline_end, coloured by its band.
+- Beneath the chart, a numbered key mapping each number to "title (start to end, sentiment)", grouped by horizon, and a hover tooltip on each dot with its title and years.
+- Use inline SVG, or Chart.js loaded as a UMD <script src>, never as an ES module.
+
+Either way: never draw bare curves with no scenarios on them, and never paste a base64 PNG.
+
+STEP 2: DATA. Call `get_horizons` with {clause}. Use scenarios (type h1/h2/h3, title, description, timeframe, timeline_start, timeline_end, sentiment), counts, written_for and age_days.
+
+STEP 3: BUILD THE REST beneath the chart:
+- Three columns: H1 Current (declining), H2 Transition, H3 Future, each listing its scenarios as "title, start to end, sentiment", with the description on expand or as a short line below. Band colours: Current #d6409f, Transition #8e4ec6, Future #0090ff.
+- If written_for is set, say who the analysis was written for. If age_days is over 14, say how old it is.
+- Inter font, light cards (bg #faf9fb, border #dbd8e0), pink #d6409f accents, text #211f26.
+
+OUTPUT FORMAT: a standalone HTML file must be self-contained: inline all CSS and the SVG, no ES-module imports, no <script type="module">, no fetch (all are blocked when the file is opened from disk).
+
+RULES: use the scenarios as given; never invent one. Present observations, not advice of your own. Lead with the chart."""
+    return [_user_message(text)]
+
+
 _RECIPES: dict[str, Recipe] = {
+    "consensus_outliers": Recipe(
+        name="consensus_outliers",
+        description="Show a topic's saved consensus analysis as the site's Consensus view: one card per category with the sentiment mix, agreement, timeline and outliers. Use this to SHOW consensus, not just describe it.",
+        arguments=(
+            RecipeArg("topic", "Topic name from list_capabilities. Omit to pick from the topics that have a saved consensus."),
+        ),
+        render=_render_consensus_outliers,
+    ),
+    "future_horizons": Recipe(
+        name="future_horizons",
+        description="Show a topic's saved Future Horizons analysis as the site's Horizons view: the S-curve chart with every scenario on its curve, then the scenarios by horizon. Use this to SHOW horizons, not just describe them.",
+        arguments=(
+            RecipeArg("topic", "Topic name from list_capabilities. Omit to pick from the topics that have a saved horizons run."),
+        ),
+        render=_render_future_horizons,
+    ),
     "voices_report": Recipe(
         name="voices_report",
         description="Render the Voices view (who is talking about a brand, and what each audience says) as the same self-contained HTML report the tab exports, from get_brand_voices alone.",
