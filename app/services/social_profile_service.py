@@ -36,6 +36,27 @@ MARKET_ROLES = ("vendor", "vendor_staff", "practitioner", "analyst_or_press",
 # with no role at all (9 Oct 2026).
 _FIELD_AUDIENCE_WORDS = {"patient", "clinician", "caregiver", "customer", "professional",
                          "academic", "dental_professional", "researcher"}
+# Audience words with a market role of their own. Every other person-type word
+# in the site's audience list (wileytest's "reader", "librarian", "student")
+# is someone in the market's field, i.e. a practitioner. Words with no safe
+# market role stay unmapped.
+_AUDIENCE_TO_ROLE = {"journalist": "analyst_or_press", "employee": "vendor_staff",
+                     "brand": "vendor", "retailer": "reseller"}
+_NO_MARKET_ROLE = {"unknown", "competitor", "investor", "journal_society", "unclassified"}
+
+
+def _role_from_audience_word(word: str) -> Optional[str]:
+    """The market role an audience word written in the role slot stands for."""
+    if word in _AUDIENCE_TO_ROLE:
+        return _AUDIENCE_TO_ROLE[word]
+    if word in _NO_MARKET_ROLE:
+        return None
+    try:
+        from app.services.social_eval_service import author_roles
+        site = set(author_roles())
+    except ImportError:
+        site = set()
+    return "practitioner" if word in (site | _FIELD_AUDIENCE_WORDS) else None
 _HAS_POST_HISTORY = {"twitter", "instagram", "tiktok", "bluesky"}  # reddit: none via xpoz
 _BSKY_API = "https://public.api.bsky.app/xrpc"  # bluesky is NOT xpoz — use its public API
 
@@ -402,10 +423,12 @@ class SocialProfileService:
             if role_fields:
                 role = str(obj.get("role") or "").strip().lower().replace(" ", "_")
                 aud = str(obj.get("audience") or "").strip().lower().replace(" ", "_")
-                if role not in MARKET_ROLES and role in _FIELD_AUDIENCE_WORDS:
-                    if aud in ("", "unknown", "none", "null"):
-                        aud = role
-                    role = "practitioner"
+                if role not in MARKET_ROLES:
+                    mapped = _role_from_audience_word(role)
+                    if mapped:
+                        if aud in ("", "unknown", "none", "null"):
+                            aud = role
+                        role = mapped
                 out["role"] = role if role in MARKET_ROLES else None
                 org = obj.get("organisation")
                 out["organisation"] = (str(org).strip()[:120]
