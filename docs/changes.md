@@ -1,5 +1,148 @@
 # Changes
 
+## 2026-10-09 — Connectors: consensus, horizons and company data for Oviva and Panaya; consensus and horizons runs now refresh on their own
+
+### Goal
+The user found that Oviva's connector (the site's MCP server, which Claude reads through) had no
+consensus tool. Panaya had one, and so did bugfixing. The session then filled the other gaps the
+user asked about: the display guidance saas sends for consensus and horizons, a way to read the
+company (entity) data, and a schedule for the consensus and horizons runs, which until now were
+only made when someone pressed the button on the Explore page.
+
+### Feature · Oviva's connector catches up with Panaya's
+Oviva had none of the tools Panaya and bugfixing added in September and October. We copied five
+files from bugfixing into `app/mcp_access/` on Oviva, unchanged, and registered them in
+`tools.py`:
+
+- **`consensus_tools.py`**: `get_consensus`, the newest saved consensus run for a topic.
+- **`timeline_tools.py`**: `list_timelines`, `get_timeline`, `what_changed`.
+- **`judgment_tools.py`**: `judge_articles`, `typed_judgment` (TypeSafe Jev).
+- **`tool_suggestion.py`**: `suggest_tool`, which proposes one tool for a request. It logs to
+  `mcp_tool_suggestions`, which Oviva lacked. Oviva's migration chain differs from bugfixing's, so
+  Oviva got its own copy of `ts_011_mcp_tool_suggestions.py` with `down_revision = 'subd_001'`
+  (Oviva's head), applied with `alembic upgrade ts_011`.
+- **`trust_tools.py`**: `get_trust_signals`, rated by the saas Skills API. It also needed
+  `ToolSpec.needs_saas`, the `_offered()` gate in `tools.py`, and `saas_skills_*()` in
+  `config.py`, all copied from bugfixing. Oviva has its own saas prod key, **`api_keys.id=42`**
+  ("oviva.aunoo.ai trust signals (server-to-server)", tenant 1, pack `ai-research`, the same
+  topics as bugfixing's key 41). We minted it with `scripts/mint_skills_workspace_key.py` under
+  `/usr/bin/python3`, because the saas `venv` has no fastapi and the script dies on import there.
+  The key went straight into Oviva's `.env` as `SAAS_SKILLS_URL` / `SAAS_SKILLS_KEY`.
+
+The `list_capabilities` note on Oviva now matches bugfixing's: call `suggest_tool` first, and
+prefer the timeline tools for "what's new on X".
+
+### Feature · display guidance for consensus and horizons, and a horizons tool
+saas tells the assistant how to draw these views (prompts `future_horizons` and
+`consensus_outliers` in its `app/skills/recipes.py`). No monolith site had them, and the monolith
+had no horizons tool at all. Commit `9ab1dc85` (branch `feat/mcp-foresight-entity-tools`).
+
+- **`app/mcp_access/horizons_tools.py`** (new): `get_horizons(topic)` reads the newest saved run
+  whose `scenarios` list holds h1/h2/h3 scenarios, the same row the Explore Horizons tab shows.
+  It parses each scenario's `timeframe` ("2026-2032") into start and end years, counts scenarios
+  per horizon, and flags runs older than 14 days. The SQL `LIKE` also matches keys such as
+  `disruption_scenarios`, so each row is parsed and checked. `render_horizons_chart(topic)`
+  returns the S-curve as an SVG of about 8 KB, with every scenario on its curve.
+- **`app/mcp_access/horizons_svg.py`** (new): saas's `render_horizons_svg`, copied word for word
+  from `app/sharing/renderers/horizons_image.py`. The PNG path is left out because it needs
+  Pillow.
+- **`app/mcp_access/recipes.py`**: prompts `consensus_outliers` and `future_horizons`, rewritten
+  for the monolith's field names (`consensus_type.distribution`,
+  `confidence.majority_agreement`, `timeline.consensus_window`) and topic names instead of ids.
+- **`consensus_tools.py`, `horizons_tools.py`**: answers carry a short `display` field with the
+  layout rules, because many clients never show prompts to the assistant.
+
+### Feature · company (entity) data in the connector
+The entity tables (`bw_entity_*`) were filled on all three sites, but no tool read them.
+**`app/mcp_access/entity_tools.py`** (new, same commit):
+
+- `list_entities(market?, query?)`: companies with entity data, with industry, HQ country,
+  headcount, markets, and counts of events and mentions.
+- `get_entity(entity | entity_id)`: profile fields with the source and date that won, and which
+  fields conflict, are stale or are locked; dated events (rejected and superseded left out) with
+  the count of independent sources and up to three evidence articles; a mention summary that
+  counts unevaluated mentions apart; the most recent mentions; the latest narrative and whether it
+  is a draft. It uses the same queries as `app/routes/market_entity_routes.py`. Mentions and
+  evidence are limited to readable articles (`article_visibility.readable_sql`). Both tools refuse
+  when `ENTITY_INTELLIGENCE_ENABLED` is off.
+
+### Feature · weekly consensus and horizons runs for named topics
+**`app/tasks/foresight_refresh.py`** (new, same commit), scheduled in
+**`app/core/app_factory.py`** at 120 s after startup. Each week it makes a consensus run and a
+horizons run (with its executive-summary cards) for every topic in `FORESIGHT_REFRESH_TOPICS`
+("|"-separated), written for `FORESIGHT_REFRESH_PROFILE_ID`. It calls the trend-convergence route
+over loopback with a signed session, as `market_foresight.refresh()` does. A run is due when the
+newest is older than the last weekly slot (Sunday 02:00 by default), so a missed slot catches up
+on the next hourly check. Defaults: `claude-sonnet-4-5`, 365-day window, persona `executive`. It
+is off unless both the topics and the profile are set, and it refuses to run without a profile,
+because the default profile can belong to another customer. Bugfixing sets neither, so it does
+nothing here.
+
+Oviva is the only site with it switched on: the three brand topics (Oviva, Noom, WeightWatchers),
+profile 8 (Oviva).
+
+### Fix · the monthly market refresh never ran on Panaya, abm or bwtemplate
+`app/tasks/market_monitor.py` loaded markets with `SELECT id, name`, so `market_foresight.refresh()`
+got no `config`, found no topic, and returned without doing anything. Bugfixing fixed this in
+`50409536` on 8 October, but the fix never reached the other sites. We applied the same line
+(`SELECT id, name, config`) on Panaya, abm and bwtemplate.
+
+We also gave the markets a profile, because the refresh skips a market without one:
+- Panaya market 1312 (Enterprise Test Automation): `foresight.profile_id = 10` (Panaya).
+- abm market 1 (Media & Narrative Intelligence): `foresight.profile_id = 2` (Generic Enterprise).
+
+### Verification
+- `pytest tests/test_mcp_jsonrpc.py tests/test_mcp_consensus_tools.py tests/test_mcp_trust_tools.py
+  tests/test_mcp_horizons_tools.py tests/test_mcp_entity_tools.py tests/test_foresight_refresh.py`:
+  **29 passed**. `test_prompts` had been failing since the voices and brand prompts were added; it
+  now expects the current seven prompts.
+- Oviva, in-process calls: `get_consensus` listed the three brand topics; `list_timelines`
+  returned 91 events for Oviva and 101 for WeightWatchers; `suggest_tool` picked `what_changed`
+  for "What has happened with Oviva's reputation in the last two weeks?" (we deleted that test
+  row); `get_trust_signals` on a Guardian article came back `rated_by 127.0.0.1:10017` with
+  Source "Mixed" (Left-Center).
+- `get_horizons` on bugfixing found 10 topics, with years parsed for every scenario. The EV
+  Battery chart is 8,738 bytes with 14 dots, all inside the plot area. We could not look at the
+  chart, because the server has no SVG renderer; the SVG parses as XML.
+- `get_entity` answers in under 0.1 s, at 29 to 36 KB per company (Simbian and CrowdStrike on
+  bugfixing, Oviva on Oviva, UiPath on Panaya). Oviva has 9 companies, Panaya 12, bugfixing 143.
+- Oviva weekly refresh: six catch-up runs between 14:15 and 14:26, all on `claude-sonnet-4-5`
+  with the Oviva profile and a 365-day window. The Oviva and Noom consensus runs read 84 and 81
+  articles, four themes each.
+- Panaya refresh, started by hand with `force=True`: consensus at 14:36 (87 articles, 4 themes),
+  horizons at 14:37 (14 scenarios), 6 executive-summary cards at 14:38.
+- abm: the market monitor started the first consensus run for Media & Narrative Intelligence at
+  14:40. Consensus logged at 14:44 (25 articles, 4 themes), horizons at 14:44 (13 scenarios),
+  both on `claude-sonnet-4-5` with the Generic Enterprise profile. The executive-summary cards
+  were still being written when this entry was written.
+- Connector tool counts after the work: Oviva 36, Panaya 35 (no saas key, so no Trust Signals).
+
+### Propagation
+- **bugfixing (canonical)**: the new and changed files are committed as `9ab1dc85` on
+  `feat/mcp-foresight-entity-tools`, branched from `fix/ingest-pipeline-spec` without switching
+  the checkout. The working tree on `fix/ingest-pipeline-spec` still shows them as uncommitted.
+  Not pushed. The restart that loads the `app_factory.py` line was still waiting for users to
+  leave when this was written; the refresh is switched off here, so nothing depends on it.
+- **Oviva**: everything above, restarted. Backups: `tools.py.bak-mcptools-*`,
+  `tools.py.bak-horizons-*`, `tools.py.bak-entity-*`, `*.bak-trust-*` (`config.py`, `tools.py`,
+  `.env`), `app_factory.py.bak-foresight-*`, `.env.bak-foresight-*`.
+- **Panaya**: horizons, display rules, entity tools, market query fix and profile. Restarted.
+  Backups `*.bak-horizons-*`, `tools.py.bak-entity-*`, `market_monitor.py.bak-foresightcfg-*`.
+- **abm**: market query fix and profile. Restarted.
+- **bwtemplate**: market query fix only. The service is stopped, so the fix loads at its next
+  start. We could not read its markets because its `.env` is encrypted while it is stopped.
+- These site trees have no git remote and do not track `market_monitor.py`, so the user decided
+  not to commit there. This entry and the backup files are the record of what changed on them.
+- No other site got any of this. The tools are features, so they went only to the sites the user
+  named.
+
+### Lessons
+- When a fix lands in canonical, list which sites carry the file it fixes. The market query fix
+  sat in bugfixing for a day while three other sites ran the broken copy, and a customer-facing
+  report said the runs "only update when someone starts a new run".
+- The saas `venv` cannot run saas scripts that import `app.database`; use `/usr/bin/python3`,
+  which is what `saas.aunoo.ai.service` runs.
+
 ## 2026-10-09 — Keyword monitor: slow groups no longer block the rest; social vendor searches checked and trimmed
 
 ### Incident · no SOC keyword group ran for 16 hours
