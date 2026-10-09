@@ -23,6 +23,7 @@ and "nothing new" are different states in the UI rather than a shared silence.
 """
 
 import asyncio
+import threading
 import json
 import logging
 import os
@@ -2136,6 +2137,41 @@ def _close_stranded_runs(conn) -> int:
     return len(rows)
 
 
+async def _tick_off_loop() -> Dict[str, Any]:
+    """Run tick() on its own thread and event loop, and wait for the result.
+
+    The tick does its database work on a synchronous connection, inside async
+    helpers as well as plain ones, so on the web server's loop every query
+    froze the site. Moving the corpus scan alone (61780f80) cut the 13:40-style
+    stalls from the length of the scan (35-74s) to 3-5s; the rest of the tick
+    caused those. A daemon thread, so a restart never waits for a tick; work
+    cut off mid-run is rolled back with its connection.
+    """
+    loop = asyncio.get_running_loop()
+    done: asyncio.Future = loop.create_future()
+
+    def _settle(result=None, exc=None) -> None:
+        if done.done():
+            return
+        if exc is not None:
+            done.set_exception(exc)
+        else:
+            done.set_result(result)
+
+    def _run() -> None:
+        try:
+            result, exc = asyncio.run(tick()), None
+        except BaseException as e:  # noqa: BLE001 - handed back to the caller
+            result, exc = None, e
+        try:
+            loop.call_soon_threadsafe(_settle, result, exc)
+        except RuntimeError:
+            pass  # the web server's loop closed while the tick ran
+
+    threading.Thread(target=_run, name="market-monitor-tick", daemon=True).start()
+    return await done
+
+
 async def run_market_monitor():
     """Background task registered by the module registry."""
     logger.info("Market Monitor background task started")
@@ -2152,7 +2188,7 @@ async def run_market_monitor():
         try:
             if _enabled():
                 _background_task_status["last_check_time"] = datetime.now()
-                summary = await tick()
+                summary = await _tick_off_loop()
                 _background_task_status["markets_polled"] = summary["markets"]
                 if summary["runs"]:
                     logger.info("Market Monitor: %s", summary)

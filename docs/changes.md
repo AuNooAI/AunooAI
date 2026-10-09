@@ -34,6 +34,16 @@ caught two stalls of 3s or more outside startup: 69s and 11.3s. In both the main
 `asyncio.to_thread`. Only this hunk was committed; the file carries another session's 10
 uncommitted lines.
 
+The two 21:50 scans then ran without freezing the site, but each tick still stalled 2.7s and
+4.8s at its end: the rest of the tick runs its queries on a synchronous connection, inside async
+helpers too (`market_actor_review.review`). **`run_market_monitor`** now runs the whole `tick()`
+on its own daemon thread and event loop (`_tick_off_loop`). **`app/ai_models.py`** keeps one LLM
+semaphore per event loop, because a single shared one raises "bound to a different event loop"
+once two loops queue on it; each loop has `LLM_MAX_CONCURRENCY` (16) slots. Checked with a
+stand-in tick that blocks for 3s and takes the semaphore while the main loop does too: no
+main-loop lag, errors reach the caller. The 11 failing tests in the market and auth files fail
+the same way on HEAD.
+
 ### Ops · topic logging
 **`app/research.py`**, `b3a66c1c`. `set_topic` and `get_categories` wrote about 216,000 INFO lines
 in 6 hours, more than half the service log. The routine lines are now DEBUG.

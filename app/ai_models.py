@@ -4,6 +4,7 @@ import json
 import yaml
 import time
 import asyncio
+import weakref
 from datetime import datetime
 from litellm import Router
 import logging
@@ -293,16 +294,22 @@ def _remember_llm_caller() -> None:
 #
 # Override via env: LLM_MAX_CONCURRENCY=N
 _LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "16"))
-_llm_semaphore: Optional[asyncio.Semaphore] = None
+# One semaphore per event loop. An asyncio.Semaphore binds to the loop it is
+# first contended on, and the Market Monitor tick runs on its own loop in its
+# own thread (market_monitor._tick_off_loop), so a single shared one would
+# raise "bound to a different event loop" once both loops queued on it. Each
+# loop gets _LLM_MAX_CONCURRENCY slots; the tick adds at most that many.
+_llm_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = \
+    weakref.WeakKeyDictionary()
 
 
 def _get_llm_semaphore() -> asyncio.Semaphore:
-    """Lazy-init so the semaphore is bound to the running event loop, not
-    whatever loop existed at import time (which may be a no-op stub)."""
-    global _llm_semaphore
-    if _llm_semaphore is None:
-        _llm_semaphore = asyncio.Semaphore(_LLM_MAX_CONCURRENCY)
-    return _llm_semaphore
+    """The calling loop's LLM concurrency semaphore, created on first use."""
+    loop = asyncio.get_running_loop()
+    sem = _llm_semaphores.get(loop)
+    if sem is None:
+        sem = _llm_semaphores[loop] = asyncio.Semaphore(_LLM_MAX_CONCURRENCY)
+    return sem
 
 
 def extract_content(response) -> str:
