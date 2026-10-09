@@ -82,6 +82,19 @@ def _rec_completion(*a, **kw):
 litellm.acompletion, litellm.completion = _rec_acompletion, _rec_completion
 
 
+def _override_agent_model(model):
+    """Swap the model an agent file pins (model_config.model) for this process only."""
+    from app.services.daily_report_service import DailyReportService
+    orig = DailyReportService._get_agent_config
+
+    def patched(self, agent_name):
+        cfg = dict(orig(self, agent_name) or {})
+        if cfg.get("model"):
+            cfg["model"] = model
+        return cfg
+    DailyReportService._get_agent_config = patched
+
+
 def _silence_shadows():
     """The Jev shadow jobs write comparison rows next to a run; keep the gate
     from leaving any behind."""
@@ -230,7 +243,12 @@ async def main():
     ap.add_argument("--topic", default="AI and Machine Learning")
     ap.add_argument("--compose-topics", default="")
     ap.add_argument("--out", default="")
+    ap.add_argument("--agent-model", default="",
+                    help="run the daily report's agents (the reviewer pins its own model in "
+                         "data/auspex/agents) on this model instead; the agent files are not changed")
     args = ap.parse_args()
+    if args.agent_model:
+        _override_agent_model(args.agent_model)
     from app.database import get_database_instance
     _silence_shadows()
     db = get_database_instance()
