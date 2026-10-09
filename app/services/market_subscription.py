@@ -70,8 +70,7 @@ PLANS: Dict[str, Dict[str, Any]] = {
     "mcp": {
         "label": "MCP access", "cents": 13900,
         "env_price": "STRIPE_PRICE_SUB_MCP",
-        "blurb": "Query vendor benchmarks, profiles, funding, hiring and the "
-                 "articles behind them from Claude, ChatGPT or your own agents."},
+        "blurb": "One key for you and your team, for any MCP client."},
 }
 
 
@@ -471,8 +470,8 @@ def notify(c, row: Dict[str, Any], market: Dict[str, Any], *,
         if mcp_key:
             lines += ["",
                       "Your MCP key, for Claude, ChatGPT or your own agents. It "
-                      "reaches the vendor benchmarks, vendor detail and metrics "
-                      "we do not publish:", mcp_key, "",
+                      "reaches the vendor benchmarks, the vendor profiles and the "
+                      "data behind the pages:", mcp_key, "",
                       f"Point your MCP client at {mcp_url} and send the key as "
                       "a bearer token (Authorization: Bearer <key>). This mail is "
                       "the only place the key appears; we store only a hash.", "",
@@ -521,17 +520,13 @@ def _whats_inside(totals: Optional[Dict[str, int]]) -> str:
     return (
         "<h2>What the key adds</h2>"
         "<ul>"
-        f"<li>Benchmarks for {each} on headcount, headcount change, hiring, funding, "
-        "earned mentions and announcements, with rank, percentile and the market "
-        "median.</li>"
-        "<li>Vendor profiles with headcount, funding, founding year and identifiers, each "
-        "with its source and date, and a dated history of each vendor's events.</li>"
-        "<li>Funding by stage and shared investors, hiring by function and region, and "
-        "coverage split into earned and owned.</li>"
-        "<li>The vendors the Maturity Map could not rate, and the reading each one "
-        "lacks.</li>"
-        "<li>The collected articles and posts, with their sources, dates, sentiment and "
-        "trust signals.</li>"
+        f"<li>How {each} compares with the market on headcount, hiring, funding and "
+        "press coverage, with its rank and the market median.</li>"
+        "<li>Each vendor's profile, with the source and date of every figure, and a dated "
+        "record of its launches, funding rounds and partnerships.</li>"
+        "<li>Who funds the market and at what stage, and which roles each vendor is hiring "
+        "for and where.</li>"
+        "<li>Every article and post we collected, searchable, with its source and date.</li>"
         "</ul>")
 
 
@@ -548,8 +543,8 @@ def _agents_card() -> str:
     market: Aunoo for Agents, the same kind of access on any topic."""
     return (_AGENTS_CSS + '<section class="agents-card">'
             "<h2>Want more markets or topics?</h2>"
-            "<p>Aunoo for Agents gives Claude, ChatGPT or your own agents sourced news and "
-            "foresight on any topic you choose. Start with a free workspace.</p>"
+            "<p>Aunoo for Agents covers any topic you choose, with sourced news and forecasts "
+            "for your AI tools. You can start with a free workspace.</p>"
             f'<a class="mm-btn" href="{AGENTIC_URL}">Check out Aunoo for Agents</a>'
             "</section>")
 
@@ -581,8 +576,8 @@ def build_subscribe_page(market: Dict[str, Any], *, front_href: str, about_href:
                 f'<p>{esc(opt["blurb"])}</p></label>')
     inner = (
         "<section><p>The news, charts and reports on this site are free to read. A "
-        "subscription adds a key for our MCP server, which lets Claude, ChatGPT or your "
-        "own agents query data the pages do not show.</p>"
+        "subscription adds a key for our MCP server, so your AI tools can query the data "
+        "behind them.</p>"
         + _whats_inside(totals)
         + (f'<p class="err" role="alert">{esc(error)}</p>' if error else "")
         + f'<form method="post" action="{esc(action)}">'
