@@ -1,5 +1,152 @@
 # Changes
 
+## 2026-10-09 — Market reports: customer wins must be in the market, open roles are counted as open, and a sponsored webinar on aisocnews.com
+
+### Goal
+The user read the aisocnews.com highlights for the past 7 days. Four of the five customer
+announcements shown had nothing to do with security operations: a ServiceNow CRM deal, a
+GitHub Copilot HR chatbot, Tinder's search engine, and a post in which the tracked vendor was the
+buyer, not the seller. The user asked to tighten the customer rule. While writing the week's
+LinkedIn post, the hiring figure fell from 193 to 115. The user asked why, and we found the count
+did not measure open roles at all.
+
+### Fix · a customer win must be in the market, with the vendor as supplier (`043c5797`)
+The old check (`review_check.customer`) asked only whether the named organisation uses the
+publisher's product. For a large vendor that is often true and beside the point: "Bundesliga uses
+ServiceNow CRM for fan support" passed at 0.97. It also passed a deal that runs the other way.
+Kai Security's post about Anthropic's case study on Kai recorded Anthropic as Kai's customer, and
+the check passed it at 0.82.
+
+**`app/services/market_post_review.py`** adds a second Jev check, `check_customer_posts()`, for
+each customer post that names its customer. The answers go in `review_check.customer_fit`:
+
+- **`in_market`:** does the customer use the product for the line of work this market covers?
+  The question gives the market's own scope text (`market_scope_description` and
+  `inclusion_criteria`) where it has one, otherwise its name, phrases and vendors
+  (`_fit_about`). It says outright that an established product in the same field counts, because
+  a market named for its newest products otherwise rejected Cortex XSOAR and CrowdStrike Falcon.
+- **`supplier`:** who uses whose product, asked as a three-way choice. A yes/no wording passed
+  the Kai post at 0.74; the choice gives 0.09.
+
+`customer_fit_passes()` needs both at 0.5 or more. An unchecked post still counts, so a Jev
+outage cannot empty the customer list. Posts that do not name the customer are not checked:
+without a name, the direction question scored "Mid-tier bank cuts alert volume using Securaa
+SOAR" at 0.35, which is wrong.
+
+**`app/services/market_assessment.py`** drops failing posts in both places a customer
+development is built: `_stored_candidates` (the `misfit` set) and `_corpus_candidates`.
+**`app/tasks/market_monitor.py`** runs the check after each post review, in a worker thread. It
+commits first, so the task's own connection does not sit idle in a transaction while Jev answers.
+`_market_about()` and `_market_context()` were split out of the social check so both checks
+describe the market the same way.
+
+### Data · market 2 (AI in the SOC) now has scope text
+Market 2 had no `market_scope_description`, `inclusion_criteria` or `exclusion_criteria`, so the
+new check saw only the market's "AI SOC" phrases. It rejected CrowdStrike Falcon at Solarig
+(0.34). At the user's request we wrote all three fields by `UPDATE bw_markets ... WHERE id = 2`.
+The scope covers AI SOC analysts and agentic platforms, SIEM/XDR/EDR/SOAR, MDR, detection
+engineering, and threat and vulnerability work for the SOC. It excludes firewalls and network
+access, identity governance, application security testing, observability, and vendors' business
+outside security. The text prints on the Analyst View, under the heading and in a new "Market
+scope" section. After the re-check, Falcon scores 0.87 and SentinelOne at Halton 0.89, and every
+deal that passed before still passes.
+
+### Feature · a sponsored webinar in the Featured slot, and link wording by kind (`043c5797`)
+We added row #3 to `market_featured` with `scripts/market_featured.py add`. It is the Anvilogic
+webinar "An Architectural Foundation for Agentic SecOps" (Karthik Kannan and Oliver Rochford,
+4 November 2026, 9:00 PST), sponsored, sort −1 so it sits first. It ends on 2026-11-05. The image
+is the og:image of LinkedIn post `urn:li:share:7514024335209123840`. The user asked for the
+sidebar ("side"), then changed it to "both" by `UPDATE market_featured SET placement='both'
+WHERE id=3`, so phones see it in the strip.
+
+Featured links all read "Read the {kind}", which would have said "Read the webinar".
+**`app/services/market_featured.py`** adds `KIND_ACTION` and `kind_action()`: "Register for the
+webinar", "Watch the talk", "Listen to the podcast", otherwise "Read the".
+`_featured_byline()` in **`app/services/market_report_html.py`** drops its `read=` argument and
+uses it.
+
+### Fix · open roles are counted as open (`05083684`, label `92b3c70d`)
+`market_analysis.hiring(days)` filtered job snapshots on `observed_at`. But `store_snapshot`
+writes nothing for an unchanged listing, so `observed_at` is when we first saw a listing, not
+when we last saw it open. The 7-day page counted the roles that appeared that week (115) and
+called them open roles. The 30-day page counted 158.
+
+Last week's LinkedIn post said "193 open roles, trending down". That figure came from the 30-day
+view on 2 October and included Torq's 32. Torq moved to the large incumbents on 2 October
+(`8c2f6a0e`), and incumbents are left out of the count. Nothing in our data could show a trend.
+
+`market_lists.jobs` already compared runs to tell open listings from gone ones, and the vendor
+registry used it. The hiring count never did. The fix:
+
+- **`app/services/market_analysis.py`:** `open_listings()` reads `market_lists.jobs`. It keeps
+  listings that are `currently_observed` or `newly_observed`. A `first_observation` listing, one
+  no run can confirm yet, counts only if first seen within `days`. `hiring()` and
+  `job_postings()` both use it.
+- **`app/services/market_collect.py`:** `record_run_coverage()` merges `seen_item_ids` and
+  `uncovered_brand_ids` into a run's metrics as sets, so a batch delivered twice records the same
+  thing once.
+  - LinkedIn job runs (`ingest_jobs`) recorded nothing before, so an unchanged LinkedIn listing
+    could never be marked gone. They now record what they saw.
+  - LinkedIn returns at most 20 listings per company (`JOBS_PER_COMPANY`, now passed explicitly
+    in `trigger_jobs`). A company that hits the cap is marked uncovered.
+- **`app/tasks/market_monitor.py`:** company-job-board runs use the same helper and mark boards
+  that failed to load as uncovered.
+- **`app/services/market_lists.py`:** `_job_run_history` leaves uncovered vendors out of a run's
+  coverage, so a partial read cannot close a listing.
+- **`app/services/market_report_html.py`:** the hiring byline says "Job listings · open now", not
+  "this period" (`92b3c70d`).
+
+### Incident · aisocnews.com returned 500 for about 2 minutes after a restart
+At 11:15 we restarted bugfixing to load the link-wording change. Another session had written
+`alembic/versions/mm_033_vendor_chart.py` and `app/services/market_chart.py` at 11:09 and 11:10,
+and had not applied the migration. The restart loaded their code, and the front page failed with
+`relation "bw_market_vendor_chart" does not exist`. The background tick logged the same error for
+markets 2 and 1830. We read `mm_033`: it only creates the table, and its parent (`subd_001`) was
+the database's current revision. We applied it with `alembic upgrade mm_033`, and the page
+returned 200 at about 11:17. That session's migration file was still untracked at the time.
+
+### Verification
+- Customer check, market 2, 31 days, after the scope text: 20 posts checked, 9 kept. 7-day
+  highlight: 7 customer announcements before, 2 after (EQUANS with Torq, LTM with ServiceNow).
+- 30 days, market 2: 8 customer developments, none with independent reporting. 118
+  developments, 8 with independent reporting.
+- Open roles, market 2, from `man.hiring`: 7-day 182 and 30-day 184, against 115 and 158 before.
+  Vendors with readable listings 16 → 21. 7AI 24 → 39.
+- `record_run_coverage` run twice on a real run inside a transaction: seen `[a, b, c]`,
+  uncovered `[5, 7]`, existing metrics kept, rolled back.
+- pytest: `test_ingest_translation_and_collectors.py` + `test_market_assessment.py` 133 passed;
+  with `test_market_lists.py`, 166 passed. Still failing, and not touched by this work: 7 in
+  `test_market_collection.py` (pytest-asyncio missing, fake results without `fetchone`, the
+  route list, the `tick` loop at line 406) and 2 in `test_market_entitlements.py`.
+- Live page after the restart: 200, "182 open roles; 21 of 114 vendors have public job
+  listings", "Job listings · open now", the webinar first in the sidebar and the phone strip.
+
+### Propagation
+- **bugfixing:** all three commits live, restarted.
+- **oviva, panaya, sunstar:** the customer check, the open-roles fix and the label, copied by
+  patch. Every hunk applied without fuzz. Panaya's `market_collect.py` also needed `Sequence`
+  added to its typing import. Backups: `*.bak-custfit`, `*.bak-openroles`,
+  `market_report_html.py.bak-opennow`. All restarted with no tracebacks. The customer check was
+  run over 31 days on each site: Panaya 5 checked, 2 kept (UiPath at Gold Coast Health and Nova
+  Intelligence at KION rejected); Oviva and Sunstar had no named-customer posts. Open roles after
+  the fix: Oviva 57 (7-day) / 74 (30-day), Panaya 132 / 145, Sunstar 38 / 69. The 7-day and
+  30-day views will converge once two LinkedIn runs have recorded what they saw, about twice a
+  week.
+- **Not copied:** the link wording (`market_featured.py` and the byline in
+  `market_report_html.py`), because only aisocnews.com has a featured webinar.
+- **wiley, wileytest:** not checked and not copied.
+
+### Lessons
+- **ALWAYS** check for a migration nobody has applied before restarting a shared tree:
+  `alembic heads` against `alembic_version`, and `git status alembic/`. Another session's
+  migration and its code can arrive minutes before your restart.
+- **NEVER** treat `bw_vendor_snapshots.observed_at` as "last seen". `store_snapshot` writes
+  nothing for an unchanged row, so for any snapshot type it is "first seen or last changed".
+  Anything that asks "is it still there?" has to go through the run records
+  (`market_lists.jobs`, `open_listings`).
+- A yes/no question about who is the supplier in a deal is weak. Asking Jev to choose between the
+  two directions is not.
+
 ## 2026-10-09 — Connectors: consensus, horizons and company data for Oviva and Panaya; consensus and horizons runs now refresh on their own
 
 ### Goal
