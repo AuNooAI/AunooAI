@@ -1,5 +1,201 @@
 # Changes
 
+## 2026-10-09 — Claude Sonnet 4.5 is leaving Bedrock: the writing tier moves to Sonnet 5.5 on bugfixing, after the limits and parsers that would have broken were fixed
+
+### Goal
+An AWS Health notice (8 Oct) moved `anthropic.claude-sonnet-4-5-20250929-v1:0` into the Legacy
+state. No quota increases from now; the model stops answering on 8 April 2027. It is the
+`standard` and `premium` tier in `app/model_tiers.py` on every monolith site, so it writes every
+report, briefing and Auspex answer. The usage ledger put it at about $550 a month across the
+eight sites in the last 30 days: wileytest $309 (8,580 calls), bugfixing $128, wiley $49, wbm $31,
+sunstar $25, panaya $6, oviva $4, abm $0. The migration had to be gated, because the Claude 5
+family takes a different call shape (no temperature, no prefill) and nobody had run a report on it.
+
+### Ops · the gate, and what it found
+**`scripts/gate_model_shape.py`**, commit `f20024ae`. The script runs the four pipelines whose
+output a customer reads (daily briefing, briefing compose, topic report, Auspex) on one model name
+and records what every litellm call sent and got back. New option `--agent-model X` runs the
+daily briefing's agents on X too: the reviewer pins its own model in
+`data/auspex/agents/dr_reviewer_agent.md`, so the first Sonnet 5 run tested Sonnet 5's writing
+but still reviewed it on Sonnet 4.5. Agent files are not changed by the option.
+
+Three gate runs on Sonnet 5 and two on Sonnet 5.5, against one Sonnet 4.5 baseline run:
+
+- **Sonnet 5 and 5.5 need about 1.65 times the tokens of Sonnet 4.5 for the same text.** The same
+  briefing synthesis was 11,511 characters in 2,258 tokens on 4.5 (about 5 characters a token)
+  and 8,694–9,023 characters in 2,948–2,952 tokens on Sonnet 5 (about 3). Every fixed
+  `max_tokens` in the code fills sooner, and on the third Sonnet 5 run the synthesis hit its
+  3,000-token limit (finish reason `length`).
+- **Sonnet 5 returns malformed JSON more often on long replies.** One executive summary of 15k
+  characters failed both strict parses; one Three Horizons reply finished normally
+  (`stop`) with a trailing comma at character 2,619. Each broke a parser that reads strictly.
+- **Sonnet 5.5 rejects `thinking: {"type": "disabled"}`** with a 400 on every call: "To turn
+  thinking off on this model, send between_tools". The first Sonnet 5.5 gate run failed every one
+  of its 44 calls for that reason, because its yaml entry was copied from Sonnet 5's. With
+  `between_tools` a direct probe returned 19–20 output tokens for a one-line answer and no
+  reasoning tokens, and Auspex's tool-calling chat finished cleanly.
+- **Bedrock's content filter blocked one Sonnet 5 repair call** (0 tokens back in 3 seconds) on
+  the briefing about military AI (Pentagon, Palantir Maven). The code kept the previous round;
+  nothing reached the reader. Sonnet 4.5 never did this on the same input.
+
+### Fix · topic report: the executive summary cards were skipped when the reply was not strict JSON
+**`app/services/topic_report_service.py`**, commits `a3dd63ea` and `125cf18b`. The executive
+summary (the six cards on the Future Horizons deck) was read with `json.loads` twice and nothing
+else. When both failed the run logged "JSON parse failed — skipping" and the deck had no cards.
+The parser now tries `json_repair` on the whole object, then `extract_json_response`, and keeps
+a result only when it carries the `summaries` list. That last condition matters:
+`extract_json_response` on its own decodes the first inner `{…}` it can when the outer object
+fails, which here is one card, and the run then saved 0 cards while logging success. The skip
+warning now logs the reply's length, head and tail. `tests/test_topic_report_exec_summary_parse.py`
+covers bare, fenced, prose-wrapped and trailing-comma replies (6 cases), and runs on its own event
+loop because other tests import `nest_asyncio` and close the shared one.
+
+### Fix · daily briefing shipped with 0 themes and 0 decision points when the synthesis was cut off
+**`app/services/daily_report_service.py`**, commit `6e22206b`. When the synthesis reply hit
+`max_tokens`, `extract_json_response` returned the first complete inner object (a theme), the
+code took it as the whole result, and the briefing went to review with no themes and no decision
+points while the log said "Synthesis complete". The parse now requires a `themes` list; a reply
+without one raises, falls back to the plain "Briefing of N articles" summary, and logs the finish
+reason and length. `tests/test_daily_report_synthesis_truncation.py` (2 cases) feeds it a cut-off
+reply and checks the fallback, not the fragment.
+
+### Fix · topic report failed outright on a trailing comma in the Three Horizons reply
+**`app/services/topic_report_service.py`**, commit `6e22206b`. The main Three Horizons parse was a
+strict `json.loads` that raised `RuntimeError` and ended the report. It moved into
+`_parse_horizons_reply`, which falls back to `json_repair` and accepts the result only when it
+still has `scenarios`. Four more cases in the exec-summary test file cover it.
+
+### Ops · output limits raised where Sonnet 4.5's largest replies would overflow on the 5 family
+Commit `6e22206b`, from the ledger's 30-day 95th-percentile and maximum `completion_tokens` per
+use case, times 1.65:
+
+| Call | Was | Now | Evidence |
+|---|---|---|---|
+| Daily briefing synthesis | 3,000 | 6,000 | cut off at 3,000 in the gate; 4.5 used up to 2,695 |
+| Daily briefing judge confirm | 1,500 | 3,000 | |
+| Emerging topics deep analysis | 6,000 | 12,000 | 4.5 max 4,039 on wileytest |
+| Emerging topics theme proposer | 2,000 | 4,000 | 4.5 max 1,698 |
+| News feed six-article analysis and its retry | 4,000 | 8,000 | 4.5 max 3,036 |
+| Topic report, Three Horizons and exec summary | 8,000 | 12,000 | Sonnet 5 wrote up to 5,360 |
+| SIO contradiction checks (two calls) | 1,500 | 4,000 | see Lessons |
+| Auspex `generate_structured_analysis` default, and the market-signals route's default | 3,000 | 6,000 | Sonnet 5.5 used 2,755 of 3,000 (`8e56f15e`) |
+
+A higher limit costs nothing unless the model uses it; it is a ceiling, not a target.
+
+### Ops · the standard and premium tiers move to Claude Sonnet 5.5
+Commit `8e56f15e`. Sonnet 5.5 was chosen over Sonnet 5 because it costs the same and is newer,
+so it will not need its own migration as soon. What changed:
+
+- **`app/model_tiers.py`**: `standard` and `premium` → `claude-sonnet-5-5`.
+- **`app/config/litellm_config.yaml`**: a `claude-sonnet-5-5` entry (`thinking: between_tools`,
+  drops `temperature`, `top_p`, `top_k`, `reasoning_effort`, `response_format`) and a fallback
+  to `bedrock-claude-haiku` then `nova-pro`. The nine legacy alias names (`gpt-4o`, `gpt-4.1`,
+  `gpt-5`, `gpt-5.5`, `gpt-5.4`, `claude-4-sonnet-latest`, `claude-3-7-sonnet-latest`,
+  `claude-3-5-sonnet-latest`, `bedrock-claude-sonnet`) now target Sonnet 5.5 with the same
+  params. The honest `claude-sonnet-4-5` entry still runs Sonnet 4.5 for anything that names it,
+  until April. Backup: `app/config/litellm_config.yaml.bak-sonnet55-20261009` (untracked).
+- **15 agent files** under `data/auspex/agents/` had `model_config.model: claude-sonnet-4-5`
+  (the briefing reviewer, every `wiley_*` report agent, `report_writer`, `research_synthesizer`,
+  `pam_synthesis_agent`, `sio_synthesis_agent`, `eos_scenario_building_agent`,
+  `fg_profiling_agent`). All now `claude-sonnet-5-5`.
+- **`app/services/market_foresight.py`** and **`app/tasks/foresight_refresh.py`** named 4.5 as
+  their default; both now read `default_model("standard")` unless their env var is set.
+- **`app/compliance/ai_disclosure.py`**: the `claude-sonnet-5` label pattern also matched
+  `claude-sonnet-5-5`, so EU AI Act notices would have said "Claude Sonnet 5". A 5.5 entry now
+  precedes it.
+- **`app/routes/trend_convergence_routes.py`** lists Sonnet 5.5 in the model picker.
+- **`app/services/llm_usage_logger.py`** fallback price table: `claude-sonnet-5-5` at $2.20 in /
+  $11.00 out per million tokens (the `us.` profile; litellm's `model_cost` agrees). Sonnet 4.5 on
+  `us.` is $3.30 / $16.50. With 1.65× the output tokens the output side costs about 10% more
+  than today; input is about a third cheaper.
+- **`.env`**: `HUMANIZE_MODEL=claude-sonnet-5-5` (untracked file; previous value saved in the
+  session scratchpad only).
+- **`tests/test_model_tiers_and_caps.py`** and **`tests/test_foresight_refresh.py`** updated for
+  the new default.
+
+### Ops · the React UI stops naming Sonnet 4.5 as its default
+Commit `dd062c03`. 37 defaults and fallbacks in `ui/src` sent `claude-sonnet-4-5` by name
+(the EB, SIO, EOS, FG, Newsletter and PAM tune modals, briefing desk finalize, briefing section,
+executive briefing, newsletter, the topic report "rerun forecast" button, emerging topics config,
+`api.ts` and `briefingDeskApi.ts` defaults), so those screens would have stayed on 4.5 after the
+tier switch. They now send `claude-sonnet-5-5`. The five hard-coded option lists
+(`PAMTuneModal`, `EmergingTopicsConfigModal`, `LLMConfigModal`, `NewsFeedHeader`, the `api.ts`
+fallback list) offer Sonnet 5.5 above Sonnet 4.5, which stays selectable. Both context-limit maps
+(`auspexService.ts`, `contextCalculation.ts`) gain 5.5. `useTrendConvergence.ts` adds
+`claude-sonnet-4-5` to `LEGACY_AUTO_PICK_MODELS`, so a stored config still on the old default
+migrates to the new one; a model a user chose on purpose is kept. Built with
+`./ui/deploy-react-ui.sh` in the bugfixing tree (allowed: no other session's `ui/src` edits were
+pending); entry bundle `index--tZjo_KL.js`; the built templates and `static/trend-convergence`
+are in the commit.
+
+### Verification
+- Gate, Sonnet 5.5, two runs each, reviewer on 5.5 (`scratchpad/gate_s55b.json`): daily briefing
+  3,628 and 3,046 of 6,000 synthesis tokens, 4 themes and 5 decision points both times, reviewer
+  `approved` / `approved_with_warnings` with 0 errors; compose drafted; topic report 13 scenarios
+  and 6 cards both times, largest call 5,257 of 12,000; Auspex JSON parsed, 6 themes, chat
+  finished. No failed call, no `length` finish, every reply parsed first time.
+- Gate, Sonnet 5 after the fixes (`gate_s5_r3.json`): synthesis 3,139 and 2,821 of 6,000,
+  reviewer 0 errors; one Three Horizons reply with a trailing comma, which is what the
+  `_parse_horizons_reply` fix covers.
+- `pytest tests/test_topic_report_exec_summary_parse.py tests/test_daily_report_synthesis_truncation.py`:
+  12 passed. `tests/test_model_tiers_and_caps.py tests/test_foresight_refresh.py`: 17 passed.
+  The related suites (`-k "daily_report or desk_briefing or topic_report or news_feed or emerging
+  or theme or auspex or disclosure or usage"`): 181 passed, 1 failed
+  (`test_writes_beyond_the_admin_set_are_deliberate`, also failing at `4c25935a` before this
+  work, checked in a worktree). `test_restyle_swaps_palette_inside_styles_and_the_wiley_eyebrow`
+  also fails at HEAD without these changes.
+- `npm run typecheck` in `ui/`: clean, 228 errors all in the 246-entry baseline, 18 baseline
+  errors now fixed (baseline not re-recorded).
+- Direct Bedrock probes: `us.anthropic.claude-sonnet-5-5` and `us.anthropic.claude-sonnet-5`
+  both answer from this account; the Sonnet 5.5 price in `litellm.model_cost` matches the table.
+- Startup: `check_tiers_resolve()` returns `[]`; `model_caps("gpt-5.4")` resolves to the
+  Sonnet 5.5 target with `supports_temperature=False`; `model_label("…claude-sonnet-5-5")` →
+  "Claude Sonnet 5.5".
+
+### Propagation
+- **bugfixing**: restarted at 19:44 with `6e22206b` (limits, parsers) and again at **22:19**
+  with `8e56f15e` and `dd062c03`, via `restart_when_quiet.sh` (queued about 20:50; it waited
+  on the ingest). After the second restart: no tracebacks, the startup model list carries
+  `claude-sonnet-5-5`, `explore_react.html` serves `index--tZjo_KL.js`, and the ingest resumed
+  (40 processed, 0 errors at 22:20). No standard-tier call had run by 22:21 (only Kimi, Nova and
+  Jev ingest calls in the ledger), so the first proof that live writing goes to Sonnet 5.5 is
+  the next daily briefing or Auspex chat; check `llm_usage_log` for `resolved_model` =
+  `us.anthropic.claude-sonnet-5-5`. Between 19:58 and 22:19 the service ran a restart another
+  session made, with the limits live but the old tier.
+- **Every other site still runs Sonnet 4.5** and none has these commits. A rollout needs, per
+  site: the yaml entry with `between_tools` (sites without any Sonnet 5 entry: abbott, abm, pbm,
+  pearson, sage, wbm, wiley, wileytest; bwtemplate has one 4.5 reference), the nine alias
+  repoints, the 15 agent files, `HUMANIZE_MODEL` on the seven sites that set it (abm, bugfixing,
+  oviva, panaya, wbm, wiley, wileytest), the limit and parser changes in `daily_report_service.py`,
+  `topic_report_service.py`, `news_feed_service.py`, `article_intelligence_analyzer.py` and the
+  two emerging-topics files (these have drifted on wileytest and wiley, so patch with an overlay
+  check, not a copy), and a UI bundle built in a scratch tree from HEAD minus the Swiss elections
+  commits. Decision taken this session: hold wiley and wileytest until bugfixing has run a day of
+  real briefings, topic reports and Auspex chats on Sonnet 5.5 and the ledger shows the cost.
+- The gate's Sonnet 5 and 5.5 calls did not reach `llm_usage_log` (only 22 Sonnet 4.5 rows,
+  $0.55, since 17:00), so their cost is not recorded; token counts above are from the gate JSON.
+
+### Lessons
+- **Sonnet 5.5 on Bedrock needs `thinking: {"type": "between_tools"}`.** `disabled` is a 400 on
+  every call. Copying the Sonnet 5 yaml entry verbatim takes a site down for every
+  standard-tier call.
+- **The 5 family writes ~1.65× the tokens of Sonnet 4.5 for the same text.** Before pointing a
+  model at a fixed `max_tokens`, read the ledger's maximum for that use case and multiply.
+- **A strict parse plus `extract_json_response` as the fallback silently returns a fragment.**
+  When the outer object fails it decodes the first inner one. Any parser on a long reply must
+  check for the key it needs (`themes`, `summaries`, `scenarios`) or it will "succeed" with
+  nothing.
+- **Gate the reviewer, not only the writer.** Agent files pin their own model; `--model` on the
+  gate does not reach them. `--agent-model` does.
+- Open findings, not fixed: on wileytest about 100 Sonnet 4.5 calls a day stop at exactly 1,500
+  `completion_tokens` (ledger: 97–141 a day, 30 Sep to 7 Oct). The ledger cannot name the caller
+  because those calls go straight to litellm; the SIO contradiction checks are the likely match
+  and their limit is now 4,000 on bugfixing only. A cut-off reply there parses to an empty list,
+  so the check reports "no contradictions" with no error. Also: the topic report generates its
+  executive summary twice per run and writes both to the same cache key (paid twice, every
+  model); 35 emerging-topics and topic-report tests fail only in some orders because
+  `nest_asyncio` and a test that closes the loop collide.
+
 ## 2026-10-09 — Site freezes traced and fixed; category and time-to-impact labels stop getting lost; Voices labels and profiles corrected
 
 ### Goal
