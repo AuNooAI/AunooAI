@@ -481,11 +481,13 @@ async def _refresh_horizon(conn, market: Dict[str, Any], now: datetime) -> None:
 
 
 async def _refresh_chart(market: Dict[str, Any]) -> None:
-    """Freeze the weekly vendor chart once a week is ready. Most ticks find
-    nothing to do; the check and any compute run in a thread on their own
+    """Freeze the weekly vendor chart once a week is ready, then, for a
+    market that has the weekly LinkedIn post on, compose and mail it. Most
+    ticks find nothing to do; the freeze runs in a thread on its own
     connection, since a backfill is several sequential reads."""
+    from app.services import market_chart as mc
+
     def _work() -> list:
-        from app.services import market_chart as mc
         own = get_database_instance()._temp_get_connection()
         try:
             return mc.refresh(own, market["id"])
@@ -493,9 +495,22 @@ async def _refresh_chart(market: Dict[str, Any]) -> None:
             own.close()
 
     weeks = await asyncio.to_thread(_work)
-    if weeks:
-        logger.info("market %s: froze vendor chart weeks %s", market["id"],
-                    ", ".join(w.isoformat() for w in weeks))
+    if not weeks:
+        return
+    logger.info("market %s: froze vendor chart weeks %s", market["id"],
+                ", ".join(w.isoformat() for w in weeks))
+    if not mc.post_enabled(market):
+        return
+    from app.services import market_weekly_post as mwp
+    own = get_database_instance()._temp_get_connection()
+    try:
+        if await mwp.send(own, market, weeks[-1]):
+            logger.info("market %s: mailed weekly post for %s", market["id"], weeks[-1])
+    except Exception:
+        own.rollback()
+        logger.exception("market %s: weekly post failed", market["id"])
+    finally:
+        own.close()
 
 
 # "Being discussed" and "Emerging" on the front page read the newest stored

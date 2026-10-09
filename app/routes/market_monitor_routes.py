@@ -385,6 +385,28 @@ async def commit_import(
 # Market CRUD
 # ---------------------------------------------------------------------------
 
+@router.get("/markets/{market_id}/weekly-post.txt")
+async def weekly_post(market_id: int, session=Depends(verify_session_api)):
+    """The newest stored weekly LinkedIn post, as mailed to the editors."""
+    from fastapi.responses import Response
+
+    def _work():
+        conn = _conn()
+        try:
+            _load_market(conn, market_id)
+            return conn.execute(text("""
+                SELECT content FROM bw_market_weekly_posts
+                WHERE market_id = :m ORDER BY week_start DESC LIMIT 1
+            """), {"m": market_id}).scalar()
+        finally:
+            conn.close()
+
+    body = await asyncio.to_thread(_work)
+    if not body:
+        raise HTTPException(status_code=404, detail="No weekly post stored for this market yet")
+    return Response(body, media_type="text/plain; charset=utf-8")
+
+
 @router.get("/markets")
 async def list_markets(session=Depends(verify_session_api)):
     def _work():

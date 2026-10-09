@@ -50,6 +50,12 @@ def title(market: Dict[str, Any], n: int) -> str:
     return tmpl.replace("{n}", str(n))
 
 
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}" + {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
 def last_frozen_week(today: Optional[date] = None) -> date:
     """The Monday of the newest week that has closed."""
     today = today or datetime.now(_TZ).date()
@@ -286,3 +292,40 @@ def chart(conn, market_id: int) -> Dict[str, Any]:
         out.append(dict(d, **meta, vendor=r["vendor"], momentum=r["momentum"],
                         band=r["band"]))
     return {"week_start": week, "rows": out}
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the weekly LinkedIn post (market_weekly_post)
+# ---------------------------------------------------------------------------
+
+# A move smaller than this is not called out by name: one or two places is
+# the chart breathing, not news.
+POST_MIN_MOVE = 3
+
+
+def _config(market: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    return cfg.get("chart") or {}
+
+
+def post_enabled(market: Dict[str, Any]) -> bool:
+    return bool(_config(market).get("linkedin_post"))
+
+
+def _names(items: List[str]) -> str:
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _span(week: date) -> str:
+    """"5 to 11 October": no dash, which reads as machine-written in a post."""
+    end = week + timedelta(days=6)
+    if week.month == end.month:
+        return f"{week.day} to {end.day} {end.strftime('%B')}"
+    return f"{week.day} {week.strftime('%B')} to {end.day} {end.strftime('%B')}"

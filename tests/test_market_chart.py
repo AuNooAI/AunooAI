@@ -168,3 +168,8 @@ def test_spark_gap_and_empty():
     # the lone first point has no segment; the gap splits the line
     assert svg.count("<polyline") == 1
     assert _spark([None, None], 0, 100) == ""
+
+
+def test_post_enabled_flag():
+    assert mc.post_enabled({"config": {"chart": {"linkedin_post": True}}})
+    assert not mc.post_enabled({"config": {"chart": {"title": "x"}}})
