@@ -12,6 +12,7 @@ export const CONTEXT_LIMITS: Record<string, number> = {
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
   'bedrock-kimi-k2-5': 256000,
+  'claude-sonnet-5-5': 200000,
   'claude-sonnet-4-5': 200000,
   'claude-haiku-4-5': 200000,
   'nova-pro': 300000,

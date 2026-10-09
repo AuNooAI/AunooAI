@@ -855,7 +855,7 @@ export function Newsletter({
           days_back: daysBack,
           deep_dive_topic: deepDiveTopic || undefined,
           articles_used: result?.articles_used,
-          model_used: result?.model_used || 'claude-sonnet-4-5'
+          model_used: result?.model_used || 'claude-sonnet-5-5'
         })
       });
 

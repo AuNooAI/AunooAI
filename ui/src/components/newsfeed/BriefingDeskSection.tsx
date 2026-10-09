@@ -316,7 +316,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     setFinalizeProgress(null);
 
     try {
-      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-4-5', (event) => {
+      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-5-5', (event) => {
         setFinalizeProgress(event);
       }, {
         organizational_profile: organizationalProfile,
@@ -340,7 +340,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     if (!selectedBriefing) return;
     setFinalizing(true);
     try {
-      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-4-5', () => undefined, {
+      await finalizeBriefing(selectedBriefing.id, model || 'claude-sonnet-5-5', () => undefined, {
         override_review: true,
         override_note: note,
       });

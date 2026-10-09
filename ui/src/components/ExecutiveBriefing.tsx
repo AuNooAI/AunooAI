@@ -668,7 +668,7 @@ export function ExecutiveBriefing({
                 strategic_relevance: a.strategic_relevance
               })),
               duration: podcastDuration || 'short',
-              model: 'claude-sonnet-4-5'
+              model: 'claude-sonnet-5-5'
             })
           });
 

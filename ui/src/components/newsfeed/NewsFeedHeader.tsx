@@ -261,6 +261,7 @@ export function NewsFeedHeader({
                 </>
               ) : (
                 <>
+                  <SelectItem value="claude-sonnet-5-5">Claude Sonnet 5.5</SelectItem>
                   <SelectItem value="claude-sonnet-4-5">Claude Sonnet 4.5</SelectItem>
                   <SelectItem value="claude-haiku-4-5">Claude Haiku 4.5</SelectItem>
                   <SelectItem value="nova-pro">Nova Pro</SelectItem>

@@ -47,6 +47,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-sonnet-4-5': 200000,
   'claude-haiku-4-5': 200000,
   'claude-sonnet-5': 200000,
+  'claude-sonnet-5-5': 200000,
   'claude-opus-5': 200000,
   'nova-pro': 300000,
   'nova-lite': 300000,

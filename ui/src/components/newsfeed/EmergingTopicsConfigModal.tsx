@@ -77,7 +77,7 @@ const DEFAULT_CONFIG: EmergingTopicsConfig = {
   distanceThreshold: 0.85,
   minArticlesPerTheme: 3,
   maxArticlesPerTheme: 30,
-  model: 'claude-sonnet-4-5',
+  model: 'claude-sonnet-5-5',
 };
 
 const STORAGE_KEY = 'emergingTopicsConfig';
@@ -190,6 +190,7 @@ export function EmergingTopicsConfigModal({
   const modelOptions = availableModels.length > 0
     ? availableModels
     : [
+        { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'bedrock' },
         { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'bedrock' },
         { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'bedrock' },
         { id: 'nova-pro', name: 'Nova Pro', provider: 'bedrock' },
@@ -199,7 +200,7 @@ export function EmergingTopicsConfigModal({
 
   // Keep an already-saved model selected even when it is no longer offered,
   // rather than silently showing (and then saving) the first option instead.
-  const selectedModel = config.model || modelOptions[0]?.id || 'claude-sonnet-4-5';
+  const selectedModel = config.model || modelOptions[0]?.id || 'claude-sonnet-5-5';
 
   const handleSave = async () => {
     setLoading(true);

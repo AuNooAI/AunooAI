@@ -133,6 +133,7 @@ const ENTITY_TYPES = [
 // does not know.
 const MODEL_OPTIONS = [
   { value: 'default', label: 'Default' },
+  { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
   { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
   { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
   { value: 'bedrock-kimi-k2-5', label: 'Kimi K2.5' },

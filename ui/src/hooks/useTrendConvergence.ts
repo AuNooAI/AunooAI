@@ -60,8 +60,9 @@ const DEFAULT_CONFIG: AnalysisConfig = {
   // Flagship tier. On the Bedrock-routed tenants the old 'gpt-5' default
   // already resolved to claude-sonnet-4-5 via the litellm alias — this names
   // the same model honestly now that aliases are hidden from the model list.
-  // Users can override via the AI Model picker.
-  model: 'claude-sonnet-4-5',
+  // Users can override via the AI Model picker. Sonnet 5.5 since 9 Oct 2026:
+  // Bedrock ends Sonnet 4.5 on 8 Apr 2027.
+  model: 'claude-sonnet-5-5',
   source_quality: 'all',
   sample_size_mode: 'auto',
   consistency_mode: 'balanced',
@@ -99,6 +100,7 @@ const LEGACY_AUTO_PICK_MODELS = new Set([
               // reasoning_effort wiring landed.
   'gpt-5',    // former default; on these tenants it routed to claude-sonnet-4-5
               // anyway — same model, now under its own name.
+  'claude-sonnet-4-5',  // the default until 9 Oct 2026; Bedrock ends it 8 Apr 2027
 ]);
 
 export function useTrendConvergence(): UseTrendConvergenceReturn {
