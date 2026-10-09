@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from urllib.parse import urlparse
+import asyncio
 import logging
 import os
 import json
@@ -495,10 +496,9 @@ class Research:
             # Try to scrape with Firecrawl
             try:
                 logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
-                scrape_result = self.firecrawl_app.scrape(
-                    uri,
-                    formats=["markdown"]
-                )
+                # The SDK call blocks for up to ~30s; keep it off the event loop.
+                scrape_result = await asyncio.to_thread(
+                    self.firecrawl_app.scrape, uri, formats=["markdown"])
                 scrape_data = self._normalize_scrape_result(scrape_result)
                 
                 # Extract content
@@ -588,10 +588,9 @@ class Research:
             
             # Try to scrape with Firecrawl
             logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
-            scrape_result = self.firecrawl_app.scrape(
-                uri,
-                formats=["markdown"]
-            )
+            # The SDK call blocks for up to ~30s; keep it off the event loop.
+            scrape_result = await asyncio.to_thread(
+                self.firecrawl_app.scrape, uri, formats=["markdown"])
             scrape_data = self._normalize_scrape_result(scrape_result)
             
             logger.debug(f"Scrape result type: {type(scrape_result)}")
@@ -1108,10 +1107,9 @@ class Research:
             # Use Firecrawl to scrape the article
             try:
                 logger.info(f"Using Firecrawl to scrape {uri}")
-                scrape_result = self.firecrawl_app.scrape(
-                    uri,
-                    formats=["markdown"]
-                )
+                # The SDK call blocks for up to ~30s; keep it off the event loop.
+                scrape_result = await asyncio.to_thread(
+                    self.firecrawl_app.scrape, uri, formats=["markdown"])
                 scrape_data = self._normalize_scrape_result(scrape_result)
             except Exception as scrape_error:
                 logger.error(f"Firecrawl API error: {str(scrape_error)}")
