@@ -2231,6 +2231,11 @@ def _stored_candidates(conn, market_id: int, days: int
     # post differently, the event follows the post.
     readings_now: Dict[str, Tuple[str, str]] = {}
     confidence: Dict[str, float] = {}
+    # Customer posts whose deal is outside the market or runs the other way
+    # ("Bundesliga uses ServiceNow CRM"; Kai's post on Anthropic's case study
+    # about Kai). Not a customer win, so not a development.
+    misfit: Set[str] = set()
+    from app.services.market_post_review import customer_fit_passes
     for r in conn.execute(text("""
         SELECT article_uri, review_verdict, review_kind, review_reason,
                review_headline, review_summary, review_check
@@ -2239,6 +2244,9 @@ def _stored_candidates(conn, market_id: int, days: int
     """), {"m": market_id}).mappings():
         readings_now[r["article_uri"]] = (r["review_verdict"],
                                           (r["review_kind"] or "").lower())
+        if (r["review_kind"] or "").lower() == "customer" \
+                and not customer_fit_passes(r["review_check"]):
+            misfit.add(r["article_uri"])
         if r["review_verdict"] != "signal":
             continue
         if r["review_reason"]:
@@ -2345,6 +2353,8 @@ def _stored_candidates(conn, market_id: int, days: int
                 if _FAMILY.get(reread) != _FAMILY.get(kind):
                     kind = _refine_funding(_refine_product(reread, text_value),
                                            text_value)
+        if kind == "customer" and any(e.get("uri") in misfit for e in evidence):
+            continue
         written, dek = next((writing[e["uri"]] for e in evidence
                              if e.get("uri") in writing), (None, None))
         headline_uri = next((e["uri"] for e in evidence if e.get("uri") in writing),
@@ -2438,6 +2448,7 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
     """
     from app.services import market_corpus as mcorp
     from app.services.market_corpus import _iso_days_ago
+    from app.services.market_post_review import customer_fit_passes
 
     rows = mcorp.articles(conn, market_id, limit=5000, days=days)
     names = _registry_names(conn, [v.get("brand_id") for r in rows
@@ -2497,6 +2508,9 @@ def _corpus_candidates(conn, market_id: int, days: int, held: Set[str]
         # news: Nebulock's "When Your Insider Risk Program Is Put to the Test".
         if kind == "customer" and klass == "vendor" \
                 and not (row.get("review_customer") or {}).get("name"):
+            kind = None
+        # A named customer outside the market, or the vendor as the buyer.
+        if kind == "customer" and not customer_fit_passes(row.get("review_check")):
             kind = None
         ruled = None
         if kind:

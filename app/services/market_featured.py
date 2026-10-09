@@ -30,6 +30,19 @@ KIND_LABEL = {
 }
 
 
+#: The link's verb for each kind, where "Read the" is wrong: "Read the
+#: webinar" asked a reader to read a registration page.
+KIND_ACTION = {
+    "webinar": "Register for the",
+    "talk": "Watch the",
+    "podcast": "Listen to the",
+}
+
+
+def kind_action(kind: Optional[str]) -> str:
+    return KIND_ACTION.get((kind or "").lower(), "Read the")
+
+
 def kind_label(kind: Optional[str]) -> str:
     return KIND_LABEL.get((kind or "").lower(), (kind or "Featured").capitalize())
 

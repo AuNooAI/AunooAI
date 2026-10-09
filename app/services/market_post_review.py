@@ -32,7 +32,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -1529,15 +1529,45 @@ def _author(row: Dict[str, Any]) -> str:
     return str((meta or {}).get("author") or "") if isinstance(meta, dict) else ""
 
 
-def _social_questions(market_name: str, terms: List[str],
-                      vendors: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
-    # The market's name alone is not enough: a customer's market is named after
-    # the customer ("Oviva"), so the question read "Is this post about Oviva?"
-    # and every post about another tracked vendor failed it, HelloBetter's data
-    # breach included. Naming the vendors makes the question the market's.
+def _market_about(market_name: str, terms: List[str],
+                  vendors: Optional[List[str]] = None) -> str:
+    """The market described for a question: its name, phrases and vendors.
+
+    The market's name alone is not enough: a customer's market is named after
+    the customer ("Oviva"), so the question read "Is this post about Oviva?"
+    and every post about another tracked vendor failed it, HelloBetter's data
+    breach included. Naming the vendors makes the question the market's.
+    """
     about = f"the {market_name} market" + (f" ({', '.join(terms[:8])})" if terms else "")
     if vendors:
         about += f", whose companies include {', '.join(vendors[:12])}"
+    return about
+
+
+def _market_context(conn, market_id: int) -> Tuple[str, List[str], List[str]]:
+    """The market's name, collection phrases and vendor names."""
+    from app.services.market_collect import market_terms
+
+    name = conn.execute(text("SELECT name FROM bw_markets WHERE id = :m"),
+                        {"m": market_id}).scalar() or ""
+    terms = market_terms(conn, market_id)
+    if not terms:
+        # A market with no collection phrases of its own still has the
+        # phrases it reads the corpus with.
+        from app.services.market_corpus import context_terms
+        terms = context_terms(conn, market_id)
+    vendors = [r[0] for r in conn.execute(text("""
+        SELECT b.display_name FROM bw_market_brands mb
+          JOIN bw_brands b ON b.id = mb.brand_id
+         WHERE mb.market_id = :m AND mb.role = 'vendor'
+         ORDER BY mb.sort_order NULLS LAST, b.display_name
+    """), {"m": market_id}).fetchall()]
+    return name, terms, vendors
+
+
+def _social_questions(market_name: str, terms: List[str],
+                      vendors: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
+    about = _market_about(market_name, terms, vendors)
     return {
         "on_topic": {
             "type": "noul",
@@ -1614,24 +1644,10 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600,
     import concurrent.futures
 
     from app.database import get_database_instance
-    from app.services.market_collect import market_terms
 
     conn = get_database_instance()._temp_get_connection()
     try:
-        name = conn.execute(text("SELECT name FROM bw_markets WHERE id = :m"),
-                            {"m": market_id}).scalar() or ""
-        terms = market_terms(conn, market_id)
-        if not terms:
-            # A market with no collection phrases of its own still has the
-            # phrases it reads the corpus with.
-            from app.services.market_corpus import context_terms
-            terms = context_terms(conn, market_id)
-        vendors = [r[0] for r in conn.execute(text("""
-            SELECT b.display_name FROM bw_market_brands mb
-              JOIN bw_brands b ON b.id = mb.brand_id
-             WHERE mb.market_id = :m AND mb.role = 'vendor'
-             ORDER BY mb.sort_order NULLS LAST, b.display_name
-        """), {"m": market_id}).fetchall()]
+        name, terms, vendors = _market_context(conn, market_id)
         since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
         rows = conn.execute(text("""
             SELECT ma.article_uri, a.title, a.summary
@@ -1669,5 +1685,168 @@ def check_social_posts(market_id: int, *, days: int = 31, limit: int = 600,
             shown += int(social_passes({"review_check": {"social": check}}))
         conn.commit()
         return {"candidates": len(rows), "checked": stored, "shown": shown}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Customer posts: is the deal in this market, and is the vendor the supplier?
+# ---------------------------------------------------------------------------
+#
+# The customer check above asks only whether the named organisation uses the
+# publisher's product. For a large vendor that is often true and beside the
+# point: "Bundesliga uses ServiceNow CRM for fan support" and "AT&T data
+# scientist uses GitHub Copilot for HR chatbot" passed at 0.97 and 0.89 and
+# led the AI-in-the-SOC customer highlight (9 Oct 2026). It also passed a deal
+# the wrong way round: Kai Security's post about Anthropic's case study on Kai
+# recorded Anthropic as Kai's customer, at 0.82. Each customer post is now read
+# once more and the answers stored under review_check.customer_fit.
+
+#: Least probability for a customer post to count as a customer win.
+CUSTOMER_FIT_MIN = 0.5
+
+
+def _customer_fit_questions(about: str) -> Dict[str, Dict[str, Any]]:
+    return {
+        # "Is it a product of the AI-in-the-SOC market" turned away Cortex
+        # XSOAR (0.12) and CrowdStrike Falcon (0.11): the market is named for
+        # its newest products, and a customer win in the same field counts.
+        "in_market": {
+            "type": "noul",
+            "instructions": (f"`post` was published by `publisher`. Does "
+                             f"`customer_name` buy, deploy or use `publisher`'s "
+                             f"product for the line of work served by {about}? "
+                             "An established product in that same field counts, "
+                             "not only the market's newest kind."),
+            "criteria": {
+                "true": "The customer uses the product for the work this market's "
+                        "products do",
+                "false": "It is another line of the publisher's business, such as "
+                         "CRM, HR, developer tools, search or general IT, or the "
+                         "post does not say what the customer uses it for"},
+        },
+        # A yes/no "is the publisher the supplier" passed Kai's post about
+        # Anthropic's case study on Kai at 0.74; asked as a choice between the
+        # two directions, the post's "Kai uses Claude" has to decide it.
+        "direction": {
+            "type": "choice",
+            "instructions": ("`post` was published by `publisher`. According to "
+                             "`post`, who uses whose product?"),
+            "criteria": {
+                "customer_uses_publisher": "`customer_name` buys, deploys or uses "
+                                           "`publisher`'s product or service",
+                "publisher_uses_customer": "`publisher` buys, deploys or uses "
+                                           "`customer_name`'s product or service, "
+                                           "or the post shares `customer_name`'s "
+                                           "case study about `publisher`",
+                "neither": "Neither uses the other's product, or the post does "
+                           "not say"},
+        },
+    }
+
+
+def _fit_about(conn, market_id: int) -> str:
+    """The market as the customer-fit question names it: its own scope text
+    where it has one, otherwise its name, phrases and vendors."""
+    row = conn.execute(text("""
+        SELECT market_scope_description, inclusion_criteria
+          FROM bw_markets WHERE id = :m
+    """), {"m": market_id}).fetchone()
+    scope = " ".join(x.strip() for x in (row or ()) if x and x.strip())
+    name, terms, vendors = _market_context(conn, market_id)
+    return f"the {name} market ({scope})" if scope else _market_about(name, terms, vendors)
+
+
+def check_customer_fit_one(text_value: str, publisher: str, customer_name: str,
+                           about: str) -> Optional[Dict[str, Any]]:
+    from app.services import typesafe_client
+
+    if not typesafe_client.is_configured() or not (text_value or "").strip():
+        return None
+    out = typesafe_client.system_one(
+        {"post": text_value[:CHECK_SOURCE_CHARS], "publisher": publisher,
+         "customer_name": customer_name},
+        _customer_fit_questions(about),
+        use_case="services.market_post_review:check_customer_fit")
+    if not out:
+        return None
+    a = out.get("answers") or {}
+    probs = (a.get("direction") or {}).get("probabilities") or {}
+    return {"in_market": round(float((a.get("in_market") or {}).get("noul", 0.0)), 3),
+            "supplier": round(float(probs.get("customer_uses_publisher", 0.0)), 3),
+            "model": out.get("model")}
+
+
+def customer_fit_passes(check: Optional[Dict[str, Any]]) -> bool:
+    """Whether a customer post may count as a customer win. An unchecked post
+    counts, as with the social check: "unchecked" includes "Jev could not be
+    reached", and that must not empty the customer list."""
+    fit = (check or {}).get("customer_fit") if isinstance(check, dict) else None
+    if not isinstance(fit, dict):
+        return True
+    return (float(fit.get("in_market") or 0.0) >= CUSTOMER_FIT_MIN
+            and float(fit.get("supplier") or 0.0) >= CUSTOMER_FIT_MIN)
+
+
+def check_customer_posts(market_id: int, *, days: int = 31, limit: int = 300,
+                         redo: bool = False) -> Dict[str, int]:
+    """Check every unchecked customer post in the window that names its
+    customer. Without a name the direction question has nothing to hold on
+    to: "Mid-tier bank cuts alert volume using Securaa SOAR" scored 0.35.
+    Synchronous and on its own connection, so a caller can run it
+    in a worker thread."""
+    import concurrent.futures
+
+    from app.database import get_database_instance
+
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        about = _fit_about(conn, market_id)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+        # The publisher is the vendor the post is filed under, found as the
+        # review's own candidates find it.
+        rows = conn.execute(text("""
+            SELECT DISTINCT ON (a.uri)
+                   ma.article_uri, a.title, a.summary, b.display_name,
+                   ma.review_customer->>'name'
+              FROM bw_market_articles ma
+              JOIN articles a ON a.uri = ma.article_uri
+              JOIN bw_article_categories bac ON bac.article_uri = a.uri
+              JOIN bw_market_brands mb ON mb.brand_id = bac.brand_id
+                                       AND mb.market_id = ma.market_id
+              JOIN bw_brands b ON b.id = bac.brand_id
+             WHERE ma.market_id = :m
+               AND ma.review_verdict = 'signal'
+               AND ma.review_kind = 'customer'
+               AND COALESCE(ma.review_customer->>'name', '') <> ''
+               AND COALESCE(a.publication_date, a.submission_date) >= :since
+               AND (:redo OR ma.review_check IS NULL
+                    OR NOT (ma.review_check ? 'customer_fit'))
+             ORDER BY a.uri
+             LIMIT :lim
+        """), {"m": market_id, "since": since, "lim": int(limit),
+               "redo": bool(redo)}).fetchall()
+        conn.rollback()
+
+        def one(r):
+            body = f"{r[1] or ''}\n{r[2] or ''}".strip()
+            return r[0], check_customer_fit_one(body, r[3] or "the company", r[4], about)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=_CHECK_CONCURRENCY) as pool:
+            results = list(pool.map(one, rows))
+        stored = kept = 0
+        for uri, fit in results:
+            if not fit:
+                continue
+            conn.execute(text("""
+                UPDATE bw_market_articles
+                   SET review_check = COALESCE(review_check, '{}'::jsonb)
+                                      || jsonb_build_object('customer_fit', CAST(:c AS JSONB))
+                 WHERE market_id = :m AND article_uri = :u
+            """), {"c": json.dumps(fit), "m": market_id, "u": uri})
+            stored += 1
+            kept += int(customer_fit_passes({"customer_fit": fit}))
+        conn.commit()
+        return {"candidates": len(rows), "checked": stored, "kept": kept}
     finally:
         conn.close()

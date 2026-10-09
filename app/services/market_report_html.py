@@ -4008,8 +4008,7 @@ def _v2_piece_card(piece_row: Dict[str, Any], link_params: Dict[str, Any], *,
             f' · <a href="{href}">Read &rarr;</a></div></article>')
 
 
-def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]],
-                     *, read: str) -> str:
+def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]]) -> str:
     """Who wrote it, who published it, and the link. The publisher gets its
     mark when it is a vendor we hold one for."""
     from app.services import market_featured as mfe
@@ -4021,7 +4020,8 @@ def _featured_byline(r: Dict[str, Any], logos: Optional[Dict[str, str]],
     if who and r.get("sponsored"):
         who = "Sponsored by " + who
     bits = [esc(r.get("byline") or ""), who,
-            f'<a href="{esc(r["url"])}" rel="noopener">{esc(read)} {mfe.kind_label(r.get("kind")).lower()} &rarr;</a>']
+            f'<a href="{esc(r["url"])}" rel="noopener">{esc(mfe.kind_action(r.get("kind")))} '
+            f'{mfe.kind_label(r.get("kind")).lower()} &rarr;</a>']
     return '<div class="n-byline">' + " · ".join(b for b in bits if b) + "</div>"
 
 
@@ -4057,7 +4057,7 @@ def _v2_featured_strip(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str
                    f' · {esc(mfe.kind_label(r.get("kind")))}</div>'
                    f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
                    + (f'<p>{esc(_clip(r["blurb"], 520))}</p>' if r.get("blurb") else "")
-                   + _featured_byline(r, logos, read="Read the")
+                   + _featured_byline(r, logos)
                    + "</article>")
     return "".join(out)
 
@@ -4078,7 +4078,7 @@ def _v2_featured_card(rows: List[Dict[str, Any]], logos: Optional[Dict[str, str]
         + (f' · {esc(r["publisher"])}' if r.get("publisher") else "") + "</div>"
         f'<h3><a href="{esc(r["url"])}" rel="noopener">{esc(r.get("title") or "")}</a></h3>'
         + (f'<p>{esc(_opening(r["blurb"], 200))}</p>' if r.get("blurb") else "")
-        + _featured_byline(r, logos, read="Read the")
+        + _featured_byline(r, logos)
         + "</div>"
         for r in rows)
     heading = "Sponsored" if all(r.get("sponsored") for r in rows) else "Featured"

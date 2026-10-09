@@ -112,6 +112,22 @@ def test_a_social_post_is_hidden_only_when_jev_turned_it_away():
         "on_topic": 0.9, "substance": 0.9, "self_promotion": 0.8}}})
 
 
+def test_a_customer_post_counts_unless_jev_found_it_off_market_or_reversed():
+    from app.services import market_post_review as mpr
+
+    # Unchecked counts: Jev being unreachable must not empty the list.
+    assert mpr.customer_fit_passes(None)
+    assert mpr.customer_fit_passes({"customer": 0.9})
+    assert mpr.customer_fit_passes({"customer_fit": {"in_market": 0.94, "supplier": 0.98}})
+    # "Bundesliga uses ServiceNow CRM for fan support".
+    assert not mpr.customer_fit_passes({"customer_fit": {"in_market": 0.02, "supplier": 0.96}})
+    # Kai's post on Anthropic's case study about Kai.
+    assert not mpr.customer_fit_passes({"customer_fit": {"in_market": 0.74, "supplier": 0.09}})
+    q = mpr._customer_fit_questions("the AI in the SOC market")
+    assert set(q) == {"in_market", "direction"}
+    assert "customer_uses_publisher" in q["direction"]["criteria"]
+
+
 def test_the_checker_is_told_who_published_the_post_and_checks_roles():
     from app.services import market_post_review as mpr
 

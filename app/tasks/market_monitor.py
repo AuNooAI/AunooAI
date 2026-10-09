@@ -885,6 +885,14 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
                 counts[verdict] = counts.get(verdict, 0) + n
         except Exception as exc:  # noqa: BLE001
             logger.warning("market %s earned review failed: %s", market_id, exc)
+        # Whether each new customer post is a deal in this market, with the
+        # vendor as the supplier. Reads only posts not yet checked, on its own
+        # connection; this one must not sit idle in a transaction meanwhile.
+        try:
+            conn.commit()
+            await asyncio.to_thread(mpr.check_customer_posts, market_id, days=31)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("market %s customer check failed: %s", market_id, exc)
         # A run where every batch failed is a failed run, not a quiet one.
         if result["batches"] and result["failed_batches"] == result["batches"]:
             status = "failed"
