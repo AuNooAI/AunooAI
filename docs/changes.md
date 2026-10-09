@@ -34,6 +34,17 @@ the Bluesky vendor group (32), and none of them ran.
 **Verification:** after the 10:06 restart the log shows "2 collection lane(s)", then groups 10
 and 21 starting together, both claimed until 11:06.
 
+**Propagation:** we copied the change to wiley and wileytest the same day. Their
+`keyword_monitor.py` differs from canonical by about 630 lines and their facade by about 210, so
+we applied commit `951a099e`'s diff to scratch copies with `patch -F3`. Every hunk applied with
+an offset and none with fuzz. We built overlays (each site's whole `app/` plus the patched files
+and its `.env`) and, with the site's own venv and database, imported both modules, ran
+`get_due_keyword_groups`, built two monitors, and ran the two lane tests by hand, since neither
+venv has pytest. Before copying in we checked that the live files still patched to the same
+result. The originals are kept as `*.bak-lanes-20261009`. `restart_when_quiet.sh` restarted
+wiley at 10:51 and wileytest at 10:54, with no tracebacks, and both logged "2 collection
+lane(s)". No group was cut off: the groups running beforehand had finished at 10:47.
+
 ### Check · first Bluesky run with all vendor names
 We ran group 32 by hand at 09:59 through `check_single_group`, since the queue was blocked. It
 searched 117 terms and stored 229 new posts. All 229 were rated, and 71 passed the 0.45 cutoff.
