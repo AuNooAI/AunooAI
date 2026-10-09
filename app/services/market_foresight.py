@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 
 from app.services.html_report_common import esc
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ REFRESH_DAYS = 30                      # one new run of each report a month
 TIMEFRAME_DAYS = 30                    # the coverage window each run reads
 # Sonnet, not the topics model: three Kimi K2.5 runs of the battery consensus
 # report (9 Oct 2026) each moved facts between companies or invented figures.
-DEFAULT_MODEL = os.getenv("MARKET_FORESIGHT_MODEL", "claude-sonnet-4-5")
+DEFAULT_MODEL = os.getenv("MARKET_FORESIGHT_MODEL") or default_model("standard")
 SESSION_USER = os.getenv("MARKET_FORESIGHT_USER", "admin")   # whose session the refresh runs as
 HISTORY_LIMIT = 12
 KINDS = ("consensus", "horizons")

@@ -29,10 +29,12 @@ from typing import Dict, List
 # Sonnet 4.5, but under that name the report pipelines sent it the reasoning
 # shape (a 4x budget and no temperature). The switch to Sonnet's own name
 # went through a before/after on the four pipelines (docs/changes.md).
+# Moved to Sonnet 5.5 on 9 Oct 2026: AWS ends Sonnet 4.5 on Bedrock on
+# 8 Apr 2027. Gated with scripts/gate_model_shape.py --agent-model.
 TIERS: Dict[str, str] = {
     "fast": "bedrock-kimi-k2-5",
-    "standard": "claude-sonnet-4-5",
-    "premium": "claude-sonnet-4-5",
+    "standard": "claude-sonnet-5-5",
+    "premium": "claude-sonnet-5-5",
 }
 
 

@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from sqlalchemy import text
+from app.model_tiers import default_model
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _settings() -> Optional[Dict[str, Any]]:
         "weekday": int(os.getenv("FORESIGHT_REFRESH_WEEKDAY", "6")),
         "hour": int(os.getenv("FORESIGHT_REFRESH_HOUR", "2")),
         "timeframe_days": int(os.getenv("FORESIGHT_REFRESH_TIMEFRAME_DAYS", "365")),
-        "model": os.getenv("FORESIGHT_REFRESH_MODEL", "claude-sonnet-4-5"),
+        "model": os.getenv("FORESIGHT_REFRESH_MODEL") or default_model("standard"),
         "persona": os.getenv("FORESIGHT_REFRESH_PERSONA", "executive"),
         "user": os.getenv("FORESIGHT_REFRESH_USER", "admin"),
     }

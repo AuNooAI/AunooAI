@@ -90,82 +90,82 @@ model_list:
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: gpt-4.1
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: gpt-5
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: gpt-5.5
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: gpt-5.4
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   # ---- Anthropic-direct names -> Bedrock Claude Sonnet 4.5 ----
   - model_name: claude-4-sonnet-latest
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: claude-3-7-sonnet-latest
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   - model_name: claude-3-5-sonnet-latest
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   # ---- Legacy HF name -> Bedrock Claude Haiku 4.5 (cheap) ----
   - model_name: mixtral-8x7b
@@ -214,11 +214,11 @@ model_list:
     model_info:
       legacy_alias: true
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/us.anthropic.claude-sonnet-5-5
       api_key: "os.environ/AWS_BEDROCK_API_KEY"
       aws_region_name: "us-east-1"
-      thinking: {"type": "disabled"}
-      additional_drop_params: ["reasoning_effort", "response_format"]
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 
   # Local Ollama gemma3:4b — left as-is. Not used (SOCIAL_EVAL_MODEL points at Bedrock)
   # and only resolves if a local `ollama serve` is running.
@@ -296,6 +296,16 @@ model_list:
       aws_region_name: "us-east-1"
       thinking: {"type": "disabled"}
       additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
+  # Replacement for Sonnet 4.5 (Bedrock end of life 8 Apr 2027), added 9 Oct 2026.
+  # Sonnet 5.5 rejects thinking "disabled"; "between_tools" is its way to turn
+  # thinking off (no thinking before a reply, short notes between tool calls).
+  - model_name: claude-sonnet-5-5
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-5-5
+      api_key: "os.environ/AWS_BEDROCK_API_KEY"
+      aws_region_name: "us-east-1"
+      thinking: {"type": "between_tools"}
+      additional_drop_params: ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]
 fallbacks:
   # nova-lite scores relevance on every collected article and had no fallback:
   # a 4-call Bedrock blip on 2026-09-08 opened the circuit breaker for 300 s and
@@ -370,6 +380,9 @@ fallbacks:
       - bedrock-kimi-k2-5
       - nova-lite
   - claude-sonnet-4-5:
+      - bedrock-claude-haiku
+      - nova-pro
+  - claude-sonnet-5-5:
       - bedrock-claude-haiku
       - nova-pro
 routing_strategy: least-busy

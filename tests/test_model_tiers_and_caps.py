@@ -29,6 +29,8 @@ FAKE_YAML = {
     "claude-sonnet-4-5": {"model": SONNET, "additional_drop_params": ["reasoning_effort", "response_format"]},
     "claude-sonnet-5": {"model": "bedrock/us.anthropic.claude-sonnet-5",
                         "additional_drop_params": ["reasoning_effort", "temperature", "top_p", "top_k"]},
+    "claude-sonnet-5-5": {"model": "bedrock/us.anthropic.claude-sonnet-5-5", "thinking": {"type": "between_tools"},
+                          "additional_drop_params": ["reasoning_effort", "response_format", "temperature", "top_p", "top_k"]},
     "bedrock-kimi-k2-5": {"model": KIMI, "additional_drop_params": ["reasoning_effort", "response_format", "thinking"]},
     "gpt-5.4-mini": {"model": KIMI, "additional_drop_params": ["reasoning_effort", "response_format", "thinking"]},
     "openai-gpt-5.5": {"model": "openai/gpt-5.5"},

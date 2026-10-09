@@ -4,7 +4,7 @@ description: Constructs logical analytical extrapolations from weak signals and 
   pathways
 model_config:
   max_tokens: 6000
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.3
 name: eos_scenario_building_agent
 output_schema:

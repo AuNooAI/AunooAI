@@ -6,7 +6,7 @@ category: "research"
 description: "Writes professional research reports with proper citations and structure"
 
 model_config:
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.5
   max_tokens: 8000
 

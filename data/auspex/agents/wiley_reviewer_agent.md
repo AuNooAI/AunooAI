@@ -5,7 +5,7 @@ description: LLM-as-judge reviewer for the Wiley quarterly bundle. Reads every a
 type: agent
 version: 2.3.0
 model_config:
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.2
   max_tokens: 12000
 output_schema:

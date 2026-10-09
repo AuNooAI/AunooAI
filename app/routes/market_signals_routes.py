@@ -112,7 +112,7 @@ async def get_market_signals_analysis(
 
         # Use config parameters from request, with prompt metadata as fallback defaults
         final_temperature = temperature if temperature is not None else prompt_data.get("metadata", {}).get("temperature", 0.7)
-        final_max_tokens = max_tokens if max_tokens is not None else prompt_data.get("metadata", {}).get("max_tokens", 3000)
+        final_max_tokens = max_tokens if max_tokens is not None else prompt_data.get("metadata", {}).get("max_tokens", 6000)
 
         analysis_json = await auspex.generate_structured_analysis(
             system_prompt=system_prompt,

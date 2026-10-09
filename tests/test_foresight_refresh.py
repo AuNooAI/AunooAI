@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from app.tasks import foresight_refresh as fr
+from app.model_tiers import default_model
 
 
 def test_last_slot_is_the_previous_sunday_2am():
@@ -33,4 +34,4 @@ def test_off_without_topics_or_profile(monkeypatch):
     monkeypatch.setenv("FORESIGHT_REFRESH_PROFILE_ID", "8")
     s = fr._settings()
     assert s["topics"] == ["Brand Monitoring Oviva", "Religion, Magic and Occultism"]
-    assert (s["profile_id"], s["model"], s["timeframe_days"]) == (8, "claude-sonnet-4-5", 365)
+    assert (s["profile_id"], s["model"], s["timeframe_days"]) == (8, default_model("standard"), 365)

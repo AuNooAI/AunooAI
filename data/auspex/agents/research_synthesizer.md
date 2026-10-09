@@ -6,7 +6,7 @@ category: "research"
 description: "Synthesizes research findings from multiple sources into coherent analysis"
 
 model_config:
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.4
   max_tokens: 4000
 

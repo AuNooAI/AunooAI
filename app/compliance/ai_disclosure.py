@@ -114,6 +114,7 @@ def docx_set_marker(doc: Any) -> None:
 # maps through here.
 _MODEL_LABELS = [
     (re.compile(r'claude-sonnet-4-5'), 'Claude Sonnet 4.5'),
+    (re.compile(r'claude-sonnet-5-5'), 'Claude Sonnet 5.5'),
     (re.compile(r'claude-sonnet-5'),   'Claude Sonnet 5'),
     (re.compile(r'claude-opus-5'),     'Claude Opus 5'),
     (re.compile(r'claude-haiku-4-5'),  'Claude Haiku 4.5'),

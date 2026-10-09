@@ -5,7 +5,7 @@ description: Produces the Executive Summary letter that opens the Wiley quarterl
 type: agent
 version: 3.3.0
 model_config:
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.3
   max_tokens: 5000
 output_schema:

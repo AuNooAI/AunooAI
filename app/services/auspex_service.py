@@ -4258,7 +4258,8 @@ Article Details (First {detail_limit}):
         user_prompt: str,
         model: str = default_model("standard"),
         temperature: float = 0.7,
-        max_tokens: int = 3000
+        # Sonnet 5.5 used 2,755 of 3,000 in the 9 Oct 2026 gate.
+        max_tokens: int = 6000
     ) -> str:
         """Generate structured JSON analysis.
 

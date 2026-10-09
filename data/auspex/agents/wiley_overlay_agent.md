@@ -5,7 +5,7 @@ description: Generates a Wiley deck overlay JSON for a NEW topic — maps the ra
 type: agent
 version: 1.0.0
 model_config:
-  model: claude-sonnet-4-5
+  model: claude-sonnet-5-5
   temperature: 0.7
   max_tokens: 8000
 output_schema:
