@@ -2395,6 +2395,18 @@ async def classify_articles(
 
 
 async def _run_classification_task(run_id: int, brand_id: Optional[int], run_type: str, days_back: int, topics: Optional[List[str]] = None):
+    """Run a classification on its own thread and event loop.
+
+    The run queries each brand on a synchronous connection, one after
+    another; on the web server's loop the daily run over 66 brands froze
+    bugfixing for 15.6s (10 Oct 2026). Same code, off the site's loop.
+    """
+    from app.utils.off_loop import run_off_loop
+    return await run_off_loop(_run_classification_task_inline, run_id, brand_id, run_type,
+                              days_back, topics, name=f"bw-classify-{run_id}")
+
+
+async def _run_classification_task_inline(run_id: int, brand_id: Optional[int], run_type: str, days_back: int, topics: Optional[List[str]] = None):
     """Background: classify articles per brand using SLM → LLM → keyword waterfall."""
     from app.services.opoint_brand_matcher import (
         is_scholarly_article as _is_scholarly_article, SCHOLARLY_CATEGORY as _SCHOLARLY_CATEGORY)

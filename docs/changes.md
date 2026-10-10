@@ -240,6 +240,13 @@ stand-in tick that blocks for 3s and takes the semaphore while the main loop doe
 main-loop lag, errors reach the caller. The 11 failing tests in the market and auth files fail
 the same way on HEAD.
 
+Brand Watcher's daily classification run then accounted for the one long stall left: 15.6s at
+02:29 on 10 Oct, its 66 brands queried one after another on the event loop (about 0.25s each).
+**`_run_classification_task`** in `brand_watcher_routes.py` now runs the same code
+(`_run_classification_task_inline`) through **`app/utils/off_loop.py`** `run_off_loop`, a daemon
+thread with its own loop; all three callers (two routes, the schedule) are unchanged. A real
+one-brand incremental run completed in 15.3s with at most 0.8s of lag on the calling loop.
+
 ### Ops · topic logging
 **`app/research.py`**, `b3a66c1c`. `set_topic` and `get_categories` wrote about 216,000 INFO lines
 in 6 hours, more than half the service log. The routine lines are now DEBUG.
