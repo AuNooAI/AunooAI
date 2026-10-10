@@ -81,8 +81,16 @@ site and get the same anchored replacements (each anchor must match exactly once
 `shutdown.py`, `off_loop.py` and `wikidata_client.py` were byte-identical on all eight and are
 copied. The older `arxiv_collector.py` on oviva, panaya, sunstar, wbm, wiley and wileytest and the
 older `background_task_manager.py` on wbm have no asyncio lock at all, so there is nothing to make
-per-loop there. Backups carry the suffix `.bak-offloopall-20261010`. Deploy status per site is
-recorded at the end of this entry once done.
+per-loop there. Backups carry the suffix `.bak-offloopall-20261010`.
+
+Deployed and restarted on all eight sites on 10 Oct: bugfixing 12:20, then abm, panaya, sunstar,
+wbm and wiley at 12:21–12:22 (all six hard quiet-signals zero), oviva at 12:24:52 and wileytest at
+12:43:58 once `restart_when_quiet.sh` saw their ingest pause. After each restart: every monitor
+logged "started successfully", 0 tracebacks, 0 loop-binding errors, 0 "Event loop lag" lines, and
+no error message that had not appeared on that site earlier in the week (xpoz key paused,
+NewsData/Bluesky keys missing, sunstar's "Default topic 'AI and Machine Learning' not found").
+`py-spy dump` showed 13 `bg-*` threads on wiley. Whether the stall rate drops is the next day's
+journal: compare `grep -c "Event loop lag"` per site against 4 on bugfixing for 10 Oct before 10:11.
 
 ### Lessons
 - An `asyncio.Event`, `Lock` or `Semaphore` created at module level or on a singleton binds to the
