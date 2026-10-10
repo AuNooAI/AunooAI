@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import threading
+import weakref
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
@@ -20,8 +22,15 @@ class AsyncDatabase:
             from app.config.settings import db_settings
             # asyncpg uses 'postgresql://' not 'postgresql+asyncpg://'
             self.database_url = db_settings.get_database_url().replace('postgresql+asyncpg://', 'postgresql://')
-            self._pool = None
+            self._pool = None  # the first loop's pool, kept for callers that read it
             self._pool_size = 10
+            # One asyncpg pool per event loop. asyncpg connections belong to
+            # the loop that opened them, and this one instance serves both the
+            # web server's loop and the background monitors, which run on
+            # their own loops (app.utils.off_loop). Each loop gets its own
+            # pool on first use; later loops get a small one.
+            self._pools: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Any]" = weakref.WeakKeyDictionary()
+            self._pool_creating: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Future]" = weakref.WeakKeyDictionary()
             logger.info(f"AsyncDatabase initialized for PostgreSQL: {db_settings.DB_NAME}")
         else:
             # SQLite setup (backward compatibility)
@@ -52,25 +61,59 @@ class AsyncDatabase:
 
         return query, params
 
+    async def _pg_pool(self):
+        """The asyncpg pool for the running event loop, created on first use.
+
+        The first loop to ask (the web server's, at startup) gets the full-size
+        pool; every later loop gets a pool of 1 to ``_pool_size`` connections,
+        since a monitor runs one job at a time. Concurrent first callers on
+        the same loop share one creation.
+        """
+        loop = asyncio.get_running_loop()
+        pool = self._pools.get(loop)
+        if pool is not None:
+            return pool
+        pending = self._pool_creating.get(loop)
+        if pending is not None:
+            return await pending
+        pending = loop.create_future()
+        self._pool_creating[loop] = pending
+        try:
+            import asyncpg
+            first = self._pool is None  # not `not self._pools`: a closed loop drops out of it
+            min_size = self._pool_size if first else 1
+            max_size = self._pool_size * 2 if first else self._pool_size
+            logger.info("Initializing PostgreSQL async pool on %s (%d-%d connections)",
+                        threading.current_thread().name, min_size, max_size)
+            pool = await asyncpg.create_pool(
+                self.database_url,
+                min_size=min_size,
+                max_size=max_size,
+                command_timeout=60,
+                timeout=30,
+                statement_cache_size=0
+            )
+        except BaseException as e:
+            pending.set_exception(e)
+            pending.exception()  # mark it retrieved, so no warning if nobody was waiting
+            raise
+        finally:
+            self._pool_creating.pop(loop, None)
+        self._pools[loop] = pool
+        if self._pool is None:
+            self._pool = pool
+        pending.set_result(pool)
+        logger.info("PostgreSQL async database pool initialized successfully")
+        return pool
+
     async def initialize_pool(self):
         """Initialize connection pool"""
         if self._initialized:
             return
 
         if self.db_type == 'postgresql':
-            # PostgreSQL connection pool using asyncpg
-            import asyncpg
-            logger.info(f"Initializing PostgreSQL async pool with {self._pool_size} connections")
-
-            self._pool = await asyncpg.create_pool(
-                self.database_url,
-                min_size=self._pool_size,
-                max_size=self._pool_size * 2,
-                command_timeout=60,
-                timeout=30,
-                statement_cache_size=0
-            )
-            logger.info("PostgreSQL async database pool initialized successfully")
+            # PostgreSQL connection pool using asyncpg, one per event loop
+            await self._pg_pool()
         else:
             # SQLite connection pool
             import aiosqlite
@@ -101,8 +144,9 @@ class AsyncDatabase:
             await self.initialize_pool()
 
         if self.db_type == 'postgresql':
-            # PostgreSQL: acquire from pool
-            async with self._pool.acquire() as conn:
+            # PostgreSQL: acquire from this loop's pool
+            pool = await self._pg_pool()
+            async with pool.acquire() as conn:
                 yield conn
         else:
             # SQLite: get from queue
@@ -604,10 +648,17 @@ class AsyncDatabase:
         logger.info("Closing async database connection pool")
 
         if self.db_type == 'postgresql':
-            # PostgreSQL: close asyncpg pool
-            if self._pool:
-                await self._pool.close()
+            # PostgreSQL: close the running loop's asyncpg pool. Pools on the
+            # monitors' loops close with their daemon threads at process exit;
+            # a pool cannot be closed from another loop.
+            pool = self._pools.pop(asyncio.get_running_loop(), None)
+            if pool is not None:
+                await pool.close()
+                if self._pool is pool:
+                    self._pool = None
                 logger.info("PostgreSQL async pool closed")
+            if self._pools:
+                return
         else:
             # SQLite: close all connections in queue
             while not self._connection_pool.empty():

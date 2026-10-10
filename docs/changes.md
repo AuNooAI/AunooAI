@@ -1,5 +1,99 @@
 # Changes
 
+## 2026-10-10 — Every background monitor runs on its own thread and event loop; the web loop only serves pages
+
+### Goal
+The "Event loop lag" warnings kept coming back after each one-job fix (bw_owned scans, feed parsing,
+Firecrawl, the Market Monitor tick, the Brand Watcher run) because the cause is structural: one
+process serves the web pages and runs 13 background monitors on the same asyncio loop, and the
+database layer is synchronous, so any query inside a monitor holds the loop until Postgres answers.
+Earlier commits (`9c241460` June 2025, `3d78ae7d` Feb 2026, `9203117b` May 2026, `18246929` July
+2026, `3cc0668c` Aug 2026) each moved one job's calls onto threads and never touched the scheduler,
+so every monitor added since landed back on the web loop. Today's change moves the scheduler.
+
+### Fix · the scheduler
+**`app/core/app_factory.py`**: `_schedule_background_task` now starts every monitor through
+`run_off_loop`, so each gets a daemon thread named `bg-<label>` with its own event loop. The one
+exception is `app.utils.event_loop_monitor`, which measures the web loop and must stay on it. The
+same list of monitors, delays and labels is unchanged; the analysis-module tasks (Brand Watcher,
+Market Monitor, Swiss Election Watch) go through the same wrapper and so move too.
+
+**`app/utils/off_loop.py`**: `run_off_loop` now passes cancellation through. Cancelling the
+web-loop handle cancels the job's task on its own loop (via `call_soon_threadsafe`) and waits up to
+`CANCEL_GRACE_SECONDS` (5) for it to unwind, so the shutdown coordinator's 15-second cancel budget
+still stops jobs cleanly before the DB pool closes. The result is awaited through
+`asyncio.shield`, so the cancelled caller can still see the job finish.
+
+### Fix · objects that were bound to the web loop
+Each of these would have raised `RuntimeError: ... is bound to a different event loop` (or
+asyncpg's equivalent) the first time a monitor on its own loop touched it while the web loop also
+used it:
+
+- **`app/utils/shutdown.py`**: the module-level `asyncio.Event` becomes a `threading.Event` flag
+  plus one `asyncio.Event` per loop (`weakref.WeakKeyDictionary`, guarded by a lock).
+  `interruptible_sleep` and `get_shutdown_event` work on any loop; `trigger_shutdown` sets the flag
+  and wakes every loop's event with `call_soon_threadsafe`. A loop created after shutdown began sees
+  an already-set event.
+- **`app/services/async_db.py`**: the asyncpg pool singleton becomes one pool per loop
+  (`_pg_pool()`). The first loop (the web server's, at startup) keeps 10–20 connections; every later
+  loop opens 1–10 on first use, since a monitor runs one job at a time. Concurrent first callers on
+  one loop share a single creation via a pending future. `close_pool` closes only the running loop's
+  pool; the monitors' pools go with their daemon threads at exit. Postgres has 500 connection slots
+  and 70 were in use across all sites before the change.
+- **`app/services/background_task_manager.py`**: the admission semaphore is per loop
+  (`_slots` is now a `WeakKeyDictionary`); routes submit from the web loop, the forecast tracker
+  from its own.
+- **`app/collectors/arxiv_collector.py`**: the three-second spacing lock is per loop; the shared
+  `_last_call_at` timestamp still keeps requests from both loops apart.
+- **`app/services/wikidata_client.py`**: `_AsyncRateLimiter` holds one lock per loop with a shared
+  timestamp, for the same reason.
+
+`app/ai_models.py` already kept one LLM semaphore per loop (`97bd00af`); litellm calls are
+synchronous and run in threads, so no HTTP client is loop-bound.
+
+### Verification
+- `tests/test_off_loop_scheduler.py` (new, 8 tests): result and exception pass back from the other
+  thread; cancelling the handle cancels the job on its loop; `interruptible_sleep` on two loops both
+  wake from one `trigger_shutdown` (the old shared event raised on the second loop); a loop created
+  after shutdown sees the set event; the arXiv lock, task-manager slots and asyncpg pool are
+  distinct per loop, with pool sizes `(10, 20)` then `(1, 10)` and one creation shared by two
+  concurrent first callers. `tests/test_background_task_admission.py`'s hand-built manager now
+  gives `_slots` a `WeakKeyDictionary`. With `test_provider_collectors_outcomes.py`,
+  `test_forecast_tracker_scheduling.py` and `test_brand_ingest_path.py`: 102 passed.
+- bugfixing restarted at 11:22:35 with the site quiet (`restart_when_quiet.sh --check`: all zero).
+  All monitors reported "started successfully"; `py-spy dump` shows 14 `bg-*` threads
+  (keyword monitor, emerging topics, observer agent, newsfeed dashboard, RSS feed, timeline
+  mementos, forecast tracker, Wiley candidate scheduler, Brand Watcher, Swiss Election Watch,
+  Market Monitor, enrichment retry sweep, embedding repair sweep, foresight refresh).
+- The RSS monitor ran the whole ingest pipeline on its own loop at 11:23:15: it opened its own
+  asyncpg pool ("on bg-RSS-feed-monitor (1-10 connections)"), ran the hybrid relevance check and
+  the GPT fallback for two RT DE articles, no error. The keyword monitor's 12:02 cycle (group 440,
+  111 keywords) ran on its loop with no new articles to save. In the 58 minutes between the two
+  restarts: 0 "Event loop lag" lines, 0 tracebacks, 0 loop-binding errors; the only ERROR lines
+  are the pre-existing xpoz key-paused messages.
+- Shutdown path, second restart at 12:20:44: "Cancelling 15 background task(s)" then "Background
+  tasks stopped cleanly" 3 ms later, the asyncpg pool closed, and `systemctl restart` returned in
+  0.47 s. Before the shutdown coordinator existed a restart took about 90 s (2026-07-23 entry).
+
+### Propagation
+Canonical bugfixing has the commit. Other sites: `app_factory.py` and `async_db.py` differ per
+site and get the same anchored replacements (each anchor must match exactly once);
+`shutdown.py`, `off_loop.py` and `wikidata_client.py` were byte-identical on all eight and are
+copied. The older `arxiv_collector.py` on oviva, panaya, sunstar, wbm, wiley and wileytest and the
+older `background_task_manager.py` on wbm have no asyncio lock at all, so there is nothing to make
+per-loop there. Backups carry the suffix `.bak-offloopall-20261010`. Deploy status per site is
+recorded at the end of this entry once done.
+
+### Lessons
+- An `asyncio.Event`, `Lock` or `Semaphore` created at module level or on a singleton binds to the
+  first loop that waits on it. With monitors on their own loops, every such object the web loop also
+  uses must be keyed by loop (`weakref.WeakKeyDictionary[AbstractEventLoop, ...]`), the pattern
+  `ai_models._get_llm_semaphore` set. Grep for `asyncio\.(Lock|Semaphore|Event|Queue|Condition)\(`
+  before adding a shared one.
+- asyncpg connections belong to the loop that opened them; a pool cannot be shared or closed across
+  loops. Never test "is this the first pool" with the per-loop dict: a finished loop drops out of
+  a weak dictionary, so a later loop would look like the first.
+
 ## 2026-10-09 — Claude Sonnet 4.5 is leaving Bedrock: the writing tier moves to Sonnet 5.5 on bugfixing, after the limits and parsers that would have broken were fixed
 
 ### Goal

@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import weakref
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -91,15 +92,28 @@ class WikidataEntity:
 
 
 class _AsyncRateLimiter:
-    """Simple token-bucket style limiter. One global instance per process."""
+    """Simple token-bucket style limiter. One global instance per process.
+
+    The timestamp is shared by every event loop in the process; the lock is
+    one per loop, because an asyncio.Lock binds to the loop it first waits on
+    and the Brand Watcher uses this client from the web server's loop and from
+    monitors on their own loops (app.utils.off_loop).
+    """
 
     def __init__(self, interval_sec: float):
         self.interval = interval_sec
         self._last = 0.0
-        self._lock = asyncio.Lock()
+        self._locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
+
+    def _lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
+        if lock is None:
+            lock = self._locks[loop] = asyncio.Lock()
+        return lock
 
     async def wait(self) -> None:
-        async with self._lock:
+        async with self._lock():
             now = time.monotonic()
             elapsed = now - self._last
             if elapsed < self.interval:

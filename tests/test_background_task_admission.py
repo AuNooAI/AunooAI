@@ -28,7 +28,8 @@ def _manager(monkeypatch, max_concurrent=3):
     tm._tasks = {}
     tm._running_tasks = {}
     tm._max_concurrent_tasks = max_concurrent
-    tm._slots = None
+    import weakref
+    tm._slots = weakref.WeakKeyDictionary()  # one admission semaphore per event loop
     tm._db = None
     monkeypatch.setattr(tm, "_persist_task", lambda info: None)
     return tm

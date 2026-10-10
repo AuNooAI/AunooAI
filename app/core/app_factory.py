@@ -109,6 +109,13 @@ async def lifespan(app: FastAPI):
         # full 502 downtime on every restart).
         import importlib
         from app.utils.shutdown import register_task, is_shutting_down
+        from app.utils.off_loop import run_off_loop
+
+        # Every monitor runs on its own thread and event loop. They mix awaits
+        # with synchronous database and CPU work, and on the web server's loop
+        # each such call froze the whole site ("Event loop lag" warnings).
+        # Only the lag monitor stays on the web loop: it measures that loop.
+        _ON_WEB_LOOP = {"app.utils.event_loop_monitor"}
 
         def _schedule_background_task(task_module, task_function, delay, label):
             """Import ``task_module.task_function`` after ``delay`` seconds and
@@ -123,7 +130,11 @@ async def lifespan(app: FastAPI):
                     mod = importlib.import_module(task_module)
                     func = getattr(mod, task_function)
                     logger.info(f"Starting {label} background task...")
-                    register_task(asyncio.create_task(func()))
+                    if task_module in _ON_WEB_LOOP:
+                        register_task(asyncio.create_task(func()))
+                    else:
+                        register_task(asyncio.create_task(
+                            run_off_loop(func, name=f"bg-{label.replace(' ', '-')}")))
                     logger.info(f"{label} background task started successfully")
                 except Exception as e:
                     logger.error(f"Failed to start {label}: {e}")

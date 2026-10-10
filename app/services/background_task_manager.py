@@ -5,6 +5,7 @@ Uses FastAPI's BackgroundTasks and asyncio for efficient task management.
 import asyncio
 import logging
 import uuid
+import weakref
 from datetime import datetime
 from typing import Dict, Optional, Callable, Any, List
 from enum import Enum
@@ -54,9 +55,12 @@ class BackgroundTaskManager:
         self._tasks: Dict[str, TaskInfo] = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}
         self._max_concurrent_tasks = 3
-        # Admission gate. Created lazily because the manager is constructed at
-        # import time, before there is a running event loop to bind to.
-        self._slots: Optional[asyncio.Semaphore] = None
+        # Admission gate, one semaphore per event loop. Created lazily because
+        # the manager is constructed at import time, before there is a running
+        # event loop to bind to, and per loop because routes submit from the
+        # web server's loop while monitors submit from their own
+        # (app.utils.off_loop); a semaphore cannot be shared across loops.
+        self._slots: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
         self._task_cleanup_interval = 3600  # 1 hour
         self._db = db  # Database instance for persistence
 
@@ -202,10 +206,12 @@ class BackgroundTaskManager:
             slots.release()
 
     def _get_slots(self) -> asyncio.Semaphore:
-        """The admission semaphore, bound to the running loop on first use."""
-        if self._slots is None:
-            self._slots = asyncio.Semaphore(self._max_concurrent_tasks)
-        return self._slots
+        """The admission semaphore for the running loop, made on first use."""
+        loop = asyncio.get_running_loop()
+        slots = self._slots.get(loop)
+        if slots is None:
+            slots = self._slots[loop] = asyncio.Semaphore(self._max_concurrent_tasks)
+        return slots
 
     async def _run_task_body(self, task_id: str, task_info, task_func: Callable,
                              *args, **kwargs) -> None:

@@ -19,6 +19,7 @@ import logging
 import os
 import random
 import time
+import weakref
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -41,15 +42,20 @@ MIN_SPACING_SECONDS = 3.0
 #: Backoff before each retry, with up to half a second of jitter.
 RETRY_DELAYS = (1.0, 3.0, 9.0)
 
-_spacing_lock: Optional[asyncio.Lock] = None
+# One spacing lock per event loop: an asyncio.Lock binds to the loop it first
+# waits on, and this collector runs both on the web server's loop (check-now)
+# and on the ingest monitor's own loop (app.utils.off_loop). The timestamp is
+# shared across them, so requests from both loops still keep their distance.
+_spacing_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
 _last_call_at: float = 0.0
 
 
 def _lock() -> asyncio.Lock:
-    global _spacing_lock
-    if _spacing_lock is None:
-        _spacing_lock = asyncio.Lock()
-    return _spacing_lock
+    loop = asyncio.get_running_loop()
+    lock = _spacing_locks.get(loop)
+    if lock is None:
+        lock = _spacing_locks[loop] = asyncio.Lock()
+    return lock
 
 
 def retry_budget_seconds() -> float:
