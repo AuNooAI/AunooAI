@@ -53,17 +53,25 @@ def market(conn):
 # Who gets what
 # ---------------------------------------------------------------------------
 
-def test_a_session_sees_everything_and_a_shared_link_does_not():
-    assert ent.resolve(session={'user': 'admin'}, signed_link=False,
-                       market_is_public=True) == ent.FULL
+def test_everyone_through_the_door_sees_the_whole_market():
+    """Since 22 Sep 2026 the pages are not a sample of themselves: a session,
+    a signed link and a public market all get the full roster, because what
+    is sold is MCP access, not the right to read a page without a blur.
+    Access itself is still decided by the caller before resolve() runs."""
+    for kwargs in ({'session': {'user': 'admin'}, 'signed_link': False, 'market_is_public': True},
+                   {'session': None, 'signed_link': True, 'market_is_public': False},
+                   {'session': None, 'signed_link': False, 'market_is_public': True},
+                   {'session': None, 'signed_link': False, 'market_is_public': False}):
+        assert ent.resolve(**kwargs) == ent.FULL, kwargs
     assert ent.FULL.vendor_limit is None
     assert ent.FULL.restricted is False
 
-    for kwargs in ({'signed_link': True, 'market_is_public': False},
-                   {'signed_link': False, 'market_is_public': True}):
-        got = ent.resolve(session=None, **kwargs)
-        assert got.restricted
-        assert got.vendor_limit == ent.public_vendor_limit()
+
+def test_the_restriction_machinery_is_still_wired():
+    """The cap is off, not gone: restoring a tier is a change to resolve()
+    alone, so the pieces it would drive must still be importable."""
+    assert callable(ent.authorized_brand_ids)
+    assert callable(ent.public_vendor_limit)
 
 
 def test_a_signed_link_is_not_more_trusted_than_a_public_market():
@@ -76,17 +84,6 @@ def test_a_signed_link_is_not_more_trusted_than_a_public_market():
     signed = ent.resolve(session=None, signed_link=True, market_is_public=False)
     public = ent.resolve(session=None, signed_link=False, market_is_public=True)
     assert signed.vendor_limit == public.vendor_limit
-
-
-def test_no_credential_gets_the_tightest_answer_not_the_widest():
-    """A missed check upstream must not become full access.
-
-    The routes refuse before calling this, so this branch should be
-    unreachable — which is exactly why it must not default to `FULL`.
-    """
-    got = ent.resolve(session=None, signed_link=False, market_is_public=False)
-    assert got.restricted
-    assert got.vendor_limit == 1
 
 
 # ---------------------------------------------------------------------------

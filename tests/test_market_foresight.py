@@ -47,7 +47,8 @@ def test_restyle_swaps_palette_inside_styles_and_the_wiley_eyebrow():
             '<div class="eyebrow">WILEY HORIZONS · X</div><p>#d6346c stays in text</p>'
             '<div>Produced by AunooAI</div>')
     out = mf._restyle(html)
-    assert "#c2298a" in out and "#f7f6f2" in out
+    assert "var(--accent)" in out and "var(--area-bg)" in out
+    assert "#f8fafc" not in out.split("</style>")[0]
     assert "<p>#d6346c stays in text</p>" in out          # only style blocks change
     assert "CYBERFUTURISTS · X" in out and "WILEY" not in out
     assert "By the Cyberfuturists, made using Aunoo" in out and "AunooAI" not in out

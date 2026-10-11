@@ -30,6 +30,7 @@ ADMIN_ONLY = {
     ("POST", "/api/emerging-topics/detect"),
     ("POST", "/api/emerging-topics/detect/sync"),
     ("POST", "/api/emerging-topics/detect/batch"),
+    ("POST", "/api/emerging-topics/detect/jobs"),
     ("DELETE", "/api/emerging-topics/topics"),
     ("DELETE", "/api/emerging-topics/topics/{topic_id}"),
     ("POST", "/api/emerging-topics/topics/{topic_id}/retire"),

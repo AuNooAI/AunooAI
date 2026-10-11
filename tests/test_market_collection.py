@@ -125,8 +125,12 @@ def test_webhook_body_shapes():
 # Client transport
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_trigger_records_the_snapshot_id(monkeypatch):
+def test_trigger_records_the_snapshot_id(monkeypatch):
+    import asyncio
+    asyncio.run(_trigger_records_the_snapshot_id(monkeypatch))
+
+
+async def _trigger_records_the_snapshot_id(monkeypatch):
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -157,8 +161,12 @@ async def test_trigger_records_the_snapshot_id(monkeypatch):
     assert captured["auth"] == "Bearer k"
 
 
-@pytest.mark.asyncio
-async def test_provider_errors_are_classified_as_retryable_or_not(monkeypatch):
+def test_provider_errors_are_classified_as_retryable_or_not(monkeypatch):
+    import asyncio
+    asyncio.run(_provider_errors_are_classified_as_retryable_or_not(monkeypatch))
+
+
+async def _provider_errors_are_classified_as_retryable_or_not(monkeypatch):
     # Capture the real class once. Re-reading httpx.AsyncClient inside the
     # helper would wrap the previous patch and every later call would replay
     # the first status.
@@ -188,8 +196,12 @@ async def test_provider_errors_are_classified_as_retryable_or_not(monkeypatch):
     assert bad_request.value.retryable is False
 
 
-@pytest.mark.asyncio
-async def test_sync_scrape_refuses_an_oversized_batch():
+def test_sync_scrape_refuses_an_oversized_batch():
+    import asyncio
+    asyncio.run(_sync_scrape_refuses_an_oversized_batch())
+
+
+async def _sync_scrape_refuses_an_oversized_batch():
     client = bd.LinkedInDatasetClient("k")
     with pytest.raises(bd.BrightDataError, match="at most 20"):
         await client.scrape_sync("gd_x", [{"url": f"u{i}"} for i in range(21)])
@@ -288,20 +300,52 @@ def test_linkedin_is_off_until_explicitly_enabled(monkeypatch):
     assert bd.linkedin_enabled() is True
 
 
-def test_the_callback_declares_no_session_and_the_rest_do():
-    """This codebase has no global auth middleware — a route is protected only
-    if it says so. The callback must be the one that does not, and everything
-    else must be the ones that do."""
+# Routes a reader reaches without an account. Each has its own guard, named
+# here, because this codebase has no global auth middleware: a route is
+# protected only if it says so.
+PUBLIC_MARKET_ROUTES = {
+    # Provider and payment callbacks: a shared secret or a Stripe signature.
+    "/api/market-monitor/webhooks/brightdata/linkedin",
+    "/api/market-monitor/markets/{market_id}/inquiry/webhook",
+    "/api/market-monitor/markets/{market_id}/subscribe/webhook",
+    # Front-page forms: honeypot field, then a rate limit on the writer.
+    "/api/market-monitor/markets/{market_id}/trial-request",
+    "/api/market-monitor/markets/{market_id}/vendor-request",
+    "/api/market-monitor/markets/{market_id}/news-tip",
+    "/api/market-monitor/markets/{market_id}/inquiry/checkout",
+    "/api/market-monitor/markets/{market_id}/subscribe/checkout",
+    # Public pages around a Stripe checkout; done/reissue/help check the
+    # checkout's own token or secret before they show anything.
+    "/api/market-monitor/markets/{market_id}/inquiry",
+    "/api/market-monitor/markets/{market_id}/inquiry/done",
+    "/api/market-monitor/markets/{market_id}/inquiry/cancelled",
+    "/api/market-monitor/markets/{market_id}/subscribe",
+    "/api/market-monitor/markets/{market_id}/subscribe/done",
+    "/api/market-monitor/markets/{market_id}/subscribe/reissue",
+    "/api/market-monitor/markets/{market_id}/subscribe/help",
+    "/api/market-monitor/markets/{market_id}/subscribe/cancelled",
+}
+
+
+def test_only_the_listed_public_routes_skip_the_session():
+    """A route without a ``session`` parameter answers anyone. The ones that
+    do so on purpose are listed above with their guard; a new one has to be
+    added there deliberately, and a listed one that gains a session should
+    come off the list."""
     import inspect
 
     from app.routes import market_monitor_routes as mr
 
-    unprotected = []
+    unprotected = set()
     for route in mr.router.routes:
         params = inspect.signature(route.endpoint).parameters
         if "session" not in params:
-            unprotected.append(route.path)
-    assert unprotected == ["/api/market-monitor/webhooks/brightdata/linkedin"]
+            unprotected.add(route.path)
+    assert unprotected - PUBLIC_MARKET_ROUTES == set(), (
+        "new routes answer without a session; add each to PUBLIC_MARKET_ROUTES "
+        "with its guard, or give it a session")
+    assert PUBLIC_MARKET_ROUTES - unprotected == set(), (
+        "listed public routes now take a session; drop them from the list")
 
 
 def test_a_funding_rule_does_not_reach_excluded_vendors():
@@ -836,7 +880,8 @@ def test_no_sweep_holds_a_transaction_across_an_http_call():
                       and 'await _review' not in ln
                       and 'await _write' not in ln
                       and 'await _reconcile' not in ln
-                      and 'await _refresh' not in ln]
+                      and 'await _refresh' not in ln
+                      and 'await mf.refresh' not in ln]
             if not awaits:
                 continue
             if 'conn.commit()' not in body:
@@ -1365,6 +1410,9 @@ class _FakeResult:
     def fetchall(self):
         return []
 
+    def fetchone(self):
+        return None
+
     def first(self):
         return None
 
@@ -1414,7 +1462,7 @@ async def _scoped_run_reaches_pages(monkeypatch):
 
     monkeypatch.setattr(mm, "_claim_manual_runs", lambda conn, m: dict(manual))
     for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
-                 "_write_briefing", "_profile_voices", "_check_social", "_discover_ats",
+                 "_write_briefing", "_profile_voices", "_check_social", "_review_wider", "_review_actors", "_discover_ats",
                  "_poll_ats_jobs"):
         monkeypatch.setattr(mm, name, _noop_async)
     for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
@@ -1453,7 +1501,7 @@ async def _scoped_run_non_collecting(monkeypatch):
         return 0
 
     for name in ("_reconcile_open_jobs", "_review_posts", "_collect_followed",
-                 "_write_briefing", "_profile_voices", "_check_social", "_discover_ats", "_poll_ats_jobs",
+                 "_write_briefing", "_profile_voices", "_check_social", "_review_wider", "_review_actors", "_discover_ats", "_poll_ats_jobs",
                  "_discover_feeds", "_poll_pages"):
         monkeypatch.setattr(mm, name, _noop_async)
     for name in ("_discover_candidates", "_match_corpus", "_extract_events"):
@@ -1596,3 +1644,22 @@ def test_a_corpus_too_small_to_judge_reports_nothing():
     conn = _CorpusProbeConn(MIN_CORPUS_FOR_ZERO_MATCH - 1)
     assert zero_match_keywords(conn, ["anything at all"]) == []
     assert conn.asked == [], "must not probe a corpus it cannot judge"
+
+
+def test_jev_job_function_takes_the_likeliest_label(monkeypatch):
+    """Jev's most probable LinkedIn function is the guess; an answer outside
+    the list, or no answer, gives none."""
+    from app.services import job_function_jev, typesafe_client
+
+    reply = {'answers': {'function': {'probabilities': {
+        'Health Care Provider': 0.7, 'Sales': 0.2, 'Other': 0.1}}}}
+    monkeypatch.setattr(typesafe_client, 'system_one', lambda *a, **k: reply)
+    assert job_function_jev.read_function('Dental Hygienist') == 'Health Care Provider'
+
+    monkeypatch.setattr(typesafe_client, 'system_one', lambda *a, **k: {
+        'answers': {'function': {'answer': 'Astrology'}}})
+    assert job_function_jev.read_function('Dental Hygienist') is None
+
+    monkeypatch.setattr(typesafe_client, 'system_one', lambda *a, **k: None)
+    assert job_function_jev.read_function('Dental Hygienist') is None
+    assert job_function_jev.read_function('  ') is None

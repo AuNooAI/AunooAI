@@ -72,7 +72,7 @@ def test_is_configured_needs_everything(monkeypatch, configured):
 def test_form_page_shows_both_prices_and_posts_to_checkout(configured):
     page = inq.build_inquiry_page(MARKET, front_href="/", about_href="/?page=about",
                                   action="/api/market-monitor/markets/2/inquiry/checkout")
-    assert "$250" in page and "$450" in page
+    assert "$400" in page and "$700" in page
     assert 'action="/api/market-monitor/markets/2/inquiry/checkout"' in page
     assert 'name="website"' in page          # the honeypot
     assert "Schedule an inquiry" in page

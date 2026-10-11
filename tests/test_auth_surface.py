@@ -79,6 +79,16 @@ PUBLIC_PATHS = {
     '/.well-known/oauth-protected-resource':       'RFC 9728 discovery; MCP clients fetch it before they have a token',
     '/.well-known/oauth-authorization-server':     'RFC 8414 discovery; same',
     '/oauth/authorize':                           'OAuth entry point; sends a signed-out user to /login, grants nothing itself',
+    # Market Monitor's public pages. They read the market's public config and
+    # Stripe's own record of a checkout; the buyer never has an account here.
+    '/api/health/collection':                     'read by collector_health_check.sh (root cron, every 30 min) over 127.0.0.1; counts and alerts, no article content',
+    '/api/market-monitor/markets/{market_id}/inquiry':            'public form page for a paid analyst call; renders nothing but the form',
+    '/api/market-monitor/markets/{market_id}/inquiry/done':       'Stripe success redirect; the Checkout session id in the query is looked up at Stripe and must carry this market',
+    '/api/market-monitor/markets/{market_id}/inquiry/cancelled':  'Stripe cancel redirect; static page',
+    '/api/market-monitor/markets/{market_id}/subscribe':          'public form page for the reader subscription; renders nothing but the form',
+    '/api/market-monitor/markets/{market_id}/subscribe/done':     'Stripe success redirect; same session-id check as the inquiry',
+    '/api/market-monitor/markets/{market_id}/subscribe/help':     'MCP setup guide; secret-free, the buyer pastes their own key',
+    '/api/market-monitor/markets/{market_id}/subscribe/cancelled': 'Stripe cancel redirect; static page',
 }
 
 # Endpoints that authenticate inside the handler rather than via a dependency.
@@ -98,6 +108,19 @@ SELF_GUARDED = {
     'app.routes.onboarding_routes::complete_onboarding',          # 401 when no session user
     'app.routes.onboarding_routes::reset_onboarding',             # 401 when no session user
     'app.routes.market_monitor_routes::brightdata_linkedin_callback',  # shared secret, fail-closed
+    # Public forms on the market front page and the shared report. Anonymous by
+    # design (the people filling them in have no account); each caps one IP at
+    # TRIAL_REQUESTS_PER_IP_PER_DAY writes a day (429) and the checkouts also
+    # drop any submission that fills the hidden honeypot field (204).
+    'app.routes.market_monitor_routes::market_trial_request',          # per-IP daily cap, 429
+    'app.routes.market_monitor_routes::market_vendor_request',         # per-IP daily cap shared with the other forms, 429
+    'app.routes.market_monitor_routes::market_news_tip',               # per-IP daily cap shared with the other forms, 429
+    'app.routes.market_inquiry_routes::inquiry_checkout',              # honeypot + per-IP daily cap; the write is a Stripe Checkout session
+    'app.routes.market_subscription_routes::subscribe_checkout',       # honeypot + per-IP daily cap; same
+    'app.routes.market_subscription_routes::subscribe_reissue',        # the Stripe Checkout session id is the credential; looked up at Stripe, must carry this market
+    'app.routes.market_inquiry_routes::inquiry_webhook',               # Stripe signature verified before the body is read; 400 otherwise
+    'app.routes.market_subscription_routes::subscribe_webhook',        # Stripe signature verified before the body is read; 400 otherwise
+    'app.routes.vector_routes::download_signal_report',                # expiring HMAC token in the link (410 expired, 403 wrong); links land in email
     'app.mcp_access.transport::mcp_endpoint',                            # bearer key or OAuth JWT checked inside; 401 + WWW-Authenticate otherwise
     'app.mcp_access.transport::mcp_get',                                 # 405, returns nothing
     'app.mcp_access.transport::mcp_delete',                              # 204 no-op session close, touches nothing

@@ -136,7 +136,7 @@ briefing. Classify honestly; do not relabel a date problem as an actor problem.
   "findings": [
     {
       "target": "summary",
-      "claim_text": "Research from Hiroshima University published September 10, 2026, found daily oral care reduced pneumonia by 43%.",
+      "claim_text": "Research from Hiroshima University published September 10, 2026, found daily oral care reduced pneumonia.",
       "check": "date",
       "severity": "error",
       "finding": "The summary says the Hiroshima study was published on September 10; Article 2 is a press release published September 9 and gives no publication date for the study.",

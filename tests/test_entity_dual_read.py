@@ -134,7 +134,14 @@ def test_both_expressions_are_valid_sql_over_the_same_rows(conn):
 
 def test_a_filter_reads_the_same_rows_both_ways_when_nothing_changed(conn):
     """Fields the two stores agree on must produce identical filter results,
-    or the cutover is not a no-op where it should be."""
+    or the cutover is not a no-op where it should be.
+
+    Only vendors the workbook import covered take part. A vendor added by
+    hand after the import has a typed category and no imported taxonomy at
+    all (five such on bugfixing, 7 Oct 2026), so the legacy read cannot see
+    it by design; that is the canonical store being more complete, not a
+    disagreement between the two.
+    """
     from app.routes.market_monitor_routes import VendorFilter, _filter_sql
 
     market_id = conn.execute(text('SELECT id FROM bw_markets ORDER BY id LIMIT 1')).scalar()
@@ -158,6 +165,7 @@ def test_a_filter_reads_the_same_rows_both_ways_when_nothing_changed(conn):
                 SELECT count(*) FROM bw_market_brands mb
                 {dr.PROFILE_JOIN}
                 WHERE mb.market_id = :m AND {where}
+                  AND mb.baseline->'taxonomy'->>'category' IS NOT NULL
             """), params).scalar()
         finally:
             os.environ['ENTITY_INTELLIGENCE_CANONICAL_READ'] = 'false'
