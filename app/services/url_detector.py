@@ -18,7 +18,11 @@ URL_PATTERN = re.compile(
     r'localhost|'  # localhost
     r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # or ip
     r'(?::\d+)?'  # optional port
-    r'(?:/?|[/?]\S+)',
+    # Path and query, when present. This used to be '(?:/?|[/?]\S+)';
+    # alternation is ordered, the empty first branch always matched, and
+    # every URL lost its path, so Auspex looked up the site's homepage
+    # instead of the article (found 11 Oct 2026).
+    r'(?:[/?]\S*)?',
     re.IGNORECASE
 )
 

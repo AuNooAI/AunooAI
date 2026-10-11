@@ -9984,6 +9984,23 @@ class DatabaseQueryFacade:
             return {}
 
     @staticmethod
+    def _jsonb(value):
+        """A value for a JSONB column: the object itself, never JSON text.
+
+        database_models declares these columns JSONB, so SQLAlchemy serialises
+        whatever it is given. Handing it json.dumps(...) output stored a JSON
+        *string* (``'"{\\"o\\": 1}"'``) that jsonb operators could not see
+        into (found 11 Oct 2026). A caller that still passes JSON text gets it
+        parsed; text that is not JSON is stored as the string it is.
+        """
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except ValueError:
+                return value
+        return value
+
+    @staticmethod
     def _split_path(path: str) -> list:
         """Parse a dot-path like 'cross_cutting_themes[2].body' into a list
         of (kind, key) tuples: [('key','cross_cutting_themes'),('idx',2),('key','body')].
@@ -11885,9 +11902,9 @@ class DatabaseQueryFacade:
             if 'chat_id' in params:
                 values['chat_id'] = params['chat_id']
             if 'objectives' in params:
-                values['objectives'] = json.dumps(params['objectives']) if isinstance(params['objectives'], dict) else params['objectives']
+                values['objectives'] = self._jsonb(params['objectives'])
             if 'metadata' in params:
-                values['metadata'] = json.dumps(params['metadata']) if isinstance(params['metadata'], dict) else params['metadata']
+                values['metadata'] = self._jsonb(params['metadata'])
 
             row = self._fetchone_with_rollback(
                 insert(auspex_research_sessions).values(**values).returning(auspex_research_sessions.c.id),
@@ -11966,9 +11983,8 @@ class DatabaseQueryFacade:
             for field in allowed_fields:
                 if field in params:
                     value = params[field]
-                    # Convert dicts to JSON strings for JSONB fields
-                    if field in ['objectives', 'findings', 'metadata'] and isinstance(value, dict):
-                        value = json.dumps(value)
+                    if field in ['objectives', 'findings', 'metadata']:
+                        value = self._jsonb(value)
                     update_values[field] = value
 
             if not update_values:
@@ -12040,11 +12056,9 @@ class DatabaseQueryFacade:
                 if field in params:
                     values[field] = params[field]
 
-            # Handle JSONB fields
             for field in ['parameters', 'result_summary']:
                 if field in params:
-                    value = params[field]
-                    values[field] = json.dumps(value) if isinstance(value, dict) else value
+                    values[field] = self._jsonb(params[field])
 
             row = self._fetchone_with_rollback(
                 insert(auspex_tool_usage).values(**values).returning(auspex_tool_usage.c.id),
@@ -12134,8 +12148,7 @@ class DatabaseQueryFacade:
                     values[field] = params[field]
 
             if 'signals' in params:
-                value = params['signals']
-                values['signals'] = json.dumps(value) if isinstance(value, dict) else value
+                values['signals'] = self._jsonb(params['signals'])
 
             row = self._fetchone_with_rollback(
                 insert(auspex_search_routing).values(**values).returning(auspex_search_routing.c.id),

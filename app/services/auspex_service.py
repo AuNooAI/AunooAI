@@ -1711,23 +1711,29 @@ class AuspexService:
         import re
         
         # Patterns that indicate specific entity queries
+        # The lead-in words match in any case; the name itself must be
+        # capitalised. These patterns used to be compiled with IGNORECASE,
+        # which made 'about <anything>' an entity, so "what about battery
+        # recycling costs" demanded that exact phrase in a title or summary
+        # and answered "No Articles Found for Specific Entity" over thirty
+        # relevant hits (found 11 Oct 2026).
         entity_patterns = [
             # Company/organization patterns (original)
-            r'references to ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
-            r'articles.*about ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
-            r'summarize.*([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'(?i:references to) ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'(?i:articles.*about) ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'(?i:summarize).*([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
             r'\b([A-Z][A-Za-z]+\s+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
             r'\b([A-Z][A-Za-z]+(?:AI|Security|Tech|Systems|Solutions|Software|Platform|Labs))\b',
             
             # Person name patterns - more precise
-            r'mentioning\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "mentioning Neil Armstrong"
-            r'references to\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "references to J.R.R. Tolkien"
-            r'about\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "about John Smith"
+            r'(?i:mentioning)\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "mentioning Neil Armstrong"
+            r'(?i:references to)\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "references to J.R.R. Tolkien"
+            r'(?i:about)\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "about John Smith"
         ]
         
         entities = []
         for pattern in entity_patterns:
-            matches = re.findall(pattern, query, re.IGNORECASE)
+            matches = re.findall(pattern, query)
             for match in matches:
                 if not match:  # Skip None or empty matches
                     continue
@@ -3959,13 +3965,21 @@ Please try rephrasing your question or contact support if the issue persists."""
             start = response.find('{')
             end = response.rfind('}') + 1
             if start >= 0 and end > start:
-                json_str = response[start:end]
-                # Clean up double curly braces
-                json_str = json_str.replace('{{', '{').replace('}}', '}')
-                # Remove any leading/trailing whitespace
-                json_str = json_str.strip()
-                logger.debug(f"Cleaned JSON string: {json_str}")
-                return json_str
+                json_str = response[start:end].strip()
+                try:
+                    json.loads(json_str)
+                    return json_str
+                except ValueError:
+                    pass
+                # A model that echoed the prompt's escaped braces returns
+                # '{{' and '}}'. Collapse them only when the text does not
+                # parse as it stands: compact JSON closes a nested object
+                # with a legitimate '}}', and collapsing that broke every
+                # structured search strategy that was not pretty-printed
+                # (found 11 Oct 2026).
+                collapsed = json_str.replace('{{', '{').replace('}}', '}')
+                logger.debug(f"Cleaned JSON string: {collapsed}")
+                return collapsed
             return response
         except Exception as e:
             logger.error(f"Error extracting JSON: {str(e)}")
