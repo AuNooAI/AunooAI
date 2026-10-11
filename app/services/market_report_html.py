@@ -560,10 +560,22 @@ def _reading(net: Optional[float], *, subject: str = "Coverage in the latest wee
             f'{esc(subject)} {verb} ({sign}{net}%).</p>')
 
 
+_UNDISCLOSED_STAGES = frozenset({
+    "series_unknown", "undisclosed", "unknown", "not_stated", "funding_round",
+})
+
+
 def _stage_label(raw: Optional[str]) -> str:
-    """Crunchbase's slug as words: series_a -> Series A."""
+    """Crunchbase's slug as words: series_a -> Series A.
+
+    Crunchbase files a round whose type was not disclosed as ``series_unknown``.
+    Capitalised it read as a round called "Series Unknown"; it is an
+    undisclosed round.
+    """
     if not raw or raw == "not stated":
         return "not stated"
+    if raw.strip().lower().replace(" ", "_") in _UNDISCLOSED_STAGES:
+        return "Undisclosed round"
     words = raw.replace("_", " ").split()
     return " ".join(w.upper() if len(w) == 1 else w.capitalize() for w in words)
 

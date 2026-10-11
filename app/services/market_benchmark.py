@@ -99,7 +99,7 @@ METRICS: Dict[str, Dict[str, Any]] = {
         "unit": "listings",
         "window": "as_of",
         "source": "ats_jobs",
-        "as_of_note": "as of the latest successful run",
+        "as_of_note": "the latest successful run",
     },
     "jobs_new": {
         "label": "Newly observed job listings",
@@ -305,9 +305,15 @@ def _job_values(conn, market_id: int, *, new_only: bool
         if row["status"] in wanted:
             bid = int(row["brand_id"])
             counts[bid] = counts.get(bid, 0.0) + 1
-    meta = listing.get("meta") or {}
-    return counts, ((meta.get("metric") or {}).get("collection") or {}
-                    ).get("last_success_at")
+    # The envelope carries freshness at the top when one source feeds the
+    # metric and per source when two do (LinkedIn and the careers boards).
+    # This read the key "collection", which the envelope never had, so the
+    # panel's clock was always "the latest run" with no date.
+    metric = (listing.get("meta") or {}).get("metric") or {}
+    stamps = [(metric.get("freshness") or {}).get("last_success_at")]
+    stamps += [s.get("last_success_at") for s in metric.get("sources") or []]
+    stamps = [s for s in stamps if s]
+    return counts, (max(stamps) if stamps else None)
 
 
 def _funding_values(conn, market_id: int

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urljoin, urlparse
 from datetime import datetime, timezone
 from typing import Any, Dict, List, NamedTuple, Optional
 
@@ -477,6 +478,47 @@ async def fetch_careers_html(url: str) -> Optional[str]:
         return response.text
 
 
+# What a link to a company's own hiring page is called, in its href or text.
+_CAREERS_LINK = re.compile(
+    r"career|jobs?\b|hiring|join[\s_-]*(us|the[\s_-]*team)|work[\s_-]*(with|for)[\s_-]*us"
+    r"|open[\s_-]*(roles|positions)|we.re[\s_-]*hiring", re.I)
+_ANCHOR = re.compile(r"<a\b[^>]*?href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", re.I | re.S)
+
+
+def _site(url: str) -> str:
+    host = (urlparse(url).netloc or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def careers_links(html: str, base_url: str, limit: int = 3) -> List[str]:
+    """Same-site links on a page that look like they lead to its careers page.
+
+    One hop, same site only. A board hosted elsewhere (jobs.ashbyhq.com, a
+    Greenhouse board) is caught by ``detect`` on the page that links to it, so
+    following off-site links would only ever reach somebody else's pages. The
+    fragment is dropped: ``/about-us/#careers`` is the About page.
+    """
+    if not html:
+        return []
+    out: List[str] = []
+    base_site = _site(base_url)
+    for match in _ANCHOR.finditer(html):
+        href = match.group(1).strip()
+        label = re.sub(r"<[^>]+>", " ", match.group(2))
+        if not _CAREERS_LINK.search(f"{href} {label}"):
+            continue
+        url = urljoin(base_url, href.split("#", 1)[0])
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or _site(url) != base_site:
+            continue
+        if url.rstrip("/") == base_url.rstrip("/") or url in out:
+            continue
+        out.append(url)
+        if len(out) >= limit:
+            break
+    return out
+
+
 async def discover_board(urls: List[str]) -> Optional[AtsBoard]:
     """The first hiring board found across a vendor's candidate pages.
 
@@ -484,8 +526,19 @@ async def discover_board(urls: List[str]) -> Optional[AtsBoard]:
     open transaction across these fetches. This function touches no database,
     which is the point: the caller commits before calling it and has nothing to
     lose while it runs.
+
+    A page with no board of its own is read for a careers link and that page
+    is tried too, one hop. Most of these companies do not have a /careers URL;
+    the board is embedded wherever the site's nav bar says "Careers" goes.
     """
+    visited = set()
     for url in urls:
+        visited.add(url.rstrip("/"))
+    queue = list(urls)
+    hops_left = len(urls) * 3
+    while queue and hops_left > 0:
+        url = queue.pop(0)
+        hops_left -= 1
         try:
             html = await fetch_careers_html(url)
         except Exception:                                         # noqa: BLE001
@@ -496,6 +549,11 @@ async def discover_board(urls: List[str]) -> Optional[AtsBoard]:
         board = detect(html)
         if board:
             return board
+        for link in careers_links(html, url):
+            if link.rstrip("/") in visited:
+                continue
+            visited.add(link.rstrip("/"))
+            queue.append(link)
     return None
 
 

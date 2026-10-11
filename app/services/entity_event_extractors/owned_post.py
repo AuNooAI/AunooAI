@@ -32,8 +32,8 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -157,6 +157,166 @@ def announcing_sentence(body: str, kind: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# When it happened, when the post says so
+# ---------------------------------------------------------------------------
+#
+# A vendor post is dated when it was posted, and most of the time that is when
+# the news happened. Not always: Prophet Security's 7 Oct 2026 blog post
+# "Accelerating the Agentic AI SOC Movement with Amex Ventures and Citi
+# Ventures" opens "On February 25, 2026, we announced…", and became a funding
+# round dated 8 October. The summary the page carries was written from the
+# post and dropped the date, so the only place the real date exists is the
+# announcing sentence of the post itself. When that sentence states a calendar
+# date well before the post, the event takes that date.
+#
+# Only the announcing sentence counts. A post that mentions an older date in
+# passing ("since our Series A in July 2025…") while announcing something new
+# keeps the post date, because the date is not in the sentence that carries
+# the news.
+
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ('jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct',
+     'nov', 'dec'))}
+_MONTH_RE = (r'(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)'
+             r'(?:[a-z]*)\.?')
+_STATED_DATE = re.compile(
+    r'\b(?:(?P<d1>\d{1,2})(?:st|nd|rd|th)?\s+(?P<m1>' + _MONTH_RE +
+    r'),?\s+(?P<y1>20\d{2})'
+    r'|(?P<m2>' + _MONTH_RE + r')\s+(?:(?P<d2>\d{1,2})(?:st|nd|rd|th)?,?\s+)?'
+    r'(?P<y2>20\d{2}))\b', re.I)
+
+# A date this much earlier than the post is a look-back, not a slow writer.
+LOOK_BACK_DAYS = 30
+# Kinds whose announcing sentence dates the thing when it is a look-back.
+_DATED_KINDS = frozenset({'funding', 'acquisition', 'partnership', 'customer',
+                          'launch'})
+# The page is fetched only for a post that just arrived: every earlier post
+# already has its event, and this runs over the whole signal set each tick.
+_FETCH_WITHIN_DAYS = 3
+_FETCH_TIMEOUT = 15.0
+_PAGE_CHARS = 30000
+
+
+def stated_date(sentence: str) -> Optional[Tuple[datetime, str]]:
+    """The first calendar date in the sentence, with its precision."""
+    if not sentence:
+        return None
+    match = _STATED_DATE.search(sentence)
+    if not match:
+        return None
+    month_word = (match.group('m1') or match.group('m2') or '')[:3].lower()
+    month = _MONTHS.get(month_word)
+    year = int(match.group('y1') or match.group('y2'))
+    day = match.group('d1') or match.group('d2')
+    if not month:
+        return None
+    try:
+        if day:
+            return (datetime(year, month, int(day), tzinfo=timezone.utc), 'day')
+        return (datetime(year, month, 1, tzinfo=timezone.utc), 'month')
+    except ValueError:
+        return None
+
+
+# A line that is nothing but a date is a byline. Webflow and most blog
+# platforms print the post's own date under its title, and that is the date the
+# company published it even when the feed carries a later edit: Prophet's post
+# above has the byline "February 25, 2026" and a feed date of 8 October 2026.
+_DATE_LINE = re.compile(r'^\s*(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+)?'
+                        r'(?P<date>\d{1,2}(?:st|nd|rd|th)?\s+' + _MONTH_RE +
+                        r',?\s+20\d{2}|' + _MONTH_RE +
+                        r'\s+\d{1,2}(?:st|nd|rd|th)?,?\s+20\d{2})\s*$', re.I)
+
+
+def byline_date(page_text: str) -> Optional[datetime]:
+    """The first line of the page that is only a date — the post's byline."""
+    for line in (page_text or '').splitlines():
+        match = _DATE_LINE.match(line)
+        if match:
+            found = stated_date(match.group('date'))
+            if found and found[1] == 'day':
+                return found[0]
+    return None
+
+
+def look_back_date(body: str, kind: str, published: Optional[datetime]
+                   ) -> Optional[Tuple[datetime, str]]:
+    """The date the announcing sentence gives, when it is well before the post."""
+    if not published:
+        return None
+    sentence = announcing_sentence(body or '', kind)
+    if not sentence:
+        return None
+    found = stated_date(sentence)
+    if not found:
+        return None
+    when, precision = found
+    if when <= published - timedelta(days=LOOK_BACK_DAYS):
+        return when, precision
+    return None
+
+
+def _page_text(url: str) -> Optional[str]:
+    """The visible text of the post, for the announcing sentence."""
+    import httpx
+
+    try:
+        with httpx.Client(timeout=_FETCH_TIMEOUT, follow_redirects=True,
+                          headers={'User-Agent': 'Mozilla/5.0 (compatible; '
+                                                 'AunooMarketMonitor/1.0)'}) as client:
+            response = client.get(url)
+    except Exception as exc:                                   # noqa: BLE001
+        logger.info('owned_post: %s unreachable — %s', url, exc)
+        return None
+    if response.status_code >= 400:
+        return None
+    html = response.text[:_PAGE_CHARS * 4]
+    html = re.sub(r'<(script|style|noscript)[^>]*>.*?</\1>', ' ', html,
+                  flags=re.I | re.S)
+    html = re.sub(r'<br\s*/?>|</(p|div|li|h[1-6]|section|article)>', '\n', html,
+                  flags=re.I)
+    text_blob = re.sub(r'<[^>]+>', ' ', html)
+    text_blob = re.sub(r'&nbsp;|&#160;', ' ', text_blob)
+    text_blob = re.sub(r'[ \t]+', ' ', text_blob)
+    return text_blob[:_PAGE_CHARS]
+
+
+def dated_from_post(row, kind: str, published: Optional[datetime],
+                    now: Optional[datetime] = None
+                    ) -> Optional[Tuple[datetime, str]]:
+    """A look-back date from the post's own text, or None to keep the post date.
+
+    A LinkedIn post's text is its summary, so that is read directly. A blog
+    post's summary is a model's digest and drops dates, so the page itself is
+    read — but only for a post that arrived in the last few days, since every
+    older post already has its event and this runs over the whole set.
+    """
+    if kind not in _DATED_KINDS or not published:
+        return None
+    body = ' '.join(x for x in (row.get('title'), row.get('summary')) if x)
+    found = look_back_date(body, kind, published)
+    if found:
+        return found
+    # A blog post's uri is its URL; the url column is often empty for them.
+    url = row.get('url') or row.get('article_uri') or ''
+    if (row.get('channel') or '') != 'owned_web' or not url.startswith('http'):
+        return None
+    arrived = _parsed(row.get('submission_date')) or published
+    if arrived < (now or datetime.now(timezone.utc)) - timedelta(days=_FETCH_WITHIN_DAYS):
+        return None
+    page = _page_text(url)
+    if not page:
+        return None
+    found = look_back_date(page, kind, published)
+    if found:
+        return found
+    byline = byline_date(page)
+    if byline and byline <= published - timedelta(days=LOOK_BACK_DAYS):
+        return byline, 'day'
+    return None
+
+
 # Reviewer kind -> event type. Kinds absent here are deliberately not events.
 KIND_TO_EVENT = {
     'launch': 'product_launch',
@@ -222,8 +382,9 @@ def run(conn, *, brand_id: Optional[int] = None,
 
     rows = conn.execute(text(f"""
         SELECT ma.article_uri, ma.review_kind, ma.review_reason,
-               ma.review_customer,
+               ma.review_customer, l.channel,
                l.brand_id, a.title, a.summary, a.publication_date,
+               a.submission_date,
                a.news_source, a.url, a.bias_source, b.display_name
           FROM bw_market_articles ma
           JOIN bw_entity_content_links l ON l.article_uri = ma.article_uri
@@ -264,16 +425,26 @@ def run(conn, *, brand_id: Optional[int] = None,
                 continue
 
         published = _parsed(row['publication_date'])
+        # The post's own date is when the company said it. That is a real
+        # date, and it is what the timeline should show — unless the post is
+        # a look-back whose announcing sentence dates the thing itself.
+        occurred, precision = published, ('day' if published else 'unknown')
+        attributes = {'reviewer_kind': kind, 'announced_by': 'vendor'}
+        try:
+            stated = dated_from_post(row, kind, published)
+        except Exception:                                      # noqa: BLE001
+            stated = None
+        if stated:
+            occurred, precision = stated
+            attributes['date_stated_in_post'] = True
         outcome = entity_events.record(
             conn,
             event_type=event_type,
             title=_event_title(row, kind),
             description=(row['summary'] or row['review_reason'] or '')[:2000],
             brand_ids={int(row['brand_id']): 'subject'},
-            attributes={'reviewer_kind': kind, 'announced_by': 'vendor'},
-            # The post's own date is when the company said it. That is a real
-            # date, and it is what the timeline should show.
-            occurred_at=published, precision='day' if published else 'unknown',
+            attributes=attributes,
+            occurred_at=occurred, precision=precision,
             published_at=published,
             subtype=kind,
             evidence=[{

@@ -1414,14 +1414,28 @@ async def _discover_ats(conn, market: Dict[str, Any], vendors: List[dict],
     conn.commit()
 
     found = unchanged = missing = 0
+    # Least recently probed first. The sweep is capped per run, and taking the
+    # first N by sort_order meant the vendors past the cap were never probed
+    # at all — 16 of 116 on AI in the SOC — while the same 100 were re-read
+    # every fortnight.
+    probed_at = {int(r[0]): r[1] for r in conn.execute(text("""
+        SELECT brand_id, last_success_at FROM bw_entity_source_policies
+        WHERE source = :s
+    """), {"s": SOURCE_ATS_DISCOVERY}).fetchall()}
+    vendors = sorted(vendors, key=lambda v: (
+        probed_at.get(int(v["brand_id"])) is not None,
+        probed_at.get(int(v["brand_id"])) or datetime.min.replace(tzinfo=timezone.utc)))
     try:
         for vendor in vendors[: _max_vendors_per_run()]:
             pages = conn.execute(text("""
                 SELECT baseline->'web_pages' FROM bw_market_brands
                 WHERE market_id = :m AND brand_id = :b
             """), {"m": market["id"], "b": vendor["brand_id"]}).scalar() or []
-            # A careers page if one was discovered, else the site root — the
-            # board is often linked from a nav bar.
+            # A careers page if one was discovered, else /careers and the site
+            # root. The board is often linked from a nav bar or a footer, and
+            # discover_board follows a careers link one hop from any page it
+            # reads: Prophet Security has six roles on an Ashby board embedded
+            # in /about-us/, which /careers (a 404) never reached.
             candidates = [p["url"] for p in pages
                           if isinstance(p, dict) and p.get("url")
                           and re.search(r"career|job", p["url"], re.I)]
@@ -1433,7 +1447,7 @@ async def _discover_ats(conn, market: Dict[str, Any], vendors: List[dict],
                 """), {"b": vendor["brand_id"]}).scalar()
                 if not domain:
                     continue
-                candidates = [f"https://{domain}/careers"]
+                candidates = [f"https://{domain}/careers", f"https://{domain}/"]
 
             # Every read for this vendor is done; release the transaction
             # before touching the network. The reads above open one, and this
@@ -1813,7 +1827,13 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     # twenty by sort_order, which left sixty-four vendors never collected.
     claimed_brand_ids: list = []
     if forced_brand_id is None and source in sch.SCHEDULED_SOURCES:
-        claimed_brand_ids = sch.claim_due(conn, source)
+        # This market's vendors only, and for the two batch datasets the whole
+        # roster: one Crunchbase or LinkedIn jobs batch is meant to read every
+        # vendor, and the market's cadence gate above already decided it is
+        # time. See claim_due for what the global, capped, due-only claim did.
+        claimed_brand_ids = sch.claim_due(
+            conn, source, market_id=market["id"],
+            whole_market=source in (SOURCE_CRUNCHBASE, SOURCE_JOBS))
         conn.commit()
         if not claimed_brand_ids:
             return 0
@@ -1873,7 +1893,8 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
         # vendor's stored identifier — a name match alone is too loose to
         # attribute a posting.
         rows = conn.execute(text("""
-            SELECT b.display_name, mb.baseline->>'hq_country' AS country
+            SELECT mb.brand_id, b.display_name,
+                   mb.baseline->>'hq_country' AS country
             FROM bw_market_brands mb
             JOIN bw_brands b ON b.id = mb.brand_id
             WHERE mb.market_id = :m AND mb.collection_enabled
@@ -1881,9 +1902,19 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
               AND (:bid IS NULL OR mb.brand_id = :bid)
             ORDER BY mb.sort_order
         """), {"m": market["id"], "bid": forced_brand_id}).fetchall()
-        companies = [{"name": r[0].split("(")[0].strip(),
-                      "location": r[1] or "United States"} for r in rows]
-        if forced_brand_id is None:
+        companies = [{"brand_id": int(r[0]),
+                      "name": r[1].split("(")[0].strip(),
+                      "location": r[2] or "United States"} for r in rows]
+        if claimed_brand_ids:
+            # The batch is the claimed vendors, all of them. This used to slice
+            # the first N by sort_order while the claimed set was recorded as
+            # requested: Bright Data was sent one list and the policies were
+            # stamped for another, so the 16 vendors past the cap were never
+            # searched yet read as covered, and the vendors searched but not
+            # claimed never had their listings' presence recorded.
+            claimed = set(claimed_brand_ids)
+            companies = [c for c in companies if c["brand_id"] in claimed]
+        elif forced_brand_id is None:
             companies = companies[: _max_vendors_per_run()]
         urls = [c["name"] for c in companies]
     else:
@@ -1897,6 +1928,25 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
             urls = [u for u, bid in url_map.items() if bid in claimed]
     elif source != SOURCE_JOBS and forced_brand_id is None:
         urls = urls[: _max_vendors_per_run()]
+
+    # Only the vendors actually going up in this batch advance on the callback.
+    # A claimed vendor that is not in it — no URL, not in this market's list —
+    # is released now rather than stamped as collected, because recording a
+    # success for a vendor the provider was never asked about is how a gap in
+    # collection turns into a confident zero (same rule as _poll_linkedin).
+    if source == SOURCE_JOBS:
+        dispatched_brand_ids = [c["brand_id"] for c in companies
+                                if c.get("brand_id") is not None]
+    elif source in (SOURCE_CRUNCHBASE, SOURCE_PITCHBOOK, SOURCE_ZOOMINFO):
+        dispatched_brand_ids = [url_map[u] for u in urls if u in url_map]
+    else:
+        dispatched_brand_ids = []
+    if claimed_brand_ids:
+        dispatched = set(dispatched_brand_ids)
+        stranded = [b for b in claimed_brand_ids if b not in dispatched]
+        if stranded:
+            sch.release_claims(conn, source, stranded)
+            conn.commit()
 
     if not urls:
         if claimed_brand_ids:
@@ -1913,15 +1963,18 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
     run_id = forced_run_id or mc.open_run(
         conn, market_id=market["id"], source=source,
         provider=PROVIDER_BRIGHTDATA, status="queued")
-    if claimed_brand_ids:
+    if claimed_brand_ids and dispatched_brand_ids:
         # Recorded on the run so a batch that succeeds with zero
         # records still advances these vendors. Without it they
         # stay permanently due and the same batch goes up again
-        # on every pass.
+        # on every pass. The dispatched set, not the claimed one:
+        # the read path takes this list as the vendors the run
+        # looked at, and a listing absent from a run that never
+        # asked about its vendor is not a listing that closed.
         conn.execute(text("""
             UPDATE bw_collection_runs SET requested_brand_ids = :ids
              WHERE id = :r
-        """), {'ids': claimed_brand_ids, 'r': run_id})
+        """), {'ids': dispatched_brand_ids, 'r': run_id})
     conn.commit()
 
     client = LinkedInDatasetClient(key)
@@ -1949,8 +2002,8 @@ async def _poll_dataset(conn, market: Dict[str, Any], source: str,
                 webhook_auth=webhook_auth_value())
     except BrightDataError as e:
         mc.close_run(conn, run_id, status="failed", error=str(e))
-        if claimed_brand_ids:
-            sch.record_failure(conn, source, claimed_brand_ids, error=str(e))
+        if claimed_brand_ids and dispatched_brand_ids:
+            sch.record_failure(conn, source, dispatched_brand_ids, error=str(e))
         conn.commit()
         logger.warning("market %s: %s trigger failed: %s", market["id"], source, e)
         return 1
@@ -2015,7 +2068,15 @@ async def _poll_linkedin(conn, market: Dict[str, Any], source: str,
     # so all of them read as a measured zero rather than as unmeasured.
     claimed_brand_ids: List[int] = []
     if forced_brand_id is None:
-        claimed_brand_ids = sch.claim_due(conn, source)
+        # This market's vendors only. Policies are per vendor, so an unscoped
+        # claim took whatever was due in any market and stranded the rest.
+        # Profiles are one cheap record per vendor a week, so that batch is
+        # the whole roster: capped at 100 by sort_order, the same 16 vendors
+        # were behind every week and 22 follower counts always read stale.
+        # Posts keep the cap, because each vendor costs several records.
+        claimed_brand_ids = sch.claim_due(
+            conn, source, market_id=market["id"],
+            whole_market=source == SOURCE_PROFILE)
         conn.commit()
         if not claimed_brand_ids:
             return 0

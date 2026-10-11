@@ -1,5 +1,101 @@
 # Changes
 
+## 2026-10-11 — Market Monitor: every vendor in the market gets collected, and the vendor page stops inventing a round called "Series Unknown"
+
+### Goal
+Oliver read Prophet Security's page on aisocnews.com and found a headcount note that read as a
+dispute, a latest round called "Series Unknown", a Crunchbase reading two weeks old, and zero
+open roles for a company with six on its own job board. Each one led to a collection fault that
+affected the whole market. Commit `e8d425e9`, branch `fix/ingest-pipeline-spec`, live on bugfixing
+since 22:19.
+
+### Fix · the scheduler claimed vendors across markets (`app/services/entity_scheduler.py`, `app/tasks/market_monitor.py`)
+`claim_due` selected due policy rows by source alone. Policies are per vendor, not per market, so
+the 14-vendor EV Battery market's LinkedIn jobs pass (run 7413, 11:36 today) claimed 100 due
+vendors, 97 of them from AI in the SOC, sent Bright Data its own 14, recorded the 100 as
+`requested_brand_ids`, and `record_success` stamped all 100 as collected. `claim_due` now takes
+`market_id` and joins `bw_market_brands`; every poller passes its market.
+
+Two more faults sat in `_poll_dataset`. The LinkedIn jobs batch was the first
+`MARKET_MAX_VENDORS_PER_RUN` (100) vendors by sort order while the *claimed* set was recorded as
+requested, so 16 of 116 vendors were never searched yet read as covered, and vendors searched but
+not claimed never had listing presence recorded. The batch is now the claimed vendors, the run
+records the vendors actually dispatched, and claimed vendors that cannot be dispatched are
+released, the rule `_poll_linkedin` already had. Crunchbase was starved by a race: on 5 Oct the
+weekly market gate fired a minute before 90 vendors became due, took the 3 that were, and closed
+for a week. `claim_due(..., whole_market=True)` now claims the market's whole eligible roster,
+uncapped and regardless of per-vendor cadence (failure backoff still respected), for Crunchbase,
+LinkedIn jobs and LinkedIn profiles; the market's cadence gate decides when a batch goes.
+LinkedIn posts keep the cap because each vendor costs several records.
+
+### Fix · careers-board discovery only probed /careers (`app/collectors/ats_collector.py`, `_discover_ats`)
+Prophet's six roles are on an Ashby board embedded in `/about-us/`; `/careers` is a 404.
+`discover_board` now reads each page it fetches for a same-site link whose href or text says
+careers, jobs or hiring, and follows it one hop (`careers_links`). The sweep also probes the least
+recently probed vendors first instead of the first 100 by sort order, which had left the same 16
+vendors unprobed every fortnight. The first run found four boards it had missed: Prophet
+Security, Binalyze, Daylight Security, Stellar Cyber.
+
+### Fix · the jobs benchmark had no date (`app/services/market_benchmark.py`)
+`_job_values` read `meta.metric.collection.last_success_at`, a key the metric envelope never had,
+so the panel always said "As of the latest run — as of the latest successful run". It reads
+`freshness` and the per-source `sources[].last_success_at` now, and the note no longer repeats
+"as of".
+
+### Fix · "Series Unknown" and "import said" (`market_vendor_html.py`, `market_report_html.py`, `MarketVendorProvenance.tsx`)
+Crunchbase files a round whose type was not disclosed as `series_unknown`; capitalised it read as
+a stage. Prophet's latest round is a February 2026 strategic investment from Amex Ventures and
+Citi Ventures with no disclosed type or amount, and Crunchbase carries no date for it. All three
+renderers now say "Undisclosed round" for `series_unknown`, `undisclosed`, `unknown`,
+`not_stated` and `funding_round`. The amber "import said 89" beside a headcount flagged 65 of 116
+vendors, because every growing company drifts from a one-off import; it is now a muted
+"89 at import". (`market_vendor_html.py` went in under `2996bc6f`.)
+
+### Fix · earned-news mentions were never scored (`app/services/social_eval_service.py`)
+`evaluate_mentions_for_group` selected `public_social` and `community` only, so 150 of 154 press
+mentions on AI in the SOC (353 across the three markets) sat `pending` and every vendor page
+showed its press as unevaluated. `earned_news` is in the list; owned channels stay out because
+the page never counts a company's own posts toward sentiment. The classifier prompt says "post
+or article". Runs from the brand-watcher loop's hourly sweep with `SOCIAL_EVAL_MODEL`
+(claude-haiku-4-5 here), 200 per sweep.
+
+### Fix · a look-back blog post was dated by its feed (`app/services/entity_event_extractors/owned_post.py`)
+Prophet's post about the February round became a funding round dated 8 Oct 2026. The feed carried
+Webflow's edit date; the page's own byline says "February 25, 2026" and its text says "Today,
+we're announcing". Articles store no body, so for a post that arrived in the last 3 days
+(`_FETCH_WITHIN_DAYS`) the extractor fetches the page and takes either a date stated in the
+announcing sentence (`look_back_date`) or a byline, a line that is only a date (`byline_date`),
+when it is 30 or more days (`LOOK_BACK_DAYS`) before the feed date. Only funding, acquisition,
+partnership, customer and launch kinds. A LinkedIn post's text is its summary and is read without
+a fetch. Event 56694 was re-dated by UPDATE with a recomputed `dedupe_hash`, because the
+fingerprint includes the date bucket and re-running the extractor would have created a duplicate.
+
+### Verification
+`tests/test_entity_scheduler.py` (three new tests: market scoping, whole-roster claim ignores cap
+and cadence but not backoff, roster batch needs a market) and `tests/test_market_collection.py`:
+115 passed. `tests/test_owned_post_dating.py` (new, nine tests) and
+`tests/test_entity_events_narratives.py`: 28 passed. Live: `discover_board` on Prophet's site
+returned `ashby:prophet-security`; `dated_from_post` on Prophet's post returned 2026-02-25.
+After the 21:43 restart, manual market-wide runs for market 2: LinkedIn jobs 7643 requested 115
+vendors (SOCAI has no LinkedIn page), 390 records, 29 vendors with listings against 19;
+Crunchbase 7644 requested 116, 90 records new since 28 Sep; discovery 7645 probed 100, 4 boards
+new; careers-board read 7647 covered 17 boards, Prophet 6 listings. Prophet's jobs benchmark:
+value 6, percentile 89, market median 0, as_of 21:56:55. First hourly mention sweep after the
+22:19 restart scored 200 of 200: 121 neutral, 71 positive, 8 negative; 153 earned-news left.
+
+### Propagation
+bugfixing only (restarted 21:43 and 22:19 via `restart_when_quiet.sh`). UI rebuilt in the live
+tree; the bundle with "Undisclosed round" is the one committed under `2996bc6f`. Oviva, Panaya
+and Sunstar run the same scheduler and have the jobs batch mismatch and the Crunchbase race; with
+one market each the cross-market claim cannot bite. Not yet copied.
+
+### Lessons
+- A per-vendor scheduler shared by several markets must be claimed per market; coverage recorded
+  on a run must be the vendors actually sent, never the vendors claimed.
+- An event's fingerprint includes its date bucket. Re-date an existing event with an UPDATE;
+  re-extracting creates a second event.
+- Crunchbase `series_unknown` means "type not disclosed", not a stage.
+
 ## 2026-10-11 — wileytest and wbm: stub tables so the copied Brand Watcher lookups stop failing; the test suite back to green, Auspex and facade tests, four Auspex bugs fixed
 
 ### Ops · five empty Market Monitor tables on two sites that do not run Market Monitor

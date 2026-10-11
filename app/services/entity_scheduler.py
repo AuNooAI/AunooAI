@@ -297,42 +297,77 @@ def reconcile_from_history(conn, source: Optional[str] = None) -> int:
 # ---------------------------------------------------------------------------
 
 def claim_due(conn, source: str, limit: Optional[int] = None,
-              claimed_by: Optional[str] = None) -> List[int]:
+              claimed_by: Optional[str] = None,
+              market_id: Optional[int] = None,
+              whole_market: bool = False) -> List[int]:
     """Claim the next batch of vendors due for this source.
 
     ``FOR UPDATE SKIP LOCKED`` plus a persisted claim, so two overlapping
     scheduler passes cannot take the same vendor. The cap is applied here,
     after due-and-eligible filtering, so a full sweep completes over
     successive passes instead of re-reading a fixed prefix.
+
+    ``market_id`` restricts the claim to vendors collecting in that market.
+    Policies are per vendor, not per market, so without it a pass for one
+    market claimed whatever was due anywhere: on 11 Oct 2026 the 14-vendor EV
+    Battery market's LinkedIn jobs pass claimed 100 vendors, 97 of them from
+    AI in the SOC, sent Bright Data its own 14, and stamped all 100 as
+    successfully collected. Every market pass passes its own market.
+
+    ``whole_market`` claims every eligible vendor of the market in one batch,
+    uncapped and regardless of the per-vendor cadence, for the sources whose
+    one provider batch is meant to cover the roster (Crunchbase, LinkedIn
+    jobs). The market's own cadence gate decides *when* such a batch goes; a
+    per-vendor due check on top of it left vendors behind — on 5 Oct the
+    Crunchbase pass fired a minute before 90 vendors became due, took the 3
+    that were, and closed the weekly gate on the rest. A vendor in failure
+    backoff still waits its backoff out.
     """
     if source in MANUAL_ONLY_SOURCES:
         raise ValueError(f'{source} is manual-only and is never scheduled')
     if source in PAUSED_SOURCES:
         return []
+    if whole_market and market_id is None:
+        raise ValueError('whole_market needs a market_id')
 
     cap = limit if limit is not None else max_vendors_per_run()
     stale_claim = _now() - CLAIM_TIMEOUT
+    params = {'source': source, 'cap': cap, 'stale': stale_claim,
+              'who': claimed_by or 'scheduler', 'market': market_id}
 
-    rows = conn.execute(text("""
+    market_join = ''
+    if market_id is not None:
+        market_join = """
+             JOIN bw_market_brands mb
+               ON mb.brand_id = p.brand_id AND mb.market_id = :market
+              AND mb.collection_enabled AND mb.role <> 'excluded'"""
+    if whole_market:
+        due_clause = """(p.consecutive_failures = 0
+                        OR p.next_due_at IS NULL OR p.next_due_at <= NOW())"""
+        limit_clause = ''
+    else:
+        due_clause = '(p.next_due_at IS NULL OR p.next_due_at <= NOW())'
+        limit_clause = 'LIMIT :cap'
+
+    rows = conn.execute(text(f"""
         WITH due AS (
-            SELECT id FROM bw_entity_source_policies
-             WHERE source = :source AND enabled AND eligible
-               AND (next_due_at IS NULL OR next_due_at <= NOW())
-               AND (claimed_at IS NULL OR claimed_at < :stale)
-             ORDER BY next_due_at NULLS FIRST,
-                      last_success_at NULLS FIRST,
-                      priority DESC,
-                      brand_id
-             LIMIT :cap
-             FOR UPDATE SKIP LOCKED
+            SELECT p.id FROM bw_entity_source_policies p{market_join}
+             WHERE p.source = :source AND p.enabled AND p.eligible
+               AND {due_clause}
+               AND (p.claimed_at IS NULL OR p.claimed_at < :stale)
+             ORDER BY p.next_due_at NULLS FIRST,
+                      p.last_success_at NULLS FIRST,
+                      p.priority DESC,
+                      p.brand_id
+             {limit_clause}
+             FOR UPDATE OF p SKIP LOCKED
         )
         UPDATE bw_entity_source_policies p
            SET claimed_at = NOW(), claimed_by = :who,
                last_attempt_at = NOW(), updated_at = NOW()
           FROM due WHERE p.id = due.id
         RETURNING p.brand_id
-    """), {'source': source, 'cap': cap, 'stale': stale_claim,
-           'who': claimed_by or 'scheduler'}).fetchall()
+    """), params).fetchall()
     return [int(r[0]) for r in rows]
 
 

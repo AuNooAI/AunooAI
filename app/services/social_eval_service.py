@@ -81,8 +81,8 @@ _ROLE_GUIDE = (
 )
 
 _SYSTEM_HEAD = (
-    "You are a precise brand-monitoring classifier. For each social media post you are "
-    "given a BRAND/TOPIC and the post text. Decide (1) how relevant the post is to that "
+    "You are a precise brand-monitoring classifier. For each post or article you are "
+    "given a BRAND/TOPIC and the text. Decide (1) how relevant the post is to that "
     "brand/topic on a 0.0-1.0 scale and (2) the sentiment toward the brand/topic.\n"
     "Relevance means the post is substantively ABOUT the brand/company — its business, "
     "products, people, actions, or someone's genuine experience or opinion of them. "
@@ -681,8 +681,13 @@ async def evaluate_mentions_for_group(db, group_id: Optional[int] = None,
     if not service._get_model():
         return {"evaluated": 0, "skipped_model_unavailable": True}
 
+    # Earned news is in the list because nothing else ever scored it: 150 of
+    # 154 press mentions on AI in the SOC sat pending on 11 Oct 2026, so every
+    # vendor page showed its press as "unevaluated" and sentiment ignored it.
+    # Owned channels stay out — a company's own posts are not opinions of it
+    # and the page never counts them toward sentiment.
     where = ["m.status = 'pending'", "m.evaluated_at IS NULL",
-             "m.channel IN ('public_social', 'community')"]
+             "m.channel IN ('public_social', 'community', 'earned_news')"]
     params: Dict = {"lim": limit}
     if brand_id is not None:
         where.append("m.brand_id = :brand_id")

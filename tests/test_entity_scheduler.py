@@ -339,3 +339,51 @@ def test_nothing_is_paused_on_a_reason_that_no_longer_holds(conn):
         assert latest != 'succeeded', (
             f'{source} is paused, but its most recent completed run succeeded. '
             f'Either the pause reason is stale or it needs a new one.')
+
+
+# ---------------------------------------------------------------------------
+# Market scoping and whole-roster batches (11 Oct 2026)
+# ---------------------------------------------------------------------------
+
+def _market_of(conn, brand_id):
+    return conn.execute(text(
+        "SELECT market_id FROM bw_market_brands WHERE brand_id = :b"),
+        {'b': brand_id}).scalar()
+
+
+def test_a_market_scoped_claim_takes_only_that_markets_vendors(conn, roster):
+    """Policies are per vendor, so an unscoped claim took whatever was due in
+    any market: the 14-vendor EV Battery market's jobs pass claimed 97 AI in
+    the SOC vendors on 11 Oct 2026 and stamped them collected."""
+    market_id = _market_of(conn, roster[0])
+    claimed = sch.claim_due(conn, SOURCE, limit=len(roster) + 500,
+                            market_id=market_id)
+    assert set(claimed) == set(roster)
+    empty = conn.execute(text("""
+        INSERT INTO bw_markets (name, slug) VALUES (:n, :n) RETURNING id
+    """), {'n': f'pytest-sched-empty-{roster[0]}'}).scalar()
+    assert sch.claim_due(conn, SOURCE, limit=500, market_id=empty) == []
+
+
+def test_whole_market_claims_the_roster_regardless_of_cap_or_cadence(conn, roster):
+    market_id = _market_of(conn, roster[0])
+    first = sch.claim_due(conn, SOURCE, limit=5, market_id=market_id,
+                          whole_market=True)
+    assert set(first) == set(roster), 'the cap does not apply to a roster batch'
+    sch.record_success(conn, SOURCE, first)
+    # Due-only selection has nothing for a week; the roster batch still has
+    # everyone, because the market's own cadence gate decides when it goes.
+    assert sch.claim_due(conn, SOURCE, limit=500, market_id=market_id) == []
+    again = sch.claim_due(conn, SOURCE, market_id=market_id, whole_market=True)
+    assert set(again) == set(roster)
+    sch.release_claims(conn, SOURCE, again)
+    # A vendor in failure backoff still waits it out.
+    sch.record_failure(conn, SOURCE, roster[:1], error='provider said no')
+    third = sch.claim_due(conn, SOURCE, market_id=market_id, whole_market=True)
+    assert roster[0] not in third
+    assert set(third) == set(roster[1:])
+
+
+def test_a_roster_batch_needs_a_market(conn):
+    with pytest.raises(ValueError):
+        sch.claim_due(conn, SOURCE, whole_market=True)

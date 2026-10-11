@@ -83,10 +83,21 @@ function baselineValue(baseline: Record<string, any> | null | undefined,
   }
 }
 
+/** Crunchbase's slugs for "the type of the latest round was not disclosed".
+ *  Capitalised they read as a stage: "Series Unknown" looked like a round
+ *  called that on Prophet Security, whose latest round is a February 2026
+ *  strategic investment of undisclosed type and size. */
+const UNDISCLOSED_STAGES = new Set([
+  'series_unknown', 'undisclosed', 'unknown', 'not_stated', 'funding_round',
+]);
+
 /** Crunchbase's round slug as words: series_c -> Series C. Same rule as
  *  the report's _stage_label, so the two never disagree. */
 function stageLabel(raw: string): string {
   if (!raw || raw === 'not stated') return 'not stated';
+  if (UNDISCLOSED_STAGES.has(raw.trim().toLowerCase().replace(/ /g, '_'))) {
+    return 'Undisclosed round';
+  }
   return raw.replace(/_/g, ' ').split(' ')
     .map(w => (w.length === 1 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ');
@@ -215,8 +226,12 @@ export function MarketVendorProvenance({ marketId, brandId, baseline }: {
                         </span>
                       )}
                       {differs && (
-                        <span className="ml-2 text-amber-600 dark:text-amber-400">
-                          import said {String(previous)}
+                        /* History, not a dispute: a newer reading from a better
+                           source has moved on from the imported figure, which is
+                           the system working. Amber made 65 of 116 vendors look
+                           contested. */
+                        <span className="ml-2 text-slate-400 dark:text-gray-500">
+                          {String(previous)} at import
                         </span>
                       )}
                     </td>
