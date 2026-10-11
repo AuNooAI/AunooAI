@@ -44,8 +44,8 @@ and compare with the old refusal.
 None. These restore behaviour the product already claimed; nothing new to position.
 
 ## Limits and what's next
-- The fixes are live on bugfixing, wiley and wileytest. The other five sites running Auspex
-  (abm, oviva, panaya, sunstar, wbm) still have all three faults until the same patch is applied.
+- The fixes are live on all eight sites that run Auspex: bugfixing, wiley, wileytest, abm,
+  oviva, panaya, sunstar and wbm.
 - Named-entity detection is still pattern-based. A lower-case company name ("what about
   dropzone") is no longer treated as an entity, which is the safer default, but it also means
   it is not searched by name; the brand-name fallback covers tracked brands only.

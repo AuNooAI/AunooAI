@@ -143,9 +143,12 @@ Canonical bugfixing has the three commits. The four fixes went to wiley and wile
 (`git diff HEAD` of the three files): `url_detector.py` was byte-identical, `auspex_service.py` and
 `database_query_facade.py` have drifted by 97 and about 210 lines, but all eight hunks applied with
 line offsets only and no fuzz. Those two trees are deploy copies with no git history, so this entry
-is the record of what changed there. The other five sites running Auspex (abm, oviva, panaya,
-sunstar, wbm) still have all four bugs; the same patch should apply the same way. The tests
-themselves are not deployed anywhere.
+is the record of what changed there. The same patch then went to abm, oviva, panaya, sunstar and
+wbm at 19:46: all eight hunks applied with offsets only (facade drift from -32 lines on abm to -492
+on wbm), each tree compiled and passed a smoke check of the three behaviours in its own venv, and
+each site restarted quiet between 19:48 and 19:52 with 0 tracebacks. The three files on every site
+have a `.bak-fourfixes-20261011` copy beside them. All eight Auspex sites now carry the four
+fixes. The tests themselves are not deployed anywhere.
 
 ### Lessons
 - NEVER read "0% coverage" as "dead". Of 37 untested files, 24 were live: entry points the
