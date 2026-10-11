@@ -1,5 +1,161 @@
 # Changes
 
+## 2026-10-11 — wileytest and wbm: stub tables so the copied Brand Watcher lookups stop failing; the test suite back to green, Auspex and facade tests, four Auspex bugs fixed
+
+### Ops · five empty Market Monitor tables on two sites that do not run Market Monitor
+Two Brand Watcher code paths copied to wileytest and wbm as fixes look up Market Monitor tables:
+`audience_voices.profile_context` (bw_market_brands JOIN bw_markets) and `bw_official_sources`
+(bw_vendor_snapshots). Both handle a missing table, but each miss was an ERROR in the Postgres log:
+about 1,700 a day across the two sites since at least 5 Oct.
+
+Neither site has the Market Monitor migration chain, and both re-chain their Alembic graph around it
+(`subd_001` revises `br_001` there, `ip_003` on canonical), so copying `mm_001` across would have left
+two heads. Instead each site got a local revision, **`alembic/versions/bwstub_001_vendor_tables_stub.py`**,
+revising `subd_001`, that runs mm_001's exact `CREATE TABLE IF NOT EXISTS` statements for
+`bw_markets`, `bw_market_brands`, `bw_vendor_identifiers`, `bw_collection_runs` (a foreign-key target;
+the first attempt without it rolled back cleanly) and `bw_vendor_snapshots`, with their indexes. The
+tables stay empty; nothing enables Market Monitor. Applied with each tenant's own `alembic upgrade
+bwstub_001` at 11:19; `alembic_version` is `bwstub_001` on both, all five tables resolve, and the
+three failing statements run with empty results. No restart needed.
+
+**Propagation:** these two files live only in the wileytest and wbm trees and are not in git
+anywhere; this entry is the record. A future catch-up to canonical should drop the stub revision
+from the graph and stamp, since the real `mm_001` is idempotent over these tables.
+
+Also written today: **`docs/2026-10-11-what-can-leave-the-gpu-box.md`**, an inventory of what on
+the host depends on the local GPU and what each move off it would take.
+
+### Goal · the test suite
+Nobody had run the whole suite in a while. The first full run on bugfixing (branch
+`fix/ingest-pipeline-spec`, `.venv/bin/python -m pytest tests -p no:cacheprovider`) collected 2,256
+tests: 2,109 passed, 94 failed, 31 errors, 6m22s. None of the failures was a bug in the application.
+Three commits later the suite is green, two modules that produce customer-facing answers have
+tests, and those tests found four bugs that are now fixed on bugfixing, wiley and wileytest.
+
+### Ops · 14 stale test files deleted, eight tests caught up with deliberate changes (`da6ee2e4`)
+The 94 failures and 31 errors split two ways. 14 files tested code that no longer exists
+(`LLMErrorClassifier.classify_error`, `PipelineError(original_error=)`, the retry and
+circuit-breaker helpers, SQLite `PRAGMA` checks against Postgres, the week 2 and week 3 migration
+scripts); they are gone. The rest were tests that had not followed product decisions:
+`test_market_entitlements` still asserted a vendor cap after the 22 Sep decision that everyone
+through the door sees the whole market; `test_market_inquiry` said $250/$450 where the analyst
+call has been $400/$700 since 14 Sep; `test_market_subscription` expected three radio plans where
+there is one MCP plan at $139 in a hidden field since 8 Oct; `test_market_foresight` expected hex
+colours where the report now maps onto CSS variables; `test_emerging_topics_routes` did not know
+`detect/jobs` is admin-only; `test_entity_dual_read` compared five vendors added by hand on 7 Oct
+(a category, no imported taxonomy) and the canonical read was right to include them.
+
+**`tests/test_market_collection.py`** also learnt the repo's conventions, recorded here because
+the suite silently depends on them: pytest-asyncio is not installed, so an async test is a plain
+`def` wrapping `asyncio.run(...)`, never `@pytest.mark.asyncio`; the `_poll_market` tests stub
+every step by name, so a new step (`_review_wider`, `_review_actors`) must be added to their
+`_noop_async` list or the fake connection gets real SQL; the public market routes are an explicit
+set of 16 paths. **`tests/test_auth_surface.py`** lists the public market GET pages and
+`/api/health/collection` (read by the root cron over 127.0.0.1) as public, and names the guard on
+each public POST (per-IP daily cap, Stripe signature, HMAC download token). One example figure
+("43%") came out of **`data/auspex/agents/dr_reviewer_agent.md`** so `test_prompt_hygiene` passes
+without extending its baseline; the live prompt on bugfixing changed, the other sites did not.
+
+### Ops · 13 dead modules removed, kissql tests collected (`e50eb0ce`)
+A coverage run (coverage 7.16 installed with `pip --target` into the scratchpad, not the venv)
+showed 37 files under `app/` that no test reaches. Most are live and simply not exercised
+(`main.py`, `run.py`, `bulk_research.py`, the kissql query language behind semantic search,
+`rerank_shadow`). 13 have no importer anywhere in the repo, `/home/orochford/bin`, systemd or cron
+and are deleted: `app/config.py` (shadowed by the `app/config/` package, so nothing could import
+it), `app/database_async.py` (an unfinished replacement nothing used; CLAUDE.md now points at
+`services/async_db.py`), `app/vector_store_chromadb_backup.py`, five SQLite-only utilities under
+`app/utils/` (the Postgres `update_admin_postgres.py` stays; README and INSTALL no longer tell
+people to run the SQLite ones), `database_pool.py`, `db_monitor.py`, `config/umap_config.py` and two
+unused schemas. The three kissql test files sat in `app/tests`, which pytest never collected; they
+pass and moved to `tests/`.
+
+### Feature · tests for the query facade and Auspex (`65eee488`)
+**`tests/test_query_facade.py`** runs `DatabaseQueryFacade` against the real bugfixing Postgres in
+a throwaway schema `qf_<hex>`: eleven tables cloned empty with `CREATE TABLE ... (LIKE public.x
+INCLUDING ALL)`, an engine whose `search_path` puts the schema first, dropped at the end. Every
+article reader (`search_articles`, `get_recent_articles_by_topic`, `get_articles_by_topic`, the
+bias and future-signal readers, `get_articles_with_dynamic_limit`, the four news-feed readers) is
+checked against one row per branch of the readable-articles rule in
+`app/services/article_visibility.py`: approved, unscored, below the floor, failed state, decided
+no over a high score, decided yes over a low score, below a recorded threshold, press release in a
+plain topic and in a Market Monitoring topic, a copy of a readable original, a copy of a reject.
+Chats, messages, prompts, preferences, desk briefings, research sessions and the two logs round-trip.
+Facade coverage from the two new modules alone: 12% to 24% of 5,039 statements.
+
+**`tests/test_auspex_service.py`** drives `AuspexService`, `QueryRouter` and
+`OptimizedContextManager` with fakes for the vector store, the reranker, litellm, the plugin
+registry, the Jev shadows and the database wrapper. It covers the classifiers, the context budget,
+diversity and clustering, every router branch (temporal with and without a subject, cross-topic
+allocation and dedup, named-brand fallback and scoping), the retrieval step behind a turn
+(optimised context, SQL fallback, entity validation), prompt assembly with the default profile,
+streaming, structured JSON, and whole chat turns. The turn tests assert that every context block
+(tool results, URL lookups, plugin output) sits before the user's final message, since a
+conversation ending on an assistant turn is a prefill the Claude 5 family rejects. Coverage of
+`auspex_service.py`: 9% to 86% of 1,832 statements.
+
+### Fix · four Auspex bugs the new tests found (`65eee488`)
+**`app/services/url_detector.py`**: `URL_PATTERN` ended in `(?:/?|[/?]\S+)`. Alternation is
+ordered, the empty branch always matched, and `detect_urls("https://ex.org/world/story-123")`
+returned `https://ex.org/`. Every URL lookup in Auspex fetched the site's homepage instead of the
+article. Now `(?:[/?]\S*)?`; trailing punctuation is still stripped.
+
+**`app/services/auspex_service.py`**, `_extract_json_from_response_original`: it collapsed `{{`
+and `}}` to single braces to undo a model echoing the prompt's escaped braces. Compact JSON closes a
+nested object with a legitimate `}}`, so `{"queries": [{"params": {"keyword": "x"}}]}` became
+unparseable and the structured SQL search fell back to a bare keyword search every time the planner
+did not pretty-print. It now returns the text as it stands when it parses, and collapses only when
+it does not.
+
+**`app/services/auspex_service.py`**, `_extract_entity_names`: the first set of patterns was
+compiled with `re.IGNORECASE`, which made `about <anything>` a named entity in lower case. "what
+about battery recycling costs" then required that exact phrase in a title or summary and answered
+"No Articles Found for Specific Entity" over thirty relevant hits. The lead-in words now match in
+any case with `(?i:...)` and the name must be capitalised; "summarize articles about Dropzone AI",
+"mentioning Neil Armstrong" and "references to J.R.R. Tolkien" still resolve.
+
+**`app/database_query_facade.py`**: `create_research_session`, `update_research_session`,
+`log_tool_usage` and `log_search_routing` ran `json.dumps()` on dicts bound for columns that
+`database_models.py` declares `JSONB`, so SQLAlchemy serialised the text again and the column held
+a JSON string that jsonb operators cannot see into. A `_jsonb()` helper hands the object through
+and parses JSON text a caller still passes. No live row on bugfixing had these columns filled, so
+nothing needs repairing.
+
+### Verification
+- Full suite after `da6ee2e4`: 2,079 passed, 21 skipped, 0 failed, 7m21s. After `e50eb0ce`: 2,104
+  passed (the 25 kissql tests now collected), 4m47s. After `65eee488`: 2,267 passed, 21 skipped,
+  0 failed, 4m40s. Logs in the session scratchpad (`pytest_final.log`, `pytest_after_delete.log`,
+  `pytest_after_fixes.log`).
+- Coverage of `app/` under the whole suite before the new modules: 37.8% of 80,594 statements
+  (market services 70%, entity intelligence 69%, collectors 68%, analyzers 64%; routes 21%, with
+  `main.py` at 0% because `test_auth_surface` loads the app in a child process coverage does not
+  follow; Auspex 15%, forecast 21%, the facade 12%).
+- The four fixes were first pinned as strict expected failures, then flipped: the two new modules
+  run 163 passed, 0 xfailed. `test_auspex_service.py` passes under `PYTHONHASHSEED` 0 to 3 (the
+  entity extractor returns a set, so one assertion is order-independent).
+- `detect_urls`, the JSON extractor, the entity extractor and `_jsonb` were re-checked in each
+  tenant's own venv after patching wiley and wileytest.
+- Restarts via `scripts/restart_when_quiet.sh` with all signals zero: bugfixing 16:00:27, wiley
+  16:01:36, wileytest 16:02:46. Each answered HTTP 307 on its port and logged 0 tracebacks and 0
+  journal errors in the minutes after.
+
+### Propagation
+Canonical bugfixing has the three commits. The four fixes went to wiley and wileytest as a patch
+(`git diff HEAD` of the three files): `url_detector.py` was byte-identical, `auspex_service.py` and
+`database_query_facade.py` have drifted by 97 and about 210 lines, but all eight hunks applied with
+line offsets only and no fuzz. Those two trees are deploy copies with no git history, so this entry
+is the record of what changed there. The other five sites running Auspex (abm, oviva, panaya,
+sunstar, wbm) still have all four bugs; the same patch should apply the same way. The tests
+themselves are not deployed anywhere.
+
+### Lessons
+- NEVER read "0% coverage" as "dead". Of 37 untested files, 24 were live: entry points the
+  service starts from, lazy imports, and route handlers reached only through the child process.
+  Check importers across the repo, `/home/orochford/bin`, systemd and cron before deleting.
+- A JSONB column takes the object. `json.dumps()` before an insert through a `JSONB`-typed
+  SQLAlchemy column stores a JSON string.
+- Pin a bug as `xfail(strict=True)` while deciding whether to fix it; the fix flips the test to a
+  failure, so it cannot be fixed silently or forgotten.
+
 ## 2026-10-10 — Every background monitor runs on its own thread and event loop; the web loop only serves pages
 
 ### Goal
@@ -259,11 +415,14 @@ are in the commit.
   with `8e56f15e` and `dd062c03`, via `restart_when_quiet.sh` (queued about 20:50; it waited
   on the ingest). After the second restart: no tracebacks, the startup model list carries
   `claude-sonnet-5-5`, `explore_react.html` serves `index--tZjo_KL.js`, and the ingest resumed
-  (40 processed, 0 errors at 22:20). No standard-tier call had run by 22:21 (only Kimi, Nova and
-  Jev ingest calls in the ledger), so the first proof that live writing goes to Sonnet 5.5 is
-  the next daily briefing or Auspex chat; check `llm_usage_log` for `resolved_model` =
-  `us.anthropic.claude-sonnet-5-5`. Between 19:58 and 22:19 the service ran a restart another
-  session made, with the limits live but the old tier.
+  (40 processed, 0 errors at 22:20). **The first live standard-tier calls ran at 22:19–22:34 and
+  went to Sonnet 5.5**: the emerging-topics run logged 22 calls with `resolved_model` =
+  `us.anthropic.claude-sonnet-5-5`, all `success`: 20 `article_validator:_judge_batch` calls at
+  703–840 output tokens, one `deep_analyzer:analyze` at 4,914 (old limit 6,000, new 12,000),
+  and one `theme_proposer:propose_themes` at **2,025 output tokens, which the old 2,000 limit
+  would have cut off on the first night**; the new limit is 4,000. Ledger cost for the 22 calls:
+  $0.37. No briefing, topic report or Auspex chat had run yet. Between 19:58 and 22:19 the
+  service ran a restart another session made, with the limits live but the old tier.
 - **Every other site still runs Sonnet 4.5** and none has these commits. A rollout needs, per
   site: the yaml entry with `between_tools` (sites without any Sonnet 5 entry: abbott, abm, pbm,
   pearson, sage, wbm, wiley, wileytest; bwtemplate has one 4.5 reference), the nine alias
