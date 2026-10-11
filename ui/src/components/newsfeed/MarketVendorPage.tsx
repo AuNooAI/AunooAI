@@ -178,7 +178,7 @@ export function MarketVendorPage({ marketId, brandId, onBack, linkedinEnabled }:
           <h2 className="text-xl font-semibold text-slate-900 dark:text-gray-100">
             <VendorSwatch color={v.color} className="mr-2 w-2.5 h-2.5" />{v.display_name}
             <span className="ml-3 text-xs font-normal text-slate-500 dark:text-gray-400">Download{' '}
-              {(['md', 'csv', 'pdf'] as const).map((f, i) => (
+              {(['md', 'csv', 'pdf', 'html'] as const).map((f, i) => (
                 <span key={f}>{i > 0 && ' · '}<a className="underline hover:text-slate-800 dark:hover:text-gray-200"
                   href={`/api/market-monitor/markets/${marketId}/vendors/${brandId}/export?fmt=${f}`}>{f.toUpperCase()}</a></span>
               ))}

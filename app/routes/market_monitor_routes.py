@@ -4240,11 +4240,53 @@ def _vendor_markdown(market: Dict[str, Any], v: Dict[str, Any],
     return "\n".join(lines)
 
 
+async def _vendor_html(market_id: int, brand_id: int, market: Dict[str, Any],
+                       vendor: Dict[str, Any]) -> str:
+    """The vendor page as the screen draws it, for the HTML download.
+
+    The benchmark uses the screen's 30 days, not the 90 the other exports
+    use, so the file matches what the reader was looking at. The Current
+    profile, Events and Coverage panels come from the entity layer, and are
+    left out when that layer is switched off, as they are on screen.
+    """
+    from app.services import entity_flags
+    from app.services import market_benchmark as mbench
+    from app.services import market_vendor_html as mvh
+
+    def _bench():
+        conn = _conn()
+        try:
+            return mbench.benchmarks(conn, market, brand_id, days=30,
+                                     metric_keys=None, include_cohort=True)
+        except Exception:  # noqa: BLE001 — the page is useful without it
+            logger.warning("vendor html: benchmark failed", exc_info=True)
+            return None
+        finally:
+            conn.close()
+    bench = await asyncio.to_thread(_bench)
+    profile = events = summary = None
+    if entity_flags.enabled():
+        from app.routes import market_entity_routes as ment
+        try:
+            profile = await ment.canonical_profile(market_id, brand_id, session=None)
+            events = (await ment.vendor_events(market_id, brand_id, limit=25,
+                                               session=None))["events"]
+            summary = (await ment.vendor_mentions(
+                market_id, brand_id, channel=None, platform=None, sentiment=None,
+                limit=1, cursor=None, session=None))["summary"]
+        except Exception:  # noqa: BLE001 — drop the three panels, keep the page
+            logger.warning("vendor html: entity reads failed", exc_info=True)
+            profile = events = summary = None
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return mvh.render(market, vendor, bench=bench, profile=profile, events=events,
+                      mention_summary=summary, stamp=stamp)
+
+
 @router.get("/markets/{market_id}/vendors/{brand_id}/export")
 async def vendor_export(market_id: int, brand_id: int,
-                        fmt: str = Query("md", pattern="^(md|csv|pdf)$"),
+                        fmt: str = Query("md", pattern="^(md|csv|pdf|html)$"),
                         session=Depends(verify_session_api)):
-    """The vendor page as a file: Markdown, CSV or PDF, from the same
+    """The vendor page as a file: Markdown, CSV, PDF or HTML, from the same
     payload the screen renders, so an export cannot disagree with it."""
     from fastapi.responses import Response
     from app.services import market_lists as ml
@@ -4280,6 +4322,10 @@ async def vendor_export(market_id: int, brand_id: int,
         return Response(content=body, media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.csv"'})
     md = await asyncio.to_thread(_vendor_markdown, market, vendor, bench)
+    if fmt == "html":
+        page = await _vendor_html(market_id, brand_id, market, vendor)
+        return Response(content=page, media_type="text/html; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-{stamp}.html"'})
     if fmt == "pdf":
         from app.services.report_pdf import markdown_report_to_pdf
         pdf = await asyncio.to_thread(markdown_report_to_pdf,
