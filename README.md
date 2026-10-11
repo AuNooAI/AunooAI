@@ -141,12 +141,6 @@ alembic revision --autogenerate -m "Description"
 ```bash
 # Analyze database
 python app/analyze_db.py
-
-# Inspect schema
-python app/utils/inspect_db.py
-
-# Create fresh database
-python app/utils/create_new_db.py
 ```
 
 ---

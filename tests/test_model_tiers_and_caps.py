@@ -167,7 +167,7 @@ def test_sample_sizes_no_longer_treat_a_200k_model_as_mega(fake_yaml):
 # tier module itself, schema history, and the alias-tagging script.
 GUARD_ALLOW_FILES = {
     "app/model_tiers.py", "app/services/llm_usage_logger.py", "app/compliance/ai_disclosure.py",
-    "app/utils/db_manager.py", "app/utils/create_new_db.py", "app/database_models.py",
+    "app/database_models.py",
 }
 # Lines that use a name as a family prefix or a search keyword, not a model.
 GUARD_ALLOW_LINES = {
