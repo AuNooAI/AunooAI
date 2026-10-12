@@ -435,3 +435,112 @@ def _contains_not(node: Node) -> bool:
     if isinstance(node, Term):
         return False
     return any(_contains_not(c) for c in node.children)
+
+
+# ---------------------------------------------------------------------------
+# NewsFirehose: a flat OR chain of multi-word terms
+# ---------------------------------------------------------------------------
+
+#: What ``/v1/search`` on our firehose accepts (measured 11 Oct 2026): a flat
+#: chain of at most 8 ``OR`` terms, where a term of several words means all
+#: of them (the API joins the words with ``&``). A bracketed group, an ``AND``
+#: between groups, ``a AND b OR c AND d`` and two quoted phrases in one query
+#: each answer HTTP 500, so none of those can be sent. The collector packs the
+#: terms below into requests of 8.
+NEWSFIREHOSE_MAX_TERMS = 64
+NEWSFIREHOSE_TERMS_PER_REQUEST = 8
+
+#: tsquery operator characters; inside a word they break the API's parse.
+_TSQUERY_OPERATORS = re.compile(r"[&!:*\\|()<>]+")
+
+
+@dataclass
+class TermList:
+    """The expression as a flat list of AND-terms, each ``"word word"``."""
+
+    terms: List[str]
+    status: str
+    dropped: List[str] = field(default_factory=list)
+    reason: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status != STATUS_UNSUPPORTED and bool(self.terms)
+
+
+def compile_newsfirehose_terms(expr: Expression, *, max_terms: int = NEWSFIREHOSE_MAX_TERMS) -> TermList:
+    """Expand ``expr`` into the OR-of-conjunctions shape the firehose takes.
+
+    Disjunctive normal form: ``(a | b) + (c | d)`` becomes the four terms
+    ``a c``, ``a d``, ``b c``, ``b d``, which the API reads as ``(a & c) |
+    (a & d) | ...``. A quoted phrase becomes its words, all required but no
+    longer adjacent, because the API cannot keep a phrase inside a chain; that
+    loosening is reported as ``expanded`` with the phrase in ``dropped``.
+    Exclusions are dropped the same way (the site filters downstream). A
+    product over ``max_terms`` is refused rather than cut, so the keyword
+    shows up as a configuration problem instead of silently losing terms.
+    """
+    if expr.empty:
+        return TermList([], STATUS_EXACT, reason="empty expression")
+    dropped: List[str] = []
+    flags = {"expanded": False}
+    conj = _dnf(expr.root, dropped, flags)
+    if conj is None:
+        return TermList([], STATUS_UNSUPPORTED, dropped, "an exclusion needs a positive term beside it")
+    terms: List[str] = []
+    for words in conj:
+        text = " ".join(words)
+        if text and text not in terms:
+            terms.append(text)
+    if not terms:
+        return TermList([], STATUS_UNSUPPORTED, dropped, "no usable term after removing operator characters")
+    if len(terms) > max_terms:
+        return TermList([], STATUS_UNSUPPORTED, dropped,
+                        f"expands to {len(terms)} terms; NewsFirehose takes {max_terms} "
+                        f"({NEWSFIREHOSE_TERMS_PER_REQUEST} a request)")
+    status = STATUS_EXPANDED if (flags["expanded"] or dropped) else STATUS_EXACT
+    return TermList(terms, status, dropped)
+
+
+def _firehose_words(term: Term) -> List[str]:
+    out: List[str] = []
+    for w in _TSQUERY_OPERATORS.sub(" ", term.text).split():
+        if w not in out:
+            out.append(w)
+    return out
+
+
+def _dnf(node: Node, dropped: List[str], flags: dict) -> Optional[List[List[str]]]:
+    """``node`` as a list of conjunctions (word lists). None when the node is
+    nothing but an exclusion; an empty list when no word survives."""
+    if isinstance(node, Not):
+        dropped.append(f"NOT {_render(node.child)}")
+        return None
+    if isinstance(node, Term):
+        words = _firehose_words(node)
+        if node.phrase and len(words) > 1:
+            flags["expanded"] = True
+            dropped.append(f'phrase "{node.text}" matched as words')
+        return [words] if words else []
+    if isinstance(node, Or):
+        out: List[List[str]] = []
+        for child in node.children:
+            part = _dnf(child, dropped, flags)
+            if part:
+                out.extend(part)
+        return out
+    # And: the product of the children's conjunctions. An exclusion or a
+    # term with no usable word drops out of the conjunction.
+    product: List[List[str]] = [[]]
+    positives = 0
+    for child in node.children:
+        part = _dnf(child, dropped, flags)
+        if not part:
+            continue
+        positives += 1
+        if len(part) > 1:
+            flags["expanded"] = True
+        product = [a + [w for w in b if w not in a] for a in product for b in part]
+    if positives == 0:
+        return None if any(isinstance(c, Not) for c in node.children) else []
+    return product

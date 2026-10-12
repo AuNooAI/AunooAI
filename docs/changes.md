@@ -1,5 +1,97 @@
 # Changes
 
+## 2026-10-12 — Firehose collection: full coverage, grouped keywords, and the stuck windows
+
+### Goal
+Oliver wants every relevant firehose article, not a sample and not a hand-picked term list. Since
+7 Oct the collector reads every page of a window (467100a8), which is the right behaviour, but four
+keywords (65, 87, 188, 190) sat in `pending_intervals` with windows from 2 and 3 Oct, keyword 87
+failed every run as "query too broad", and the collection_health mail repeated every six hours.
+
+### What was actually wrong
+**The page budget was too small for a window that had fallen behind.** The firehose API takes
+whole dates and pages newest first, so a window that ended on 9 Oct 14:13 is reached only after the
+rows published between then and the API's day boundary (`to_date` is `interval_end + 2 days`). For
+keyword 188 that was 35 pages of rows newer than the window; the budget was 12 pages a run and 2
+follow-up rounds, so its 11 Oct run read 15 pages, 14 of them newer than the window, and saved
+nothing. The "ahead" pages are bounded (at most about two days of rows, read once per interval,
+because the cursor resumes), not growing; the earlier reading that they grow with the window's age
+was wrong. They were simply larger than the budget. Measured 11 Oct: keyword 188's first chunk
+returns about 2,400 rows a day, the bare term `AI` about 5,000, one page takes 0.6 s end to end.
+
+**The broad-term guard refused keyword 87** (`(AI | "artificial intelligence")`). The guard exists to
+protect the site from volume; with full coverage as the goal it is the wrong tool, and the volume
+was already there: on 9 Oct the site took in 30,508 of the firehose's 33,072 articles. The current
+keyword lists, read in full, match nearly the whole firehose.
+
+**The query normaliser lost the meaning of grouped keywords.** `_normalize_query` turned `+` and
+`AND` into OR and stripped brackets, so keyword 190,
+`("president" | "prime minister" | ...) + (warning | condemnation | ceasefire | ...)`, asked the
+firehose for any article naming a president or a summit. Keyword 195 (`(Venezuela | Guyana |
+Essequibo) + (dispute | referendum | arbitration | "ICJ")`) had the same problem.
+
+### What the firehose API accepts (measured against the live instance, 11 Oct)
+A flat chain of at most 8 `OR` terms; a term of several words means all of them (the API joins the
+words with `&`). `(a OR b) AND (c OR d)`, `a AND c OR b AND d` and two quoted phrases in one query
+each answer HTTP 500. A lone quoted phrase works. `a AND NOT b` works. So the only way to say "one
+of these and one of those" is to expand the product into multi-word terms.
+
+### Fix · keyword compiler (`app/collectors/query_expression.py`, `app/collectors/newsfirehose_collector.py`)
+`compile_newsfirehose_terms(expr)` renders a parsed keyword (the existing `parse_expression`, the
+same parser the NewsData collector uses) in disjunctive normal form: a list of AND-terms, each a
+string of words. `(a | b) + (c | d)` becomes `a c`, `a d`, `b c`, `b d`. A quoted phrase inside a
+chain becomes its words (adjacency is lost; reported as `expanded` with the phrase in `dropped`).
+Exclusions are dropped, as before. A product over 64 terms is refused with a reason rather than cut.
+tsquery operator characters (`& ! : * | ( ) < >`) are removed from words.
+
+`NewsFirehoseCollector._query_chunks(query)` replaces `_normalize_query` + `_split_query_terms` in
+`collect_interval`: a lone quoted phrase keeps its quotes, anything else goes through the compiler
+and is packed into chunks of 8 terms. An unexpressible keyword is an `ERR_CONFIG` failure before any
+request, not retryable, so health shows it. Diagnostics carry `query_shape`, `query_terms` and
+`query_dropped`. `_normalize_query` stays for the legacy `search()` path and as the fallback when the
+parser finds no terms.
+
+All 561 live keywords on bugfixing compile; none is refused. Only keywords 190 (2 chunks → 4, 28
+terms) and 195 (1 → 2, 12 terms) change what is sent. Keyword 72 is the largest at 50 terms. The
+chunk list is part of the continuation fingerprint, so continuations for 190 and 195 made before
+this deploy are discarded and those intervals restart at page 1; duplicates are dropped at insert.
+
+### Ops · budget and guard (bugfixing `.env`, not committed)
+```
+NEWSFIREHOSE_BROAD_PAGES_PER_DAY=0   # guard off; 0 is the documented off switch
+NEWSFIREHOSE_MAX_PAGES=140           # 140 pages at 0.6 s a page = 84 s, inside the 90 s budget
+COLLECTION_FOLLOWUP_ROUNDS=10        # the code caps at 10 (keyword_monitor.py:87)
+```
+`NEWSFIREHOSE_BUDGET_SECONDS` stays 90, inside the monitor's 120 s `SEARCH_TIMEOUT_SECONDS`. Up to
+11 runs × 140 pages a cycle per keyword drains keyword 188's roughly 550-page backlog in one cycle.
+
+### Not done, and why
+The plan had a "read the window one UTC day at a time" change to stop the ahead pages. It was
+dropped once the measurement showed the ahead pages are bounded and read once per interval; with
+the budget raised they cost at most a few minutes per stale window. Purging rows the gate rejected
+(three quarters of the roughly 320 MB a day of growth at 9.8 KB a row) and analysing approvals on
+demand instead of on arrival are the two remaining levers; both need their own spec. Title or
+topic-score filters were measured and rejected: the firehose's own AI topic score has no relation
+to what this site's gate approves (24 % to 38 % approved in every band), and a title filter keeps
+79 % of AI approvals but only 13 % of geopolitics approvals, so it is a per-group guess at best.
+
+### Verification
+`.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_provider_collectors_outcomes.py
+tests/test_keyword_monitor_rounds.py tests/test_keyword_monitor_outcomes.py
+tests/test_collection_health_route.py tests/test_dedup_priority.py tests/test_query_expression.py
+tests/test_newsfirehose_query_compiler.py`: 112 passed. New tests: `tests/test_newsfirehose_query_compiler.py`
+(11 tests, keywords 87, 190 and 195 as fixtures, cap, exclusions, lone phrase) and three in
+`tests/test_provider_collectors_outcomes.py` (grouped keyword reaches the API as multi-word terms;
+72-term product is `ERR_CONFIG` before any request; guard off reads 2,500 rows in 25 pages).
+Post-restart checks are in the propagation section; results to be appended.
+
+### Propagation
+bugfixing only, branch `fix/ingest-pipeline-spec`. The other seven sites need alembic ip_001 to
+ip_003 before they can run this branch. After the restart: journal shows firehose runs reaching
+more than 12 pages and no "query too broad" lines; `/api/health/collection` (send
+`X-Forwarded-Proto: https`) loses the `pending_intervals` rows for keywords 65, 87, 188 and 190
+within two cycles.
+
 ## 2026-10-11 — Market Monitor: the vendor page downloads as HTML that looks like the app
 
 ### Goal

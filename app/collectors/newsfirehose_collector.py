@@ -6,7 +6,7 @@ import re
 import logging
 import time
 import aiohttp
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 
 
@@ -31,6 +31,11 @@ from .base_collector import (
     provider_message,
 )
 from .contracts import CollectionResult, ERR_CONFIG, ERR_PARSE, host_of
+from .query_expression import (
+    NEWSFIREHOSE_TERMS_PER_REQUEST,
+    compile_newsfirehose_terms,
+    parse_expression,
+)
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -199,6 +204,42 @@ class NewsFirehoseCollector(ArticleCollector):
             " OR ".join(terms[i:i + max_terms])
             for i in range(0, len(terms), max_terms)
         ]
+
+    @classmethod
+    def _query_chunks(cls, query: str) -> Tuple[Optional[List[str]], Optional[str], Dict[str, Any]]:
+        """The ``q`` values sent for a keyword, at most 8 OR terms each.
+
+        A keyword is parsed with ``query_expression`` and expanded into the
+        flat OR chain of multi-word terms the API accepts, so ``(a | b) + (c |
+        d)`` asks for ``a c OR a d OR b c OR b d`` instead of any article that
+        mentions one of the four words (what the old flattening did, and why
+        keyword 190 on bugfixing pulled every article naming a president).
+        Returns ``(chunks, reason, diagnostics)``: ``chunks`` is None with a
+        ``reason`` when the keyword cannot be expressed, and empty for an
+        empty keyword. A lone quoted phrase keeps its quotes, the one form the
+        API matches as adjacent words.
+        """
+        stripped = (query or "").strip()
+        if not stripped:
+            return [], None, {}
+        if re.fullmatch(r'"[^"]+"', stripped):
+            lone = cls._normalize_query(stripped)
+            if lone.startswith('"'):
+                return [lone], None, {"query_shape": "phrase"}
+        expr = parse_expression(stripped)
+        if expr.empty:
+            norm = cls._normalize_query(stripped)
+            chunks = cls._split_query_terms(norm) if norm.strip() else []
+            return chunks, None, {"query_shape": "fallback"}
+        compiled = compile_newsfirehose_terms(expr)
+        if not compiled.ok:
+            return None, compiled.reason, {"query_shape": compiled.status}
+        per = NEWSFIREHOSE_TERMS_PER_REQUEST
+        chunks = [" OR ".join(compiled.terms[i:i + per]) for i in range(0, len(compiled.terms), per)]
+        diag: Dict[str, Any] = {"query_shape": compiled.status, "query_terms": len(compiled.terms)}
+        if compiled.dropped:
+            diag["query_dropped"] = compiled.dropped
+        return chunks, None, diag
 
     def __init__(self):
         self.api_key = os.getenv('PROVIDER_NEWSFIREHOSE_API_KEY') or os.getenv('NEWSFIREHOSE_API_KEY')
@@ -429,7 +470,10 @@ class NewsFirehoseCollector(ArticleCollector):
     ) -> CollectionResult:
         """Collect one fixed interval, paging every OR-chunk to its proven end.
 
-        Each chunk (at most 8 terms, the API's limit) is paged newest first,
+        The keyword is compiled by ``_query_chunks`` into OR chunks of at
+        most 8 multi-word terms (the API's limit and its only way to say
+        AND); a keyword it cannot express is a configuration failure before
+        any request. Each chunk is paged newest first,
         100 rows a page, until the API says ``has_more: false`` or a page
         reaches back past the window start. Nothing else counts as the end:
         a page that is short after our own filtering or deduplication is not
@@ -469,12 +513,18 @@ class NewsFirehoseCollector(ArticleCollector):
         caller saves them and the retry starts at that page.
         """
         res = self.new_result(query, interval_start, interval_end)
-        norm = self._normalize_query(query or "")
-        if not norm or not norm.strip():
+        chunks, why, shape = self._query_chunks(query or "")
+        if why:
+            out = CollectionResult.failure(
+                ERR_CONFIG, f"configuration: NewsFirehose cannot take this keyword ({why}); "
+                            f"split or shorten it", retryable=False)
+            out.started_at = res.started_at
+            out.diagnostics.update(shape)
+            return self.finish(out, query, interval_start, interval_end)
+        if not chunks:
             res.diagnostics["note"] = "empty query; no request sent"
             return self.finish(res, query, interval_start, interval_end)
-
-        chunks = self._split_query_terms(norm)
+        res.diagnostics.update(shape)
         clock = PageClock(provider_max_pages("NEWSFIREHOSE_MAX_PAGES", 12),
                           _env_float("NEWSFIREHOSE_BUDGET_SECONDS", 90.0))
         overlap = timedelta(hours=_env_float("NEWSFIREHOSE_OVERLAP_HOURS", 12.0))

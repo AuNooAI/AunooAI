@@ -1073,3 +1073,36 @@ def test_newsfirehose_discards_a_split_list_with_different_terms(monkeypatch):
     res = run(coll.collect("alpha | beta", "t", interval_start=start, interval_end=end, continuation=bad))
     assert res.succeeded and len(res.items) == 40
     assert res.diagnostics["continuation_discarded"] == "split chunk list does not match the query"
+
+
+def test_newsfirehose_grouped_and_keyword_is_sent_as_multiword_or_terms(monkeypatch):
+    """``(a | b) + (c | d)`` reaches the API as ``a c OR a d OR b c OR b d``:
+    the only shape it accepts for a conjunction. Until 12 Oct 2026 the
+    collector flattened it to ``a OR b OR c OR d``."""
+    q = '("president" | "prime minister") + (warning | ceasefire | sanctions)'
+    coll, session = _firehose(monkeypatch, _nf_pages(5), NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect(q, "t", interval_start=NOW - timedelta(hours=1), interval_end=NOW))
+    assert res.succeeded and res.coverage_complete
+    assert [call["params"]["q"] for call in session.calls] == [
+        "president warning OR president ceasefire OR president sanctions OR "
+        "prime minister warning OR prime minister ceasefire OR prime minister sanctions"]
+    assert res.diagnostics["query_terms"] == 6 and res.diagnostics["query_shape"] == "expanded"
+
+
+def test_newsfirehose_expression_too_large_is_a_configuration_failure(monkeypatch):
+    q = "(" + " | ".join(f"a{i}" for i in range(9)) + ") + (" + " | ".join(f"b{i}" for i in range(8)) + ")"
+    coll, session = _firehose(monkeypatch, _nf_pages(5))
+    res = run(coll.collect(q, "t", interval_start=START, interval_end=NOW))
+    assert res.failed and res.error_code == c.ERR_CONFIG and not res.retryable
+    assert session.calls == [] and "72 terms" in res.error_message and not res.may_advance_checkpoint
+
+
+def test_newsfirehose_broad_guard_off_reads_a_bare_term_to_the_end(monkeypatch):
+    """``NEWSFIREHOSE_BROAD_PAGES_PER_DAY=0`` turns the guard off: a term with
+    2,500 rows in a day is read to its proven end instead of refused."""
+    coll, session = _firehose(monkeypatch, _nf_pages(2500, step=timedelta(seconds=10)),
+                              NEWSFIREHOSE_MAX_PAGES=140, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=0,
+                              NEWSFIREHOSE_OVERLAP_HOURS=0)
+    res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
+    assert res.succeeded and res.coverage_complete and res.may_advance_checkpoint
+    assert len(res.items) == 2500 and len(session.calls) == 25
