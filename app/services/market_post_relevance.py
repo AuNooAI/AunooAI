@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 #: backlog a few hundred at a time; after that a run sees the day's posts.
 LIMIT = 300
 
+#: Review kinds that are news about the company itself, not about a topic.
+#: "Kevin Gandhi has joined Artemis as a security analyst" is not about AI in
+#: the SOC and the assessment says so, but a hire, a round, a purchase or a
+#: breach at a tracked vendor belongs on its market's page whatever the post
+#: is about, and feeds the map. These are neither assessed nor hidden.
+COMPANY_KINDS = ("funding", "acquisition", "hiring", "incident")
+
 
 def market_topic(market: Dict[str, Any]) -> Optional[str]:
     cfg = market.get("config") or {}
@@ -55,10 +62,12 @@ def candidates(conn, market_id: int, *, limit: int = LIMIT,
          WHERE ma.market_id = :m
            AND a.bias_source = 'vendor:linkedin'
            AND ma.review_verdict IN ('signal', 'commentary')
+           AND LOWER(COALESCE(ma.review_kind, '')) <> ALL(:company)
            AND (:redo OR NOT (COALESCE(ma.review_check, '{}'::jsonb) ? 'relevance'))
          ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
          LIMIT :lim
-    """), {"m": market_id, "lim": int(limit), "redo": bool(redo)}).mappings().all()
+    """), {"m": market_id, "lim": int(limit), "redo": bool(redo),
+           "company": list(COMPANY_KINDS)}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -121,8 +130,10 @@ def assess(conn, market: Dict[str, Any], *, limit: int = LIMIT,
     return result
 
 
-def passes(check: Optional[Dict[str, Any]]) -> bool:
-    """Whether the post may be shown: unread, or accepted."""
+def passes(check: Optional[Dict[str, Any]], kind: Optional[str] = None) -> bool:
+    """Whether the post may be shown: company news, unread, or accepted."""
+    if (kind or "").lower() in COMPANY_KINDS:
+        return True
     reading = (check or {}).get("relevance") if isinstance(check, dict) else None
     if not isinstance(reading, dict):
         return True
@@ -130,4 +141,6 @@ def passes(check: Optional[Dict[str, Any]]) -> bool:
 
 
 #: The same rule as SQL, for ``bw_market_articles`` aliased ``ma``.
-PASSES_SQL = "COALESCE(ma.review_check->'relevance'->>'accepted', 'true') <> 'false'"
+PASSES_SQL = ("(LOWER(COALESCE(ma.review_kind, '')) IN ("
+              + ", ".join(f"'{k}'" for k in COMPANY_KINDS) + ")"
+              " OR COALESCE(ma.review_check->'relevance'->>'accepted', 'true') <> 'false')")
