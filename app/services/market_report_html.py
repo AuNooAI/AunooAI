@@ -18,6 +18,7 @@ fields on the objects this module receives, never decisions it makes.
 """
 
 import base64
+import json
 import math
 import logging
 import os
@@ -2993,7 +2994,7 @@ def build_market_news_page(conn, market: Dict[str, Any], *, days: int = 30,
         + (' aria-current="page"' if d == days else "")
         + f'>{d} days</a>' for d in (7, 30, 90))
     rss = _feed_links(days, feed_params)
-    body = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>", '<div class="mm-news mm-v2">',
+    body = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_v2_theme_css(market)}</style>", '<div class="mm-news mm-v2">',
             '<div class="n-top">' + _brand_line()
             + '<nav class="n-pages" aria-label="Pages">'
             f'<a href="?{_relink(link_params, days=days, view="v2")}">Front page</a>'
@@ -3041,6 +3042,65 @@ html, body { background:#1a1523; }
 .container > .ai-disclosure a, .container > p.mm-src a { color:#f2eff3; }
 .mm-news { border-color:#2d2a37; box-shadow:0 12px 40px rgba(0,0,0,.35); }
 """
+
+def _market_theme(market: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        try:
+            cfg = json.loads(cfg)
+        except ValueError:
+            cfg = {}
+    theme = cfg.get("theme") if isinstance(cfg, dict) else None
+    return theme if isinstance(theme, dict) else {}
+
+
+def _hex_rgb(value: Any) -> Optional[Tuple[int, int, int]]:
+    m = re.fullmatch(r"#([0-9a-fA-F]{6})", str(value or "").strip())
+    if not m:
+        return None
+    h = m.group(1)
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _v2_theme_css(market: Dict[str, Any]) -> str:
+    """A market's own accent over the site's violet, from ``config.theme``:
+    ``{"accent": "#0E7C86", "accent_hover", "accent_ink", "accent_dark",
+    "accent_dark_hover", "accent_dark_ink"}``. Only the accent tokens change,
+    so two markets on the same design read as one family (aisecwire.com in
+    teal beside aisocnews.com in violet, 12 Oct 2026). No theme, no CSS."""
+    theme = _market_theme(market)
+    light, dark = _hex_rgb(theme.get("accent")), _hex_rgb(theme.get("accent_dark"))
+    out = []
+
+    def block(sel: str, rgb, base: str, hover: str, ink: str, active: str, tints) -> str:
+        r, g, b = rgb
+        return (f"{sel} {{ --accent:{base}; --accent-strong:{base}; "
+                f"--accent-strong-hover:{hover}; --accent-ink:{ink}; "
+                f"--accent-text-active:{active}; "
+                f"--accent-tint-30:rgba({r},{g},{b},{tints[0]}); "
+                f"--accent-tint-15:rgba({r},{g},{b},{tints[1]}); "
+                f"--accent-tint-08:rgba({r},{g},{b},{tints[2]}); }}")
+
+    if light:
+        base = theme["accent"]
+        hover = theme.get("accent_hover") or base
+        ink = theme.get("accent_ink") or hover
+        active = theme.get("accent_dark_ink") or theme.get("accent_dark") or base
+        out.append(block("html", light, base, hover, ink, active, (".30", ".15", ".08")))
+    if dark:
+        base = theme["accent_dark"]
+        hover = theme.get("accent_dark_hover") or base
+        ink = theme.get("accent_dark_ink") or hover
+        out.append(block('html[data-theme="dark"]', dark, base, hover, ink, ink,
+                         (".32", ".18", ".10")))
+    return "\n".join(out)
+
+
+def _v2_kicker(market: Dict[str, Any]) -> str:
+    """The word above the title: the market's own wordmark, else the site's."""
+    return (str(_market_theme(market).get("wordmark") or "").strip()
+            or _market_brand.kicker())
+
 
 V2_CSS = """/* ---- aisocnews design system (aunoo-aisocnews-design-system.md, Sept 2026).
    Tokens live on <html> so the page ground can use them; everything else is
@@ -5361,7 +5421,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         f'<a href="?{_relink(link_params, days=d, view="v2", section=section)}"'
         + (' aria-current="page"' if d == days else "")
         + f'>{d} days</a>' for d in (7, 30, 90))
-    body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>",
+    body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_v2_theme_css(market)}</style>",
                        '<div class="mm-news mm-v2">',
                        '<div class="n-top">' + _brand_line()
                        + '<nav class="n-jump" aria-label="Sections">'
@@ -5452,7 +5512,7 @@ def build_market_report_v2(conn, market: Dict[str, Any], *, days: int = 30,
         body.append("</div></main>")
     else:
         body.append('<header class="v2-mast"><div>'
-                    f'<div class="n-kicker">{esc(_market_brand.kicker())} · {esc(period_txt)}</div>'
+                    f'<div class="n-kicker">{esc(_v2_kicker(market))} · {esc(period_txt)}</div>'
                     f'<h1>{esc(market["name"])}</h1>'
                     f'<p class="n-sub">Market News and Trends for {esc(market["name"])}</p></div>'
                     f'<div><nav class="n-periods" aria-label="Reporting period">{periods}</nav>'
@@ -5695,7 +5755,7 @@ def build_market_briefing_page(conn, market: Dict[str, Any], *,
                 f'<h1>{esc(briefing.get("title", ""))}</h1></div></div>'
                 '<section class="n-block v2-briefing">' + mbr.render_body(briefing) + more
                 + "</section></main>")
-    body = (f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>" '<div class="mm-news mm-v2">'
+    body = (f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_v2_theme_css(market)}</style>" '<div class="mm-news mm-v2">'
             + nav + main
             + '<div class="n-foot">' + _brand_line()
             + f'<span>{esc(market["name"])}</span></div></div>')
@@ -5886,7 +5946,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
             announced[name] = announced.get(name, 0) + 1
 
     generated = datetime.now(timezone.utc)
-    body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}</style>"]
+    body: List[str] = [f"{_FONT_LINK_V2}<style>{EXTRA_CSS}{NEWS_CSS}{DARK_CSS}{V2_CSS}{_v2_theme_css(market)}</style>"]
 
     period_range = _fmt_range(*pc["current_range"]) if pc else None
     period_txt = (period_range or f"last {days} days")
@@ -5936,7 +5996,7 @@ def build_market_report(conn, market: Dict[str, Any], *, days: int = 30,
                 # The publisher's line, then the period; the page is the
                 # rating, and it carries the publisher's name the way a
                 # named research product does.
-                f'<div class="n-kicker">{esc(_market_brand.kicker())} · {esc(period_txt)}</div>'
+                f'<div class="n-kicker">{esc(_v2_kicker(market))} · {esc(period_txt)}</div>'
                 f'<h1>{esc(market["name"])} Market Maturity Map</h1>'
                 + (f'<p class="n-sub"><strong>{esc(question[:400])}</strong></p>'
                    if question else "")
