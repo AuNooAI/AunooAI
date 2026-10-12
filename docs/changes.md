@@ -1,5 +1,61 @@
 # Changes
 
+## 2026-10-12 — Ops: aisecwire.com serves the AI Security market; its first weekly chart
+
+### Goal
+Oliver pointed aisecwire.com at this server, to carry the AI Security market (aisecurity.aunoo.ai,
+market 1) the way aisocnews.com carries AI in the SOC. He also asked why aisecurity had no
+Top Movers chart.
+
+### aisecwire.com (configuration outside git)
+- **Certificate:** Let's Encrypt for aisecwire.com and www.aisecwire.com, issued through the webroot
+  `/var/www/letsencrypt`. It expires 10 Jan 2027 and renews with the host's certbot timer.
+- **`/etc/nginx/sites-available/aisecwire.com`** (enabled): we generated it from the aisocnews.com
+  file, swapping in port 10028, market 1, the host name, cache zone `aisecwire`
+  (`/var/cache/nginx/aisecwire`, 90 s, kept a day) and holding page `/var/www/aisecwire/holding.html`.
+  It shares the `aisoc_perip` rate-limit zone and the `aisocnews-deny.conf` scraper list with
+  aisocnews.com.
+  - www and http redirect to https://aisecwire.com.
+  - The site serves `/feed.xml`, `/feed.json`, the forms and `/inquiry`, `/subscribe` and
+    `/mcp-help`.
+  - Dot-paths return 404.
+- **Database:** `bw_markets.is_public = true` for market 1 on aisecurity. The market was private,
+  so it had to be made public before the page could be read without a login.
+- **No code change:** `_public_base()` builds the page's links from the request host.
+- **Not set up:** no warm-up unit like `warm_aisocnews.sh`. A view nobody has opened in a day takes
+  a cold build, which measured 12 s.
+
+### First weekly chart on aisecurity (data only)
+The chart freezes each closed week from that week's last map run. Last week (5 to 11 Oct) had only
+the empty map stored at 21:47 on build night, so `refresh()` stored nothing. The card would first
+have appeared on 19 Oct. We stored week 2026-10-05 by hand from map row 3, using `rank_rated()`
+with acquired vendors skipped: 32 places, since 32 vendors are rated. From 19 Oct the weekly
+refresh continues from that week. The card's wording with one stored week is fixed in
+`86a9f100`: it now reads "Trend, 1 wk" and "Momentum 72 this week".
+
+### Verification
+- `curl` from outside:
+  - `https://aisecwire.com/`: 200, 12.0 s on a MISS, then 0.06 s on a HIT.
+  - `www` and `http`: 301 to https://aisecwire.com/.
+  - `/feed.xml` and `/feed.json`: 200.
+  - `/.env`: 404.
+  - `/inquiry`: 302 to the market's inquiry page.
+- The front page's links point only at aisecwire.com and the article sources, plus aunoo.ai in the
+  footer.
+- The chart card "AI Security Top 32 Movers" renders, and after the aisecurity restart at 12:56 it
+  shows "Trend, 1 wk".
+- bugfixing restarted at 12:36 through `restart_when_quiet.sh` (quiet, 0 tracebacks), so its
+  scheduler now runs `a3f05561`.
+
+### Propagation
+This is host configuration on this server only. A rebuilt server needs:
+- the nginx file;
+- the certificate;
+- the holding page;
+- the cache directory.
+
+This entry is the only record of them.
+
 ## 2026-10-12 — Ops: the relevance models were using 14 CPU threads per site; now 2
 
 ### Goal
