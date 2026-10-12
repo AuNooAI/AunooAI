@@ -51,6 +51,10 @@ export const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   Denmark: [56.3, 9.5],
   Finland: [61.9, 25.7],
   Norway: [60.5, 8.5],
+  Estonia: [58.6, 25.0],
+  'The Netherlands': [52.2, 5.3],
+  China: [35.9, 104.2],
+  'South Korea': [36.5, 127.8],
 };
 
 export interface CountryRow {
