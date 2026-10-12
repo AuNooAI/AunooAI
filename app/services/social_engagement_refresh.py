@@ -17,6 +17,8 @@ job also repairs that gap for recent posts.
 Sync by design — call it off-loop via ``asyncio.to_thread``.
 """
 import os
+
+from app.services import xpoz_budget
 import re
 import json
 import logging
@@ -170,6 +172,9 @@ def _xpoz_metrics(client, platform: str, ids: List[str]) -> Dict[str, Dict]:
         return out
     if platform == "reddit":
         for pid in ids[:_REDDIT_CAP]:
+            if not xpoz_budget.reserve("reddit", xpoz_budget.lookup_cost("reddit", 1)):
+                logger.info(f"xpoz reddit refresh stopped: {xpoz_budget.last_reason}")
+                break
             try:
                 res = client.reddit.get_post_with_comments(
                     pid, post_fields=["id", "score", "comments_count", "author_username"],
@@ -194,6 +199,9 @@ def _xpoz_metrics(client, platform: str, ids: List[str]) -> Dict[str, Dict]:
     }.get(platform, ["id"])
     for i in range(0, len(ids), _XPOZ_BATCH):
         chunk = ids[i:i + _XPOZ_BATCH]
+        if not xpoz_budget.reserve(platform, xpoz_budget.lookup_cost(platform, len(chunk))):
+            logger.info(f"xpoz {platform} refresh stopped: {xpoz_budget.last_reason}")
+            break
         try:
             posts = ns.get_posts_by_ids(chunk, fields=fields)
         except Exception as e:

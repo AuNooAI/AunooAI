@@ -32,6 +32,7 @@ import unicodedata
 from typing import Dict, List, Optional
 from datetime import datetime
 
+from app.services import xpoz_budget
 from .base_collector import ArticleCollector, CONTENT_SOCIAL_POST
 from app.collectors.contracts import (
     CollectionResult, STATUS_FAILED, STATUS_PARTIAL, STATUS_SUCCESS, describe_exception,
@@ -404,6 +405,10 @@ class XpozCollector(ArticleCollector):
                 try:
                     ns = getattr(client, plat, None)
                     if ns is None:
+                        continue
+                    if not xpoz_budget.reserve(plat, xpoz_budget.SEARCH_COST.get(plat, 2)):
+                        logger.info("Xpoz %s search skipped for '%s': %s",
+                                    plat, term[:60], xpoz_budget.last_reason)
                         continue
                     blocked = guard.check()
                     if blocked is not None:
