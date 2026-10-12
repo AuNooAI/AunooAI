@@ -1,26 +1,31 @@
-"""Daily credit budget for the shared Xpoz key, per platform.
+"""Daily credit budget for the expensive Xpoz platforms, per site.
 
 Xpoz bills by platform, not by call: X and Reddit cost 2 credits a call,
 TikTok 5, Instagram 12, and an Instagram post lookup is 12 credits per post
 id. Measured on 11 Oct 2026 by reading the account balance around each call.
-The plan is 120,000 credits a month, so this module keeps every site on the
-host inside a daily allowance, with a smaller allowance for Instagram and
-TikTok where most of the money went.
+X and Reddit are cheap and are not budgeted. Instagram and TikTok are, and
+each site has its own allowance, because most clients do not need them and a
+consumer-brand client that does should pay for its own.
 
 Every caller asks ``reserve(platform, credits)`` before a paid call and skips
-the call when it returns False. Spend is kept in one SQLite file shared by all
-sites, per UTC day, platform and site, so the allowance is for the key, not for
-one site. A broken file never stops collection: on any error the call is
+the call when it returns False. Spend is recorded for every platform in one
+SQLite file shared by all sites (per UTC day, platform and site) so the key's
+whole spend can be read in one place, but only the budgeted platforms are ever
+refused. A broken file never stops collection: on any error the call is
 allowed and a warning is logged.
 
-Allowances come from the environment, in credits per UTC day:
+Allowances come from each site's environment, in credits per UTC day:
 
-    XPOZ_CREDITS_PER_DAY            whole key, default 4000 (120k / 30)
-    XPOZ_INSTAGRAM_CREDITS_PER_DAY  default 1300 (about 110 searches)
-    XPOZ_TIKTOK_CREDITS_PER_DAY     default 400 (about 80 searches)
+    XPOZ_INSTAGRAM_CREDITS_PER_DAY  default 0: the site does not use Instagram
+    XPOZ_TIKTOK_CREDITS_PER_DAY     default 0: the site does not use TikTok
+    XPOZ_CREDITS_PER_DAY            optional cap on the site's whole spend
     XPOZ_BUDGET_PATH                the SQLite file (default under _shared)
 
-Run ``python -m app.services.xpoz_budget`` for today's spend by site and
+The engagement refresh re-polls stored posts and is the lower-value use, so it
+reserves with ``keep_fraction=0.5``: it only spends while at least half of
+the day's allowance is still free, leaving the rest for searches.
+
+Run ``python -m app.services.xpoz_budget [day]`` for the spend by site and
 platform.
 """
 from __future__ import annotations
@@ -35,6 +40,9 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_PATH = "/home/orochford/tenants/_shared/xpoz_credits.sqlite"
+
+#: Platforms with a budget. Everything else is recorded but never refused.
+BUDGETED = ("instagram", "tiktok")
 
 #: Credits for one keyword search, by platform (measured 11 Oct 2026).
 SEARCH_COST: Dict[str, int] = {"twitter": 2, "reddit": 2, "tiktok": 5, "instagram": 12}
@@ -54,22 +62,26 @@ def lookup_cost(platform: str, n_posts: int) -> int:
     return LOOKUP_BATCH_COST.get(platform, 2)
 
 
-def _int_env(name: str, default: int) -> int:
+def _int_env(name: str) -> Optional[int]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
     try:
-        return int(os.getenv(name, "") or default)
+        return int(raw)
     except ValueError:
-        return default
+        logger.warning("%s=%r is not a number; ignored", name, raw)
+        return None
 
 
 def allowances() -> Dict[str, int]:
-    """Daily caps in credits: ``all`` for the key plus any platform caps."""
-    caps = {"all": _int_env("XPOZ_CREDITS_PER_DAY", 4000)}
-    for plat, default in (("instagram", 1300), ("tiktok", 400)):
-        caps[plat] = _int_env(f"XPOZ_{plat.upper()}_CREDITS_PER_DAY", default)
-    for plat in ("twitter", "reddit"):
-        v = os.getenv(f"XPOZ_{plat.upper()}_CREDITS_PER_DAY")
-        if v:
-            caps[plat] = _int_env(f"XPOZ_{plat.upper()}_CREDITS_PER_DAY", 0)
+    """This site's daily caps in credits. Budgeted platforms default to 0;
+    ``all`` is present only when XPOZ_CREDITS_PER_DAY is set."""
+    caps: Dict[str, int] = {}
+    for plat in BUDGETED:
+        caps[plat] = _int_env(f"XPOZ_{plat.upper()}_CREDITS_PER_DAY") or 0
+    total = _int_env("XPOZ_CREDITS_PER_DAY")
+    if total:
+        caps["all"] = total
     return caps
 
 
@@ -100,21 +112,25 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-def _spent(conn: sqlite3.Connection, day: str, platform: Optional[str]) -> int:
+def _spent(conn: sqlite3.Connection, day: str, tenant: str, platform: Optional[str]) -> int:
     if platform:
-        row = conn.execute("SELECT COALESCE(SUM(credits), 0) FROM spend WHERE day = ? AND platform = ?",
-                           (day, platform)).fetchone()
+        row = conn.execute("SELECT COALESCE(SUM(credits), 0) FROM spend WHERE day = ? AND tenant = ? AND platform = ?",
+                           (day, tenant, platform)).fetchone()
     else:
-        row = conn.execute("SELECT COALESCE(SUM(credits), 0) FROM spend WHERE day = ?", (day,)).fetchone()
+        row = conn.execute("SELECT COALESCE(SUM(credits), 0) FROM spend WHERE day = ? AND tenant = ?",
+                           (day, tenant)).fetchone()
     return int(row[0] or 0)
 
 
-def reserve(platform: str, credits: int, *, tenant: Optional[str] = None) -> bool:
-    """Charge ``credits`` to today's allowance for ``platform``.
+def reserve(platform: str, credits: int, *, tenant: Optional[str] = None,
+            keep_fraction: float = 0.0) -> bool:
+    """Charge ``credits`` to this site's allowance for ``platform``.
 
-    Returns False, and records a refusal, when the platform's cap or the
-    key's cap would be exceeded. Returns True on any storage error so a
-    broken budget file never stops collection."""
+    Returns False, and records a refusal, when a budgeted platform's cap (or
+    the optional site-wide cap) would be exceeded, or when the call would
+    leave less than ``keep_fraction`` of the platform's allowance free.
+    Platforms without a budget are recorded and always allowed. Returns True
+    on any storage error so a broken budget file never stops collection."""
     global last_reason
     platform = (platform or "").lower()
     credits = int(credits or 0)
@@ -126,13 +142,20 @@ def reserve(platform: str, credits: int, *, tenant: Optional[str] = None) -> boo
     try:
         with _lock, _connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            total = _spent(conn, day, None)
-            plat_total = _spent(conn, day, platform)
             reason = None
-            if platform in caps and plat_total + credits > caps[platform]:
-                reason = f"{platform} daily allowance {caps[platform]} credits spent ({plat_total} used)"
-            elif total + credits > caps["all"]:
-                reason = f"Xpoz daily allowance {caps['all']} credits spent ({total} used)"
+            if platform in caps:
+                cap = caps[platform]
+                used = _spent(conn, day, tenant, platform)
+                floor = int(cap * keep_fraction) if keep_fraction else 0
+                if cap <= 0:
+                    reason = f"{platform} is not budgeted on this site (XPOZ_{platform.upper()}_CREDITS_PER_DAY unset)"
+                elif used + credits > cap - floor:
+                    kept = f", keeping {floor} for searches" if floor else ""
+                    reason = f"{platform} daily allowance {cap} credits spent ({used} used{kept})"
+            if reason is None and "all" in caps:
+                used_all = _spent(conn, day, tenant, None)
+                if used_all + credits > caps["all"]:
+                    reason = f"site daily allowance {caps['all']} credits spent ({used_all} used)"
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if reason:
                 conn.execute("""INSERT INTO spend (day, platform, tenant, refused, updated_at)
@@ -173,10 +196,9 @@ def report(day: Optional[str] = None) -> Dict[str, Dict[str, Dict[str, int]]]:
 if __name__ == "__main__":
     import sys
     day = sys.argv[1] if len(sys.argv) > 1 else _today()
-    caps = allowances()
     rep = report(day)
     totals: Dict[str, int] = {}
-    print(f"Xpoz credits on {day} (caps: {caps})")
+    print(f"Xpoz credits on {day} (this site's caps: {allowances()})")
     for tenant, plats in rep.items():
         for plat, v in plats.items():
             totals[plat] = totals.get(plat, 0) + v["credits"]

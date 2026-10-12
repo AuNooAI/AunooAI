@@ -199,7 +199,7 @@ def _xpoz_metrics(client, platform: str, ids: List[str]) -> Dict[str, Dict]:
     }.get(platform, ["id"])
     for i in range(0, len(ids), _XPOZ_BATCH):
         chunk = ids[i:i + _XPOZ_BATCH]
-        if not xpoz_budget.reserve(platform, xpoz_budget.lookup_cost(platform, len(chunk))):
+        if not xpoz_budget.reserve(platform, xpoz_budget.lookup_cost(platform, len(chunk)), keep_fraction=0.5):
             logger.info(f"xpoz {platform} refresh stopped: {xpoz_budget.last_reason}")
             break
         try:
