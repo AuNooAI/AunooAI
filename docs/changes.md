@@ -39,6 +39,14 @@ in the comment. `daemon-reload`, then each site restarted after the quiet check
 --max 60`. Each restarted process shows `OMP_NUM_THREADS=2` in `/proc/<pid>/environ` and answers
 `/health` with 200.
 
+### Result
+bugfixing restarted at 12:33 (quiet script: "ingest running, nothing else"), so all nine sites run
+capped. Load average 11 to 13 before; 2.8 to 4.2 across the eight minutes after the first eight
+restarts, with only bugfixing (still uncapped then) peaking above 200 %; 2.8 at 12:40 with all nine
+capped and no site above 102 % in six one-second samples. Run queue inside the core count
+throughout. wileytest had scored only six articles since its restart at that point, so its own cap
+was not yet exercised under load.
+
 ### Expected effect
 CPU spent by the models falls about six times at the same per-article latency: on bugfixing's
 15,000 to 30,000 articles a day from 20 to 38 CPU-hours down to 3 to 7; on wileytest's 4,000 from
@@ -213,7 +221,12 @@ had opened for ten minutes, so `days=30&view=report` was a MISS and the visitor 
   from the next start of bugfixing.
 
 ### Verification
-Warm-up run by hand at 11:21: all three views 200 in 15 to 18 ms, X-Cache HIT or STALE. The
+Warm-up run by hand at 11:21: all three views 200 in 15 to 18 ms, X-Cache HIT or STALE. The 12:33
+restart of bugfixing was the first test of `inactive=1d`: all three views answered 200 in 16 to
+22 ms from stale copies while the site came back. The `ExecStartPost` warm-up did NOT run then:
+the unit runs as orochford and `systemd-run` answered "Interactive authentication required". Fixed
+with the `+` prefix (`ExecStartPost=+-/usr/bin/systemd-run ...`), which runs that one command as
+root; applies from the next start. The
 13.5 s build for `days=30&view=report` measured at 11:19 is now a 15 ms HIT.
 
 ### Not done
