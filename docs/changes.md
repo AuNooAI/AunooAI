@@ -1,5 +1,46 @@
 # Changes
 
+## 2026-10-12 — Content: the 7AI funding claim on aisocnews.com said "cybersecurity"; it was the AI SOC market
+
+### Goal
+Oliver quoted the aisocnews.com front page: "Nine months earlier, in December 2025, 7AI raised a
+130 million dollar Series A, the largest a cybersecurity company has raised at that stage" and
+said the round was the largest in the AI SOC market, not in cybersecurity.
+
+### Where the sentence came from
+Market 2 (AI SOC), briefing 18, "The agentic SOC is a feature now. What does that leave for the
+specialists", by the Cyberfuturists, published 6 Sep 2026. It was not generated: `generation` was
+"written", `model_used` empty, first version saved by orochford at 21:31 on 6 Sep, and that
+version already read "the week 7AI closed the largest Series A in cybersecurity". Six edits by
+orochford and admin that evening kept the claim. A Claude session on 24 Sep ("fix 7AI round date",
+revision 18) rewrote the sentence into the quoted form and carried the scope error over. The
+briefing's `facts` column holds nothing about 7AI, so no stored fact backed the claim.
+
+### Fix
+Briefing 18 edited through `market_briefing.save_edit` (the same path as the admin PUT, revision
+kept, lint rerun, citation check rerun with `piece_citations.run_and_store`): "the largest a
+cybersecurity company has raised at that stage" → "the largest Series A in the AI SOC market".
+Revision 19 ("before fix 7AI round scope", saved_by claude) holds the previous text. The first
+attempt failed on `bw_market_briefing_revisions.reason`, a `varchar(40)`; the reason was
+shortened, nothing was written by the failed attempt.
+
+The emerging-topics detection had copied the sentence from the briefing's corpus article
+(`articles.uri = .../report.html?view=v2&piece=18`) into its timelines: `topic_history.events`
+14 rows and `emerging_topics.events` 1 row, one of them worded "the largest cybersecurity company
+has raised at that stage". All 15 replaced with the corrected wording by `UPDATE`; the corpus
+article's summary did not contain the phrase. The eleven older briefing revisions keep the old
+wording; that is their purpose.
+
+### Verification
+`bw_market_briefings` 18: old phrase absent, new phrase present, `updated_at` 13:07:17,
+13 revisions. `topic_history` rows with the corrected wording: 14; rows with the old wording in
+`articles`, `topic_history`, `emerging_topics`, `bw_market_briefings`: 0. aisocnews.com front page
+after the 90 s cache validity: 200, X-Cache STALE then HIT, sentence reads "the largest Series A in
+the AI SOC market".
+
+### Propagation
+Data on bugfixing's `test` database only; the market lives there. Nothing to copy.
+
 ## 2026-10-12 — Ops: aisecwire.com serves the AI Security market; its first weekly chart
 
 ### Goal
