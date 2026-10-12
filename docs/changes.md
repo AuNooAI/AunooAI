@@ -1,5 +1,65 @@
 # Changes
 
+## 2026-10-11 — Market Monitor: the vendor page downloads as HTML that looks like the app
+
+### Goal
+Oliver asked for an HTML option beside the vendor page's MD, CSV and PDF downloads. My first
+version converted the Markdown dossier to HTML in the generic report style. He said "it doesn't
+look like the app", so I rebuilt it to draw the vendor page itself. Commit `2996bc6f`, branch
+`fix/ingest-pipeline-spec`, live on bugfixing.
+
+### Feature · HTML vendor download (`app/services/market_vendor_html.py`, new)
+`render(market, vendor, bench=, profile=, events=, mention_summary=)` returns one self-contained
+page. It has the same panels in the same order as `MarketVendorPage.tsx` and its children
+(`MarketVendorProvenance`, `MarketVendorBenchmark`), with the same titles, hints and wording rules:
+- **Header:** the vendor colour swatch, the subtitle, and the role / watched / published chips.
+- **Current profile:** the source and date of each field, status notes, and "import said N" where
+  the workbook differs by more than 2%.
+- **Events:** the corroboration notes, plus "date not stated by the source" where no date was given.
+- **Coverage:** own posts are counted apart from external mentions, and net sentiment uses only
+  evaluated mentions.
+- **Benchmark:** the plot bar is drawn with positioned divs in the vendor's colour, alongside the
+  median and average figures and the top-20 cohort in `<details>`. The "nothing to rank" case and
+  the comparatives ("larger than", "better funded than") follow the unit, as on screen.
+- **Headcount:** an inline SVG line chart with the dashed registry line. One reading shows as a
+  single number, as on screen.
+- **Other panels:** funding, identifiers, announcements, site changes, jobs, LinkedIn posts and
+  third-party coverage.
+
+The CSS is the Tailwind slate and gray values the app uses, with Inter. It follows
+`prefers-color-scheme`, needs no JavaScript, and carries the EU AI Act meta tag and footer from
+`app/compliance/ai_disclosure`. The renderer escapes every collected string, and it links only
+`http(s)` URLs. The operator controls are left out: Fetch now, Add PitchBook/ZoomInfo URL and the
+Market Horizon weights panel.
+
+### Route (`app/routes/market_monitor_routes.py`)
+`vendor_export` now accepts `fmt=html`. The new `_vendor_html` helper does the reads:
+- **Benchmark:** it computes the benchmark over 30 days, the screen's period. The MD, CSV and PDF
+  downloads still use 90 days.
+- **Entity layer:** it calls the entity-layer handlers in `market_entity_routes` directly
+  (`canonical_profile`, `vendor_events` with limit 25, and `vendor_mentions` for the summary). It
+  makes those calls only when `entity_flags.enabled()` returns true. If they fail, the three panels
+  are dropped and the rest of the page still renders.
+
+The UI link list in `MarketVendorPage.tsx` gains `html`. I rebuilt the bundle with
+`ui/deploy-react-ui.sh`.
+
+### Verification
+- I called `vendor_export(2, …, fmt="html")` directly for Exaforce (brand 107, 121,799 bytes) and
+  HTCD (brand 89, 103,904 bytes). Every panel title was present, and neither page had a `<script`
+  tag.
+- I took headless Chromium screenshots of the Exaforce page at 1280 px. They matched the app's
+  layout: two-column panel rows, chips, benchmark bars and the headcount chart.
+- The screenshots showed the "verified" label sitting in the wrong place for identifiers that
+  aren't links (the domain, the LinkedIn id). I fixed that before the commit.
+- `restart_when_quiet.sh --check bugfixing` showed nothing running, so I restarted, and the
+  journal showed no errors.
+- I didn't test a download in a logged-in browser.
+
+### Propagation
+bugfixing only. This is a feature, so it stays on the site that asked for it. Another site would
+need the new service file, the route hunks and a UI rebuild.
+
 ## 2026-10-11 — Market Monitor: every vendor in the market gets collected, and the vendor page stops inventing a round called "Series Unknown"
 
 ### Goal
