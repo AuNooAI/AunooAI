@@ -1419,8 +1419,17 @@ def articles(conn, market_id: int, *, limit: int = 50, offset: int = 0,
     # setting review_verdict = 'excluded'. The term scan's upsert never
     # touches the verdict, so the exclusion outlives every rescan — deleting
     # the link would not, the next scan would match the page again.
+    # The relevance assessment's verdict counts here as everywhere else
+    # (article_visibility): Cloudflare's "Python Workers are now generally
+    # available" scored 0.1 against the AI Security market, was filed
+    # filtered_relevance, and still led its product launches (12 Oct 2026).
+    # Vendor LinkedIn posts are assessed separately, on the market row
+    # (market_post_relevance), because ingest never sees them.
+    from app.services.article_visibility import decision_sql
+    from app.services.market_post_relevance import PASSES_SQL
     where = ["ma.market_id = :m", "ma.score >= :ms",
-             "COALESCE(ma.review_verdict, '') <> 'excluded'"]
+             "COALESCE(ma.review_verdict, '') <> 'excluded'",
+             decision_sql("a"), PASSES_SQL]
     params: Dict[str, Any] = {"m": market_id, "ms": min_score,
                               "lim": fetch, "off": offset}
     if days:

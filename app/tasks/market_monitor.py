@@ -936,6 +936,21 @@ async def _review_posts(conn, market: Dict[str, Any], now: datetime) -> int:
             await asyncio.to_thread(mpr.check_customer_posts, market_id, days=31)
         except Exception as exc:  # noqa: BLE001
             logger.warning("market %s customer check failed: %s", market_id, exc)
+        # The relevance assessment for the posts just reviewed, against the
+        # market's topic (market_post_relevance); ingest never sees them.
+        try:
+            from app.services import market_post_relevance as mprel
+
+            def _assess() -> Dict[str, Any]:
+                own = get_database_instance()._temp_get_connection()
+                try:
+                    return mprel.assess(own, market)
+                finally:
+                    own.close()
+
+            result["relevance"] = await asyncio.to_thread(_assess)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("market %s post relevance failed: %s", market_id, exc)
         # A run where every batch failed is a failed run, not a quiet one.
         if result["batches"] and result["failed_batches"] == result["batches"]:
             status = "failed"

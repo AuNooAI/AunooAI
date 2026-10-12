@@ -2236,6 +2236,18 @@ def _stored_candidates(conn, market_id: int, days: int
     # about Kai). Not a customer win, so not a development.
     misfit: Set[str] = set()
     from app.services.market_post_review import customer_fit_passes
+    # What the relevance assessment rejected for this market: articles by
+    # their ingest decision, vendor LinkedIn posts by the market verdict
+    # (market_corpus.articles applies the same two rules).
+    from app.services.article_visibility import decision_sql
+    from app.services.market_post_relevance import PASSES_SQL
+    off_topic: Set[str] = {r[0] for r in conn.execute(text(f"""
+        SELECT ma.article_uri
+          FROM bw_market_articles ma
+          JOIN articles a ON a.uri = ma.article_uri
+         WHERE ma.market_id = :m
+           AND NOT ({decision_sql("a")} AND {PASSES_SQL})
+    """), {"m": market_id}).fetchall()}
     for r in conn.execute(text("""
         SELECT article_uri, review_verdict, review_kind, review_reason,
                review_headline, review_summary, review_check
@@ -2354,6 +2366,11 @@ def _stored_candidates(conn, market_id: int, days: int
                     kind = _refine_funding(_refine_product(reread, text_value),
                                            text_value)
         if kind == "customer" and any(e.get("uri") in misfit for e in evidence):
+            continue
+        # Every source the event rests on was turned away by the relevance
+        # assessment: the event goes with them, as the posts do in the corpus.
+        sourced = [e.get("uri") for e in evidence if e.get("uri")]
+        if sourced and all(u in off_topic for u in sourced):
             continue
         written, dek = next((writing[e["uri"]] for e in evidence
                              if e.get("uri") in writing), (None, None))

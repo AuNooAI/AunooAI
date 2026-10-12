@@ -118,6 +118,14 @@ def _base_sql(ref: str, pr_topics) -> str:
     return f"({status} AND {decided} AND ({pr}))"
 
 
+def decision_sql(alias: Optional[str] = None) -> str:
+    """The relevance decision alone, without the copy-of-a-story rule. For a
+    reader that removes copies itself, such as the market page, where the copy
+    a market holds may be the one ``readable_sql`` hides in favour of an
+    original the market never matched."""
+    return _base_sql(alias or "articles", _pr_topics())
+
+
 def readable_sql(alias: Optional[str] = None) -> str:
     """The predicate as SQL text, e.g. ``readable_sql('a')``. No alias for a bare table."""
     ref = alias or "articles"

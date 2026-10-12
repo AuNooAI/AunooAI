@@ -27,10 +27,14 @@ def conn():
 
 
 def test_an_excluded_row_leaves_the_corpus_and_the_verdict_survives_a_rescan(conn):
-    row = conn.execute(text("""
+    from app.services.article_visibility import decision_sql
+    from app.services.market_post_relevance import PASSES_SQL
+    # A row the relevance assessment kept, since the corpus leaves out rejects.
+    row = conn.execute(text(f"""
         SELECT ma.id, ma.market_id, ma.article_uri FROM bw_market_articles ma
         JOIN articles a ON a.uri = ma.article_uri
         WHERE ma.review_verdict IS DISTINCT FROM 'excluded' AND ma.score >= 1
+          AND {decision_sql("a")} AND {PASSES_SQL}
         ORDER BY ma.matched_at DESC LIMIT 1""")).mappings().first()
     if row is None:
         pytest.skip("no matched article to exclude")
