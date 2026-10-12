@@ -39,7 +39,10 @@ LIMIT = 300
 #: the SOC and the assessment says so, but a hire, a round, a purchase or a
 #: breach at a tracked vendor belongs on its market's page whatever the post
 #: is about, and feeds the map. These are neither assessed nor hidden.
-COMPANY_KINDS = ("funding", "acquisition", "hiring", "incident")
+COMPANY_KINDS = ("funding", "acquisition", "hiring", "incident", "customer")
+# Customer posts are in the list for a different reason: the customer-fit
+# check already asks whether the deal is in the market, and the topic score
+# turned away Nova Intelligence's ZEISS and Fresenius customers on panaya.
 
 
 def market_topic(market: Dict[str, Any]) -> Optional[str]:
@@ -75,14 +78,27 @@ def assess(conn, market: Dict[str, Any], *, limit: int = LIMIT,
            redo: bool = False) -> Dict[str, Any]:
     """Assess each unread post against the market topic and store the verdict.
     Synchronous (the scorer is), so the scheduler runs it in a thread."""
+    import inspect
+
     from app.database import get_database_instance
-    from app.services.automated_ingest_service import (
-        AutomatedIngestService, relevance_evidence)
-    from app.services.hybrid_relevance_service import RelevanceUnavailableError
+    from app.services import automated_ingest_service as ais
+    try:
+        from app.services.hybrid_relevance_service import RelevanceUnavailableError
+    except ImportError:  # a site from before the ingest fix (oviva, panaya, sunstar)
+        class RelevanceUnavailableError(Exception):
+            pass
 
     topic = market_topic(market)
     if not topic:
         return {"skipped": "market has no collection topic"}
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg or "{}")
+    # A market can opt out (config.post_relevance = false). Oviva's market
+    # topic is the brand name with no scope text, so the score turned away
+    # Oviva's own posts and Weight Watchers on GLP-1 cover (12 Oct 2026).
+    if cfg.get("post_relevance") is False:
+        return {"skipped": "post_relevance off for this market"}
     posts = candidates(conn, market["id"], limit=limit, redo=redo)
     conn.commit()
     result = {"topic": topic, "candidates": len(posts), "accepted": 0,
@@ -90,24 +106,25 @@ def assess(conn, market: Dict[str, Any], *, limit: int = LIMIT,
     if not posts:
         return result
 
-    svc = AutomatedIngestService(get_database_instance())
+    svc = ais.AutomatedIngestService(get_database_instance())
     threshold = svc.get_relevance_threshold(topic)
-    cfg = market.get("config") or {}
-    if isinstance(cfg, str):
-        cfg = json.loads(cfg or "{}")
+    # Sites from before the ingest fix score without a threshold and record no
+    # decision; there the decision is the one the site's readers apply.
+    takes_threshold = "threshold" in inspect.signature(svc.score_article_relevance).parameters
     keywords = list(cfg.get("collection_terms") or [])
     for post in posts:
         try:
-            scored = svc.score_article_relevance(
-                {"uri": post["uri"], "title": post["title"] or "",
-                 "summary": post["summary"] or "", "news_source": post["news_source"]},
-                topic, keywords, threshold=threshold)
+            article = {"uri": post["uri"], "title": post["title"] or "",
+                       "summary": post["summary"] or "", "news_source": post["news_source"]}
+            scored = (svc.score_article_relevance(article, topic, keywords, threshold=threshold)
+                      if takes_threshold else
+                      svc.score_article_relevance(article, topic, keywords))
         except RelevanceUnavailableError as exc:
             # Left unread: the next run asks again.
             result["unavailable"] += 1
             logger.warning("post relevance unavailable for %s: %s", post["uri"], exc)
             continue
-        evidence = relevance_evidence(scored, threshold)
+        evidence = _evidence(ais, scored, threshold)
         verdict = {
             "accepted": bool(evidence["relevance_accepted_applied"]),
             "score": scored.get("topic_alignment_score"),
@@ -128,6 +145,27 @@ def assess(conn, market: Dict[str, Any], *, limit: int = LIMIT,
                "v": json.dumps(verdict, default=str)})
         conn.commit()
     return result
+
+
+def _evidence(ais, scored: Dict[str, Any], threshold: float) -> Dict[str, Any]:
+    """The decision as ingest records it, or the same fields worked out the
+    way ``relevance_evidence`` does on a site that predates it."""
+    if hasattr(ais, "relevance_evidence"):
+        return ais.relevance_evidence(scored, threshold)
+    try:
+        from app.services.article_visibility import RELEVANCE_FLOOR
+    except ImportError:
+        RELEVANCE_FLOOR = 0.4
+    floor = max(float(threshold or 0.0), float(RELEVANCE_FLOOR))
+    score = float(scored.get("relevance_score") or scored.get("topic_alignment_score") or 0.0)
+    accepted_by = scored.get("_accepted_by")
+    return {
+        "relevance_threshold_applied": floor,
+        "relevance_accepted_applied": bool(accepted_by) or score >= floor,
+        "relevance_decision_engine": str(accepted_by or scored.get("_hybrid_method") or "unknown")[:48],
+        "relevance_engine_scores": scored.get("_engine_scores") or {},
+        "relevance_policy_version": "pre-ingest-fix",
+    }
 
 
 def passes(check: Optional[Dict[str, Any]], kind: Optional[str] = None) -> bool:
