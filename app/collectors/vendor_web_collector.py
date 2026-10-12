@@ -377,7 +377,19 @@ async def fetch_page(
         # Read through Firecrawl: no conditional-request headers come back.
         status, body, final_url = via[0], via[1], url
 
+    # A page address can redirect to a file: aurascape.ai/security answers
+    # 301 to Security.png. Read as text, the image's bytes carried \u0000,
+    # which PostgreSQL refuses in JSONB, and the failed insert stopped the
+    # whole page poll for every vendor after it (12 Oct 2026).
+    kind = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if body is None and kind and not (kind.startswith("text/") or "html" in kind
+                                      or kind.endswith("+xml")):
+        return PageFetch(url=final_url, status=status, changed=False,
+                         error=f"not a web page ({kind})")
+
     title, text = extract_text(body if body is not None else resp.text)
+    title = title.replace("\x00", "") if title else title
+    text = text.replace("\x00", "") if text else text
     digest = hash_text(text)
     blocks_hash = hash_blocks(text)
     validation, reason = validate_content(text, prior_text, status)

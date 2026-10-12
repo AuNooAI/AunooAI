@@ -222,6 +222,49 @@ def _best_match(article_blob: str, events: List[Dict[str, Any]],
     return best
 
 
+def _happened(check: Any) -> "tuple[Optional[datetime], Optional[str]]":
+    """The event date the review read off the article (``review_check.happened``,
+    written by ``market_post_review.read_happened``), or (None, None)."""
+    reading = (check or {}).get("happened") if isinstance(check, dict) else None
+    if not isinstance(reading, dict) or not reading.get("date"):
+        return None, None
+    try:
+        day = datetime.strptime(str(reading["date"])[:10], "%Y-%m-%d")
+    except ValueError:
+        return None, None
+    precision = "month" if reading.get("precision") == "month" else "day"
+    return day.replace(tzinfo=timezone.utc), precision
+
+
+def _redate_originated(conn, article_uri: str, happened: datetime,
+                       precision: str) -> int:
+    """Move the events this article started onto the event's own date.
+
+    Events made before the date was read carry the publication date, and a
+    re-run cannot fix them through ``record``: the date is part of the
+    fingerprint, so it would make a second event beside the first. Only events
+    the press started are moved; an article that corroborates a vendor's own
+    announcement says nothing about when that announcement was made.
+    """
+    ids = [int(r[0]) for r in conn.execute(text("""
+        UPDATE bw_entity_events e
+           SET occurred_at = :d, date_precision = :p, updated_at = NOW()
+         WHERE e.attributes->>'announced_by' = 'press'
+           AND e.occurred_at IS DISTINCT FROM :d
+           AND EXISTS (SELECT 1 FROM bw_entity_event_evidence ev
+                        WHERE ev.event_id = e.id
+                          AND ev.article_uri = :uri
+                          AND ev.relationship = 'originates')
+        RETURNING e.id
+    """), {"d": happened, "p": precision, "uri": article_uri}).fetchall()]
+    if ids:
+        conn.execute(text("""
+            UPDATE bw_market_events SET event_date = CAST(:d AS DATE), updated_at = NOW()
+             WHERE entity_event_id = ANY(:ids)
+        """), {"d": happened, "ids": ids})
+    return len(ids)
+
+
 def run(conn, *, brand_id: Optional[int] = None,
         limit: Optional[int] = None) -> Dict[str, Any]:
     # ``about``, not ``mentions``. The link table already holds 56 earned-news
@@ -236,7 +279,7 @@ def run(conn, *, brand_id: Optional[int] = None,
         params["brand_id"] = brand_id
 
     rows = conn.execute(text(f"""
-        SELECT ma.article_uri, ma.review_kind, ma.review_reason,
+        SELECT ma.article_uri, ma.review_kind, ma.review_reason, ma.review_check,
                l.brand_id, a.title, a.summary, a.publication_date,
                a.news_source, a.url, a.bias_source, b.display_name
           FROM bw_market_articles ma
@@ -258,6 +301,12 @@ def run(conn, *, brand_id: Optional[int] = None,
             continue
 
         published = _parsed(row["publication_date"])
+        # The event's own date when the review read one off the article, so a
+        # June deal recalled in an October piece is dated June, not October.
+        happened, happened_precision = _happened(row["review_check"])
+        occurred = happened or published
+        if happened is not None:
+            _redate_originated(conn, row["article_uri"], happened, happened_precision)
         # The publisher's domain is one voice however many times it runs the
         # story, and it is not the vendor's. This is what lifts corroboration —
         # except on a wire, where the vendor is the author and the key says so.
@@ -272,7 +321,7 @@ def run(conn, *, brand_id: Optional[int] = None,
 
         match = _best_match(
             blob,
-            _candidate_events(conn, int(row["brand_id"]), event_type, published),
+            _candidate_events(conn, int(row["brand_id"]), event_type, occurred),
             exclude)
 
         if match is not None:
@@ -297,8 +346,9 @@ def run(conn, *, brand_id: Optional[int] = None,
             description=(row["summary"] or row["review_reason"] or "")[:2000],
             brand_ids={int(row["brand_id"]): "subject"},
             attributes={"reviewer_kind": kind, "announced_by": "press"},
-            occurred_at=published,
-            precision="day" if published else "unknown",
+            occurred_at=occurred,
+            precision=(happened_precision if happened is not None
+                       else "day" if published else "unknown"),
             published_at=published,
             subtype=kind,
             evidence=[{

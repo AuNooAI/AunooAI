@@ -1464,6 +1464,8 @@ async def review_earned(conn, market_id: int, market_name: str, *,
     if not posts or dry_run:
         result["samples"] = [{"title": p["title"], "vendors": p["vendors"]}
                              for p in posts[:10]]
+        if not dry_run:
+            result["happened"] = await _read_happened_safely(conn, market_id)
         return result
 
     for start in range(0, len(posts), batch):
@@ -1490,7 +1492,186 @@ async def review_earned(conn, market_id: int, market_name: str, *,
                 })
         result["reviewed"] += store_earned(conn, market_id, verdicts, model)
         conn.commit()
+    result["happened"] = await _read_happened_safely(conn, market_id)
     return result
+
+
+# ---------------------------------------------------------------------------
+# When a reported development happened, as against when it was reported
+# ---------------------------------------------------------------------------
+#
+# The coverage extractor dated every press event by the article's publication
+# date. A piece published on 8 Oct 2026 that recalled Cisco closing its Astrix
+# purchase on 29 June put a June deal at the top of October's market moves.
+# This pass reads, for each press signal, the date the article gives for the
+# development itself, and the extractor uses it when there is one.
+#
+# The reading is stored in ``bw_market_articles.review_check`` under the key
+# ``happened``: {"date": "YYYY-MM-DD" or null, "precision": "day" | "month" |
+# null, "model", "read_at"}. A null date means the article gave none, or
+# described the development as current; the publication date stands.
+
+#: Press signals read per run. Most runs see a handful; the first run on a
+#: site works through the backlog a few hundred at a time.
+HAPPENED_LIMIT = int(os.getenv("MARKET_HAPPENED_LIMIT", "300") or 300)
+HAPPENED_BATCH = 15
+#: A stated date further back than this is a misreading (a founding year, a
+#: product's first release), not the date of the development reported.
+HAPPENED_MAX_YEARS = 5
+
+HAPPENED_PROMPT = """Each item below is a news article reporting a development at a company,
+with the date the article was published.
+
+For each one, give the date on which the development itself happened, as the
+article states it. A deal closing, a round being announced, a product
+launching, a breach being disclosed: the date of that, not of the article.
+
+- "YYYY-MM-DD" when the article gives the day. Work out relative dates
+  ("on Tuesday", "last week") from the publication date.
+- "YYYY-MM" when it gives only the month.
+- null when the article gives no date for the development, or describes it as
+  happening now ("today", "this week", "has announced"). The publication date
+  is used then, so null is the right answer for ordinary same-day news.
+
+Never give the date of something else in the article: a founding year, an
+earlier funding round, a past product release, a date in the future.
+
+Reply with a JSON array, one object per article, in the same order, no prose:
+[{{"n": 1, "happened": "2026-06-29"}}, {{"n": 2, "happened": null}}]
+
+Articles:
+{articles}"""
+
+
+def _published_day(value: Any) -> Optional[datetime]:
+    raw = str(value or "")[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def happened_reading(value: Any, published: Optional[datetime]) -> Tuple[Optional[str], Optional[str]]:
+    """The model's answer as (date, precision), or (None, None) when it is
+    not a usable date for this article."""
+    raw = str(value or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        fmt, precision = "%Y-%m-%d", "day"
+    elif re.fullmatch(r"\d{4}-\d{2}", raw):
+        fmt, precision = "%Y-%m", "month"
+    else:
+        return None, None
+    try:
+        day = datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None, None
+    if published is not None:
+        # After publication cannot be what the article reports as done; a
+        # month reading of the publication month itself is just "now".
+        if day > published + timedelta(days=1):
+            return None, None
+        if precision == "month" and (day.year, day.month) == (published.year, published.month):
+            return None, None
+        if day < published - timedelta(days=365 * HAPPENED_MAX_YEARS):
+            return None, None
+    return day.strftime("%Y-%m-%d"), precision
+
+
+def happened_candidates(conn, market_id: int, *, limit: int = HAPPENED_LIMIT) -> List[Dict[str, Any]]:
+    """Press signals whose event date nobody has read yet, newest first."""
+    rows = conn.execute(text(f"""
+        SELECT a.uri, a.title, a.summary, ma.review_reason,
+               COALESCE(a.publication_date, a.submission_date) AS published
+          FROM bw_market_articles ma
+          JOIN articles a ON a.uri = ma.article_uri
+         WHERE ma.market_id = :m
+           AND ma.review_verdict = 'signal'
+           AND {_earned_press_sql("a")}
+           AND NOT (COALESCE(ma.review_check, '{{}}'::jsonb) ? 'happened')
+         ORDER BY COALESCE(a.publication_date, a.submission_date) DESC
+         LIMIT :lim
+    """), {"m": market_id, "lim": int(limit)}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def _judge_happened(articles: List[Dict[str, Any]], model: str) -> Dict[str, Any]:
+    import litellm
+
+    from app.ai_models import extract_json_response, resolve_litellm_call_params
+
+    lines = []
+    for i, art in enumerate(articles, 1):
+        body = (art.get("summary") or "").strip().replace("\n", " ")
+        lines.append(f"{i}. {art.get('title') or ''}\n"
+                     f"   published: {str(art.get('published') or '')[:10] or 'unknown'}\n"
+                     f"   development: {art.get('review_reason') or ''}\n"
+                     f"   {body[:SUMMARY_CHARS]}")
+    response = await litellm.acompletion(
+        **resolve_litellm_call_params(model),
+        messages=[{"role": "user",
+                   "content": HAPPENED_PROMPT.format(articles="\n".join(lines))}],
+        max_tokens=min(2048, 40 * len(articles) + 300),
+        timeout=180,
+    )
+    parsed = extract_json_response((response.choices[0].message.content or "").strip())
+    if isinstance(parsed, dict):
+        parsed = parsed.get("results") or parsed.get("articles") or []
+    if not isinstance(parsed, list):
+        raise ValueError(f"model returned {type(parsed).__name__}, not a list")
+    out: Dict[str, Any] = {}
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        try:
+            n = int(item.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= len(articles):
+            out[articles[n - 1]["uri"]] = item.get("happened")
+    return out
+
+
+async def read_happened(conn, market_id: int, *, limit: int = HAPPENED_LIMIT,
+                        batch: int = HAPPENED_BATCH) -> Dict[str, Any]:
+    """Read the event date of each press signal that has none yet."""
+    model = _model()
+    todo = happened_candidates(conn, market_id, limit=limit)
+    result = {"candidates": len(todo), "dated": 0, "undated": 0, "failed_batches": 0}
+    for start in range(0, len(todo), batch):
+        chunk = todo[start:start + batch]
+        try:
+            answers = await _judge_happened(chunk, model)
+        except Exception as exc:  # noqa: BLE001 — the next run reads it again
+            result["failed_batches"] += 1
+            logger.warning("event-date batch failed (%d articles): %s", len(chunk), exc)
+            continue
+        now = datetime.now(timezone.utc).isoformat()
+        for art in chunk:
+            # An item the model skipped stays unread, for the next run.
+            if art["uri"] not in answers:
+                continue
+            day, precision = happened_reading(answers[art["uri"]],
+                                              _published_day(art.get("published")))
+            result["dated" if day else "undated"] += 1
+            conn.execute(text("""
+                UPDATE bw_market_articles
+                   SET review_check = COALESCE(review_check, '{}'::jsonb)
+                                      || jsonb_build_object('happened', CAST(:h AS JSONB))
+                 WHERE market_id = :m AND article_uri = :uri
+            """), {"m": market_id, "uri": art["uri"],
+                   "h": json.dumps({"date": day, "precision": precision,
+                                    "model": model, "read_at": now})})
+        conn.commit()
+    return result
+
+
+async def _read_happened_safely(conn, market_id: int) -> Dict[str, Any]:
+    try:
+        return await read_happened(conn, market_id)
+    except Exception as exc:  # noqa: BLE001 — never fail the review over the dates
+        conn.rollback()
+        logger.warning("market %s event-date pass failed: %s", market_id, exc)
+        return {"error": str(exc)[:200]}
 
 
 # ---------------------------------------------------------------------------
