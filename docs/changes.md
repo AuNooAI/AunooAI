@@ -1,5 +1,87 @@
 # Changes
 
+## 2026-10-12 — Market page: the relevance assessment's verdict counts; aisecwire.com in teal; Zaun and Rein Security
+
+### Goal
+Oliver on aisecwire.com: "many of the litellm posts are not security related", and then "this is
+why we do relevance assessment". He also asked for subtle branding that tells aisecwire.com and
+aisocnews.com apart, for Zaun to be added, and for Rein Security (from its Series A post).
+
+### Fix · the market page ignored the relevance verdict (`54d02ddc`)
+- **Rejected articles still showed.** `market_corpus.articles` never applied the readable rule.
+  Cloudflare's "Python Workers are now generally available" scored 0.1, was filed
+  `filtered_relevance`, and still led AI Security's product launches.
+- **The fix:** the reader and the stored-event path in `market_assessment._stored_candidates` now
+  apply `article_visibility.decision_sql()`. This is new: the relevance decision without the
+  copy-of-a-story rule. The market can hold the copy that `readable_sql` hides in favour of an
+  original the market never matched, and the page removes copies itself.
+- An event goes when every source it rests on was rejected.
+- `tests/test_market_corpus_excluded.py` now picks a row the assessment kept.
+
+### Fix · vendor LinkedIn posts were never assessed (`54d02ddc`, `1c96b498`)
+- **The cause:** `market_collect.land_article` files a post under the vendor's Brand Watch topic
+  at alignment 1.0, so ingest never asks whether it is about the market.
+- **`app/services/market_post_relevance.py`** (new) runs the ingest assessment on every reviewed
+  post: `AutomatedIngestService.score_article_relevance` against the market's
+  `config.collection.topic_name`, at that group's threshold, recorded with `relevance_evidence`.
+  - The verdict goes in `bw_market_articles.review_check.relevance`, not on the article row. The
+    post is still the vendor's own coverage in Brand Watch.
+  - A post with no verdict stays visible.
+  - It runs after the customer check in `_review_posts`, 300 posts per run.
+- **Company news is exempt** (`1c96b498`). Hires, funding, acquisitions and incidents are neither
+  assessed nor hidden. On aisocnews the assessment had turned away "Kevin Gandhi has joined Artemis
+  as a security analyst".
+- **We dropped a separate market-fit check**, drafted before Oliver's remark, because it would have
+  duplicated the assessment.
+
+### Config · AI Security's pass mark 0.4 → 0.5 (aisecurity DB, data only)
+- 1,208 articles scored exactly 0.4 and were all accepted. A sample was mostly off-topic: AI
+  regulation politics, a Meta keychain, Deutsche Telekom's phone menus.
+- Three of LiteLLM's four routing posts scored 0.4.
+- `keyword_groups.min_relevance_threshold = 0.5` for group 1. Articles already decided keep
+  their verdict, since no re-scoring was approved.
+
+### Feature · per-market accent and wordmark (`02eeb617`)
+`config.theme` on a market (`accent`, `accent_hover`, `accent_ink`, `accent_dark`,
+`accent_dark_hover`, `accent_dark_ink`, `wordmark`) now does two things:
+- `_v2_theme_css` overrides only the accent tokens, after `V2_CSS`, on all four page builders;
+- `_v2_kicker` replaces the word above the title.
+
+aisecurity market 1 is teal (`#0E7C86` light, `#3FB8C2` dark) with "AI Sec Wire". aisocnews has
+no theme and stays violet. aisecurity's `.env` now has `MARKET_SITE_BRAND=cyberfuturists`
+(backup in `/var/tmp/aisecurity.env.bak-brand-*`), so the header reads "By the Cyberfuturists" as
+on aisocnews.
+
+### Ops · Zaun and Rein Security on AI Security (aisecurity, data only)
+Both were added with `scripts/market_add_vendor.py` from specs in `/var/tmp/aisecurity_specs/`.
+- **Zaun** (brand 56): zaun.ai, `linkedin.com/company/zaun`, $1.5M seed, Agent Governance,
+  searched as "Zaun AI".
+  - Bugfixing's market 2 had it as excluded and pivoted to "security for AI".
+  - The site footer links `company/zaun-ai`, but `company/zaun` is the page whose profile reads
+    zaun.ai.
+- **Rein Security** (brand 57): reinsec.io, Runtime Protection, $33M disclosed ($8M seed plus the
+  $25M Series A of 8 Oct; the company says $35M). Its colour, `#ff0033`, is the site accent,
+  because the logo is black and white.
+- We ran the first reads, post review, relevance, events, actor check and map by hand:
+  - 3 events were created, including Rein's funding round, dated 8 Oct;
+  - map row 4 has 34 vendors rated.
+
+### Verification
+- `pytest -k "market or visibility"`: 601 passed. `-k "market_report or report_html or chart or
+  v2"`: 76 passed.
+- **aisecurity, after the restart:** the front page no longer shows LiteLLM's routing posts,
+  "Python Workers", "Introducing Clef", "Web Search API" or the Webex item. Two LiteLLM items the
+  assessment accepted remain: Lens at 0.75, and one post at 0.5.
+- **Post assessment:** aisecurity 101 posts, 24 rejected. aisocnews 2,784 posts, 544 rejected; 448
+  of those are hidden, the other 96 being company news.
+- Screenshots of both front pages compared: teal against violet, layout identical.
+
+### Propagation
+- aisecurity: all files copied. Only the post-relevance hunk of `market_monitor.py` was applied,
+  because bugfixing's tree also holds another session's uncommitted `fill_job_functions` hunk.
+- bugfixing: restarted through `restart_when_quiet.sh` once quiet.
+- abm, oviva, panaya and sunstar: not copied.
+
 ## 2026-10-12 — Content: the 7AI funding claim on aisocnews.com said "cybersecurity"; it was the AI SOC market
 
 ### Goal
