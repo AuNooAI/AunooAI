@@ -4853,9 +4853,15 @@ def _trend_spark(points: List[Optional[float]], lo: float, hi: float,
     last = points[last_i]
     lx, ly = xy(last_i, last).split(",")
     body = "".join(f'<polyline points="{" ".join(r)}"/>' for r in lines if len(r) > 1)
+    # One stored week has no trend to describe (a new market's first chart).
+    if n == 1:
+        label = said = f"Momentum {last:.0f} this week"
+    else:
+        label = f"Momentum {first:.0f} to {last:.0f} over {n} weeks"
+        said = f"Momentum {first:.0f} → {last:.0f} over {n} weeks"
     return (f'<svg class="v2-spark" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
-            f'role="img" aria-label="Momentum {first:.0f} to {last:.0f} over {n} weeks">'
-            f'<title>Momentum {first:.0f} → {last:.0f} over {n} weeks</title>{body}'
+            f'role="img" aria-label="{label}">'
+            f'<title>{said}</title>{body}'
             f'<circle cx="{lx}" cy="{ly}" r="2"/></svg>')
 
 
@@ -4927,9 +4933,10 @@ def _v2_chart(chart: Dict[str, Any], logos: Optional[Dict[str, str]] = None,
                 f'<span class="v2-chart-trend">{_trend_spark(r.get("trend") or [], lo, hi)}</span>'
                 f'<span class="v2-chart-n v2-chart-score">{score}</span></li>')
 
+    trend_n = len(next((r["trend"] for r in rows if r.get("trend")), [])) or 1
     head = ('<div class="v2-chart-head" aria-hidden="true"><span></span><span></span>'
             '<span>Vendor</span><span>Last wk</span><span>Peak</span>'
-            f'<span>Trend, {len(next((r["trend"] for r in rows if r.get("trend")), [])) or 1} wks</span>'
+            f'<span>Trend, {trend_n} {"wk" if trend_n == 1 else "wks"}</span>'
             '<span>Momentum</span></div>')
     shown, rest = rows[:_V2_CHART_SHOWN], rows[_V2_CHART_SHOWN:]
     how = ("momentum on the Market Maturity Map" if not map_href else
