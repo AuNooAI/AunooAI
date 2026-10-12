@@ -1,5 +1,167 @@
 # Changes
 
+## 2026-10-12 — Ops: the relevance models were using 14 CPU threads per site; now 2
+
+### Goal
+Oliver: "why is everything so slow?" Load average 11 to 13 on 20 cores, run queue 20 to 31, no
+swap traffic, no disk wait, no database waits. Six one-second samples at 11:40 showed wileytest at
+1,315 % CPU in one second, and wileytest, bugfixing and wiley at 400 to 660 % each in the same
+second.
+
+### Root cause
+Every monolith site loads the relevance models inside its own web process and runs them on the
+CPU: `app/services/hybrid_relevance_service.py` holds a `SentenceTransformer`
+(`all-MiniLM-L6-v2`), the fine-tuned DeBERTa classifier in `models/relevance_classifier/final`
+(535 MB) and, through `app/retrieval/reranker.py`, the `BAAI/bge-reranker-base` cross-encoder.
+Nothing set a thread count, so torch used its default of 14 intra-op threads in each of nine
+processes. When two or three sites scored a batch at once, 40 or more runnable threads competed
+for 20 cores and everything else on the host waited for CPU. wileytest alone had scored 3,999
+articles since its 08:18 restart at about 2.3 CPU-seconds each.
+
+Measured in the wileytest venv, one article, median of ten runs, on the loaded host:
+
+| step | 14 threads | 4 threads | 2 threads |
+|---|---|---|---|
+| DeBERTa classifier | 231 ms wall, 3,044 ms CPU | 288 ms, 1,149 ms | 264 ms, 528 ms |
+| bge cross-encoder | 110 ms wall, 1,534 ms CPU | 138 ms, 552 ms | 137 ms, 274 ms |
+| MiniLM embedding | 27 ms | 43 ms | 97 ms |
+
+At 14 threads these small models spend most of their CPU time spin-waiting: 4.6 CPU-seconds for
+0.37 s of wall time. Two threads give 0.5 s wall for 0.8 CPU-seconds.
+
+### Fix (host configuration, outside git)
+`/etc/systemd/system/<site>.aunoo.ai.service.d/torch-threads.conf` on all nine monolith units
+(bugfixing, wileytest, wiley, wbm, oviva, sunstar, abm, panaya, aisecurity):
+`Environment=OMP_NUM_THREADS=2` and `Environment=MKL_NUM_THREADS=2`, with the measurements above
+in the comment. `daemon-reload`, then each site restarted after the quiet check
+(`scripts/restart_when_quiet.sh --check`): the eight quiet sites one at a time at 11:50 to 11:57,
+45 s apart; bugfixing (three users, ingest running) queued behind `restart_when_quiet.sh --soft 30
+--max 60`. Each restarted process shows `OMP_NUM_THREADS=2` in `/proc/<pid>/environ` and answers
+`/health` with 200.
+
+### Expected effect
+CPU spent by the models falls about six times at the same per-article latency: on bugfixing's
+15,000 to 30,000 articles a day from 20 to 38 CPU-hours down to 3 to 7; on wileytest's 4,000 from
+5 down to 1. The worst case of three sites scoring at once falls from 42 runnable threads to 6.
+Pipeline throughput is unchanged, because the Nova Lite call that follows each local score takes
+longer than the local step. Post-restart load figures to be appended once bugfixing has restarted
+and the sites have scored a batch.
+
+### Not done
+One shared scoring service instead of nine in-process copies (about 1.7 GB of models per site that
+has loaded them; wileytest, wiley, bugfixing and wbm had) would return about 7 GB of RAM and put
+the CPU in one sized place. Code change on every site; needs a spec.
+
+### Propagation
+Host configuration on this server; every monolith unit has the drop-in. A new site cloned from
+canonical needs the same drop-in. This entry is the record.
+
+## 2026-10-12 — Market Monitor: press events dated by when they happened; aisecurity's empty page filled
+
+### Goal
+Oliver, on aisecurity.aunoo.ai: the Maturity Map read "0 of 0 vendors mapped", and Market moves,
+Case studies and Thought leadership were empty. Then: keep job ads out of Market moves, fix the
+Cisco headline, and "use the event date, not the article date", as a general fix.
+
+### Fix · press events carry the date of the development (`app/services/market_post_review.py`, `app/services/entity_event_extractors/coverage.py`)
+The coverage extractor dated every event it built from trade press by the article's publication
+date. An itsecuritynews.info piece published 8 Oct 2026 recalled Cisco closing its Astrix purchase
+on 29 June, so a June deal sat among October's market moves.
+
+- **`market_post_review.read_happened`** (new) runs at the end of `review_earned`, so the daily
+  post review drives it. It takes press signals whose `review_check` has no `happened` key (newest
+  first, up to `MARKET_HAPPENED_LIMIT`, default 300) and sends them in batches of 15 to the review
+  model with `HAPPENED_PROMPT`. Each item carries its title, publication date, the review's reason
+  and the summary.
+  - The model answers `YYYY-MM-DD`, `YYYY-MM` or null. Null means the article gives no date, or
+    describes the development as current.
+  - `happened_reading()` rejects:
+    - a date after publication plus one day;
+    - a date more than 5 years before publication;
+    - a month reading equal to the publication month.
+  - The result is stored as `review_check.happened = {date, precision, model, read_at}`. A null
+    date is stored too, so each article is read only once. Items the model skips stay unread, for
+    the next run.
+  - The call has `timeout=180`. A failure is logged and never fails the review.
+- **`coverage.run`** selects `ma.review_check` and uses the happened date, when there is one, for
+  three things: the match window in `_candidate_events`, `occurred_at`, and the precision (`day`
+  or `month`). Otherwise it uses the publication date, as before.
+- **`coverage._redate_originated`** (new) moves events already made from the article before the
+  date was read. Without it, `record()` would make a second event, because the date is part of the
+  fingerprint.
+  - It only touches events where `announced_by = 'press'` and this article is `originates`
+    evidence. An article that corroborates a vendor's own announcement does not re-date that
+    announcement.
+  - It updates `bw_entity_events.occurred_at`/`date_precision` and the projected
+    `bw_market_events.event_date`.
+- **Tests:** `tests/test_event_happened_date.py` (new, 8 tests) covers the reading rules and the
+  extractor's parsing.
+
+### Fix · a page that redirects to an image stopped the site check (`app/collectors/vendor_web_collector.py`)
+`https://aurascape.ai/security` answers 301 to `/wp-content/uploads/2025/01/Security.png`
+(`image/png`). `fetch_page` followed the redirect and read the image as text. The bytes carried
+`\u0000`, which PostgreSQL refuses in JSONB, so the `bw_vendor_snapshots` insert failed. The poll
+loop in `_poll_pages` catches one exception for the whole run, so every run on aisecurity since
+11 Oct ended `partial` or `failed` at Aurascape, and no vendor after it was checked.
+- `fetch_page` now returns `error="not a web page (<type>)"` for a direct response whose
+  content type is not `text/*`, HTML or `+xml`. Firecrawl bodies are not affected.
+- `fetch_page` strips `\x00` from the extracted title and text, in case an HTML page carries one.
+- On aisecurity we removed `https://aurascape.ai/security` from Aurascape's `baseline.web_pages`
+  (brand 16).
+- Tests: `tests/test_vendor_web_not_a_page.py` (2 tests, passed). A live fetch of the Aurascape
+  address returned "not a web page (image/png)", and `/company` still read 3,540 characters.
+
+### Ops · aisecurity.aunoo.ai caught up by hand (data only)
+The post review, entity events and map jobs ran once between 21:47 and 21:59 on 11 Oct, before any
+data arrived, and they run daily. As a result:
+- the stored map (`bw_market_horizon` row 1) had 0 eligible vendors;
+- `bw_market_events` held 6 rows;
+- 4,266 of 4,286 market items were unreviewed.
+
+The nine large firms were already `incumbent` on `bw_market_vendor_controls`, so nothing there
+needed changing. Run from `/var/tmp/aisecurity_catchup*.py` and `/var/tmp/aisecurity_actors.py`:
+- `run_all` (entity events): 192 created, 12 merged. `market_horizon.compute/store` gave row 2,
+  then row 3: 44 eligible, 32 rated, 9 incumbents listed, 5 acquired.
+- `market_actor_review.review`: 68 candidates, 68 confirmed. `market_wider_review.review`: 60
+  candidates, 47 passed, 21 of those corrected, 13 failed. Market moves went from 0 items to 49
+  developments in 30 days.
+- Post review and earned review in the background, after a first run hung on one model call with
+  no answer: 880 of 4,374 items reviewed by 12:00. The rest is left to the scheduled runs.
+- **Job ads in Market moves:** none, and no change was needed. `market_assessment` drops
+  `geographic_expansion` (it is not in `_STORED_TYPE_MAP`) and job-listing `hiring_spike` rows,
+  and we checked this against the rendered section.
+- **Cisco item, edited by hand:**
+  - `bw_entity_events` 211 and `bw_market_events` 225 now have the title "Cisco completes its
+    acquisition of Astrix Security", a rewritten description and the date 2026-06-29.
+  - The article's `review_headline`/`review_summary` were set, with `review_check.headline`/
+    `.summary` marked `by: editor`.
+  - `upsert_event` never overwrites `occurred_at`, and replaces the title only on a newer
+    extraction version. The review skips rows that already have a verdict. So the edit stays.
+
+### Verification
+- `pytest tests/test_event_happened_date.py tests/test_entity_coverage_extractor.py`: 19 passed.
+- On aisecurity after the copy, `read_happened`: 40 candidates, 4 dated, 36 undated. The model
+  gave the Cisco–Astrix article 2026-06-29 on its own. The other three are within a day of
+  publication.
+- `coverage.run`: 39 candidates, 0 created, 34 corroborated, 5 skipped. Event 211 stayed at
+  2026-06-29 and made no duplicate.
+- The Market moves section, rendered through `build_market_report_v2(section="moves")`, shows the
+  new Cisco headline. With the June date, the item is outside the 30-day view.
+
+### Propagation
+- **aisecurity:** both files copied (old copies in `/var/tmp/aisecurity_*.bak-happened`). The
+  service was restarted at about 12:00 after `restart_when_quiet.sh --check aisecurity` showed it
+  idle. It is active and `/login` returns 200.
+- **bugfixing (canonical, aisocnews.com):** the code is in the tree, uncommitted, and the service
+  was not restarted. The quiet check showed 3 users and 327 articles in ingest. The scheduler
+  picks the fix up at the next restart, and the first daily review after that dates the backlog.
+- **Other market sites (oviva, panaya, sunstar, wileytest and others):** not copied.
+
+### Not done
+- Vendors' own LinkedIn posts (`owned_post` extractor) are still dated by the post date.
+- Press events still take the article's own title as their headline (`coverage.py`, `title=row["title"]`). The
+  Cisco listicle title came from there.
+
 ## 2026-10-12 — Ops: aisocnews.com no longer waits for a cold report build
 
 ### Goal
