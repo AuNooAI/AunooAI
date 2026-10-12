@@ -2478,6 +2478,8 @@ export interface VendorBenchmark {
   top_q1: number | null;
   top_q3: number | null;
   vendor_percentile: number | null;
+  /** Measured vendors sharing the vendor's exact value, itself included. */
+  tied_count?: number | null;
   delta_from_market_median: number | null;
   percentage_delta_from_market_median: number | null;
   delta_from_market_average: number | null;

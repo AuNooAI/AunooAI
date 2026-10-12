@@ -439,8 +439,14 @@ def _bench_row(b: Dict[str, Any], days: int, color: str) -> str:
                 'There is nothing to rank here yet.</p></div>')
     right = f'<div style="text-align:right"><div class="big">{_e(_fmt(b.get("vendor_value"), unit))}</div>'
     if b.get("vendor_percentile") is not None:
-        right += (f'<div class="xs muted">{_ahead_of(unit)} {b["vendor_percentile"]}% of the '
-                  f'{b.get("measured_count")} vendors measured</div>')
+        tied = int(b.get("tied_count") or 0)
+        if b.get("vendor_value") == 0 and tied > 1:
+            # A zero is not ahead of anyone; it shares the floor.
+            right += (f'<div class="xs muted">level with {tied - 1} other vendors at none, '
+                      f'of the {b.get("measured_count")} measured</div>')
+        else:
+            right += (f'<div class="xs muted">{_ahead_of(unit)} {b["vendor_percentile"]}% of the '
+                      f'{b.get("measured_count")} vendors measured</div>')
     out = [f'<div class="bm">{head}{right}</div></div>']
     notes = b.get("notes") or []
     if b.get("suppressed"):

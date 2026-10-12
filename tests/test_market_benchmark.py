@@ -316,3 +316,18 @@ def test_every_benchmark_metric_is_reachable_and_shaped(conn, market):
         # contradictory, and whichever the UI reads first would be arbitrary.
         assert not (set(measured['values']) & set(measured['unmeasured']))
         assert set(measured['values']) <= set(measured['eligible'])
+
+
+def test_a_zero_in_a_market_of_zeros_reports_how_many_it_is_level_with():
+    """Midrank puts a tie at the middle of the ground it shares, so a vendor at
+    zero in a market where most are at zero scores around the 40th percentile.
+    The percentile is right and "ahead of 39%" is the wrong sentence for it;
+    the renderers need the size of the tie to say "level with" instead."""
+    values = {b: 0.0 for b in range(1, 80)}             # 79 vendors at zero
+    values.update({b: float(b) for b in range(80, 101)})  # 21 with listings
+    out = mb.compare(_measured(values), 1)
+    assert out['vendor_value'] == 0
+    assert out['tied_count'] == 79
+    assert out['vendor_percentile'] == 40
+    # A vendor with its own value ties only with itself.
+    assert mb.compare(_measured(values), 100)['tied_count'] == 1

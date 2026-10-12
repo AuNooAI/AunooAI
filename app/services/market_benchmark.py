@@ -508,6 +508,12 @@ def compare(measured: Dict[str, Any], brand_id: int) -> Dict[str, Any]:
         "top_median": None, "top_average": None,
         "top_q1": None, "top_q3": None,
         "vendor_percentile": None,
+        # How many measured vendors share the vendor's exact value, itself
+        # included. A midrank percentile puts a tie at the middle of the
+        # ground it shares, which is right, but "ahead of 39%" is the wrong
+        # sentence for a vendor at zero in a market where most are at zero.
+        # The renderers say "level with" when this is more than one.
+        "tied_count": None,
         "delta_from_market_median": None,
         "percentage_delta_from_market_median": None,
         "delta_from_market_average": None,
@@ -564,6 +570,7 @@ def compare(measured: Dict[str, Any], brand_id: int) -> Dict[str, Any]:
     at_or_below = sum(1 for v in whole if v <= vendor_value)
     out["vendor_percentile"] = round((below + at_or_below) / 2
                                      / len(whole) * 100)
+    out["tied_count"] = at_or_below - below
 
     out["delta_from_market_median"] = round(vendor_value - out["market_median"], 2)
     out["percentage_delta_from_market_median"] = _pct_delta(

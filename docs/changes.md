@@ -1,5 +1,42 @@
 # Changes
 
+## 2026-10-12 — Market Monitor: a zero is "level with", not "ahead of"; the scheduler fix on every market site
+
+### Goal
+Follow-up to yesterday's `19fec696`. Oliver asked for the first open item fixed and the fix
+deployed to the other sites.
+
+### Fix · a vendor at zero read as "ahead of 39%" (`app/services/market_benchmark.py`, `market_vendor_html.py`, `MarketVendorBenchmark.tsx`)
+The midrank percentile puts a tie at the middle of the ground it shares, which is right, but for
+a vendor with no listings in a market where 78 of 99 have none the sentence "ahead of 39% of the
+99 vendors measured" is wrong. `compare()` now returns `tied_count`, the number of measured
+vendors sharing the vendor's exact value, itself included. Both renderers say "level with 77
+other vendors at none, of the 99 measured" when the value is zero and the tie is more than one;
+every other case keeps the percentile sentence. `tests/test_market_benchmark.py` has the case:
+79 vendors at zero, percentile 40, tied_count 79. UI rebuilt in the live tree; bugfixing
+restarted 11:14.
+
+### Ops · the scheduler fix is on abm, aisecurity, oviva, panaya, sunstar and the bwtemplate tree
+The seven backend files of `19fec696` (not the tests, not the React change) went on as a patch.
+Two traps, recorded because both looked like success:
+
+- Every tenant directory sits inside a git repository rooted at `/home/orochford`, so `git apply`
+  run in a tenant tree treats every path as outside its subdirectory and skips all hunks while
+  reporting success; `git apply --check` is "clean" for the same reason. Use `patch -p1 -F0`.
+- aisecurity had been copied from the bugfixing tree at 21:39 the night before, mid-edit, so it
+  already carried round one (market-scoped claims, dispatched set, careers-link discovery) with
+  an intermediate version of the profile claim; it got round two (earned-news scoring, look-back
+  dating) by patch and the profile line by hand.
+
+Panaya's social-eval prompt differs, so its wording hunk was applied by hand; the channel list
+hunk applied. Each file was backed up as `*.bak-marketscope-20261011`, compiled and imported in
+the site's own venv (`_stage_label('series_unknown')` → "Undisclosed round" on all five active
+sites). Restarted when quiet via `restart_when_quiet.sh`: abm 11:06, aisecurity 11:07, oviva
+11:08, panaya 11:09, no tracebacks; sunstar pending at the time of writing. bwtemplate is not a
+running service. The React wording changes are not on these sites; their bundles come from a
+different build lineage and their public report page gets "Undisclosed round" from
+`market_report_html.py`.
+
 ## 2026-10-12 — Firehose collection: full coverage, grouped keywords, and the stuck windows
 
 ### Goal

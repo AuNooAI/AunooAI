@@ -149,8 +149,10 @@ function Row({ b, days, color }: { b: VendorBenchmark; days: number; color?: str
           </div>
           {b.vendor_percentile !== null && (
             <div className="text-xs text-slate-500 dark:text-gray-400">
-              {aheadOf(unit)} {b.vendor_percentile}% of the {b.measured_count}{' '}
-              vendors measured
+              {b.vendor_value === 0 && (b.tied_count ?? 0) > 1
+                /* A zero is not ahead of anyone; it shares the floor. */
+                ? `level with ${(b.tied_count ?? 1) - 1} other vendors at none, of the ${b.measured_count} measured`
+                : `${aheadOf(unit)} ${b.vendor_percentile}% of the ${b.measured_count} vendors measured`}
             </div>
           )}
         </div>
