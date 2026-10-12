@@ -1,5 +1,48 @@
 # Changes
 
+## 2026-10-12 — Ops: aisocnews.com no longer waits for a cold report build
+
+### Goal
+Oliver: "aisocnews.com seems slow" at 11:14. Another session had restarted six monolith sites
+between 11:05 and 11:10, bugfixing last at 11:10:24, and bugfixing is the upstream for
+aisocnews.com (`/api/market-monitor/markets/2/report.html` behind nginx with a 90 s page cache).
+
+### What was slow
+An uncached report build is pure Python on the request path: `market_assessment.is_noise` and
+`classify_text` over the corpus candidates, `humanize_mcp.detect_ai_tells` per summary sentence,
+and the `market_report_html` chart layout. No database waiting. Measured on the upstream: front
+page (`view=v2`) 7 s, `days=30&view=report` 10 to 13.5 s while bugfixing was at 100 to 190 % CPU
+on its post-restart collection round (225 articles at 11:14) and the host load was 12 on 20 cores
+with five other sites warming up; `section=social` 3 s. nginx already served stale copies and
+refreshed them in the background, but `proxy_cache_path ... inactive=10m` dropped any view nobody
+had opened for ten minutes, so `days=30&view=report` was a MISS and the visitor waited 13.5 s.
+
+### Fix (configuration only, outside git)
+- `/etc/nginx/sites-available/aisocnews.com`: `inactive=10m` → `inactive=1d` (backup
+  `aisocnews.com.bak-inactive-20261012`). A view visited once a day is now served from the last copy
+  in about 15 ms and rebuilt in the background; with `proxy_cache_use_stale error ... http_502` the
+  copies also carry visitors through a restart. `nginx -t` passed, reloaded 11:20.
+- `/home/orochford/bin/warm_aisocnews.sh` (new): waits for the app on :10004, then fetches `/`,
+  `/?days=30&view=report` and `/?days=7&view=v2&section=social` through nginx so the cache holds
+  them.
+- `/etc/systemd/system/bugfixing.aunoo.ai.service.d/warm-aisocnews.conf` (new):
+  `ExecStartPost=-/usr/bin/systemd-run --no-block --collect ... warm_aisocnews.sh`, a transient unit
+  so the warm-up can never hold up or time out the service start. `daemon-reload` done; it applies
+  from the next start of bugfixing.
+
+### Verification
+Warm-up run by hand at 11:21: all three views 200 in 15 to 18 ms, X-Cache HIT or STALE. The
+13.5 s build for `days=30&view=report` measured at 11:19 is now a 15 ms HIT.
+
+### Not done
+The 7 s build itself. Caching the built report in the app, or taking the AI-tells pass off the
+request path, is a code change for its own entry. Also seen: the wileytest process at about 75 %
+CPU for three hours, unrelated and not investigated.
+
+### Propagation
+Host configuration on this server only; bugfixing is the only site behind aisocnews.com. A
+rebuilt server needs the three files above; this entry is the record.
+
 ## 2026-10-12 — Market Monitor: a zero is "level with", not "ahead of"; the scheduler fix on every market site
 
 ### Goal
@@ -36,6 +79,166 @@ sites). Restarted when quiet via `restart_when_quiet.sh`: abm 11:06, aisecurity 
 running service. The React wording changes are not on these sites; their bundles come from a
 different build lineage and their public report page gets "Undisclosed round" from
 `market_report_html.py`.
+
+## 2026-10-12 — aisecurity.aunoo.ai, and a per-site budget for the Xpoz platforms that cost real money
+
+### Goal
+Oliver asked for a new site, aisecurity.aunoo.ai, to watch the AI security market (LLM gateways,
+prompt-injection protection, agent governance) with news, social, brand monitoring and a market
+watcher. Its first log carried an Xpoz "key paused" line, which turned out to be our own quota
+ledger refusing a key that still worked. Working out why the key had run dry led to the second
+piece: Xpoz bills Instagram at six times the price of X, and one background job was spending more on
+Instagram like-counts than every search on the host put together. Oliver's instruction, after two
+corrections, was: a budget for the expensive platforms only, set per site, because most clients
+today do not need Instagram and TikTok but a consumer-brand client may.
+
+### Ops · the aisecurity.aunoo.ai site (nothing committed; built from the bugfixing tree)
+Port 10028, database `aisecurity` (user `aisecurity_user`, direct 5432), systemd unit cloned from
+panaya's, nginx site with a Let's Encrypt certificate, `ENABLED_MODULES=market_monitor,brand_watcher`
+with the full navigation. Built the way panaya was on 21 Sep, not from the bwtemplate golden dump,
+because that dump is at alembic kg_lang_001 and canonical is at mm_034:
+
+- **Code:** `rsync` of the bugfixing tree as of 21:42 on 11 Oct (branch `fix/ingest-pipeline-spec`,
+  so it carries ip_001 to ip_003), excluding saasmvp-app, data/training, scripts/.venv, backups and
+  the root-level junk; bugfixing's `.venv` copied; `models` symlinked to shared-models.
+- **Database:** `pg_dump --schema-only` of `test` (250 tables), then the reference rows every site
+  needs: mediabias (4,435), keyword_monitor_settings and status, analysis_versions (130 + 68),
+  the six generic organisation profiles, the admin user. Sequences reset to max(id)+1.
+- **Settings:** bugfixing's `.env` with the site's own values, a fresh Bright Data webhook secret,
+  `MARKET_MONTHLY_BUDGET_USD=60`, `MARKET_SITE_BRAND=aunoo`, `MARKET_VENDOR_DECISIONS=1`,
+  `BRAND_RELATION_DECISIONS=1`, report branding "Aunoo / AI SECURITY MARKET", Telegram channels
+  blank. Encrypted at rest as on every site.
+- **Market 1 "AI Security"** (private): question, description, scope, inclusion and exclusion
+  criteria written; organisation profile 8 "Aunoo — AI security market readers" is the default and
+  the market's foresight profile; `context_terms` and `exclude_terms` set before the first tick so
+  the AI SOC defaults in `market_corpus.py` did not apply; all six paid sources on. The app's own
+  `setup_market_collection` made the topic `Market Monitoring AI Security` and group 1
+  `AI Security - Market Watch` (newsfirehose + TheNewsAPI, 12 h, 30 days, 0.4): 21 phrase terms
+  plus every vendor name (`vendor_names="all"`), 74 keywords. Group 2 `AI Security - Social`
+  (Bluesky + Xpoz X and Reddit, 24 h, 0.45) has 8 topic terms and no vendor names.
+- **Registry:** 53 vendors through `scripts/market_add_vendor.py`, one spec each, from research by
+  five agents (`/var/tmp/aisecurity_vendors.json`): 39 active startups across Runtime Protection,
+  AI Gateway, Agent Governance, Agent Identity and AI Red Teaming & Testing; 9 incumbents searched
+  by product name (Prisma AIRS, Cisco AI Defense, Lakera, Prompt Security, Falcon AIDR, F5 AI
+  Guardrails, Zscaler AI Guard, Cloudflare AI Gateway, Kong AI Gateway); 5 marked acquired on
+  `bw_market_vendor_controls` (Portkey, TrojAI, Katanemo, Promptfoo, Natoma). Left out: Acuvity and
+  SurePath AI (sites gone after acquisition), Helicone (observability only), nexos.ai (no verified
+  LinkedIn page; the script refuses without one). 19 brand colours were derived from logo pixels
+  (`/var/tmp/aisecurity_colours.py`); Airia has a monochrome logo, Cisco and Lumeus.ai no logo.
+- **Also:** `aisecurity` added to `TENANTS` in `/home/orochford/bin/collector_health_check.sh`.
+  Credentials in `/var/tmp/aisecurity_credentials.txt` (root-only; admin password change forced).
+  Build scripts: `/var/tmp/aisecurity_*.py` and `/var/tmp/build_aisecurity.py` in the session
+  scratchpad.
+
+Four traps met on the way, worth keeping: `market_add_vendor.py add` exits 1 whenever the post-add
+audit still lists a gap (a headcount waiting on LinkedIn always does), so a batch runner must not
+read its exit code as failure; the research agents wrote compound search names ("Zenity AI agent
+security") that became exact-phrase keywords nobody prints, fixed to plain names and resynced;
+`setup_market_collection` creates the news group with no providers, interval or threshold, so set
+them by hand as panaya's group 28 was; and with no topics in config.json it falls back to
+Optimistic/Cautious sentiment labels, replaced with the standard Positive/Negative/Neutral set
+before the first restart. The resync of keywords mid-run also deleted a keyword id the monitor was
+still paging, which produced 248 `null value in column "group_id"` errors for one cycle and then
+stopped.
+
+### Incident · the shared Xpoz key was paused by our ledger while it still worked
+The subscription's 120,000 credits a month (plan "Max", renewing on the 6th) were gone by the
+morning of 10 Oct after nine days at 10,600 to 15,500 credits a day. At 03:07 UTC on 10 Oct Xpoz
+answered the saas worker once with "Usage limit exceeded"; `shared_ledger.record_response('quota')`
+paused the key for every ledger-aware site (bugfixing, abm, saas, and now aisecurity) until the end
+of the calendar month. Two things were wrong with that. Xpoz had started drawing on the account's
+prepaid extra credits (106,371 left on 11 Oct at $0.0004 each), so the key worked; and the pause
+date was 1 Nov while the plan renews on 6 Nov, so the first search on 1 Nov would have re-tripped
+the pause until 1 Dec. Only the ledger-aware sites honoured it: wileytest, wbm, oviva, sunstar and
+panaya run the older collector and kept collecting (sunstar stored 444 Xpoz posts in the two
+days). Oliver cleared the pause on 11 Oct with `/var/tmp/aisecurity_clear_xpoz_pause.py` (backup
+`/var/tmp/collector_ledger.sqlite.bak-xpozpause-20261011`); the ledger row reads `ok` with no pause
+date since. The calendar-month assumption in `quota_policy` for Xpoz is not fixed.
+
+### Measured · what Xpoz actually charges
+Read from `extra_credits_remaining` before and after each call on 11 Oct: X and Reddit 2 credits a
+call whatever its size (search, get_user, a 25-id lookup, a Reddit post with comments); TikTok 5 a
+search and 5 a lookup batch; **Instagram 12 a search and 12 per post id in `get_posts_by_ids`**
+(50 ids = 600 credits). `force_latest` changes nothing. Against the 24-hour log counts, the
+13,000 credits a day were about 60 % the engagement refresh re-polling some 640 stored Instagram
+posts a day on the old-collector sites (`social_engagement_refresh._XPOZ_BATCH = 50` assumed a
+batch was one call's worth), about 18 % Instagram searches, about 8 % TikTok searches, and the
+rest X, Reddit and the saas story-reach sweeps. Scheduled keyword searches across all sites come
+to about 1,280 a day. As configured the host needed about 435,000 credits a month.
+
+### Fix · the engagement refresh honours `XPOZ_PLATFORMS` (`48e5d6c1`)
+`social_engagement_refresh._xpoz_metrics` re-polled whatever platforms were stored and ignored the
+switch the collector reads. It now skips platforms not in `XPOZ_PLATFORMS` (default all four).
+
+### Feature · a daily credit budget for Instagram and TikTok, per site (`1c61a0b8`, `51e2bdc6`)
+**`app/services/xpoz_budget.py`** (new) records every Xpoz call's credits per UTC day, platform and
+site in `/home/orochford/tenants/_shared/xpoz_credits.sqlite` (mode 0666, because monolith sites
+run as orochford and the saas worker as root), and refuses a call only on the budgeted platforms,
+Instagram and TikTok, against the site's own allowance: `XPOZ_INSTAGRAM_CREDITS_PER_DAY` and
+`XPOZ_TIKTOK_CREDITS_PER_DAY`, default 0, meaning the site does not use that platform. X and Reddit
+are never refused; `XPOZ_CREDITS_PER_DAY` is an optional cap on a site's whole spend. On any storage
+error the call is allowed, so the budget can only ever save money. `python -m
+app.services.xpoz_budget [day]` prints the spend by site and platform.
+
+**`app/collectors/xpoz_collector.py`** asks `xpoz_budget.reserve(plat, SEARCH_COST[plat])` before
+each platform search and skips the platform with a log line when refused.
+**`app/services/social_engagement_refresh.py`** asks before each lookup batch, priced per post for
+Instagram and Reddit, with `keep_fraction=0.5`: it only spends while at least half of the day's
+allowance is still free, so searches come first.
+
+The first version (`1c61a0b8`) capped the whole key at 4,000 credits a day with 1,300 for Instagram;
+Oliver said the budget should be for the expensive platforms only and per site, which is `51e2bdc6`.
+
+### Incident · one morning with Instagram switched off (reverted)
+Between the two, I read "we have no b2c clients currently" as an instruction and set
+`XPOZ_PLATFORMS=twitter,reddit` on eight sites, rewrote 15 social groups on wbm, oviva and sunstar
+to X and Reddit, and restarted five sites. It was context for the budget's size, not a switch.
+Everything was put back within the hour from the backups (`.env.bak-platforms-20261012` on each
+site; the group rows re-set to their four-platform values) before the budget went live. No
+collection was lost beyond that window; Instagram and TikTok posts already stored were unaffected.
+
+### Ops · allowances (each site's `.env`, not committed)
+wileytest, wbm, oviva, sunstar and abm, the five sites that collect Instagram and TikTok:
+`XPOZ_INSTAGRAM_CREDITS_PER_DAY=300` (about 25 searches) and `XPOZ_TIKTOK_CREDITS_PER_DAY=100`
+(about 20). bugfixing, panaya and aisecurity: unset; their social groups are X and Reddit anyway.
+Worst case for everything is about 4,500 credits a day, roughly 135,000 a month against the
+120,000 plan; the Instagram allowance will not be used in full every day.
+
+### Verification
+- aisecurity at 08:40 on 12 Oct: `/api/health` 200 over https; market 1 lists 48 vendors
+  (53 minus the 5 acquired) with 48 collecting; 21,851 articles collected and 7,222 approved by
+  the news group; 180 of the 192 first paid reads succeeded and 12 failed; 46 of 53 vendors have
+  a LinkedIn headcount. The approved articles with the highest scores are on target (the Bifrost
+  gateway CVE, MCP prompt-injection pieces, indirect prompt-injection papers).
+- The three changed files compile under `.venv/bin/python -m py_compile` on all eight sites;
+  `app.collectors.xpoz_collector`, `app.services.social_engagement_refresh` and
+  `app.services.xpoz_budget` import in the bugfixing venv.
+- Budget file after the first restarts (same morning): oviva Instagram 168 credits used, 7 calls
+  refused; wbm Instagram 36 used, 2 refused; TikTok refusals on oviva (5). Refusals are the refresh
+  batches, see Limits below. X and Reddit: no refusals.
+- Ledger: `provider_quota` row for xpoz has no pause date and `last_response = ok`;
+  `get_ledger().reserve('xpoz', ...)` returns ok.
+
+### Propagation
+Commits `48e5d6c1`, `1c61a0b8`, `51e2bdc6` on `fix/ingest-pipeline-spec` in the canonical tree.
+`app/services/xpoz_budget.py` is the same file on bugfixing, wileytest, wbm, oviva, sunstar, abm,
+panaya and aisecurity; the two call sites were applied by the same patcher
+(`/var/tmp/patch_xpoz_budget.py`, `/var/tmp/patch_refresh_platforms.py`) to the five sites whose
+files have drifted from canonical. Pre-change copies: `*.bak-budget-20261012`,
+`social_engagement_refresh.py.bak-platforms-20261012`. Restarts through `restart_when_quiet.sh`:
+wileytest, wbm, oviva, abm and panaya restarted on the final version this morning; sunstar,
+bugfixing and aisecurity restart as soon as each is quiet (the waiter is running, two-hour limit).
+The aisecurity site itself, the health-check list, the ledger clear and the `.env` allowances are
+outside version control; this entry and the memory notes are the record. wiley, ibaset, abbott,
+pearson and sage have no Xpoz key or no Xpoz groups and were not touched.
+
+### Lessons
+- NEVER treat a cost remark from Oliver as an instruction to switch a feature off. "No b2c
+  clients" sized the budget; it did not retire Instagram.
+- Xpoz bills per post id on Instagram. ALWAYS price a batched call by its items before batching.
+- The shared ledger's "paused until month end" is wrong for a provider whose period is
+  renewal-to-renewal; check `get_account_details()` before believing a "key paused" line.
+- `market_add_vendor.py add` returns the audit's exit code; a gap is not a failure.
 
 ## 2026-10-12 — Firehose collection: full coverage, grouped keywords, and the stuck windows
 
