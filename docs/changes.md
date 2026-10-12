@@ -155,7 +155,27 @@ needed changing. Run from `/var/tmp/aisecurity_catchup*.py` and `/var/tmp/aisecu
 - **bugfixing (canonical, aisocnews.com):** the code is in the tree, uncommitted, and the service
   was not restarted. The quiet check showed 3 users and 327 articles in ingest. The scheduler
   picks the fix up at the next restart, and the first daily review after that dates the backlog.
-- **Other market sites (oviva, panaya, sunstar, wileytest and others):** not copied.
+- **Other market sites, 12:05 (fixes committed in `a3f05561`):**
+  - **coverage.py:** identical on abm, oviva, panaya and sunstar, so we copied it straight over.
+  - **market_post_review.py:** we applied the commit's change with `patch -F0`. oviva and sunstar
+    sit 7 lines off; abm also needed `Tuple` added to its typing import.
+  - **vendor_web_collector.py:** we patched abm the same way. oviva, panaya and sunstar run an
+    older `fetch_page`, so we inserted the same block at the same point by exact match.
+  - Backups are in `/var/tmp/<site>_<file>.bak-happened-20261012_120453`.
+  - Both new test files pass on each site (10 passed).
+  - We restarted all four after the quiet check. They are active, `/login` returns 200, and
+    there are no errors in the log.
+  - The date step and the event step then ran on each site:
+    - abm: 15 read, 2 dated;
+    - oviva: 19 read, 6 dated;
+    - panaya: 13 read, 3 dated;
+    - sunstar: 35 read, 5 dated, 12 events created. None of the 12 shares an article with an
+      older event.
+  - On bugfixing, without a restart: market 2 had 48 read and 3 dated, and market 1830 had 63
+    read and 13 dated.
+  - bugfixing's scheduler still runs the old code until its next restart (3 users and 329
+    articles in ingest at 12:10).
+  - aisecurity's full website check (run 313, 53 vendors) succeeded.
 
 ### Not done
 - Vendors' own LinkedIn posts (`owned_post` extractor) are still dated by the post date.
