@@ -22,8 +22,13 @@ Top Movers chart.
 - **Database:** `bw_markets.is_public = true` for market 1 on aisecurity. The market was private,
   so it had to be made public before the page could be read without a login.
 - **No code change:** `_public_base()` builds the page's links from the request host.
-- **Not set up:** no warm-up unit like `warm_aisocnews.sh`. A view nobody has opened in a day takes
-  a cold build, which measured 12 s.
+- **Cache warm-up:** `/home/orochford/bin/warm_aisecwire.sh` is a copy of `warm_aisocnews.sh`
+  pointed at :10028 and aisecwire.com.
+  - `/etc/systemd/system/aisecurity.aunoo.ai.service.d/warm-aisecwire.conf` starts it after every
+    aisecurity start, as a transient unit with the same `+-` prefixes. We ran `daemon-reload`.
+  - First run by hand: `/` was already cached, `?days=30&view=report` built in 22.8 s and
+    `?days=7&view=v2&section=social` in 4.8 s.
+  - All three then answered as cache HITs in 0.05 to 0.13 s.
 
 ### First weekly chart on aisecurity (data only)
 The chart freezes each closed week from that week's last map run. Last week (5 to 11 Oct) had only
