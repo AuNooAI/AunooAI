@@ -683,6 +683,7 @@ def _firehose(monkeypatch, handler, **env):
     from app.collectors import newsfirehose_collector as mod
     monkeypatch.setenv("NEWSFIREHOSE_API_KEY", "k-nf")
     monkeypatch.setenv("NEWSFIREHOSE_BASE_URL", "http://nf.test")
+    monkeypatch.setenv("NEWSFIREHOSE_MIN_PAGE_INTERVAL", "0")   # no pacing in tests unless asked
     for k, v in env.items():
         monkeypatch.setenv(k, str(v))
     session = FakeSession(handler)
@@ -1106,3 +1107,17 @@ def test_newsfirehose_broad_guard_off_reads_a_bare_term_to_the_end(monkeypatch):
     res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
     assert res.succeeded and res.coverage_complete and res.may_advance_checkpoint
     assert len(res.items) == 2500 and len(session.calls) == 25
+
+
+def test_newsfirehose_paces_requests_to_the_api_rate_limit(monkeypatch):
+    """The firehose allows 100 requests a minute per client address, shared by
+    every site on the host. Pages are spaced by NEWSFIREHOSE_MIN_PAGE_INTERVAL."""
+    import time as _time
+    coll, session = _firehose(monkeypatch, _nf_pages(1000, step=timedelta(seconds=10)),
+                              NEWSFIREHOSE_MAX_PAGES=50, NEWSFIREHOSE_BROAD_PAGES_PER_DAY=0,
+                              NEWSFIREHOSE_OVERLAP_HOURS=0, NEWSFIREHOSE_MIN_PAGE_INTERVAL="0.05")
+    t0 = _time.monotonic()
+    res = run(coll.collect("AI", "t", interval_start=NOW - timedelta(hours=20), interval_end=NOW))
+    elapsed = _time.monotonic() - t0
+    assert res.succeeded and len(session.calls) == 10 and len(res.items) == 1000
+    assert elapsed >= 9 * 0.05

@@ -500,6 +500,20 @@ COLLECTION_FOLLOWUP_ROUNDS=10        # the code caps at 10 (keyword_monitor.py:8
 `NEWSFIREHOSE_BUDGET_SECONDS` stays 90, inside the monitor's 120 s `SEARCH_TIMEOUT_SECONDS`. Up to
 11 runs × 140 pages a cycle per keyword drains keyword 188's roughly 550-page backlog in one cycle.
 
+### Follow-up 12:15 · the firehose's own rate limit
+The first long run under the new budget, keyword 188 at 11:53, read 101 pages in 53 s and the
+API answered HTTP 429 on the last one: `/v1/search` is limited to 100 requests a minute per
+client address (slowapi, `api/routers/search.py:95`), and every site on this host is the same
+address. The run kept its cursor and 9,988 rows, the checkpoint took a 15-minute backoff, no
+shared pause was set (the firehose collector does not use the quota ledger). Fix in
+**`app/collectors/newsfirehose_collector.py`**: requests are at least
+`NEWSFIREHOSE_MIN_PAGE_INTERVAL` seconds apart, default 1.0, which caps one site at 60 a minute
+and leaves the others room. `.env` `NEWSFIREHOSE_MAX_PAGES` lowered from 140 to 90, the number
+the 90 s budget allows at that pace. `tests/test_provider_collectors_outcomes.py` gains
+`test_newsfirehose_paces_requests_to_the_api_rate_limit`, and the `_firehose` fixture sets the
+interval to 0 so the other tests stay fast. 79 tests pass. Keyword 188's backlog (about 550
+pages) now takes about seven runs of 90 pages, within one cycle of eleven rounds.
+
 ### Not done, and why
 The plan had a "read the window one UTC day at a time" change to stop the ahead pages. It was
 dropped once the measurement showed the ahead pages are bounded and read once per interval; with

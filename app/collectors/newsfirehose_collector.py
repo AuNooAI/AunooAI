@@ -483,7 +483,9 @@ class NewsFirehoseCollector(ArticleCollector):
 
         Budget per run: ``NEWSFIREHOSE_MAX_PAGES`` (default 12) and
         ``NEWSFIREHOSE_BUDGET_SECONDS`` (default 90, inside the monitor's 120 s
-        timeout). Running out returns ``partial`` with a continuation naming
+        timeout). Requests are at least ``NEWSFIREHOSE_MIN_PAGE_INTERVAL``
+        seconds apart (default 1.0): the API allows 100 a minute per client
+        address and all sites on the host share one. Running out returns ``partial`` with a continuation naming
         the next ``{chunk, page}`` of the same interval; the monitor runs
         follow-up rounds and the next cycle resumes there. A resume replays
         the page before the cursor, because the sort (``published_at DESC``,
@@ -527,6 +529,12 @@ class NewsFirehoseCollector(ArticleCollector):
         res.diagnostics.update(shape)
         clock = PageClock(provider_max_pages("NEWSFIREHOSE_MAX_PAGES", 12),
                           _env_float("NEWSFIREHOSE_BUDGET_SECONDS", 90.0))
+        # The firehose allows 100 requests a minute per client address, and
+        # every site on this host is the same address. One request a second
+        # leaves the other sites room; a 101-page run at 11:53 on 12 Oct 2026
+        # took 53 s and got HTTP 429 on the last page.
+        pace = max(0.0, _env_float("NEWSFIREHOSE_MIN_PAGE_INTERVAL", 1.0))
+        next_request_at = 0.0
         overlap = timedelta(hours=_env_float("NEWSFIREHOSE_OVERLAP_HOURS", 12.0))
 
         hi = res.interval_end
@@ -607,6 +615,10 @@ class NewsFirehoseCollector(ArticleCollector):
                 while ci < len(chunks):
                     if clock.exhausted:
                         return _stop(CollectionResult.partial([], truncated_reason=clock.reason))
+                    wait = next_request_at - time.monotonic()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                    next_request_at = time.monotonic() + pace
                     left = clock.max_seconds - (time.monotonic() - clock.started)
                     status, data, _hdrs = await get_json(
                         session, url, params={**params, "q": chunks[ci], "page": page},
