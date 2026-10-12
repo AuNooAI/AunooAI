@@ -21,6 +21,7 @@ Market Monitor, any market, open a vendor with no open roles. "Observed active j
 None beyond yesterday's note: the page says what its numbers mean.
 
 ## Limits and what's next
+- A careers board that cannot be read no longer stalls the whole daily job-board sweep into a ten-minute loop; the board is skipped and retried later, and the other boards' listings count as before.
 - Only a zero gets the "level with" wording. A tie at any other value still reads as a percentile, which is acceptable because ties above zero are rare and small.
 - The other sites' internal vendor page keeps the old labels ("Series Unknown", "import said", "ahead of") until their interface is next rebuilt; their public report page already says "Undisclosed round".
 - Sunstar's restart was still waiting for a quiet moment when this was written.

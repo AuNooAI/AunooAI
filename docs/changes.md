@@ -59,6 +59,19 @@ every other case keeps the percentile sentence. `tests/test_market_benchmark.py`
 79 vendors at zero, percentile 40, tied_count 79. UI rebuilt in the live tree; bugfixing
 restarted 11:14.
 
+### Fix · one unreadable careers board re-ran the whole sweep every ten minutes (`_poll_ats_jobs`)
+The monitor armed after the deploy showed aisecurity closing a careers-board run as "partial"
+every tick: 68 runs between 00:04 and 11:28, 136 listings each, because Operant AI's Greenhouse
+board (`job-boards.greenhouse.io/operantai`) returns 404. `_is_due` counts succeeded runs only, so
+a partial run never satisfied the daily gate, and `market_lists` ignores partial runs, so none of
+the nine readable boards' listings ever counted as open on that site. The unreadable board was
+already handled: recorded as uncovered on the run and backed off in its policy. The run now
+closes as succeeded whenever it read anything, keeping the "N board(s) unreadable" note, and as
+failed only when it read nothing. `tests/test_market_collection.py`: 97 passed. Patched onto
+abm, aisecurity, oviva, panaya, sunstar and bwtemplate (`*.bak-atsclose-20261012`); aisecurity
+restarted 11:36, bugfixing queued, the others pick it up at their next restart. Operant AI's
+board stays on backoff until the fortnightly rediscovery looks again.
+
 ### Ops · the scheduler fix is on abm, aisecurity, oviva, panaya, sunstar and the bwtemplate tree
 The seven backend files of `19fec696` (not the tests, not the React change) went on as a patch.
 Two traps, recorded because both looked like success:

@@ -1619,9 +1619,17 @@ async def _poll_ats_jobs(conn, market: Dict[str, Any], now: datetime,
         if failed_ids:
             sch.record_failure(conn, ats.SOURCE_JOBS, failed_ids,
                                error="hiring board unreadable")
+        # An unreadable board is already recorded above: uncovered on the run,
+        # so its listings are never called closed, and backed off in its
+        # policy. The run itself succeeded for every board it did read.
+        # Closing it as "partial" made the due gate, which counts succeeded
+        # runs only, re-fire the sweep on every ten-minute tick for as long
+        # as one board stayed down: 68 runs in eleven hours on aisecurity on
+        # 12 Oct 2026, every other company's board re-read each time, and no
+        # listing ever counted as open because the read path ignores partial
+        # runs. "failed" is kept for a run that read nothing at all.
         mc.close_run(conn, run_id,
-                     status="partial" if failed and received else
-                            ("failed" if failed and not received else "succeeded"),
+                     status="failed" if failed and not received else "succeeded",
                      received=received, new=new, skipped=received - new,
                      error=(f"{failed} board(s) unreadable" if failed else None))
         conn.commit()
