@@ -154,9 +154,20 @@ class _BskyClient:
         return out
 
 
+def _enabled_platforms() -> set:
+    """Platforms Xpoz may be asked about, from XPOZ_PLATFORMS (default all
+    four), the same switch the collector reads. Instagram bills 12 credits per
+    post id in get_posts_by_ids, so a site that stops collecting it must also
+    stop refreshing it."""
+    raw = os.getenv("XPOZ_PLATFORMS", "") or "twitter,reddit,instagram,tiktok"
+    return {p.strip().lower() for p in raw.split(",") if p.strip()}
+
 def _xpoz_metrics(client, platform: str, ids: List[str]) -> Dict[str, Dict]:
     """Map external_id -> engagement patch via xpoz, per platform."""
     out: Dict[str, Dict] = {}
+    if platform not in _enabled_platforms():
+        logger.debug(f"xpoz {platform} refresh skipped: not in XPOZ_PLATFORMS")
+        return out
     if platform == "reddit":
         for pid in ids[:_REDDIT_CAP]:
             try:
