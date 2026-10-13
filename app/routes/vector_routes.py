@@ -1774,6 +1774,7 @@ class _IncidentTrackingRequest(BaseModel):
     cache_only: bool = Field(False, description="Serve the newest cached analysis (any window) and NEVER run the LLM — page-load path")
     background: bool = Field(False, description="Run Generate as a job; poll /incident-tracking/jobs/{job_id}")
     max_incidents: int = Field(40, ge=5, le=200, description="Incidents kept after merging the window")
+    per_topic: int = Field(3, ge=0, le=10, description="Places each topic with findings is guaranteed besides the top max_incidents")
     domain: Optional[str] = Field(
         None,
         description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
@@ -2641,7 +2642,8 @@ async def _incident_tracking_window(req, db, topics_list, topics_str, start_d, e
         return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {period}"}
 
     incidents, merge_method = await incident_days.merge_and_rank(
-        window["candidates"], topics, start_d, end_d, incident_days.DAY_MODEL, req.max_incidents)
+        window["candidates"], topics, start_d, end_d, incident_days.DAY_MODEL, req.max_incidents,
+        per_topic=req.per_topic)
     if progress:
         progress({**stats, "phase": "writing", "incidents": len(incidents)})
     incidents, written = await _write_up_incidents(req, incidents, db)

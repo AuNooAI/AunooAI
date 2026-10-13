@@ -45,7 +45,7 @@ def test_merge_falls_back_to_ranking_when_the_call_fails(monkeypatch):
              {"name": "Other", "significance": "medium", "article_uris": ["3"]}]
     out, method = asyncio.run(svc.merge_and_rank(cands, ["T"], date(2026, 10, 1), date(2026, 10, 2),
                                                  "m", limit=5))
-    assert method == "ranked"
+    assert method.startswith("ranked")
     assert [o["name"] for o in out] == ["a thing", "Other"]   # duplicate name dropped, high first
 
 
@@ -96,5 +96,23 @@ def test_merge_refuses_an_implausibly_large_group(monkeypatch):
     cands = [{"name": f"n{i}", "significance": "medium", "article_uris": [str(i)]} for i in range(31)]
     out, method = asyncio.run(svc.merge_and_rank(cands, ["T"], date(2026, 10, 1), date(2026, 10, 2),
                                                  "m", limit=5))
-    assert method == "llm"
+    assert method.startswith("llm")
     assert [o["name"] for o in out] == ["n30"]     # the 30-finding lump was not merged
+
+
+def test_each_topic_gets_its_places(monkeypatch):
+    class Boom:
+        @staticmethod
+        def get_instance(name):
+            raise RuntimeError("no model")      # plain ranking keeps the test offline
+    import app.ai_models as ai
+    monkeypatch.setattr(ai, "LiteLLMModel", Boom)
+    big = [{"name": f"big{i}", "topic": "Big", "significance": "high", "article_uris": [f"b{i}"]}
+           for i in range(10)]
+    small = [{"name": f"small{i}", "topic": "Small", "significance": "low", "article_uris": [f"s{i}"]}
+             for i in range(5)]
+    out, _ = asyncio.run(svc.merge_and_rank(big + small, ["Big", "Small"], date(2026, 10, 1),
+                                            date(2026, 10, 2), "m", limit=4, per_topic=2))
+    assert [o["topic"] for o in out[:4]] == ["Big"] * 4      # the open places go to significance
+    assert [o["name"] for o in out[4:]] == ["small0", "small1"]
+    assert all(o.get("topic_place") for o in out[4:])

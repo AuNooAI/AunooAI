@@ -52,6 +52,8 @@ BATCH_SIZE = 100
 DAY_MAX_TOKENS = 12000
 CONCURRENCY = 8
 MERGE_LIMIT_DEFAULT = 40
+# Places every topic with findings is guaranteed on top of the open ranking.
+PER_TOPIC_DEFAULT = 3
 
 _SIG_RANK = {"high": 3, "medium": 2, "low": 1}
 
@@ -521,16 +523,13 @@ async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: d
         return uniq[:keep], False
 
 
-async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date, end: date,
-                         model_name: str, limit: int = MERGE_LIMIT_DEFAULT) -> Tuple[List[Dict], str]:
-    """Group duplicates across the window and keep the `limit` most significant.
-    Every finding is considered: big windows merge in rounds of MERGE_CHUNK.
-    Returns (incidents, method)."""
-    if not candidates:
-        return [], "none"
-    items = sorted(candidates, key=lambda c: (str(c.get("topic") or ""), str(c.get("slice_day") or "")))
-    sem = asyncio.Semaphore(CONCURRENCY)
-    llm_ok, rounds = True, 0
+async def _merge_rounds(items: List[Dict], keep: int, topics: List[str], start: date, end: date,
+                        model_name: str, sem: asyncio.Semaphore) -> Tuple[List[Dict], bool, int]:
+    """Merge `items` in rounds of MERGE_CHUNK until one call can rank them, and
+    return (its top `keep`, every call used the model, rounds run)."""
+    def order(xs):
+        return sorted(xs, key=lambda c: (str(c.get("topic") or ""), str(c.get("slice_day") or "")))
+    items, llm_ok, rounds = order(items), True, 1
     while len(items) > MERGE_CHUNK:
         rounds += 1
         chunks = [items[k:k + MERGE_CHUNK] for k in range(0, len(items), MERGE_CHUNK)]
@@ -540,11 +539,61 @@ async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date,
                 return await _merge_chunk(chunk, MERGE_KEEP, topics, start, end, model_name)
         results = await asyncio.gather(*(one(c) for c in chunks))
         llm_ok = llm_ok and all(ok for _, ok in results)
-        items = sorted((x for r, _ in results for x in r),
-                       key=lambda c: (str(c.get("topic") or ""), str(c.get("slice_day") or "")))
-    final, ok = await _merge_chunk(items, limit, topics, start, end, model_name)
-    llm_ok = llm_ok and ok
-    return final, ("llm" if llm_ok else "ranked") + (f", {rounds + 1} rounds" if rounds else "")
+        items = order(x for r, _ in results for x in r)
+    async with sem:
+        final, ok = await _merge_chunk(items, keep, topics, start, end, model_name)
+    return final, llm_ok and ok, rounds
+
+
+def _same_story(a: Dict, b: Dict) -> bool:
+    ua = {u for u in a.get("article_uris") or [] if isinstance(u, str)}
+    return bool(ua & {u for u in b.get("article_uris") or [] if isinstance(u, str)})
+
+
+async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date, end: date,
+                         model_name: str, limit: int = MERGE_LIMIT_DEFAULT,
+                         per_topic: int = PER_TOPIC_DEFAULT) -> Tuple[List[Dict], str]:
+    """Group duplicates across the window and keep the `limit` most significant,
+    plus up to `per_topic` places for every topic that has findings.
+
+    Each topic is merged and ranked on its own first, so a small topic never
+    competes with a large one for a chunk's places (wileytest, 13 Oct 2026: the
+    brand and publishing topics hold 3% of the articles and got none of the top
+    40). The open `limit` places are then ranked across topics; a topic with
+    fewer than `per_topic` of them is topped up with its own best, after them.
+    Every finding is considered. Returns (incidents, method)."""
+    if not candidates:
+        return [], "none"
+    sem = asyncio.Semaphore(CONCURRENCY)
+    by_topic: Dict[str, List[Dict]] = {}
+    for c in candidates:
+        by_topic.setdefault(str(c.get("topic") or ""), []).append(c)
+    keep_t = max(MERGE_KEEP, per_topic)
+    results = await asyncio.gather(*(
+        _merge_rounds(items, keep_t, [t] if t else topics, start, end, model_name, sem)
+        for t, items in sorted(by_topic.items())))
+    ranked = {t: r for t, (r, _, _) in zip(sorted(by_topic), results)}
+    llm_ok = all(ok for _, ok, _ in results)
+    rounds = max(n for _, _, n in results)
+
+    pooled = [x for r in ranked.values() for x in r]
+    if len(by_topic) == 1:
+        final = pooled[:limit]
+    else:
+        final, ok, n = await _merge_rounds(pooled, limit, topics, start, end, model_name, sem)
+        llm_ok, rounds = llm_ok and ok, rounds + n
+
+    if per_topic > 0:
+        for t in sorted(ranked):
+            have = sum(1 for f in final if str(f.get("topic") or "") == t)
+            for item in ranked[t]:
+                if have >= per_topic:
+                    break
+                if any(_same_story(item, f) for f in final):
+                    continue
+                final.append({**item, "topic_place": True})
+                have += 1
+    return final, ("llm" if llm_ok else "ranked") + f", {rounds} rounds"
 
 
 
