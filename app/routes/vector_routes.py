@@ -2488,7 +2488,8 @@ async def analyze_incidents(
         # Generate reads the whole window (app/services/incident_days.py). The
         # page asks for background=true and polls the job; other callers (the
         # daily briefing compose) wait for the result.
-        if req.background:
+        # keyword_monitor builds its own request class without the newer fields.
+        if getattr(req, "background", False):
             from app.services import incident_days
             job_id = incident_days.start_job(
                 lambda progress: _incident_tracking_window(
@@ -2642,8 +2643,9 @@ async def _incident_tracking_window(req, db, topics_list, topics_str, start_d, e
         return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {period}"}
 
     incidents, merge_method = await incident_days.merge_and_rank(
-        window["candidates"], topics, start_d, end_d, incident_days.DAY_MODEL, req.max_incidents,
-        per_topic=req.per_topic)
+        window["candidates"], topics, start_d, end_d, incident_days.DAY_MODEL,
+        getattr(req, "max_incidents", incident_days.MERGE_LIMIT_DEFAULT),
+        per_topic=getattr(req, "per_topic", incident_days.PER_TOPIC_DEFAULT))
     if progress:
         progress({**stats, "phase": "writing", "incidents": len(incidents)})
     incidents, written = await _write_up_incidents(req, incidents, db)
