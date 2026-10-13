@@ -23,13 +23,14 @@ Now every article in the window is read, and read once:
    _write_up_incidents), with the page's custom prompt settings.
 
 Slices are stored in article_analysis_cache (analysis_type 'incident_day').
-The key covers what shapes the daily reading (model, organisation profile,
-SLICE_VERSION), so a changed setting rereads.
+The key covers what shapes the daily reading (DAY_MODEL, organisation profile,
+SLICE_VERSION), so a changed setting rereads; the page's model does not.
 """
 import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -42,6 +43,11 @@ logger = logging.getLogger(__name__)
 
 # Bump when the extraction prompt or the slice rules change: every slice rereads.
 SLICE_VERSION = "3"
+# The daily reading and the merge are bulk work over every article, so they run
+# on the cheap bulk model whatever the page's model is; the page's model writes
+# up the final incidents. wileytest's page runs claude-sonnet-4-5, which for the
+# reading would cost about five times as much (13 Oct 2026).
+DAY_MODEL = os.getenv("INCIDENT_DAY_MODEL", "bedrock-kimi-k2-5")
 BATCH_SIZE = 100
 DAY_MAX_TOKENS = 12000
 CONCURRENCY = 8
@@ -57,7 +63,7 @@ _ARTICLE_COLS = ("uri, title, summary, news_source, publication_date, category, 
 
 
 def config_hash(req) -> str:
-    parts = [SLICE_VERSION, req.model or "", str(req.profile_id or "")]
+    parts = [SLICE_VERSION, DAY_MODEL, str(req.profile_id or "")]
     return hashlib.sha1("\x1f".join(parts).encode()).hexdigest()[:12]
 
 
@@ -112,9 +118,9 @@ def _compact_articles(articles: List[Dict]) -> str:
 async def _read_batch(req, topic: str, articles: List[Dict], prof: str) -> List[Dict]:
     """The daily reading of one batch: short records, mapped back to URIs."""
     from app.ai_models import LiteLLMModel, extract_content
-    model = LiteLLMModel.get_instance(req.model)
+    model = LiteLLMModel.get_instance(DAY_MODEL)
     if not model:
-        raise RuntimeError(f"model {req.model} unavailable")
+        raise RuntimeError(f"model {DAY_MODEL} unavailable")
     response = await model.agenerate_response(
         [{"role": "system", "content": _DAY_SYSTEM.format(topic=topic, profile=prof)},
          {"role": "user", "content": _compact_articles(articles)}],

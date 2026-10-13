@@ -2641,7 +2641,7 @@ async def _incident_tracking_window(req, db, topics_list, topics_str, start_d, e
         return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {period}"}
 
     incidents, merge_method = await incident_days.merge_and_rank(
-        window["candidates"], topics, start_d, end_d, req.model, req.max_incidents)
+        window["candidates"], topics, start_d, end_d, incident_days.DAY_MODEL, req.max_incidents)
     if progress:
         progress({**stats, "phase": "writing", "incidents": len(incidents)})
     incidents, written = await _write_up_incidents(req, incidents, db)
