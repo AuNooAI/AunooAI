@@ -576,7 +576,12 @@ async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date,
     llm_ok = all(ok for _, ok, _ in results)
     rounds = max(n for _, _, n in results)
 
-    pooled = [x for r in ranked.values() for x in r]
+    # Each topic sends an equal share of its best to the cross-topic ranking, so
+    # one call ranks them all on the same footing. Pooling 30 a topic and merging
+    # in topic-sorted chunks let the topics in a weak chunk take most of the open
+    # places (wileytest: Quantum Computing 18 of 40, Geopolitical Hotspots 3).
+    share = max(per_topic, MERGE_CHUNK // max(1, len(ranked)))
+    pooled = [x for r in ranked.values() for x in r[:share]]
     if len(by_topic) == 1:
         final = pooled[:limit]
     else:
