@@ -689,6 +689,17 @@ def get_ai_model(model_name: str) -> Optional[AIModel]:
         model_config = config.get(model_name)
         
         if not model_config:
+            # The shared React build can ask for a model this site's
+            # litellm_config.yaml does not have (claude-sonnet-5-5 reached sites
+            # whose backends lacked it on 12 Oct 2026, and every emerging-topics
+            # run failed). Run on the site's standard model instead.
+            from app.model_tiers import default_model
+            fallback = default_model("standard")
+            if fallback != model_name and config.get(fallback):
+                logger.warning(
+                    f"Model {model_name} not found in config; using standard model {fallback}"
+                )
+                return AIModel(config[fallback])
             logger.error(f"Model {model_name} not found in config")
             return None
 
