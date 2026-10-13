@@ -436,6 +436,27 @@ MERGE_KEEP = 30
 MERGE_MAX_GROUP = 25
 
 
+def _groups_array(raw: str) -> List:
+    """The [{"ids": [...]}, ...] array in a merge answer, wherever it sits."""
+    fence = re.findall(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
+    starts = [raw.rfind(f) for f in ('[{"ids"', "[\n  {", "[\n{", "[{")]
+    candidates = fence + [raw[i:] for i in sorted({i for i in starts if i >= 0})]
+    if raw.find("[") >= 0:
+        candidates.append(raw[raw.find("["):])   # last resort: a bare list of ids
+    for c in candidates:
+        try:
+            data, _ = json.JSONDecoder().raw_decode(c)
+        except ValueError:
+            try:
+                import json_repair
+                data = json_repair.loads(c)
+            except Exception:  # noqa: BLE001
+                continue
+        if isinstance(data, list) and data:
+            return data
+    raise ValueError(f"no groups array in merge answer: {raw[:120]!r}")
+
+
 async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: date, end: date,
                        model_name: str) -> Tuple[List[Dict], bool]:
     """Group duplicates in one chunk and return its top `keep`, best first.
@@ -460,21 +481,22 @@ async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: d
     try:
         from app.ai_models import LiteLLMModel, extract_content
         model = LiteLLMModel.get_instance(model_name)
+        # Kimi tends to write an analysis before the JSON: ask for JSON only,
+        # leave room for the prose when it comes anyway, and parse the groups
+        # array rather than the first bracket (the prose has "(37, 40, ...)"
+        # lists and "[1]"-style notes).
         response = await model.agenerate_response(
-            [{"role": "user", "content": prompt}], max_tokens=4000, temperature=0.0)
+            [{"role": "system", "content": "You answer with a JSON array only. No commentary, no markdown."},
+             {"role": "user", "content": prompt}], max_tokens=8000, temperature=0.0)
         raw = extract_content(response).strip()
-        start_i = raw.find("[")
-        if start_i < 0:
-            raise ValueError("no JSON array in merge answer")
-        try:
-            data, _ = json.JSONDecoder().raw_decode(raw[start_i:])
-        except ValueError:
-            import json_repair
-            data = json_repair.loads(raw[start_i:])
+        data = _groups_array(raw)
         out, used = [], set()
-        for g in data if isinstance(data, list) else []:
+        for g in data:
             ids = g.get("ids") if isinstance(g, dict) else g
-            ids = [i for i in (ids or []) if isinstance(i, int) and 0 <= i < len(items) and i not in used]
+            if isinstance(ids, int):
+                ids = [ids]
+            ids = [i for i in (ids if isinstance(ids, list) else []) if isinstance(i, int)
+                   and 0 <= i < len(items) and i not in used]
             if not ids:
                 continue
             if len(ids) > MERGE_MAX_GROUP:
