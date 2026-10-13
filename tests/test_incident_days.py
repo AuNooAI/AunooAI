@@ -77,3 +77,24 @@ def test_read_batch_maps_article_numbers_to_uris(monkeypatch):
     assert out[0]["article_uris"] == ["u2026-10-01-1", "u2026-10-01-0"]
     assert out[0]["event_date"] == "2026-10-01" and out[0]["published"] == "2026-10-01"
     assert out[1]["event_date"] is None                              # "2027" is not a date
+
+
+def test_merge_refuses_an_implausibly_large_group(monkeypatch):
+    big = json.dumps([{"ids": list(range(30))}, {"ids": [30]}])
+
+    class Model:
+        async def agenerate_response(self, messages, **kw):
+            return big
+
+    class Factory:
+        @staticmethod
+        def get_instance(name):
+            return Model()
+    import app.ai_models as ai
+    monkeypatch.setattr(ai, "LiteLLMModel", Factory)
+    monkeypatch.setattr(ai, "extract_content", lambda r: r)
+    cands = [{"name": f"n{i}", "significance": "medium", "article_uris": [str(i)]} for i in range(31)]
+    out, method = asyncio.run(svc.merge_and_rank(cands, ["T"], date(2026, 10, 1), date(2026, 10, 2),
+                                                 "m", limit=5))
+    assert method == "llm"
+    assert [o["name"] for o in out] == ["n30"]     # the 30-finding lump was not merged

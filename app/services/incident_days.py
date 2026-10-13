@@ -52,9 +52,6 @@ BATCH_SIZE = 100
 DAY_MAX_TOKENS = 12000
 CONCURRENCY = 8
 MERGE_LIMIT_DEFAULT = 40
-# Above this many candidates the merge call drops low-significance ones first,
-# so the one-line list stays well inside the model's context.
-MERGE_INPUT_CAP = 4000
 
 _SIG_RANK = {"high": 3, "medium": 2, "low": 1}
 
@@ -400,7 +397,8 @@ async def read_window(req, db, topics: List[str], start: date, end: date,
 def _combine(group: List[Dict]) -> Dict:
     """One incident from a group of candidates reporting the same development.
     The strongest member (significance, then articles cited) keeps its wording;
-    the others contribute their articles and dates."""
+    the others contribute their articles and dates. Members may themselves be
+    groups from an earlier merge round."""
     group = sorted(group, key=lambda i: (-_sig(i), -len(i.get("article_uris") or [])))
     base = dict(group[0])
     if len(group) == 1:
@@ -415,8 +413,12 @@ def _combine(group: List[Dict]) -> Dict:
     pubs = sorted(p for p in (str(i.get("published") or "")[:10] for i in group) if p)
     if pubs:
         base["published"] = pubs[0]
-    base["days_seen"] = sorted({str(i.get("slice_day")) for i in group if i.get("slice_day")})
-    base["merged_from"] = len(group)
+    days = set()
+    for i in group:
+        days.update(i.get("days_seen") or ([i["slice_day"]] if i.get("slice_day") else []))
+    base["days_seen"] = sorted(str(d) for d in days)
+    base["slice_day"] = base["days_seen"][0] if base["days_seen"] else base.get("slice_day")
+    base["merged_from"] = sum(int(i.get("merged_from") or 1) for i in group)
     return base
 
 
@@ -424,36 +426,42 @@ def _rank_key(inc: Dict):
     return (-_sig(inc), -len(inc.get("article_uris") or []), str(inc.get("slice_day") or ""))
 
 
-async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date, end: date,
-                         model_name: str, limit: int = MERGE_LIMIT_DEFAULT) -> Tuple[List[Dict], str]:
-    """Group duplicates across the window and keep the `limit` most significant.
-    Returns (incidents, method). Falls back to a plain ranking if the call fails."""
-    if not candidates:
-        return [], "none"
-    pool = candidates
-    if len(pool) > MERGE_INPUT_CAP:
-        pool = [c for c in candidates if _sig(c) >= 2] or candidates
-        pool = sorted(pool, key=_rank_key)[:MERGE_INPUT_CAP]
+# One merge call sees at most MERGE_CHUNK one-line findings. A single call over
+# 4,000 of them (wileytest, 13 Oct 2026) put 1,688 unrelated findings in one
+# group; chunks of a few hundred group correctly. Larger windows merge in
+# rounds: each chunk keeps its top MERGE_KEEP groups for the next round.
+MERGE_CHUNK = 250
+MERGE_KEEP = 30
+# A group this large is the model lumping, not one story: its members stay apart.
+MERGE_MAX_GROUP = 25
+
+
+async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: date, end: date,
+                       model_name: str) -> Tuple[List[Dict], bool]:
+    """Group duplicates in one chunk and return its top `keep`, best first.
+    Returns (items, used_llm); falls back to a plain ranking on failure."""
     lines = []
-    for i, c in enumerate(pool):
+    for i, c in enumerate(items):
         name = re.sub(r"\s+", " ", str(c.get("name") or ""))[:160]
         lines.append(f"{i}|{c.get('slice_day') or ''}|{c.get('topic') or ''}|"
                      f"{(c.get('significance') or '').lower()}|{len(c.get('article_uris') or [])}|{name}")
     prompt = (
-        f"Below are {len(pool)} items an analyst extracted, day by day, from every article collected "
+        f"Below are {len(items)} findings an analyst extracted, day by day, from articles collected "
         f"between {start.isoformat()} and {end.isoformat()} for these topics: {', '.join(topics)}.\n"
         "Each line is: id|day|topic|significance|articles cited|headline.\n\n"
-        "1. Group items that report the same real-world development (same actors, same event), "
-        "even when they come from different days or topics. Items about different events stay apart.\n"
-        f"2. Return the {limit} most important groups for a strategic intelligence analyst, most "
-        "important first. Weigh significance, how many articles and days carry the story, and "
-        "material impact. Do not invent items.\n\n"
+        "1. Most findings are about different events. Group findings only when they report the same "
+        "specific development (the same actors and the same event), for example the same deal "
+        "reported on several days. Never group findings just because they share a theme, a company "
+        "or a country.\n"
+        f"2. Return the {keep} most important groups for a strategic intelligence analyst, most "
+        "important first; a finding that matches nothing else is a group of one. Weigh significance, "
+        "how many articles and days carry the story, and material impact. Do not invent items.\n\n"
         "Answer with JSON only: [{\"ids\": [3, 17, 42]}, ...]\n\n" + "\n".join(lines))
     try:
         from app.ai_models import LiteLLMModel, extract_content
         model = LiteLLMModel.get_instance(model_name)
         response = await model.agenerate_response(
-            [{"role": "user", "content": prompt}], max_tokens=8000, temperature=0.0)
+            [{"role": "user", "content": prompt}], max_tokens=4000, temperature=0.0)
         raw = extract_content(response).strip()
         start_i = raw.find("[")
         if start_i < 0:
@@ -466,26 +474,56 @@ async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date,
         out, used = [], set()
         for g in data if isinstance(data, list) else []:
             ids = g.get("ids") if isinstance(g, dict) else g
-            members = [pool[i] for i in (ids or []) if isinstance(i, int) and 0 <= i < len(pool)
-                       and i not in used]
-            used.update(i for i in (ids or []) if isinstance(i, int))
-            if members:
-                out.append(_combine(members))
-            if len(out) >= limit:
+            ids = [i for i in (ids or []) if isinstance(i, int) and 0 <= i < len(items) and i not in used]
+            if not ids:
+                continue
+            if len(ids) > MERGE_MAX_GROUP:
+                logger.warning(f"incident merge: ignored a {len(ids)}-finding group as implausible")
+                continue
+            used.update(ids)
+            out.append(_combine([items[i] for i in ids]))
+            if len(out) >= keep:
                 break
-        if out:
-            return out, "llm"
-        raise ValueError("merge answer had no usable groups")
+        if not out:
+            raise ValueError("merge answer had no usable groups")
+        return out, True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"incident merge call failed, ranking without grouping: {e}")
+        logger.warning(f"incident merge call failed for {len(items)} findings, ranking without grouping: {e}")
         uniq, seen = [], set()
-        for c in sorted(pool, key=_rank_key):
+        for c in sorted(items, key=_rank_key):
             k = re.sub(r"\W+", " ", str(c.get("name") or "").lower()).strip()
             if k in seen:
                 continue
             seen.add(k)
             uniq.append(c)
-        return uniq[:limit], "ranked"
+        return uniq[:keep], False
+
+
+async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date, end: date,
+                         model_name: str, limit: int = MERGE_LIMIT_DEFAULT) -> Tuple[List[Dict], str]:
+    """Group duplicates across the window and keep the `limit` most significant.
+    Every finding is considered: big windows merge in rounds of MERGE_CHUNK.
+    Returns (incidents, method)."""
+    if not candidates:
+        return [], "none"
+    items = sorted(candidates, key=lambda c: (str(c.get("topic") or ""), str(c.get("slice_day") or "")))
+    sem = asyncio.Semaphore(CONCURRENCY)
+    llm_ok, rounds = True, 0
+    while len(items) > MERGE_CHUNK:
+        rounds += 1
+        chunks = [items[k:k + MERGE_CHUNK] for k in range(0, len(items), MERGE_CHUNK)]
+
+        async def one(chunk):
+            async with sem:
+                return await _merge_chunk(chunk, MERGE_KEEP, topics, start, end, model_name)
+        results = await asyncio.gather(*(one(c) for c in chunks))
+        llm_ok = llm_ok and all(ok for _, ok in results)
+        items = sorted((x for r, _ in results for x in r),
+                       key=lambda c: (str(c.get("topic") or ""), str(c.get("slice_day") or "")))
+    final, ok = await _merge_chunk(items, limit, topics, start, end, model_name)
+    llm_ok = llm_ok and ok
+    return final, ("llm" if llm_ok else "ranked") + (f", {rounds + 1} rounds" if rounds else "")
+
 
 
 # --- background jobs (one process per site, so memory is enough) ---
