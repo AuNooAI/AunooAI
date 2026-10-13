@@ -1925,13 +1925,17 @@ async def analyze_incidents(
         # collected article, so a plain load used to regenerate almost every time.
         # Serve the newest stored analysis for this topic set, or an empty result
         # the UI reads as "press Generate". No article query, no model call.
+        # An analysis older than the window is never served: wileytest showed a
+        # 1 July analysis (every incident dated 30 June) on 13 Oct, and one of
+        # its incidents went into that day's briefing.
         if req.cache_only:
             from sqlalchemy import text as _sql_text
             row = db.facade._fetchone_with_rollback(_sql_text("""
                 SELECT content FROM article_analysis_cache
                 WHERE analysis_type = :at AND model_used = 'incident_analysis'
+                  AND generated_at >= NOW() - make_interval(days => :days)
                 ORDER BY generated_at DESC LIMIT 1
-            """), {"at": f"incident_tracking_{topics_str}"},
+            """), {"at": f"incident_tracking_{topics_str}", "days": req.days_limit},
                 operation_name="incident tracking cache_only lookup")
             if row and row[0]:
                 logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")

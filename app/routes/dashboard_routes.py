@@ -922,8 +922,9 @@ async def get_article_insights(
             row = db.facade._fetchone_with_rollback(sql_text("""
                 SELECT content FROM article_analysis_cache
                 WHERE analysis_type = :at AND model_used = 'dashboard_api'
+                  AND generated_at >= NOW() - make_interval(days => :days)
                 ORDER BY generated_at DESC LIMIT 1
-            """), {"at": f"article_insights_{topic_name}"},
+            """), {"at": f"article_insights_{topic_name}", "days": days_limit},
                 operation_name="article insights cache_only lookup")
             if row and row[0]:
                 logger.info(f"Cache-only: serving latest stored insights for {topic_name}")
