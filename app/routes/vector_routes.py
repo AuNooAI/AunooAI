@@ -1768,10 +1768,12 @@ class _IncidentTrackingRequest(BaseModel):
     days_limit: int = Field(14, ge=1, le=90, description="Days back to analyze")
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
-    max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
+    max_articles: int = Field(100, ge=10, le=300, description="Unused since 13 Oct 2026: Generate reads every article in the window")
     model: str = Field("bedrock-kimi-k2-5", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
     cache_only: bool = Field(False, description="Serve the newest cached analysis (any window) and NEVER run the LLM — page-load path")
+    background: bool = Field(False, description="Run Generate as a job; poll /incident-tracking/jobs/{job_id}")
+    max_incidents: int = Field(40, ge=5, le=200, description="Incidents kept after merging the window")
     domain: Optional[str] = Field(
         None,
         description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
@@ -1903,250 +1905,140 @@ def strip_unstated_incident_years(incidents: List[Dict], source_text_by_uri: Dic
                     lambda m: m.group(0) if m.group(3) not in unstated else m.group(1) + (m.group(2) or "").rstrip(","),
                     v)
 
-@router.post("/incident-tracking")
-async def analyze_incidents(
-    req: _IncidentTrackingRequest,
-    session=Depends(verify_session_optional),
-):
-    """Track specific incidents, entities, and events for threat hunting."""
-    try:
-        from app.database import get_database_instance
-        db = get_database_instance()
+def _format_incident_articles(articles: List) -> str:
+    """The article list as the incident prompts show it, with credibility markers."""
+    # Prepare articles for LLM analysis with credibility markers
+    def _norm(value):
+        return (value or '').strip() if isinstance(value, str) else (value or '')
 
-        # Get topics list (backward compatible)
-        topics_list = req.get_topics_list()
+    articles_text = "\n\n".join([
+        (
+            lambda a: (
+                f"Article {i+1}:\n"
+                f"Title: {a['title']}\n"
+                f"Source: {a['news_source']}\n"
+                f"Published: {a['publication_date']}\n"
+                f"Category: {a['category']} | Sentiment: {a['sentiment']}\n"
+                f"Credibility: factual_reporting={_norm(a.get('factual_reporting')) or 'unknown'}, "
+                f"mbfc={_norm(a.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(a.get('bias')) or 'unknown'}\n"
+                f"Summary: {a['summary']}\n"
+                f"URI: {a['uri']}"
+            )
+        )(
+            a if isinstance(a, dict) else {
+                'uri': a[0], 'title': a[1], 'summary': a[2], 'news_source': a[3], 'publication_date': a[4],
+                'category': a[5], 'sentiment': a[6], 'bias': a[7] if len(a) > 7 else None,
+                'factual_reporting': a[8] if len(a) > 8 else None,
+                'mbfc_credibility_rating': a[9] if len(a) > 9 else None,
+                'bias_source': a[10] if len(a) > 10 else None,
+            }
+        )
+        for i, a in enumerate(articles)
+    ])
+    
+    return articles_text
 
-        # Build cache key from sorted topics for consistent caching
-        topics_str = ','.join(sorted(topics_list)) if topics_list else 'all_topics'
-        cache_key = f"incident_tracking_{topics_str}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
 
-        # cache_only = the page-load path. Opening the Highlights view must never
-        # block on LLM generation; the anchored cache key moves with every newly
-        # collected article, so a plain load used to regenerate almost every time.
-        # Serve the newest stored analysis for this topic set, or an empty result
-        # the UI reads as "press Generate". No article query, no model call.
-        # An analysis older than the window is never served: wileytest showed a
-        # 1 July analysis (every incident dated 30 June) on 13 Oct, and one of
-        # its incidents went into that day's briefing.
-        if req.cache_only:
-            from sqlalchemy import text as _sql_text
-            row = db.facade._fetchone_with_rollback(_sql_text("""
-                SELECT content FROM article_analysis_cache
-                WHERE analysis_type = :at AND model_used = 'incident_analysis'
-                  AND generated_at >= NOW() - make_interval(days => :days)
-                ORDER BY generated_at DESC LIMIT 1
-            """), {"at": f"incident_tracking_{topics_str}", "days": req.days_limit},
-                operation_name="incident tracking cache_only lookup")
-            if row and row[0]:
-                logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
-                import json
-                cached = json.loads(row[0])
-                # Stored rows predate the partial-date rule; apply it on the way out.
-                for _inc in (cached.get("incidents") or []) if isinstance(cached, dict) else []:
-                    date_incident_timeline(_inc)
-                return cached
-            return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
+def _incident_system_prompt(req: "_IncidentTrackingRequest", db) -> str:
+    """System prompt for incident write-ups: ontology, organisation profile, and any
+    custom prompt, instructions or guidelines saved in the page's configuration."""
+    topics_list = req.get_topics_list()
+    # Build ontology guidance
+    def _build_incident_event_ontology(topic: str, domain: Optional[str]) -> str:
+        t = (topic or '').lower()
+        d = (domain or '').lower() if domain else ''
+        is_scientific_publisher = ('publisher' in t and 'scientific' in t) or d == 'scientific_publisher'
 
-        # Get articles for analysis
-        from datetime import datetime, timedelta
+        base = (
+            "\nONTOLOGY — Types and Subtypes\n"
+            "Valid types: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift\n\n"
+            "Definitions:\n"
+            "- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.\n"
+            "- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.\n"
+            "- entity: Organization, person, product, venue, dataset (things we track, not occurrences).\n"
+            "- expertise: Expert analysis, predictions, or authoritative insights from recognized industry leaders, analysts, or researchers.\n"
+            "- informed_insider: Insider perspectives, leaked information, or privileged insights from people with direct access to relevant information.\n"
+            "- trend_signal: Market trends, behavioral shifts, or emerging patterns that indicate future developments.\n"
+            "- strategic_shift: Major strategic changes, policy pivots, or directional changes by key organizations or governments.\n\n"
+            "Recommended subtypes:\n"
+            "- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption\n"
+            "- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program\n"
+            "- entity: company, person, product, dataset, venue, regulator, research_institution, government_agency\n"
+            "- expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding\n"
+            "- informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication\n"
+            "- trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic\n"
+            "- strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change\n\n"
+            "Assignment rules:\n"
+            "- Use 'incident' for events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures).\n"
+            "- Use 'event' for announcements and developments (product launches, funding, partnerships, pilot programs).\n"
+            "- Use 'entity' for organizations, people, or products being tracked.\n"
+            "- Use 'expertise' when article features expert analysis, predictions, or authoritative insights from recognized leaders.\n"
+            "- Use 'informed_insider' when article contains insider information, leaks, or privileged access insights.\n"
+            "- Use 'trend_signal' when article identifies emerging patterns, market trends, or behavioral shifts.\n"
+            "- Use 'strategic_shift' when article describes major strategic changes, policy pivots, or directional changes.\n"
+            "- Always include a 'subtype' from the lists above.\n"
+            "- Be inclusive rather than restrictive - classify newsworthy content appropriately.\n"
+        )
 
-        if req.start_date and req.end_date:
-            start_date_dt = datetime.strptime(req.start_date, '%Y-%m-%d')
-            end_date_dt = datetime.strptime(req.end_date, '%Y-%m-%d')
-        else:
-            end_date_dt = datetime.now()
-            start_date_dt = end_date_dt - timedelta(days=req.days_limit)
-
-        # Query articles - use same approach as working news feed service
-        # NOTE: publication_date is TEXT, use strftime() to match database format
-        query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment, topic,
-               bias, factual_reporting, mbfc_credibility_rating, bias_source
-        FROM articles
-        WHERE publication_date >= ? AND publication_date <= ?
-        AND NULLIF(TRIM(sentiment), '') IS NOT NULL
-        """ + "AND " + agent_evidence_sql() + " AND " + readable_sql() + "\n"
-
-        # Format dates to match database TEXT format (space separator, not 'T')
-        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
-
-        # Add topic filtering for single or multiple topics
-        if topics_list:
-            if len(topics_list) == 1:
-                # Single topic - use existing pattern
-                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
-                topic_pattern = f"%{topics_list[0]}%"
-                params.extend([topics_list[0], topic_pattern, topic_pattern])
-            else:
-                # Multiple topics - use IN clause with LIKE fallbacks
-                topic_placeholders = ','.join(['?' for _ in topics_list])
-                like_conditions = ' OR '.join([f"title LIKE ? OR summary LIKE ?" for _ in topics_list])
-                query += f" AND (topic IN ({topic_placeholders}) OR {like_conditions})"
-                # Add exact topic matches
-                params.extend(topics_list)
-                # Add LIKE patterns for each topic
-                for topic in topics_list:
-                    topic_pattern = f"%{topic}%"
-                    params.extend([topic_pattern, topic_pattern])
-
-        query += " ORDER BY publication_date DESC NULLS LAST LIMIT ?"
-        params.append(req.max_articles)
-        
-        # Use test articles if provided, otherwise query database
-        if req.test_articles:
-            logger.info(f"Using {len(req.test_articles)} test articles instead of database query")
-            articles = req.test_articles
-        else:
-            articles = db.fetch_all(query, params)
-
-        if not articles:
-            topics_display = ', '.join(topics_list) if topics_list else 'all topics'
-            return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
-
-        # Define cache_uri for later use
-        cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
-
-        # Check cache using first article as anchor (unless force regenerate)
-        if not req.force_regenerate:
-            cached = db.get_article_analysis_cache(
-                article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{topics_str}",
-                model_used="incident_analysis"
+        # Domain overlays (vanilla = no overlay)
+        overlay = ""
+        if d and d != 'vanilla' and is_scientific_publisher:
+            overlay = (
+                "\nDomain overlay — scientific_publisher:\n"
+                "- Treat as incident: legal_ip (patent disputes, licensing changes), rd_spend_change (material increases/decreases, major lab closures), regulatory_action affecting IP/open access policy, acquisition of critical editorial/data assets.\n"
+                "- Treat as event: competitor product_launch (new journal/platform/analytics offering), feature_update, conference_announcement, partnership_mou.\n"
+                "Examples:\n"
+                "  - 'Elsevier raises R&D spend by 25% in AI editorial tooling' → type=incident, subtype=rd_spend_change, significance=high.\n"
+                "  - 'Wiley launches a new open-access analytics platform' → type=event, subtype=product_launch, significance=medium.\n"
             )
 
-            if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
-                logger.info(f"Cache HIT: incident tracking for {topics_str}")
+        examples = (
+            "\nLabeling examples (JSON objects):\n"
+            "{\"name\": \"SoftBank Vision Fund layoffs amid AI strategy shift\", \"type\": \"incident\", \"subtype\": \"layoffs\"}\n"
+            "{\"name\": \"Citi launches agentic AI pilot program\", \"type\": \"event\", \"subtype\": \"pilot_program\"}\n"
+            "{\"name\": \"Eric Schmidt warns about AI competitiveness\", \"type\": \"expertise\", \"subtype\": \"expert_warning\"}\n"
+            "{\"name\": \"Inside Tony Blair Institute AI strategy discussions\", \"type\": \"informed_insider\", \"subtype\": \"private_meeting\"}\n"
+            "{\"name\": \"Growing enterprise adoption of agentic AI\", \"type\": \"trend_signal\", \"subtype\": \"adoption_trend\"}\n"
+            "{\"name\": \"SoftBank shifts focus from consumer to enterprise AI\", \"type\": \"strategic_shift\", \"subtype\": \"strategic_realignment\"}\n"
+            "{\"name\": \"SoftBank Vision Fund\", \"type\": \"entity\", \"subtype\": \"company\"}\n"
+        )
+
+        return base + overlay + examples
+
+    ontology_text = _build_incident_event_ontology(req.topic, req.domain)
+
+    # Get organizational profile context if provided
+    profile_context = ""
+    if req.profile_id:
+        try:
+            from app.database_query_facade import DatabaseQueryFacade
+            profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
+            if profile_row:
                 import json
-                return json.loads(cached["content"])
-
-        if req.force_regenerate:
-            logger.info(f"Force regenerating incident tracking for {topics_str} (bypassing cache)")
-        
-        # Prepare articles for LLM analysis with credibility markers
-        def _norm(value):
-            return (value or '').strip() if isinstance(value, str) else (value or '')
-
-        articles_text = "\n\n".join([
-            (
-                lambda a: (
-                    f"Article {i+1}:\n"
-                    f"Title: {a['title']}\n"
-                    f"Source: {a['news_source']}\n"
-                    f"Published: {a['publication_date']}\n"
-                    f"Category: {a['category']} | Sentiment: {a['sentiment']}\n"
-                    f"Credibility: factual_reporting={_norm(a.get('factual_reporting')) or 'unknown'}, "
-                    f"mbfc={_norm(a.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(a.get('bias')) or 'unknown'}\n"
-                    f"Summary: {a['summary']}\n"
-                    f"URI: {a['uri']}"
-                )
-            )(
-                a if isinstance(a, dict) else {
-                    'uri': a[0], 'title': a[1], 'summary': a[2], 'news_source': a[3], 'publication_date': a[4],
-                    'category': a[5], 'sentiment': a[6], 'bias': a[7] if len(a) > 7 else None,
-                    'factual_reporting': a[8] if len(a) > 8 else None,
-                    'mbfc_credibility_rating': a[9] if len(a) > 9 else None,
-                    'bias_source': a[10] if len(a) > 10 else None,
+                profile = {
+                    'name': profile_row['name'],
+                    'industry': profile_row['industry'],
+                    'organization_type': profile_row['organization_type'],
+                    'region': profile_row['region'],
+                    'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                    'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                    'risk_tolerance': profile_row['risk_tolerance'],
+                    'innovation_appetite': profile_row['innovation_appetite'],
+                    'decision_making_style': profile_row['decision_making_style'],
+                    'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                    'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
+                    'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
+                    'custom_context': profile_row['custom_context']
                 }
-            )
-            for i, a in enumerate(articles)
-        ])
-        
-        # Build ontology guidance
-        def _build_incident_event_ontology(topic: str, domain: Optional[str]) -> str:
-            t = (topic or '').lower()
-            d = (domain or '').lower() if domain else ''
-            is_scientific_publisher = ('publisher' in t and 'scientific' in t) or d == 'scientific_publisher'
-
-            base = (
-                "\nONTOLOGY — Types and Subtypes\n"
-                "Valid types: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift\n\n"
-                "Definitions:\n"
-                "- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.\n"
-                "- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.\n"
-                "- entity: Organization, person, product, venue, dataset (things we track, not occurrences).\n"
-                "- expertise: Expert analysis, predictions, or authoritative insights from recognized industry leaders, analysts, or researchers.\n"
-                "- informed_insider: Insider perspectives, leaked information, or privileged insights from people with direct access to relevant information.\n"
-                "- trend_signal: Market trends, behavioral shifts, or emerging patterns that indicate future developments.\n"
-                "- strategic_shift: Major strategic changes, policy pivots, or directional changes by key organizations or governments.\n\n"
-                "Recommended subtypes:\n"
-                "- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption\n"
-                "- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program\n"
-                "- entity: company, person, product, dataset, venue, regulator, research_institution, government_agency\n"
-                "- expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding\n"
-                "- informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication\n"
-                "- trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic\n"
-                "- strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change\n\n"
-                "Assignment rules:\n"
-                "- Use 'incident' for events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures).\n"
-                "- Use 'event' for announcements and developments (product launches, funding, partnerships, pilot programs).\n"
-                "- Use 'entity' for organizations, people, or products being tracked.\n"
-                "- Use 'expertise' when article features expert analysis, predictions, or authoritative insights from recognized leaders.\n"
-                "- Use 'informed_insider' when article contains insider information, leaks, or privileged access insights.\n"
-                "- Use 'trend_signal' when article identifies emerging patterns, market trends, or behavioral shifts.\n"
-                "- Use 'strategic_shift' when article describes major strategic changes, policy pivots, or directional changes.\n"
-                "- Always include a 'subtype' from the lists above.\n"
-                "- Be inclusive rather than restrictive - classify newsworthy content appropriately.\n"
-            )
-
-            # Domain overlays (vanilla = no overlay)
-            overlay = ""
-            if d and d != 'vanilla' and is_scientific_publisher:
-                overlay = (
-                    "\nDomain overlay — scientific_publisher:\n"
-                    "- Treat as incident: legal_ip (patent disputes, licensing changes), rd_spend_change (material increases/decreases, major lab closures), regulatory_action affecting IP/open access policy, acquisition of critical editorial/data assets.\n"
-                    "- Treat as event: competitor product_launch (new journal/platform/analytics offering), feature_update, conference_announcement, partnership_mou.\n"
-                    "Examples:\n"
-                    "  - 'Elsevier raises R&D spend by 25% in AI editorial tooling' → type=incident, subtype=rd_spend_change, significance=high.\n"
-                    "  - 'Wiley launches a new open-access analytics platform' → type=event, subtype=product_launch, significance=medium.\n"
-                )
-
-            examples = (
-                "\nLabeling examples (JSON objects):\n"
-                "{\"name\": \"SoftBank Vision Fund layoffs amid AI strategy shift\", \"type\": \"incident\", \"subtype\": \"layoffs\"}\n"
-                "{\"name\": \"Citi launches agentic AI pilot program\", \"type\": \"event\", \"subtype\": \"pilot_program\"}\n"
-                "{\"name\": \"Eric Schmidt warns about AI competitiveness\", \"type\": \"expertise\", \"subtype\": \"expert_warning\"}\n"
-                "{\"name\": \"Inside Tony Blair Institute AI strategy discussions\", \"type\": \"informed_insider\", \"subtype\": \"private_meeting\"}\n"
-                "{\"name\": \"Growing enterprise adoption of agentic AI\", \"type\": \"trend_signal\", \"subtype\": \"adoption_trend\"}\n"
-                "{\"name\": \"SoftBank shifts focus from consumer to enterprise AI\", \"type\": \"strategic_shift\", \"subtype\": \"strategic_realignment\"}\n"
-                "{\"name\": \"SoftBank Vision Fund\", \"type\": \"entity\", \"subtype\": \"company\"}\n"
-            )
-
-            return base + overlay + examples
-
-        ontology_text = _build_incident_event_ontology(req.topic, req.domain)
-
-        # Get organizational profile context if provided
-        profile_context = ""
-        if req.profile_id:
-            try:
-                from app.database_query_facade import DatabaseQueryFacade
-                profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
-                if profile_row:
-                    import json
-                    profile = {
-                        'name': profile_row['name'],
-                        'industry': profile_row['industry'],
-                        'organization_type': profile_row['organization_type'],
-                        'region': profile_row['region'],
-                        'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
-                        'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
-                        'risk_tolerance': profile_row['risk_tolerance'],
-                        'innovation_appetite': profile_row['innovation_appetite'],
-                        'decision_making_style': profile_row['decision_making_style'],
-                        'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
-                        'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
-                        'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
-                        'custom_context': profile_row['custom_context']
-                    }
-                    
-                    # Build profile context
-                    key_concerns = ', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'
-                    strategic_priorities = ', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'
-                    stakeholder_focus = ', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'
-                    competitive_landscape = ', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'
-                    regulatory_environment = ', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'
-                    
-                    profile_context = f"""
+                
+                # Build profile context
+                key_concerns = ', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'
+                strategic_priorities = ', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'
+                stakeholder_focus = ', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'
+                competitive_landscape = ', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'
+                regulatory_environment = ', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'
+                
+                profile_context = f"""
 ORGANIZATIONAL CONTEXT:
 Organization: {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')})
 Region: {profile.get('region', 'Not specified')}
@@ -2170,13 +2062,13 @@ ANALYSIS INSTRUCTIONS:
 - Tailor investigation leads to {profile.get('industry', 'industry')} context and organizational priorities
 
 """
-                    logger.info(f"Using organizational profile: {profile['name']} ({profile.get('industry', 'General')})")
-            except Exception as e:
-                logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
+                logger.info(f"Using organizational profile: {profile['name']} ({profile.get('industry', 'General')})")
+        except Exception as e:
+            logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
 
-        # Use custom configuration from request if provided, otherwise use defaults
-        # Default analysis instructions (AI Guidance)
-        default_analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
+    # Use custom configuration from request if provided, otherwise use defaults
+    # Default analysis instructions (AI Guidance)
+    default_analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
 
 1. Material business impacts and strategic changes (layoffs, restructuring, major funding changes)
 2. Regulatory actions and compliance issues (government policies, regulatory warnings)
@@ -2197,8 +2089,8 @@ Classification Guidelines:
 
 Be inclusive rather than restrictive - if an article discusses something newsworthy, classify it appropriately."""
 
-        # Default quality guidelines (AI Guidance)
-        default_quality_guidelines = """Credibility Assessment:
+    # Default quality guidelines (AI Guidance)
+    default_quality_guidelines = """Credibility Assessment:
 - High credibility: Major news outlets, verified sources, multiple independent confirmations
 - Mixed credibility: Single source reporting, unverified claims, industry blogs
 - Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
@@ -2214,66 +2106,66 @@ Financial Results Protocol:
 - When the input articles disagree (one headline says "beat", another says "miss"), say so in the description, set source_quality to mixed, and add "conflicting_reports" to misinfo_flags. Do not resolve the conflict by picking one side.
 - Treat auto-generated earnings wire items ("beats expectations by $0.0X EPS" and similar) as a single low-detail source, not as independent confirmation."""
 
-        # Use custom config if provided, otherwise defaults
-        analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
-        quality_guidelines = req.quality_guidelines if req.quality_guidelines else default_quality_guidelines
+    # Use custom config if provided, otherwise defaults
+    analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
+    quality_guidelines = req.quality_guidelines if req.quality_guidelines else default_quality_guidelines
 
-        # Build dynamic topic label and focus based on topic and org profile
-        # This is computed first so it can be used in both custom and default prompts
-        topic_label = "the selected topics"  # Default generic label
-        topic_focus = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+    # Build dynamic topic label and focus based on topic and org profile
+    # This is computed first so it can be used in both custom and default prompts
+    topic_label = "the selected topics"  # Default generic label
+    topic_focus = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
 
-        if req.topic:
-            # Use topic name as the label
-            topic_label = req.topic
-            # Map common topics to focus descriptions
-            topic_focus_map = {
-                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
-                "Technology": "technological developments, digital transformation, and innovation",
-                "Business": "market dynamics, competitive landscape, and business strategy",
-                "Finance": "financial markets, investment trends, and economic indicators",
-                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
-                "Energy": "energy markets, sustainability initiatives, and industry transitions",
-                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
-            }
-            topic_focus = topic_focus_map.get(req.topic, f"{req.topic.lower()} developments, trends, and strategic implications")
-        elif topics_list:
-            # Multiple topics selected
-            topic_label = ', '.join(topics_list[:3]) + ('...' if len(topics_list) > 3 else '')
+    if req.topic:
+        # Use topic name as the label
+        topic_label = req.topic
+        # Map common topics to focus descriptions
+        topic_focus_map = {
+            "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+            "Technology": "technological developments, digital transformation, and innovation",
+            "Business": "market dynamics, competitive landscape, and business strategy",
+            "Finance": "financial markets, investment trends, and economic indicators",
+            "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+            "Energy": "energy markets, sustainability initiatives, and industry transitions",
+            "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+        }
+        topic_focus = topic_focus_map.get(req.topic, f"{req.topic.lower()} developments, trends, and strategic implications")
+    elif topics_list:
+        # Multiple topics selected
+        topic_label = ', '.join(topics_list[:3]) + ('...' if len(topics_list) > 3 else '')
 
-        # If org profile exists, use its context for more specific focus
-        if req.profile_id and profile_context:
-            # Extract key concerns and priorities from profile for topic focus
-            try:
-                from app.database_query_facade import DatabaseQueryFacade
-                profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
-                if profile_row:
-                    import json
-                    key_concerns = json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else []
-                    strategic_priorities = json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else []
-                    org_focus = key_concerns + strategic_priorities
-                    if org_focus:
-                        topic_focus = ', '.join(org_focus[:5])  # Limit to top 5
-                    # Use industry for topic label if no specific topic
-                    if not req.topic and profile_row.get('industry'):
-                        topic_label = f"{profile_row['industry']} news and developments"
-            except Exception as e:
-                logger.warning(f"Could not extract org profile focus: {e}")
+    # If org profile exists, use its context for more specific focus
+    if req.profile_id and profile_context:
+        # Extract key concerns and priorities from profile for topic focus
+        try:
+            from app.database_query_facade import DatabaseQueryFacade
+            profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
+            if profile_row:
+                import json
+                key_concerns = json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else []
+                strategic_priorities = json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else []
+                org_focus = key_concerns + strategic_priorities
+                if org_focus:
+                    topic_focus = ', '.join(org_focus[:5])  # Limit to top 5
+                # Use industry for topic label if no specific topic
+                if not req.topic and profile_row.get('industry'):
+                    topic_label = f"{profile_row['industry']} news and developments"
+        except Exception as e:
+            logger.warning(f"Could not extract org profile focus: {e}")
 
-        # Check if custom system prompt provided
-        if req.system_prompt:
-            # Use custom system prompt with placeholder replacement
-            system_prompt = req.system_prompt.replace('{topic}', req.topic or 'the selected topics')
-            system_prompt = system_prompt.replace('{topic_label}', topic_label)
-            system_prompt = system_prompt.replace('{topic_focus}', topic_focus)
-            system_prompt = system_prompt.replace('{profile_context}', profile_context)
-            system_prompt = system_prompt.replace('{analysis_instructions}', analysis_instructions)
-            system_prompt = system_prompt.replace('{quality_guidelines}', quality_guidelines)
-            system_prompt = system_prompt.replace('{ontology_text}', ontology_text)
-            logger.info(f"Using custom system prompt for incident tracking on {topic_label}")
-        else:
-            # Default system prompt
-            system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {topic_label}, with focus on {topic_focus}.
+    # Check if custom system prompt provided
+    if req.system_prompt:
+        # Use custom system prompt with placeholder replacement
+        system_prompt = req.system_prompt.replace('{topic}', req.topic or 'the selected topics')
+        system_prompt = system_prompt.replace('{topic_label}', topic_label)
+        system_prompt = system_prompt.replace('{topic_focus}', topic_focus)
+        system_prompt = system_prompt.replace('{profile_context}', profile_context)
+        system_prompt = system_prompt.replace('{analysis_instructions}', analysis_instructions)
+        system_prompt = system_prompt.replace('{quality_guidelines}', quality_guidelines)
+        system_prompt = system_prompt.replace('{ontology_text}', ontology_text)
+        logger.info(f"Using custom system prompt for incident tracking on {topic_label}")
+    else:
+        # Default system prompt
+        system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {topic_label}, with focus on {topic_focus}.
 
 IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
 Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
@@ -2308,361 +2200,526 @@ Devil's Advocate Smell Test:
 
 Output a pure JSON array only."""
 
-        # Check if custom user prompt provided
-        if req.user_prompt:
-            user_prompt = req.user_prompt.replace('{topic}', req.topic or 'the selected topics')
-            user_prompt = user_prompt.replace('{articles_text}', articles_text)
-            logger.info(f"Using custom user prompt for incident tracking on {req.topic}")
-        else:
-            user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
-        
-        # Generate analysis
-        from app.ai_models import LiteLLMModel
-        from fastapi.concurrency import run_in_threadpool
-        
-        model_name = req.model  # Use model from frontend
-        ai_model = LiteLLMModel.get_instance(model_name)
-        if not ai_model:
-            raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        response_str = await run_in_threadpool(ai_model.generate_response, messages)
+    return system_prompt
 
-        # Check for error messages from AI model
-        if response_str and ("⚠️" in response_str or "unavailable" in response_str.lower()):
-            logger.error(f"LLM returned error message for incident tracking: {response_str}")
-            raise HTTPException(status_code=500, detail=response_str)
 
-        # Parse response
-        incidents = []
-        if response_str:
-            try:
-                import re
-                import json as json_module
-                json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
-                if json_match:
-                    raw = json_match.group()
-                    try:
-                        incidents = json_module.loads(raw)
-                    except json_module.JSONDecodeError as je:
-                        # A 30k+ character array with one bad delimiter used to
-                        # cost the whole highlights panel (bugfixing 2026-09-08,
-                        # kimi-k2.5, char 37318 of 37k). Repair before giving up.
-                        import json_repair
-                        repaired = json_repair.loads(raw)
-                        if not isinstance(repaired, list):
-                            raise je
-                        logger.warning(
-                            f"Incident tracking JSON repaired after parse error ({je}); "
-                            f"{len(repaired)} incidents recovered")
-                        incidents = repaired
-            except json_module.JSONDecodeError as je:
-                logger.error(f"Failed to parse incident tracking response: {je}")
-                return {"incidents": [], "error": "Failed to parse LLM response"}
+async def _call_incident_model(req: "_IncidentTrackingRequest", system_prompt: str,
+                               user_prompt: str) -> List[Dict]:
+    """One call; returns the parsed incident array. Raises on a model error or an
+    answer that cannot be parsed."""
+    # Generate analysis
+    from app.ai_models import LiteLLMModel
+    from fastapi.concurrency import run_in_threadpool
+    
+    model_name = req.model  # Use model from frontend
+    ai_model = LiteLLMModel.get_instance(model_name)
+    if not ai_model:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+    
+    # Without an explicit cap the provider default (about 36k characters on
+    # bedrock-kimi-k2-5) cut most 100-article answers mid-array; the repair then
+    # kept only the incidents before the cut (bugfixing, 13 Oct 2026).
+    response_str = await run_in_threadpool(ai_model.generate_response, messages, max_tokens=16000)
 
-        # The prompt asks for timeline as {"event_date", "published"} so the model
-        # dates the event by what the articles say. Every reader of an incident
-        # (cards, saved incidents, briefings) expects timeline as a date string,
-        # so flatten it here: the event date when the articles state one, else
-        # "reported <published>". The two parts stay on the item as fields.
-        for inc in incidents:
-            if not isinstance(inc, dict):
-                continue
-            tl = inc.get("timeline")
-            if isinstance(tl, dict):
-                inc["event_date"] = tl.get("event_date") if isinstance(tl.get("event_date"), str) else None
-                inc["published"] = tl.get("published") if isinstance(tl.get("published"), str) else None
-                date_incident_timeline(inc)
+    # Check for error messages from AI model. An answer that holds a JSON array
+    # is an answer, even when an incident's text says "unavailable".
+    if response_str and "[" not in response_str and (
+            "⚠️" in response_str or "unavailable" in response_str.lower()):
+        logger.error(f"LLM returned error message for incident tracking: {response_str}")
+        raise HTTPException(status_code=500, detail=response_str)
 
+    # Parse response
+    incidents = []
+    if response_str:
         try:
-            _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}
-                         for a in articles]
-            _cited = sorted({u for inc in incidents if isinstance(inc, dict)
-                             for u in (inc.get("article_uris") or []) if isinstance(u, str)})
-            _raw = {}
-            if _cited:
-                _ph = ",".join("?" for _ in _cited)
-                for r in db.fetch_all(f"SELECT uri, raw_markdown FROM raw_articles WHERE uri IN ({_ph})", _cited):
-                    _u, _md = (r["uri"], r["raw_markdown"]) if isinstance(r, dict) else (r[0], r[1])
-                    _raw[_u] = _md or ""
-            _text_by_uri = {a['uri']: ((a.get('title') or "") + "\n" + _raw[a['uri']])
-                            for a in _art_rows if _raw.get(a.get('uri'))}
-            strip_unstated_incident_years(
-                incidents, _text_by_uri, {a['uri']: a.get('publication_date') for a in _art_rows})
-        except Exception as _yr_err:
-            logger.warning(f"Incident year check skipped: {_yr_err}")
+            import re
+            import json as json_module
+            json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
+            if json_match:
+                raw = json_match.group()
+                try:
+                    incidents = json_module.loads(raw)
+                except json_module.JSONDecodeError as je:
+                    # A 30k+ character array with one bad delimiter used to
+                    # cost the whole highlights panel (bugfixing 2026-09-08,
+                    # kimi-k2.5, char 37318 of 37k). Repair before giving up.
+                    import json_repair
+                    repaired = json_repair.loads(raw)
+                    if not isinstance(repaired, list):
+                        raise je
+                    logger.warning(
+                        f"Incident tracking JSON repaired after parse error ({je}); "
+                        f"{len(repaired)} incidents recovered")
+                    incidents = repaired
+        except json_module.JSONDecodeError as je:
+            logger.error(f"Failed to parse incident tracking response: {je}")
+            raise ValueError(f"Failed to parse LLM response: {je}")
 
-        # --- Credibility post-processing and safeguards ---
-        # Build URI -> credibility map from fetched articles
-        def _norm_str(val):
-            return (val or '').strip().lower() if isinstance(val, str) else ''
+    return incidents
 
-        def _row_to_dict(row):
-            if isinstance(row, dict):
-                return row
-            return {
-                'uri': row[0], 'title': row[1], 'summary': row[2], 'news_source': row[3],
-                'publication_date': row[4], 'category': row[5], 'sentiment': row[6],
-                'bias': row[7] if len(row) > 7 else None,
-                'factual_reporting': row[8] if len(row) > 8 else None,
-                'mbfc_credibility_rating': row[9] if len(row) > 9 else None,
-                'bias_source': row[10] if len(row) > 10 else None,
-            }
 
-        article_dicts = [_row_to_dict(a) for a in articles]
-        uri_to_cred = {}
-        for a in article_dicts:
-            factual = _norm_str(a.get('factual_reporting'))
-            cred = _norm_str(a.get('mbfc_credibility_rating'))
-            bias = _norm_str(a.get('bias'))
-            is_low_factual = factual in {'low', 'mixed', 'questionable'}
-            is_low_cred = cred in {'low', 'mixed', 'questionable'}
-            is_fringe = any(t in bias for t in ['extreme', 'conspiracy', 'fringe', 'propaganda'])
-            source_quality = 'high'
-            if is_low_factual or is_low_cred:
-                source_quality = 'mixed'
-            if is_low_factual and is_low_cred:
-                source_quality = 'low'
-            flags = []
-            if is_low_factual:
-                flags.append('low_factuality_source')
-            if is_low_cred:
-                flags.append('low_credibility_source')
-            if is_fringe:
-                flags.append('fringe_bias')
-            uri_to_cred[a['uri']] = {
-                'source_quality': source_quality,
-                'factual_reporting': a.get('factual_reporting'),
-                'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
-                'bias': a.get('bias'),
-                'flags': flags,
-                'news_source': a.get('news_source'),
-                'title': a.get('title')
-            }
+def _postprocess_incidents(incidents: List[Dict], articles: List, db) -> None:
+    """Dates, unstated years and credibility, in place, against the cited articles."""
+    # The prompt asks for timeline as {"event_date", "published"} so the model
+    # dates the event by what the articles say. Every reader of an incident
+    # (cards, saved incidents, briefings) expects timeline as a date string,
+    # so flatten it here: the event date when the articles state one, else
+    # "reported <published>". The two parts stay on the item as fields.
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        tl = inc.get("timeline")
+        if isinstance(tl, dict):
+            inc["event_date"] = tl.get("event_date") if isinstance(tl.get("event_date"), str) else None
+            inc["published"] = tl.get("published") if isinstance(tl.get("published"), str) else None
+            date_incident_timeline(inc)
 
-        def _is_extraordinary(text: str) -> bool:
-            t = (text or '').lower()
-            return any(k in t for k in ['sovereign agi', 'artificial general intelligence', 'agi achieved', 'cryptographic proof of agi', 'self-declared agi'])
+    try:
+        _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}
+                     for a in articles]
+        _cited = sorted({u for inc in incidents if isinstance(inc, dict)
+                         for u in (inc.get("article_uris") or []) if isinstance(u, str)})
+        _raw = {}
+        if _cited:
+            _ph = ",".join("?" for _ in _cited)
+            for r in db.fetch_all(f"SELECT uri, raw_markdown FROM raw_articles WHERE uri IN ({_ph})", _cited):
+                _u, _md = (r["uri"], r["raw_markdown"]) if isinstance(r, dict) else (r[0], r[1])
+                _raw[_u] = _md or ""
+        _text_by_uri = {a['uri']: ((a.get('title') or "") + "\n" + _raw[a['uri']])
+                        for a in _art_rows if _raw.get(a.get('uri'))}
+        strip_unstated_incident_years(
+            incidents, _text_by_uri, {a['uri']: a.get('publication_date') for a in _art_rows})
+    except Exception as _yr_err:
+        logger.warning(f"Incident year check skipped: {_yr_err}")
 
-        # Enrich incidents: add plausibility/source_quality/misinfo_flags, adjust significance
-        for inc in incidents or []:
-            name = inc.get('name') or ''
-            desc = inc.get('description') or ''
-            uris = []
-            if isinstance(inc.get('article_uris'), list):
-                uris.extend([u for u in inc['article_uris'] if u])
-            if isinstance(inc.get('articles'), list):
-                for a in inc['articles']:
-                    if isinstance(a, dict) and a.get('uri'):
-                        uris.append(a['uri'])
-            # Aggregate credibility
-            qualities = [uri_to_cred[u]['source_quality'] for u in uris if u in uri_to_cred]
-            has_low = any(q == 'low' for q in qualities)
-            has_mixed = any(q == 'mixed' for q in qualities)
-            derived_source_quality = 'high'
-            if has_low:
-                derived_source_quality = 'low'
-            elif has_mixed:
-                derived_source_quality = 'mixed'
+    # --- Credibility post-processing and safeguards ---
+    # Build URI -> credibility map from fetched articles
+    def _norm_str(val):
+        return (val or '').strip().lower() if isinstance(val, str) else ''
 
-            # Merge flags
-            flags = set(inc.get('misinfo_flags') or [])
+    def _row_to_dict(row):
+        if isinstance(row, dict):
+            return row
+        return {
+            'uri': row[0], 'title': row[1], 'summary': row[2], 'news_source': row[3],
+            'publication_date': row[4], 'category': row[5], 'sentiment': row[6],
+            'bias': row[7] if len(row) > 7 else None,
+            'factual_reporting': row[8] if len(row) > 8 else None,
+            'mbfc_credibility_rating': row[9] if len(row) > 9 else None,
+            'bias_source': row[10] if len(row) > 10 else None,
+        }
+
+    article_dicts = [_row_to_dict(a) for a in articles]
+    uri_to_cred = {}
+    for a in article_dicts:
+        factual = _norm_str(a.get('factual_reporting'))
+        cred = _norm_str(a.get('mbfc_credibility_rating'))
+        bias = _norm_str(a.get('bias'))
+        is_low_factual = factual in {'low', 'mixed', 'questionable'}
+        is_low_cred = cred in {'low', 'mixed', 'questionable'}
+        is_fringe = any(t in bias for t in ['extreme', 'conspiracy', 'fringe', 'propaganda'])
+        source_quality = 'high'
+        if is_low_factual or is_low_cred:
+            source_quality = 'mixed'
+        if is_low_factual and is_low_cred:
+            source_quality = 'low'
+        flags = []
+        if is_low_factual:
+            flags.append('low_factuality_source')
+        if is_low_cred:
+            flags.append('low_credibility_source')
+        if is_fringe:
+            flags.append('fringe_bias')
+        uri_to_cred[a['uri']] = {
+            'source_quality': source_quality,
+            'factual_reporting': a.get('factual_reporting'),
+            'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
+            'bias': a.get('bias'),
+            'flags': flags,
+            'news_source': a.get('news_source'),
+            'title': a.get('title')
+        }
+
+    def _is_extraordinary(text: str) -> bool:
+        t = (text or '').lower()
+        return any(k in t for k in ['sovereign agi', 'artificial general intelligence', 'agi achieved', 'cryptographic proof of agi', 'self-declared agi'])
+
+    # Enrich incidents: add plausibility/source_quality/misinfo_flags, adjust significance
+    for inc in incidents or []:
+        name = inc.get('name') or ''
+        desc = inc.get('description') or ''
+        uris = []
+        if isinstance(inc.get('article_uris'), list):
+            uris.extend([u for u in inc['article_uris'] if u])
+        if isinstance(inc.get('articles'), list):
+            for a in inc['articles']:
+                if isinstance(a, dict) and a.get('uri'):
+                    uris.append(a['uri'])
+        # Aggregate credibility
+        # A story is as well sourced as its best source: one credible outlet
+        # carrying it is enough. Taking the worst source instead marked down
+        # every widely reported story once the window merge gave it dozens of
+        # articles (bugfixing, 13 Oct 2026: 47-article stories rated "mixed").
+        qualities = [uri_to_cred[u]['source_quality'] for u in uris if u in uri_to_cred]
+        derived_source_quality = 'high'
+        if qualities and 'high' not in qualities:
+            derived_source_quality = 'mixed' if 'mixed' in qualities else 'low'
+
+        # Merge flags; weak-source flags only matter when no credible source carries it
+        flags = set(inc.get('misinfo_flags') or [])
+        if derived_source_quality != 'high':
             for u in uris:
                 credinfo = uri_to_cred.get(u)
                 if credinfo:
                     for f in credinfo['flags']:
                         flags.add(f)
 
-            # Extraordinary claim heuristic
-            if _is_extraordinary(name) or _is_extraordinary(desc):
-                flags.add('extraordinary_claim')
-                if derived_source_quality != 'high':
-                    flags.add('no_independent_verification')
-
-            # Determine plausibility
-            explicit_plaus = (inc.get('plausibility') or '').lower()
-            if explicit_plaus in {'likely', 'questionable', 'implausible'}:
-                plausibility = explicit_plaus
-            else:
-                if 'extraordinary_claim' in flags and derived_source_quality != 'high':
-                    plausibility = 'implausible'
-                elif derived_source_quality == 'mixed':
-                    plausibility = 'questionable'
-                elif derived_source_quality == 'low':
-                    plausibility = 'implausible'
-                else:
-                    plausibility = 'likely'
-
-            # Adjust significance conservatively on low credibility
-            sig = (inc.get('significance') or '').lower()
-            if sig in {'high', 'medium', 'low'}:
-                if plausibility == 'implausible' or derived_source_quality == 'low':
-                    sig = 'low'
-                elif plausibility == 'questionable' or derived_source_quality == 'mixed':
-                    if sig == 'high':
-                        sig = 'medium'
-            else:
-                sig = 'low' if derived_source_quality != 'high' else 'medium'
-
-            # Credibility summary
-            summary_bits = []
+        # Extraordinary claim heuristic
+        if _is_extraordinary(name) or _is_extraordinary(desc):
+            flags.add('extraordinary_claim')
             if derived_source_quality != 'high':
-                summary_bits.append(f"source_quality={derived_source_quality}")
-            if 'extraordinary_claim' in flags:
-                summary_bits.append('extraordinary_claim')
-            if 'no_independent_verification' in flags:
-                summary_bits.append('no_independent_verification')
-            credibility_summary = inc.get('credibility_summary') or (
-                ('; '.join(summary_bits) or 'sources appear credible')
-            )
+                flags.add('no_independent_verification')
 
-            # Write back
-            inc['source_quality'] = derived_source_quality
-            inc['plausibility'] = plausibility
-            inc['misinfo_flags'] = sorted(list(flags))
-            inc['credibility_summary'] = credibility_summary
-            inc['significance'] = sig
-        
-        result = {
-            "incidents": incidents,
-            "total_articles": len(articles),
-            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
-            "analysis_timestamp": datetime.now().isoformat()
-        }
-        
-        # Cache the results
-        try:
-            import json as json_module
-            cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
-            cache_metadata = {
-                "cache_key": cache_key,
-                "topics": topics_list,
-                "topics_str": topics_str,
-                "start_date": req.start_date,
-                "end_date": req.end_date,
-                "days_limit": req.days_limit,
-                "analysis_type": "incident_tracking"
-            }
+        # Determine plausibility
+        explicit_plaus = (inc.get('plausibility') or '').lower()
+        if explicit_plaus in {'likely', 'questionable', 'implausible'}:
+            plausibility = explicit_plaus
+        else:
+            if 'extraordinary_claim' in flags and derived_source_quality != 'high':
+                plausibility = 'implausible'
+            elif derived_source_quality == 'mixed':
+                plausibility = 'questionable'
+            elif derived_source_quality == 'low':
+                plausibility = 'implausible'
+            else:
+                plausibility = 'likely'
 
-            success = db.save_article_analysis_cache(
-                article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{topics_str}",
-                content=cache_content,
-                model_used="incident_analysis",
-                metadata=cache_metadata
-            )
+        # Adjust significance conservatively on low credibility
+        sig = (inc.get('significance') or '').lower()
+        if sig in {'high', 'medium', 'low'}:
+            if plausibility == 'implausible' or derived_source_quality == 'low':
+                sig = 'low'
+            elif plausibility == 'questionable' or derived_source_quality == 'mixed':
+                if sig == 'high':
+                    sig = 'medium'
+        else:
+            sig = 'low' if derived_source_quality != 'high' else 'medium'
 
-            if success:
-                logger.info(f"Cache SAVE: incident tracking for {topics_str}")
-        except Exception as cache_error:
-            logger.warning(f"Failed to cache incident tracking: {cache_error}")
+        # Credibility summary
+        summary_bits = []
+        if derived_source_quality != 'high':
+            summary_bits.append(f"source_quality={derived_source_quality}")
+        if 'extraordinary_claim' in flags:
+            summary_bits.append('extraordinary_claim')
+        if 'no_independent_verification' in flags:
+            summary_bits.append('no_independent_verification')
+        credibility_summary = inc.get('credibility_summary') or (
+            ('; '.join(summary_bits) or 'sources appear credible')
+        )
 
-        # Get incident statuses and filter out deleted ones (use first topic for backward compatibility)
-        primary_topic = topics_list[0] if topics_list else None
-        incident_statuses = db.get_incident_status(primary_topic) if primary_topic else {}
-        
-        # Filter out deleted incidents and mark seen ones
-        filtered_incidents = []
-        for incident in incidents:
-            incident_name = incident.get('name', '')
-            status = incident_statuses.get(incident_name, 'active')
+        # Write back
+        inc['source_quality'] = derived_source_quality
+        inc['plausibility'] = plausibility
+        inc['misinfo_flags'] = sorted(list(flags))
+        inc['credibility_summary'] = credibility_summary
+        inc['significance'] = sig
 
-            if status != 'deleted':
-                incident['status'] = status
-                filtered_incidents.append(incident)
 
-        # Enrich incidents with article metadata for frontend display
-        # Build URI to article metadata lookup
-        article_metadata = {}
-        for a in articles:
-            if isinstance(a, dict):
-                article_metadata[a['uri']] = {
-                    'title': a.get('title', 'Untitled Article'),
-                    'news_source': a.get('news_source', 'Unknown Source'),
-                    'publication_date': a.get('publication_date'),
-                    'factual_reporting': a.get('factual_reporting'),
-                    'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
-                    'bias': a.get('bias'),
-                    'topic': a.get('topic')  # Include topic for badge display
-                }
 
-        # Add article metadata and topic to each incident
-        for incident in filtered_incidents:
-            if incident.get('article_uris'):
-                incident['article_metadata'] = []
-                # Track topics for this incident to display badge
-                incident_topics = set()
+@router.post("/incident-tracking")
+async def analyze_incidents(
+    req: _IncidentTrackingRequest,
+    session=Depends(verify_session_optional),
+):
+    """Track specific incidents, entities, and events for threat hunting."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
 
-                for uri in incident['article_uris']:
-                    if uri in article_metadata:
-                        metadata = article_metadata[uri]
-                        incident['article_metadata'].append({
-                            'uri': uri,
-                            **metadata
-                        })
-                        # Collect topic from article
-                        if metadata.get('topic'):
-                            incident_topics.add(metadata['topic'])
-                    else:
-                        # Article not in current dataset, just keep URI
-                        incident['article_metadata'].append({'uri': uri})
+        # Get topics list (backward compatible)
+        topics_list = req.get_topics_list()
 
-                # Set the primary topic for this incident (first topic found, or primary topic)
-                if incident_topics:
-                    incident['topic'] = sorted(incident_topics)[0]  # Use first topic alphabetically for consistency
-                elif len(topics_list) == 1:
-                    incident['topic'] = topics_list[0]  # Single topic selected
+        # Build cache key from sorted topics for consistent caching
+        topics_str = ','.join(sorted(topics_list)) if topics_list else 'all_topics'
 
-        result = {
-            "incidents": filtered_incidents,
-            "total_articles": len(articles),
-            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
-            "analysis_timestamp": datetime.now().isoformat()
-        }
-        
-        # Cache the results
-        try:
-            import json as json_module
-            cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
-            cache_metadata = {
-                "cache_key": cache_key,
-                "topics": topics_list,
-                "topics_str": topics_str,
-                "start_date": req.start_date,
-                "end_date": req.end_date,
-                "days_limit": req.days_limit,
-                "analysis_type": "incident_tracking"
-            }
+        # cache_only = the page-load path. Opening the Highlights view must never
+        # block on LLM generation; the anchored cache key moves with every newly
+        # collected article, so a plain load used to regenerate almost every time.
+        # Serve the newest stored analysis for this topic set, or an empty result
+        # the UI reads as "press Generate". No article query, no model call.
+        # An analysis older than the window is never served: wileytest showed a
+        # 1 July analysis (every incident dated 30 June) on 13 Oct, and one of
+        # its incidents went into that day's briefing.
+        if req.cache_only:
+            from sqlalchemy import text as _sql_text
+            row = db.facade._fetchone_with_rollback(_sql_text("""
+                SELECT content FROM article_analysis_cache
+                WHERE analysis_type = :at AND model_used = 'incident_analysis'
+                  AND generated_at >= NOW() - make_interval(days => :days)
+                ORDER BY (article_uri = :anchor) DESC, generated_at DESC LIMIT 1
+            """), {"at": f"incident_tracking_{topics_str}", "days": req.days_limit,
+                   "anchor": f"window|{req.days_limit}"},
+                operation_name="incident tracking cache_only lookup")
+            if row and row[0]:
+                logger.info(f"Cache-only: serving latest stored incident tracking for {topics_str}")
+                import json
+                cached = json.loads(row[0])
+                # Stored rows predate the partial-date rule; apply it on the way out.
+                for _inc in (cached.get("incidents") or []) if isinstance(cached, dict) else []:
+                    date_incident_timeline(_inc)
+                return cached
+            return {"incidents": [], "message": "No cached highlights yet. Use Generate to build them."}
 
-            success = db.save_article_analysis_cache(
-                article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{topics_str}",
-                content=cache_content,
-                model_used="incident_analysis",
-                metadata=cache_metadata
-            )
+        from datetime import datetime, timedelta
 
-            if success:
-                logger.info(f"Cache SAVE: incident tracking for {topics_str}")
-        except Exception as cache_error:
-            logger.warning(f"Failed to cache incident tracking: {cache_error}")
-        
-        return result
-        
+        if req.start_date and req.end_date:
+            start_d = datetime.strptime(req.start_date, '%Y-%m-%d').date()
+            end_d = datetime.strptime(req.end_date, '%Y-%m-%d').date()
+        else:
+            end_d = datetime.now().date()
+            start_d = end_d - timedelta(days=req.days_limit)
+
+        # Generate reads the whole window (app/services/incident_days.py). The
+        # page asks for background=true and polls the job; other callers (the
+        # daily briefing compose) wait for the result.
+        if req.background:
+            from app.services import incident_days
+            job_id = incident_days.start_job(
+                lambda progress: _incident_tracking_window(
+                    req, db, topics_list, topics_str, start_d, end_d, progress))
+            return {"job_id": job_id, "status": "running"}
+        return await _incident_tracking_window(req, db, topics_list, topics_str, start_d, end_d)
+
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Error in incident tracking: %s", exc, exc_info=True)
-        # Propagate user-friendly error messages from AI models
         error_detail = str(exc)
         if "⚠️" in error_detail:
-            # User-friendly error from ai_models.py
             raise HTTPException(status_code=500, detail=error_detail)
-        else:
-            # Generic error
-            raise HTTPException(status_code=500, detail=f"Incident tracking error: {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Incident tracking error: {error_detail}")
+
+
+@router.get("/incident-tracking/jobs/{job_id}")
+async def incident_tracking_job(job_id: str, session=Depends(verify_session_optional)):
+    """Progress, then the result, of a Generate started with background=true."""
+    from app.services import incident_days
+    job = incident_days.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Unknown or expired job")
+    return job
+
+
+WRITE_UP_CHUNK = 10
+WRITE_UP_ARTICLES = 6
+
+
+async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
+    """The full write-up for the incidents that survived the merge: description,
+    leads, credibility and organisational relevance, from their own articles and
+    the page's prompt settings. An incident whose write-up fails keeps its short
+    record from the daily reading. Returns (incidents, number written up)."""
+    import asyncio
+    from sqlalchemy import text as _t
+    if not incidents:
+        return incidents, 0
+    picked = {i: [u for u in (inc.get('article_uris') or []) if isinstance(u, str)][:WRITE_UP_ARTICLES]
+              for i, inc in enumerate(incidents)}
+    uris = sorted({u for us in picked.values() for u in us})
+
+    def _rows():
+        conn = db._temp_get_connection()
+        try:
+            return {r["uri"]: dict(r) for r in conn.execute(_t("""
+                SELECT uri, title, summary, news_source, publication_date, category, sentiment, topic,
+                       bias, factual_reporting, mbfc_credibility_rating, bias_source
+                FROM articles WHERE uri = ANY(:u)"""), {"u": uris}).mappings()}
+        finally:
+            conn.close()
+
+    rows = await asyncio.to_thread(_rows)
+    system_prompt = await asyncio.to_thread(_incident_system_prompt, req, db)
+    sem = asyncio.Semaphore(4)
+    written = {}
+
+    async def chunk(ids: List[int]):
+        parts = []
+        for i in ids:
+            inc = incidents[i]
+            arts = [rows[u] for u in picked[i] if u in rows]
+            parts.append(
+                f"### Development {i + 1}: {inc.get('name')}\n"
+                f"Draft type: {inc.get('type')}/{inc.get('subtype')} | draft significance: "
+                f"{inc.get('significance')} | event date: {inc.get('event_date') or 'not stated'}\n"
+                f"Draft note: {inc.get('description') or ''}\n"
+                f"Source articles:\n{_format_incident_articles(arts)}")
+        user_prompt = (
+            f"Below are {len(ids)} developments already identified in the collected articles, each "
+            "with its source articles. Write one full item per development, in the same order, "
+            "using only that development's own articles. Give every item an \"id\" field with the "
+            "development's number.\n\n" + "\n\n".join(parts))
+        async with sem:
+            try:
+                out = await _call_incident_model(req, system_prompt, user_prompt)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"incident write-up failed for {len(ids)} incidents: {e}")
+                return
+        for item in out:
+            if not isinstance(item, dict):
+                continue
+            try:
+                n = int(item.get("id")) - 1
+            except (TypeError, ValueError):
+                continue
+            if n in ids and n not in written:
+                written[n] = item
+
+    order = list(range(len(incidents)))
+    await asyncio.gather(*(chunk(order[k:k + WRITE_UP_CHUNK])
+                           for k in range(0, len(order), WRITE_UP_CHUNK)))
+
+    out = []
+    for i, base in enumerate(incidents):
+        item = written.get(i)
+        if item is None:
+            # Short record only: give it the timeline shape the cards expect.
+            base = dict(base)
+            base["timeline"] = {"event_date": base.get("event_date"), "published": base.get("published")}
+            out.append(base)
+            continue
+        item.pop("id", None)
+        merged = {**base, **item}
+        # The merge decided which articles carry the story; keep all of them.
+        merged["article_uris"] = base.get("article_uris") or item.get("article_uris") or []
+        if not isinstance(merged.get("timeline"), dict):
+            merged["timeline"] = {"event_date": item.get("event_date") or base.get("event_date"),
+                                  "published": base.get("published")}
+        out.append(merged)
+    await asyncio.to_thread(_postprocess_incidents, out, list(rows.values()), db)
+    for inc in out:
+        # An event date after the newest cited article is a plan, not an event
+        # ("for 2027 deployment" came back as 2027-01-01). Keep it as a period.
+        pubs = [str(rows[u].get("publication_date") or "")[:10]
+                for u in (inc.get("article_uris") or []) if u in rows]
+        newest = max(pubs + [str(inc.get("published") or "")[:10]])
+        ev = inc.get("event_date")
+        if isinstance(ev, str) and newest and ev[:10] > newest:
+            inc["event_period"] = ev
+            inc["event_date"] = None
+        date_incident_timeline(inc)
+    return out, len(written)
+
+
+async def _incident_tracking_window(req, db, topics_list, topics_str, start_d, end_d, progress=None) -> Dict:
+    """Read every article in the window (one topic-day slice at a time, reusing
+    slices already read), merge and rank across the window, save the result for
+    page loads, and return it."""
+    import asyncio
+    from sqlalchemy import text as _t
+    from app.services import incident_days
+
+    def _all_topics():
+        conn = db._temp_get_connection()
+        try:
+            return [r[0] for r in conn.execute(_t(
+                "SELECT DISTINCT topic FROM articles WHERE publication_date >= :s AND topic IS NOT NULL"),
+                {"s": start_d.isoformat()}).fetchall()]
+        finally:
+            conn.close()
+
+    topics = topics_list or await asyncio.to_thread(_all_topics)
+    window = await incident_days.read_window(req, db, topics, start_d, end_d, progress)
+    stats = window["stats"]
+    period = f"{start_d.isoformat()} to {end_d.isoformat()}"
+    if stats["articles_total"] == 0:
+        topics_display = ', '.join(topics_list) if topics_list else 'all topics'
+        return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {period}"}
+
+    incidents, merge_method = await incident_days.merge_and_rank(
+        window["candidates"], topics, start_d, end_d, req.model, req.max_incidents)
+    if progress:
+        progress({**stats, "phase": "writing", "incidents": len(incidents)})
+    incidents, written = await _write_up_incidents(req, incidents, db)
+
+    # Statuses (seen / deleted) are keyed by incident name under the first topic.
+    primary_topic = topics_list[0] if topics_list else None
+    incident_statuses = db.get_incident_status(primary_topic) if primary_topic else {}
+    kept = []
+    for inc in incidents:
+        status = incident_statuses.get(inc.get('name', ''), 'active')
+        if status != 'deleted':
+            inc['status'] = status
+            kept.append(inc)
+
+    # Article cards: title, source and credibility for every cited URI.
+    cited = sorted({u for inc in kept for u in (inc.get('article_uris') or []) if isinstance(u, str)})
+
+    def _meta():
+        if not cited:
+            return {}
+        conn = db._temp_get_connection()
+        try:
+            out = {}
+            for r in conn.execute(_t("""
+                SELECT uri, title, news_source, publication_date, factual_reporting,
+                       mbfc_credibility_rating, bias, topic
+                FROM articles WHERE uri = ANY(:u)"""), {"u": cited}).mappings():
+                out[r["uri"]] = {k: r[k] for k in ("title", "news_source", "publication_date",
+                                                   "factual_reporting", "mbfc_credibility_rating",
+                                                   "bias", "topic")}
+            return out
+        finally:
+            conn.close()
+
+    meta = await asyncio.to_thread(_meta)
+    for inc in kept:
+        uris = [u for u in (inc.get('article_uris') or []) if isinstance(u, str)]
+        inc['article_metadata'] = [{'uri': u, **meta[u]} if u in meta else {'uri': u} for u in uris]
+        found = sorted({meta[u]['topic'] for u in uris if u in meta and meta[u].get('topic')})
+        if found:
+            inc['topic'] = found[0]
+        elif len(topics_list) == 1:
+            inc['topic'] = topics_list[0]
+
+    result = {
+        "incidents": kept,
+        "total_articles": stats["articles_total"],
+        "analysis_period": period,
+        "analysis_timestamp": datetime.now().isoformat(),
+        "coverage": {
+            "articles_read": stats["articles_total"],
+            "slices": stats["slices_total"],
+            "slices_reused": stats["slices_reused"],
+            "slices_incomplete": stats.get("slices_incomplete", 0),
+            "batches_run": stats["batches_total"],
+            "batches_failed": stats["batches_failed"],
+            "candidates": stats.get("candidates", 0),
+            "merge": merge_method,
+            "written_up": written,
+        },
+    }
+
+    try:
+        await asyncio.to_thread(
+            db.save_article_analysis_cache,
+            article_uri=f"window|{req.days_limit}",
+            analysis_type=f"incident_tracking_{topics_str}",
+            content=json.dumps(result, ensure_ascii=False, default=str),
+            model_used="incident_analysis",
+            metadata={"topics": topics_list, "topics_str": topics_str, "start_date": start_d.isoformat(),
+                      "end_date": end_d.isoformat(), "days_limit": req.days_limit,
+                      "analysis_type": "incident_tracking"})
+        logger.info(f"Cache SAVE: incident tracking for {topics_str} ({period}, "
+                    f"{stats['articles_total']} articles, {stats['batches_total']} batches run)")
+    except Exception as cache_error:
+        logger.warning(f"Failed to cache incident tracking: {cache_error}")
+    return result
+
 
 @router.post("/incident-status/{incident_name}")
 async def update_incident_status(

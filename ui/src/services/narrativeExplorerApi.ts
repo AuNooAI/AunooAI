@@ -92,15 +92,38 @@ export interface Incident {
   _saved_at?: string;    // Timestamp when incident was saved
 }
 
+export interface IncidentTrackingCoverage {
+  articles_read: number;
+  slices: number;
+  slices_reused: number;
+  slices_incomplete: number;
+  batches_run: number;
+  batches_failed: number;
+  candidates: number;
+  merge: string;
+  written_up: number;
+}
+
 export interface IncidentTrackingResponse {
   incidents: Incident[];
-  total_articles_analyzed: number;
-  topics: string[];
-  date_range: {
-    start: string;
-    end: string;
-  };
-  generated_at: string;
+  total_articles?: number;
+  analysis_period?: string;
+  analysis_timestamp?: string;
+  coverage?: IncidentTrackingCoverage;
+  message?: string;
+}
+
+/** Progress of a Generate running as a background job. */
+export interface IncidentTrackingProgress {
+  phase: 'starting' | 'reading' | 'merging' | 'writing';
+  batches_total?: number;
+  batches_done?: number;
+  batches_failed?: number;
+  articles_total?: number;
+  slices_total?: number;
+  slices_reused?: number;
+  candidates?: number;
+  incidents?: number;
 }
 
 export interface IncidentTrackingParams {
@@ -112,6 +135,9 @@ export interface IncidentTrackingParams {
   model?: string;
   forceRegenerate?: boolean;
   cacheOnly?: boolean; // read cache only, never trigger LLM generation (page-load path)
+  // Generate reads every article in the window, which can take minutes the first
+  // time: run it as a server job and report progress while polling.
+  onProgress?: (p: IncidentTrackingProgress) => void;
   profileId?: number;
   // Custom configuration (optional)
   systemPrompt?: string;
@@ -225,6 +251,7 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
       model: params.model || 'bedrock-kimi-k2-5',
       force_regenerate: params.forceRegenerate || false,
       cache_only: params.cacheOnly || false,
+      background: !params.cacheOnly,
       profile_id: params.profileId,
       // Custom configuration (if provided)
       system_prompt: params.systemPrompt,
@@ -240,7 +267,23 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
     throw new Error(extractErrorMessage(errorData, `Failed to fetch incident tracking: ${response.status}`));
   }
 
-  return response.json();
+  const started = await response.json();
+  if (!started.job_id) {
+    return started;
+  }
+  // Poll the job until it finishes.
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const res = await fetch(`/api/incident-tracking/jobs/${started.job_id}`, { credentials: 'include' });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(extractErrorMessage(errorData, `Incident tracking job failed: ${res.status}`));
+    }
+    const job = await res.json();
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') throw new Error(job.error || 'Incident tracking failed');
+    if (job.progress) params.onProgress?.(job.progress);
+  }
 }
 
 /**

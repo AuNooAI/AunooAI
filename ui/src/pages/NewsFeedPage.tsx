@@ -180,6 +180,7 @@ export function NewsFeedPage() {
     config: narrativeConfig,
     incidentResponse,
     loadingHighlights,
+    highlightsProgress,
     loadingNarratives,
     loadingInitial: loadingNarrativeInitial,
     highlightsError,
@@ -1135,6 +1136,9 @@ export function NewsFeedPage() {
                       <HighlightsSection
                         incidents={filteredIncidents}
                         loading={loadingHighlights}
+                        progress={highlightsProgress}
+                        coverage={incidentResponse?.coverage}
+                        period={incidentResponse?.analysis_period}
                         onIncidentUpdate={handleIncidentUpdate}
                         onArticleClick={handleArticleClick}
                         onOpenConfig={() => setIsConfigOpen(true)}

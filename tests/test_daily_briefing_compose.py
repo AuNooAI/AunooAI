@@ -150,7 +150,7 @@ def install_stubs(monkeypatch, *, emerging=None, incidents=None, curate=None,
                         lambda db, days: {"article_uris": set(), "incidents": set(), "emerging": set()})
     monkeypatch.setattr(svc, "_timeline_background", lambda db, topics: "")
 
-    async def fake_detect(topics, days_back, model, profile_id=None):
+    async def fake_detect(topics, days_back, model, profile_id=None, progress=None):
         return list(incidents or [])
     monkeypatch.setattr(svc, "_detect_incidents", fake_detect)
 
@@ -687,7 +687,7 @@ class TestModelAndBackground:
             seen["model"] = model
             return {"articles": [], "incidents": [], "emerging_topics": []}
 
-        async def fake_detect(topics, days_back, model, profile_id=None):
+        async def fake_detect(topics, days_back, model, profile_id=None, progress=None):
             seen["detect_model"] = model
             return []
 

@@ -15,6 +15,7 @@ import {
   type Incident,
   type ArticleTheme,
   type IncidentTrackingResponse,
+  type IncidentTrackingProgress,
 } from '../services/narrativeExplorerApi';
 
 export type DateRange = '24h' | '7d' | '14d' | '30d' | '3m';
@@ -58,6 +59,7 @@ export interface UseNarrativeExplorerReturn {
 
   // State
   loadingHighlights: boolean;
+  highlightsProgress: IncidentTrackingProgress | null; // Generate's progress while it reads the window
   loadingNarratives: boolean;
   loadingInitial: boolean;
   highlightsError: string | null;
@@ -152,6 +154,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
   // Loading states
   const [loadingHighlights, setLoadingHighlights] = useState(false);
+  const [highlightsProgress, setHighlightsProgress] = useState<IncidentTrackingProgress | null>(null);
   const [loadingNarratives, setLoadingNarratives] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
 
@@ -440,6 +443,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
         daysLimit: getDaysFromRange(config.dateRange),
         model: config.model,
         forceRegenerate,
+        onProgress: setHighlightsProgress,
         profileId: config.profileId,
         // Pass custom configuration if saved
         systemPrompt: incidentConfig?.system_prompt,
@@ -475,6 +479,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     } finally {
       console.log('[useNarrativeExplorer] generateHighlights finished');
       setLoadingHighlights(false);
+      setHighlightsProgress(null);
     }
   }, [config, topics]);
 
@@ -574,6 +579,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     config,
     incidentResponse,
     loadingHighlights,
+    highlightsProgress,
     loadingNarratives,
     loadingInitial,
     highlightsError,

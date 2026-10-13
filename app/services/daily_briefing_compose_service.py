@@ -29,6 +29,7 @@ route), terminating with a ``complete`` event. ``compose_daily_briefing`` is a
 non-streaming wrapper that drains it and returns the final payload.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -218,25 +219,51 @@ def _gather_candidate_articles(
 
 
 async def _detect_incidents(topics: List[str], days_back: int, model: str,
-                            profile_id: Optional[int] = None) -> List[Dict[str, Any]]:
+                            profile_id: Optional[int] = None,
+                            progress: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Run the incident-tracking detection for the chosen topics (best-effort).
 
-    Passes profile_id so incidents are assessed against the org's priorities.
+    It reads every article in the window, so a site's first run can take many
+    minutes. It runs as a job; `progress`, when given, is kept up to date with
+    the job's progress so the stream can report it. Passes profile_id so
+    incidents are assessed against the org's priorities.
     """
     try:
         from app.routes.vector_routes import analyze_incidents, _IncidentTrackingRequest
+        from app.services import incident_days
         req = _IncidentTrackingRequest(
             topics=topics[:25],
             days_limit=max(days_back, 14),
-            max_articles=120,
             model=model,
             profile_id=profile_id,
+            background=True,
         )
-        result = await analyze_incidents(req, session=None)
-        return result.get("incidents", []) or []
+        job_id = (await analyze_incidents(req, session=None)).get("job_id")
+        while job_id:
+            job = incident_days.get_job(job_id)
+            if not job:
+                break
+            if progress is not None:
+                progress.update(job.get("progress") or {})
+            if job["status"] == "done":
+                return (job.get("result") or {}).get("incidents", []) or []
+            if job["status"] == "error":
+                logger.error(f"[compose] incident detection failed: {job.get('error')}")
+                break
+            await asyncio.sleep(2)
+        return []
     except Exception as e:
         logger.error(f"[compose] incident detection failed: {e}", exc_info=True)
         return []
+
+
+def _incident_progress_message(p: Dict[str, Any]) -> str:
+    if p.get("phase") == "reading" and p.get("batches_total"):
+        return (f"Detecting incidents: read {p.get('batches_done', 0)} of {p['batches_total']} batches "
+                f"({p.get('articles_total', 0)} articles in the window)")
+    if p.get("phase") in ("merging", "writing"):
+        return "Detecting incidents: merging the window and writing up the top items…"
+    return "Detecting incidents…"
 
 
 def _fewshot_examples(db, k: int = FEWSHOT_BRIEFINGS) -> Dict[str, List[str]]:
@@ -1137,7 +1164,18 @@ async def compose_daily_briefing_stream(
 
         # 4. Detect incidents --------------------------------------------
         yield _evt("incidents", "started", "Detecting incidents…", progress=0.6)
-        cand_incidents = await _detect_incidents(topics, days_back, detect_model, profile_id=profile_id)
+        # Report progress every 10 s; it also keeps the stream open through
+        # nginx's 600 s read timeout while a first run reads the window.
+        detect_progress: Dict[str, Any] = {}
+        detect_task = asyncio.ensure_future(
+            _detect_incidents(topics, days_back, detect_model, profile_id=profile_id,
+                              progress=detect_progress))
+        while True:
+            done, _ = await asyncio.wait({detect_task}, timeout=10)
+            if done:
+                break
+            yield _evt("incidents", "started", _incident_progress_message(detect_progress), progress=0.6)
+        cand_incidents = detect_task.result()
         found_i = len(cand_incidents)
         before = len(cand_incidents)
         cand_incidents = [i for i in cand_incidents if not _shared_incident(i, shared)]

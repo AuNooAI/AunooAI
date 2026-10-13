@@ -57,6 +57,8 @@ import {
   recordIncidentPreference,
   clearIncidentPreference,
   getIncidentPreferences,
+  type IncidentTrackingProgress,
+  type IncidentTrackingCoverage,
 } from '../../services/narrativeExplorerApi';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
@@ -72,6 +74,9 @@ import { AddToBriefingModal } from './AddToBriefingModal';
 interface HighlightsSectionProps {
   incidents: Incident[];
   loading?: boolean;
+  progress?: IncidentTrackingProgress | null;
+  coverage?: IncidentTrackingCoverage;
+  period?: string;
   onIncidentUpdate?: () => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   onOpenConfig?: () => void;
@@ -82,7 +87,21 @@ interface HighlightsSectionProps {
   onUnsaveIncident?: (incidentName: string) => void;
 }
 
-export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig, model, currentTopic, savedIncidentNames = [], onSaveIncident, onUnsaveIncident }: HighlightsSectionProps) {
+/** What Generate is doing right now, in words. */
+function progressText(p?: IncidentTrackingProgress | null): string {
+  if (!p) return 'Starting…';
+  if (p.phase === 'reading') {
+    const articles = (p.articles_total ?? 0).toLocaleString();
+    if (!p.batches_total) return `All ${articles} articles in the window were read before; merging…`;
+    return `Reading articles: batch ${p.batches_done ?? 0} of ${p.batches_total} ` +
+      `(${articles} articles in the window, ${p.slices_reused ?? 0} of ${p.slices_total ?? 0} topic-days already read)`;
+  }
+  if (p.phase === 'merging') return `Merging ${(p.candidates ?? 0).toLocaleString()} findings across the window…`;
+  if (p.phase === 'writing') return `Writing up the top ${p.incidents ?? ''} incidents…`;
+  return 'Starting…';
+}
+
+export function HighlightsSection({ incidents, loading, progress, coverage, period, onIncidentUpdate, onArticleClick, onOpenConfig, model, currentTopic, savedIncidentNames = [], onSaveIncident, onUnsaveIncident }: HighlightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
@@ -406,13 +425,25 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
         )}
       </div>
 
+      {!loading && coverage && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          Top {incidents.length} of {coverage.candidates.toLocaleString()} findings from all{' '}
+          {coverage.articles_read.toLocaleString()} articles{period ? `, ${period}` : ''}
+          {coverage.slices_incomplete > 0 &&
+            ` · ${coverage.slices_incomplete} topic-day(s) could not be read fully and will be retried`}
+        </p>
+      )}
+
       {/* Loading State */}
       {loading ? (
+        <>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{progressText(progress)}</p>
         <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="flex-shrink-0 w-[220px] h-[100px] rounded-lg" />
           ))}
         </div>
+        </>
       ) : (
         <>
           {/* Compact Incidents - horizontal scroll with arrows */}
