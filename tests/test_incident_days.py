@@ -152,3 +152,61 @@ def test_each_topic_gets_its_places(monkeypatch):
     assert [o["topic"] for o in out[:4]] == ["Big"] * 4      # the open places go to significance
     assert [o["name"] for o in out[4:]] == ["small0", "small1"]
     assert all(o.get("topic_place") for o in out[4:])
+
+
+def _model_answering(monkeypatch, answer):
+    class Model:
+        async def agenerate_response(self, messages, **kw):
+            return answer(messages[-1]["content"])
+
+    class Factory:
+        @staticmethod
+        def get_instance(name):
+            return Model()
+    import app.ai_models as ai
+    monkeypatch.setattr(ai, "LiteLLMModel", Factory)
+    monkeypatch.setattr(ai, "extract_content", lambda r: r)
+
+
+def test_merge_keeps_apart_a_group_that_would_pass_the_cap_across_rounds(monkeypatch):
+    # Two groups from an earlier round, 15 findings each: one more merge would
+    # make a 30-finding card, so they stay two cards, in the group's place.
+    _model_answering(monkeypatch, lambda p: json.dumps([{"event": "campaign", "ids": [0, 1]}, {"ids": [2]}]))
+    items = [{"name": "a", "significance": "high", "merged_from": 15, "article_uris": ["a"]},
+             {"name": "b", "significance": "high", "merged_from": 15, "article_uris": ["b"]},
+             {"name": "c", "significance": "low", "article_uris": ["c"]}]
+    out, used_llm = asyncio.run(svc._merge_chunk(items, 5, ["T"], date(2026, 10, 1), date(2026, 10, 2), "m"))
+    assert used_llm
+    assert [o["name"] for o in out] == ["a", "b", "c"]
+    assert all("merge_event" not in o for o in out[:2])
+
+
+def test_topic_places_skip_a_repeat_of_a_chosen_card(monkeypatch):
+    def answer(prompt):
+        if "OFFERED cards" in prompt:
+            return json.dumps({"repeats": [0]})      # small0 repeats a chosen card
+        return json.dumps([{"ids": [i]} for i in range(30)])
+    _model_answering(monkeypatch, answer)
+    big = [{"name": f"big{i}", "topic": "Big", "significance": "high", "article_uris": [f"b{i}"]}
+           for i in range(4)]
+    small = [{"name": f"small{i}", "topic": "Small", "significance": "low", "article_uris": [f"s{i}"]}
+             for i in range(5)]
+    out, _ = asyncio.run(svc.merge_and_rank(big + small, ["Big", "Small"], date(2026, 10, 1),
+                                            date(2026, 10, 2), "m", limit=4, per_topic=2))
+    assert [o["name"] for o in out if o.get("topic_place")] == ["small1", "small2"]
+
+
+def test_fold_repeats_moves_a_later_cards_articles_into_the_earlier_card(monkeypatch):
+    _model_answering(monkeypatch, lambda p: json.dumps({"repeats": [[2, 0]]}))
+    cards = [{"name": "US sites disclosure", "significance": "high", "article_uris": ["a", "b"]},
+             {"name": "Other event", "significance": "high", "article_uris": ["c"]},
+             {"name": "Images and US sites", "significance": "high", "article_uris": ["d", "e", "f"]}]
+    out = asyncio.run(svc._fold_repeats(cards, "m"))
+    assert [o["name"] for o in out] == ["US sites disclosure", "Other event"]
+    assert out[0]["article_uris"] == ["a", "b", "d", "e", "f"]
+
+
+def test_fold_repeats_keeps_cards_when_the_call_fails(monkeypatch):
+    _model_answering(monkeypatch, lambda p: "not json")
+    cards = [{"name": "x", "article_uris": ["a"]}, {"name": "y", "article_uris": ["b"]}]
+    assert asyncio.run(svc._fold_repeats(cards, "m")) == cards

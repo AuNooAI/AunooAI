@@ -517,6 +517,20 @@ async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: d
                 logger.warning(f"incident merge: ignored a {len(ids)}-finding group as implausible")
                 continue
             used.update(ids)
+            # The cap counts findings from earlier rounds too: groups of groups
+            # grew to 47 findings (one Houthi "campaign", wileytest 14 Oct 2026)
+            # under a 25 cap that only saw each call's ids. Such a group's
+            # members stay apart, in the place the model ranked the group.
+            if len(ids) > 1 and sum(int(items[i].get("merged_from") or 1) for i in ids) > MERGE_MAX_GROUP:
+                logger.info(f"incident merge: kept apart a group of {len(ids)} that would hold "
+                            f"{sum(int(items[i].get('merged_from') or 1) for i in ids)} findings")
+                for i in sorted(ids, key=lambda i: _rank_key(items[i])):
+                    out.append(items[i])
+                    if len(out) >= keep:
+                        break
+                if len(out) >= keep:
+                    break
+                continue
             merged = _combine([items[i] for i in ids])
             event = g.get("event") if isinstance(g, dict) else None
             if len(ids) > 1 and isinstance(event, str) and event.strip():
@@ -604,17 +618,130 @@ async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date,
         final, ok, n = await _merge_rounds(pooled, limit, topics, start, end, model_name, sem)
         llm_ok, rounds = llm_ok and ok, rounds + n
 
+    async with sem:
+        final = await _fold_repeats(final, model_name)
+
     if per_topic > 0:
+        # Candidates for each topic's places: twice what it needs, so the ones
+        # that repeat a chosen card can be dropped and the places still filled.
+        offers = []
         for t in sorted(ranked):
-            have = sum(1 for f in final if str(f.get("topic") or "") == t)
-            for item in ranked[t]:
-                if have >= per_topic:
-                    break
-                if any(_same_story(item, f) for f in final):
-                    continue
-                final.append({**item, "topic_place": True})
-                have += 1
+            need = per_topic - sum(1 for f in final if str(f.get("topic") or "") == t)
+            if need <= 0:
+                continue
+            fresh = [i for i in ranked[t] if not any(_same_story(i, f) for f in final)]
+            offers += [(t, need, i) for i in fresh[:2 * need]]
+        async with sem:
+            repeats = await _repeats(final, [i for _, _, i in offers], model_name)
+        taken: Dict[str, int] = {}
+        for k, (t, need, item) in enumerate(offers):
+            if k in repeats or taken.get(t, 0) >= need:
+                continue
+            final.append({**item, "topic_place": True})
+            taken[t] = taken.get(t, 0) + 1
     return final, ("llm" if llm_ok else "ranked") + f", {rounds} rounds"
+
+
+def _brief(inc: Dict) -> str:
+    name = re.sub(r"\s+", " ", str(inc.get("merge_event") or inc.get("name") or ""))[:160]
+    what = re.sub(r"\s+", " ", str(inc.get("description") or ""))[:160]
+    return f"{inc.get('slice_day') or ''}|{name}" + (f" — {what}" if what else "")
+
+
+async def _fold_repeats(cards: List[Dict], model_name: str) -> List[Dict]:
+    """Fold a card into an earlier one when both report the same event.
+
+    The merge splits a running story differently from run to run; wileytest's
+    open places once held OpenAI's US-sites disclosure twice under two
+    headlines. The later card's articles join the earlier card, which keeps
+    its place. On failure the cards are returned unchanged."""
+    if len(cards) < 2:
+        return cards
+    prompt = (
+        "\n".join(f"{i}|{_brief(c)}" for i, c in enumerate(cards)) +
+        "\n\nThese are news cards, most important first. List each card that reports the same specific "
+        "event as an EARLIER card (the same actors and the same development), with that earlier card. "
+        "A different event about the same company or country is not a repeat.\n"
+        "Answer with JSON only: {\"repeats\": [[later, earlier], ...]}")
+    try:
+        from app.ai_models import LiteLLMModel, extract_content
+        model = LiteLLMModel.get_instance(model_name)
+        response = await model.agenerate_response(
+            [{"role": "system", "content": "You answer with a JSON object only. No commentary, no markdown."},
+             {"role": "user", "content": prompt}], max_tokens=4000, temperature=0.0)
+        raw = extract_content(response).strip()
+        start = raw.rfind('{"repeats"')
+        data, _ = json.JSONDecoder().raw_decode(raw[start if start >= 0 else raw.find("{"):])
+        pairs = data.get("repeats") if isinstance(data, dict) else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"incident repeat fold failed, cards kept as they are: {e}")
+        return cards
+    into: Dict[int, int] = {}
+    for pr in pairs or []:
+        if (isinstance(pr, list) and len(pr) == 2 and all(isinstance(x, int) for x in pr)
+                and 0 <= pr[1] < pr[0] < len(cards) and pr[0] not in into):
+            target = pr[1]
+            while target in into:                   # an earlier card that itself folds
+                target = into[target]
+            into[pr[0]] = target
+    if not into:
+        return cards
+    groups: Dict[int, List[Dict]] = {}
+    for later, earlier in into.items():
+        groups.setdefault(earlier, [cards[earlier]]).append(cards[later])
+    out = []
+    for i, c in enumerate(cards):
+        if i in into:
+            continue
+        if i in groups:
+            folded = _combine(groups[i])
+            # The earlier card keeps its own fields and place; it gains the
+            # later cards' articles, days and finding count.
+            out.append({**c, "article_uris": list(dict.fromkeys(
+                            (c.get("article_uris") or []) + (folded.get("article_uris") or []))),
+                        "published": folded.get("published"), "days_seen": folded.get("days_seen"),
+                        "merged_from": folded.get("merged_from")})
+        else:
+            out.append(c)
+    logger.info(f"incident repeat fold: {len(into)} of {len(cards)} cards folded into earlier ones")
+    return out
+
+
+async def _repeats(chosen: List[Dict], offered: List[Dict], model_name: str) -> set:
+    """Which offered topic places report an event a chosen card already covers.
+
+    Two topics can each file the same story from different outlets, so the
+    cards share no article and the URI check passes them both (wileytest,
+    14 Oct 2026: OpenAI's 17 Sep disclosure on three cards). One short call
+    compares them; on failure nothing is dropped beyond the URI check."""
+    if not chosen or not offered:
+        return set()
+    prompt = (
+        "CHOSEN cards:\n" + "\n".join(f"C{i}|{_brief(c)}" for i, c in enumerate(chosen)) +
+        "\n\nOFFERED cards:\n" + "\n".join(f"{i}|{_brief(c)}" for i, c in enumerate(offered)) +
+        "\n\nList the OFFERED cards that report the same specific event as a CHOSEN card (the same "
+        "actors and the same development), or the same event as an earlier OFFERED card. A different "
+        "event about the same company or country is not a repeat.\n"
+        "Answer with JSON only: {\"repeats\": [3, 7]}")
+    try:
+        from app.ai_models import LiteLLMModel, extract_content
+        model = LiteLLMModel.get_instance(model_name)
+        response = await model.agenerate_response(
+            [{"role": "system", "content": "You answer with a JSON object only. No commentary, no markdown."},
+             {"role": "user", "content": prompt}], max_tokens=4000, temperature=0.0)
+        raw = extract_content(response).strip()
+        start = raw.rfind('{"repeats"')
+        if start < 0:
+            start = raw.find("{")
+        data, _ = json.JSONDecoder().raw_decode(raw[start:])
+        ids = data.get("repeats") if isinstance(data, dict) else None
+        out = {i for i in (ids or []) if isinstance(i, int) and 0 <= i < len(offered)}
+        if out:
+            logger.info(f"incident topic places: {len(out)} of {len(offered)} offered repeat a chosen card")
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"incident topic places: repeat check failed, keeping all offered: {e}")
+        return set()
 
 
 
