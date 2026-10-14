@@ -41,7 +41,8 @@ def held_locks():
     try:
         return {
             row[0] for row in conn.execute(text(
-                "SELECT objid FROM pg_locks WHERE locktype = 'advisory'"
+                "SELECT objid FROM pg_locks WHERE locktype = 'advisory' AND database = "
+                "(SELECT oid FROM pg_database WHERE datname = current_database())"
             )).fetchall()
         }
     finally:
@@ -298,6 +299,25 @@ def test_a_refused_run_does_not_leak_the_shared_interlock():
         MAINTENANCE_KEY, _LOCK_NAMESPACE,
     )
 
+    # pg_locks lists every database on the server, and advisory locks are
+    # per database: on 14 Oct 2026 wileytest's own detection run held its
+    # interlock and this test counted it. A run the live site starts in this
+    # database holds it legitimately too, so compare with the count before.
+    def holders() -> int:
+        conn = get_database_instance()._temp_get_connection()
+        try:
+            n = conn.execute(text("""
+                SELECT COUNT(*) FROM pg_locks
+                WHERE locktype = 'advisory' AND classid = :ns AND objid = :key
+                  AND database = (SELECT oid FROM pg_database
+                                  WHERE datname = current_database())
+            """), {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY}).scalar()
+            conn.commit()
+            return int(n)
+        finally:
+            conn.close()
+
+    before = holders()
     first = DetectionRunLock("interlock-leak-probe").acquire()
     try:
         with pytest.raises(DetectionAlreadyRunning):
@@ -305,14 +325,5 @@ def test_a_refused_run_does_not_leak_the_shared_interlock():
     finally:
         first.release()
 
-    # With every run finished, nothing should still hold the interlock.
-    conn = get_database_instance()._temp_get_connection()
-    try:
-        holders = conn.execute(text("""
-            SELECT COUNT(*) FROM pg_locks
-            WHERE locktype = 'advisory' AND classid = :ns AND objid = :key
-        """), {"ns": _LOCK_NAMESPACE, "key": MAINTENANCE_KEY}).scalar()
-        conn.commit()
-        assert holders == 0, "a refused run left the maintenance interlock held"
-    finally:
-        conn.close()
+    # With this test's runs finished, the interlock count is back where it was.
+    assert holders() <= before, "a refused run left the maintenance interlock held"

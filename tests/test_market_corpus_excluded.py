@@ -40,9 +40,12 @@ def test_an_excluded_row_leaves_the_corpus_and_the_verdict_survives_a_rescan(con
         pytest.skip("no matched article to exclude")
     market, uri = row["market_id"], row["article_uri"]
 
+    # Ask for this article only. A market holds more than 2,000 articles, and
+    # the newest match can be an old page re-matched today (a February 2025
+    # blog post on 14 Oct 2026), which sorts past any fixed page of the list.
     def present():
-        rows = mcorp.articles(conn, market, limit=2000, min_score=0,
-                              require_signal_for_social=False)
+        rows = mcorp.articles(conn, market, limit=10, min_score=0,
+                              require_signal_for_social=False, uris=[uri])
         return any(r["uri"] == uri for r in rows)
 
     assert present()

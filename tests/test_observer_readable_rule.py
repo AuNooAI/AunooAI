@@ -8,12 +8,23 @@ guards the queries against losing the shared rule again.
 """
 import pathlib
 
-SRC = (pathlib.Path(__file__).resolve().parents[1] / "app" / "routes" / "vector_routes.py").read_text()
+ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
+SRC = (ROOT / "routes" / "vector_routes.py").read_text()
+# The incident query moved out of vector_routes.py into the per-day reader on
+# 13 Oct 2026 (0e0ce9eb). Its two queries share _base_filter().
+INCIDENTS = (ROOT / "services" / "incident_days.py").read_text()
+
+
+def _incident_filter() -> str:
+    start = INCIDENTS.index("def _base_filter")
+    return INCIDENTS[start:INCIDENTS.index("\ndef ", start + 1)]
 
 
 def test_every_observer_query_applies_the_readable_rule():
-    assert SRC.count("readable_sql()") >= 6
+    assert SRC.count("readable_sql()") >= 5
     assert "from app.services.article_visibility import agent_evidence_sql, readable_sql" in SRC
+    assert "av.readable_sql()" in _incident_filter()
+    assert INCIDENTS.count("{_base_filter()}") >= 2
 
 
 def test_no_observer_query_is_category_only():
@@ -21,9 +32,11 @@ def test_no_observer_query_is_category_only():
     shared clause (relevant, not a false positive). Incident tracking and
     real-time signals were category-only until 7 Oct 2026."""
     assert "AND category IS NOT NULL AND NULLIF(TRIM(sentiment), '') IS NOT NULL" not in SRC
-    assert SRC.count("agent_evidence_sql()") >= 2
+    assert SRC.count("agent_evidence_sql()") >= 1
+    assert "av.agent_evidence_sql()" in _incident_filter()
 
 
 def test_no_observer_query_accepts_an_empty_sentiment():
     # The old gate was "sentiment IS NOT NULL", which an empty string passes.
-    assert SRC.count("NULLIF(TRIM(sentiment), '') IS NOT NULL") >= 6
+    assert SRC.count("NULLIF(TRIM(sentiment), '') IS NOT NULL") >= 5
+    assert "NULLIF(TRIM(sentiment), '') IS NOT NULL" in _incident_filter()
