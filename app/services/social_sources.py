@@ -57,6 +57,10 @@ _EXACT = {
     'reddit': ('reddit', 'community'),
     'reddit.com': ('reddit', 'community'),
     'www.reddit.com': ('reddit', 'community'),
+    # App store reviews (docs/APP_STORE_REVIEWS_SPEC.md): customers talking
+    # among themselves on a public page, closer to a forum than to press.
+    'google play': ('google_play', 'community'),
+    'app store': ('app_store', 'community'),
 }
 
 # xpoz reports the platform in the suffix. Reddit is a community rather than a

@@ -112,6 +112,31 @@ OFFICIAL_SOURCES: Dict[str, Dict[str, Any]] = {
         "factuality": "mixed",
         "credibility": "medium",
     },
+    # App reviews (docs/APP_STORE_REVIEWS_SPEC.md). Fetched per app from
+    # config.app_store_targets by app.services.bw_app_reviews, which ties each
+    # review to the brand by app id, so no term gate.
+    "google_play": {
+        "label": "Google Play reviews",
+        "description": "Customer reviews of the brand's Android apps (config.app_store_targets)",
+        "news_source": "Google Play",
+        "category": "Brand Sentiment & Perception",
+        "domain": "play.google.com",
+        "requires_key": "BRIGHTDATA_API_KEY",
+        "term_gate": False,
+        "factuality": "mixed",
+        "credibility": "medium",
+    },
+    "app_store": {
+        "label": "App Store reviews",
+        "description": "Customer reviews of the brand's iPhone apps (config.app_store_targets)",
+        "news_source": "App Store",
+        "category": "Brand Sentiment & Perception",
+        "domain": "apps.apple.com",
+        "requires_key": "BRIGHTDATA_API_KEY",
+        "term_gate": False,
+        "factuality": "mixed",
+        "credibility": "medium",
+    },
 }
 
 
@@ -989,6 +1014,40 @@ async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
     return flagged
 
 
+APP_REVIEW_SOURCES = ("google_play", "app_store")
+
+
+async def _poll_app_reviews(conn, brand: Dict[str, Any], cfg: Dict[str, Any],
+                            source_state: Dict[str, Any], source: str, now: datetime,
+                            force: bool, risk_budget: List[int],
+                            summary: Dict[str, Any]) -> bool:
+    """One brand's Google Play or App Store reviews. Returns whether it ran.
+
+    The cursor moves only when every target succeeded, so a failed or
+    cap-skipped day is fetched again on the next poll.
+    """
+    from app.services import bw_app_reviews as ar
+    since = _due_since(source_state, source, now, force=force)
+    if since is None or not ar.targets_for(cfg, source):
+        return False
+    rows, complete = await ar.fetch_app_reviews(conn, brand, cfg, source, since)
+    landed = _land_and_attribute(conn, brand, source, rows)
+    ar.finish_landed(conn, landed, rows, cfg)
+    flagged = await _risk_pass(conn, brand, landed, risk_budget)
+    if complete:
+        _mark_polled(conn, brand["id"], source, now)
+    conn.commit()
+    summary["polled"] += 1
+    summary["new_articles"] += len(landed)
+    summary["risk_flagged"] += flagged
+    if not complete:
+        summary["errors"] += 1
+    if landed:
+        logger.info(f"official_sources: {source} landed {len(landed)} "
+                    f"for {brand['display_name']} ({flagged} risk-flagged)")
+    return True
+
+
 async def poll_official_sources(db, force: bool = False,
                                 only_brand_id: Optional[int] = None) -> Dict[str, Any]:
     """Poll every opted-in (brand, source) pair that is due. Safe to call often —
@@ -1013,6 +1072,16 @@ async def poll_official_sources(db, force: bool = False,
                      "brand_keywords": brand_keywords}
             source_state = cfg.get("source_state") or {}
             for source in enabled_sources:
+                if source in APP_REVIEW_SOURCES:
+                    try:
+                        if await _poll_app_reviews(conn, brand, cfg, source_state, source,
+                                                   now, force, risk_budget, summary):
+                            await asyncio.sleep(1)
+                    except Exception as e:
+                        conn.rollback()
+                        summary["errors"] += 1
+                        logger.error(f"official_sources: brand {bid} source {source} failed: {e}")
+                    continue
                 fetcher = _FETCHERS.get(source)
                 if fetcher is None:
                     continue

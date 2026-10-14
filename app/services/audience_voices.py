@@ -137,6 +137,10 @@ def _platform(news_source: Optional[str], platform: Optional[str]) -> str:
         return "bluesky"
     if s == "glassdoor":
         return "glassdoor"
+    if s == "google play":
+        return "google_play"
+    if s == "app store":
+        return "app_store"
     return "social"
 
 
@@ -428,7 +432,7 @@ def _rows(conn, *, brand_id: int, display_name: str, days_back: int,
                    NULL AS channel, NULL AS platform
               FROM articles a
              WHERE a.topic = :t
-               AND (({src}) OR a.news_source = 'Glassdoor')
+               AND (({src}) OR a.news_source IN ('Glassdoor', 'Google Play', 'App Store'))
                AND a.topic_alignment_score >= :min_rel
                AND a.publication_date >= :sd AND a.publication_date <= :ed
                AND {fp}

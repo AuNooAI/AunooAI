@@ -6465,6 +6465,7 @@ async def get_perception_dimensions(
                          WHEN LOWER(a.news_source) = 'bluesky' OR LOWER(a.news_source) LIKE 'bsky%'
                               OR LOWER(a.news_source) LIKE 'xpoz:%' THEN 'social'
                          WHEN a.news_source = 'Glassdoor' THEN 'employee_reviews'
+                         WHEN a.news_source IN ('Google Play', 'App Store') THEN 'app_reviews'
                          ELSE 'media'
                        END AS dim,
                        COALESCE(l.sentiment, a.sentiment) AS sentiment
@@ -6516,7 +6517,7 @@ async def get_perception_dimensions(
         out = []
         for bid, name, display_name, color, is_primary, cfg_raw in brands:
             dims = {}
-            for dim in ("media", "social", "community", "investor"):
+            for dim in ("media", "social", "community", "investor", "app_reviews"):
                 pos, neu, neg = counts.get((bid, dim), (0, 0, 0))
                 dims[dim] = {"score": _net_sentiment(pos, neu, neg),
                              "n": pos + neu + neg,
@@ -6844,6 +6845,74 @@ async def get_employee_risk(
         raise
     except Exception as e:
         logger.error(f"employee-risk failed for brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/brands/{brand_id}/app-ratings")
+async def get_brand_app_ratings(brand_id: int, session=Depends(verify_session)):
+    """Per app and country store: the latest rating, the change over 30 days,
+    and the app reviews landed in the last 30 days by stars
+    (docs/APP_STORE_REVIEWS_SPEC.md). Empty when the brand lists no apps."""
+    from datetime import timezone
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        cfg_raw = conn.execute(text("SELECT config FROM bw_brands WHERE id = :b"),
+                               {"b": brand_id}).scalar()
+        if cfg_raw is None and not conn.execute(
+                text("SELECT 1 FROM bw_brands WHERE id = :b"), {"b": brand_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Brand not found")
+        cfg = _cfg_dict(cfg_raw)
+        targets = cfg.get("app_store_targets") or []
+        apps = []
+        try:
+            rows = conn.execute(text("""
+                SELECT store, app_id, country, snapshot_date, rating, review_count, downloads
+                FROM bw_app_snapshots
+                WHERE brand_id = :b AND snapshot_date >= CURRENT_DATE - 400
+                ORDER BY store, app_id, country, snapshot_date
+            """), {"b": brand_id}).fetchall()
+        except Exception as _se:
+            conn.rollback()
+            logger.warning(f"app ratings read failed for brand {brand_id}: {_se}")
+            rows = []
+        series: Dict[tuple, list] = {}
+        for store, app_id, country, d, rating, rc, dl in rows:
+            series.setdefault((store, app_id, country), []).append(
+                {"date": str(d), "rating": float(rating) if rating is not None else None,
+                 "review_count": rc, "downloads": dl})
+        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
+        for (store, app_id, country), pts in series.items():
+            rated = [p for p in pts if p["rating"] is not None]
+            latest = pts[-1]
+            base = next((p for p in rated if p["date"] >= cutoff), None)
+            change = (round(rated[-1]["rating"] - base["rating"], 2)
+                      if rated and base and base is not rated[-1] else None)
+            apps.append({"store": store, "app_id": app_id, "country": country,
+                         "latest_date": latest["date"],
+                         "rating": rated[-1]["rating"] if rated else None,
+                         "rating_change_30d": change,
+                         "review_count": latest["review_count"],
+                         "downloads": latest["downloads"],
+                         "history": pts})
+        star_rows = conn.execute(text("""
+            SELECT a.news_source, a.social_meta->>'rating', COUNT(DISTINCT a.uri)
+            FROM articles a
+            JOIN bw_article_categories c ON c.article_uri = a.uri AND c.brand_id = :b
+            WHERE a.news_source IN ('Google Play', 'App Store')
+              AND a.publication_date >= :cut
+            GROUP BY 1, 2
+        """), {"b": brand_id, "cut": cutoff}).fetchall()
+        recent: Dict[str, Dict[str, int]] = {}
+        for ns, stars, n in star_rows:
+            recent.setdefault(ns, {})[str(stars or "?")] = int(n)
+        return {"brand_id": brand_id, "configured": bool(targets),
+                "targets": targets, "apps": apps, "recent_reviews_30d": recent}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"app-ratings failed for brand {brand_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()

@@ -502,6 +502,14 @@ _ADVERSE_RULE_DEFAULTS = {
     "glassdoor_deterioration": {"enabled": True, "rating_drop": 0.2, "outlook_drop": 0.10,
                                 "lookback_days": 35, "min_span_days": 7},
     "signals_flag":            {"enabled": True, "recent_days": 7},
+    # App store reviews (docs/APP_STORE_REVIEWS_SPEC.md). A 0.1 fall in an
+    # app's rating over thousands of reviews takes a large wave of bad ones.
+    "app_rating_drop":         {"enabled": True, "rating_drop": 0.1, "lookback_days": 35,
+                                "min_span_days": 7},
+    # 1-2 star reviews in the last 7 days against the weekly mean of the 8
+    # weeks before: catches a bad release long before the rating moves.
+    "app_negative_spike":      {"enabled": True, "multiplier": 2.0, "min_count": 5,
+                                "baseline_weeks": 8},
 }
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
@@ -1008,6 +1016,50 @@ def evaluate_adverse_alerts(db) -> int:
                                      "outlook_new": n2.get("business_outlook_rating")},
                                     f"glassdoor_deterioration|{bid}|{d_old}|{d_new}"):
                                 created += 1
+
+            # 9b) App rating drop, per app and country store
+            # (docs/APP_STORE_REVIEWS_SPEC.md).
+            rc = rule("app_rating_drop")
+            if rc.get("enabled"):
+                from app.services import bw_app_reviews as _ar
+                try:
+                    drops = _ar.rating_drops(conn, bid, rc["rating_drop"], rc["lookback_days"],
+                                             rc.get("min_span_days", 7))
+                except Exception as _ae:
+                    conn.rollback()
+                    logger.debug(f"app_rating_drop skipped for brand {bid}: {_ae}")
+                    drops = []
+                for d in drops:
+                    label = "Google Play" if d["store"] == "google_play" else "App Store"
+                    cc = d["country"].upper()
+                    if _insert_alert_event(conn, bid, "app_rating_drop", "medium",
+                            f"{bname}: {label} rating falling ({cc})",
+                            f"The {label} rating for {d['app_id']} in {cc} fell from "
+                            f"{d['rating_old']:.2f} on {d['from']} to {d['rating_new']:.2f} on {d['to']}. "
+                            "An app rating built on thousands of reviews only moves this much "
+                            "after a sustained run of bad ones.",
+                            {**d, "from": str(d["from"]), "to": str(d["to"])},
+                            f"app_rating_drop|{bid}|{d['store']}|{d['app_id']}|{d['country']}|{d['from']}|{d['to']}"):
+                        created += 1
+
+            # 9c) App negative-review spike: 1-2 star reviews this week against
+            # the weekly mean of the weeks before. Fires at most once per ISO week.
+            rc = rule("app_negative_spike")
+            if rc.get("enabled"):
+                from app.services import bw_app_reviews as _ar
+                bw_weeks = int(rc.get("baseline_weeks", 8))
+                recent, weekly = _ar.negative_counts(conn, bid, bw_weeks)
+                if recent >= rc["min_count"] and recent >= rc["multiplier"] * weekly:
+                    week = datetime.utcnow().strftime("%G-W%V")
+                    if _insert_alert_event(conn, bid, "app_negative_spike", "medium",
+                            f"{bname}: surge in 1-2 star app reviews",
+                            f"{recent} one- or two-star app reviews in the last 7 days, against "
+                            f"about {weekly:.1f} a week over the {bw_weeks} weeks before. "
+                            "A jump like this usually follows a bad release or a service problem.",
+                            {"recent": recent, "weekly_baseline": round(weekly, 2),
+                             "baseline_weeks": bw_weeks},
+                            f"app_negative_spike|{bid}|{week}"):
+                        created += 1
 
             # 10) Five Signals screen failure: a screened article whose claim
             #     validation came back contested/non-independent, or whose social

@@ -45,6 +45,7 @@ import {
   listIncidents, createIncident,
   attachIncidentEvidence,
   getEmployeeRisk, getRiskSummary, getRiskAssessment, updateBrandConfig, pollOfficialSourcesNow,
+  getAppRatings, type BWAppRatings,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
@@ -102,6 +103,10 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
     { k: 'min_authors', label: 'min accounts', def: 3 }, { k: 'window_hours', label: 'window (h)', def: 72 }] },
   { key: 'glassdoor_deterioration', label: 'Glassdoor deterioration', params: [
     { k: 'rating_drop', label: 'rating drop ≥', def: 0.2, step: 0.1 }, { k: 'outlook_drop', label: 'outlook drop ≥', def: 0.1, step: 0.05 }, { k: 'lookback_days', label: 'lookback (d)', def: 35 }] },
+  { key: 'app_rating_drop', label: 'App rating drop', params: [
+    { k: 'rating_drop', label: 'rating drop ≥', def: 0.1, step: 0.05 }, { k: 'lookback_days', label: 'lookback (d)', def: 35 }, { k: 'min_span_days', label: 'min span (d)', def: 7 }] },
+  { key: 'app_negative_spike', label: '1-2 star app review surge', params: [
+    { k: 'multiplier', label: 'multiplier', def: 2, step: 0.5 }, { k: 'min_count', label: 'min reviews', def: 5 }, { k: 'baseline_weeks', label: 'baseline (wk)', def: 8 }] },
 ];
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
@@ -582,6 +587,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [compTrends, setCompTrends] = useState<BWSentimentBucket[][]>([]);
   // Employee / workforce picture (Glassdoor aggregates + reviews + workforce risks).
   const [employeeRisk, setEmployeeRisk] = useState<BWEmployeeRisk | null>(null);
+  const [appRatings, setAppRatings] = useState<BWAppRatings | null>(null);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // Per-brand adverse-risk rollup (feeds the Analysis tab + HTML report).
   const [riskSummary, setRiskSummary] = useState<BWRiskSummary | null>(null);
@@ -1930,6 +1936,14 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, primarySelectedId]);
 
+  // --- App store ratings for the dashboard card (docs/APP_STORE_REVIEWS_SPEC.md) ---
+  useEffect(() => {
+    if (!primarySelectedId || activeTab !== 'dashboard') return;
+    if (appRatings?.brand_id === primarySelectedId) return;
+    getAppRatings(primarySelectedId).then(setAppRatings).catch(() => setAppRatings(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, primarySelectedId]);
+
   // --- Risk rollup for the Analysis tab ---
   useEffect(() => {
     if (!primarySelectedId || activeTab !== 'analysis') return;
@@ -3147,6 +3161,44 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 );
               })()}
             </div>
+
+            {appRatings?.brand_id === primarySelectedId && appRatings.apps.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">📱 App ratings</h3>
+                  <span className="text-[11px] text-gray-400">
+                    {Object.entries(appRatings.recent_reviews_30d).map(([store, stars]) => {
+                      const total = Object.values(stars).reduce((a, b) => a + b, 0);
+                      const low = (stars['1'] || 0) + (stars['2'] || 0);
+                      return `${store}: ${total} reviews in 30d, ${low} at 1-2★`;
+                    }).join(' · ') || 'no reviews in the last 30 days'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                  {appRatings.apps.map(a => (
+                    <div key={`${a.store}-${a.app_id}-${a.country}`} className="border border-gray-100 dark:border-gray-700 rounded p-2.5">
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate" title={a.app_id}>
+                        {a.store === 'google_play' ? 'Google Play' : 'App Store'} · {a.country.toUpperCase()} · {a.app_id}
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <span className={`text-xl font-bold ${a.rating != null && a.rating < 3.5 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+                          {a.rating != null ? a.rating.toFixed(2) : '—'}
+                        </span>
+                        {a.rating_change_30d != null && a.rating_change_30d !== 0 && (
+                          <span className={`text-xs font-semibold ${a.rating_change_30d < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {a.rating_change_30d > 0 ? '+' : ''}{a.rating_change_30d.toFixed(2)} in 30d
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-gray-400">
+                        {a.review_count != null ? `${a.review_count.toLocaleString()} reviews` : 'rating not given by this store'}
+                        {a.downloads != null ? ` · ${a.downloads.toLocaleString()} downloads` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 3b. Sentiment over time: weekly net sentiment lines for news vs social */}
             {renderSentimentTimeline('chart-bw-sentiment-timeline')}

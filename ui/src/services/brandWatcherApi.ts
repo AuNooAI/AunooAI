@@ -1506,6 +1506,32 @@ export async function getEmployeeRisk(brandId: number, daysBack: number = 90, re
   return res.json();
 }
 
+// App store ratings (docs/APP_STORE_REVIEWS_SPEC.md)
+export interface BWAppRating {
+  store: 'google_play' | 'app_store';
+  app_id: string;
+  country: string;
+  latest_date: string;
+  rating: number | null;
+  rating_change_30d: number | null;
+  review_count: number | null;
+  downloads: number | null;
+  history: { date: string; rating: number | null; review_count: number | null; downloads: number | null }[];
+}
+
+export interface BWAppRatings {
+  brand_id: number;
+  configured: boolean;
+  apps: BWAppRating[];
+  recent_reviews_30d: Record<string, Record<string, number>>;
+}
+
+export async function getAppRatings(brandId: number): Promise<BWAppRatings> {
+  const res = await fetch(`${BASE}/brands/${brandId}/app-ratings`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch app ratings: ${res.status}`);
+  return res.json();
+}
+
 export interface BWRiskSummary {
   brand_id: number;
   days_back: number;
