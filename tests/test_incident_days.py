@@ -33,6 +33,42 @@ def test_combine_keeps_strongest_wording_and_every_article():
     assert out["merged_from"] == 2
 
 
+def test_combine_puts_the_headline_members_articles_first():
+    # The write-up reads the first few articles, so they must be the ones the
+    # kept headline is about, not the earliest in the group.
+    early = {"name": "Medicare breach", "significance": "medium", "article_uris": ["au1", "au2"],
+             "slice_day": "2026-09-24"}
+    later = {"name": "US sites disclosure", "significance": "high", "article_uris": ["us1"],
+             "slice_day": "2026-09-26"}
+    out = svc._combine([early, later])
+    assert out["name"] == "US sites disclosure"
+    assert out["article_uris"] == ["us1", "au1", "au2"]
+
+
+def test_merge_names_each_group_and_shows_the_name_next_round(monkeypatch):
+    seen = []
+
+    class Model:
+        async def agenerate_response(self, messages, **kw):
+            seen.append(messages[-1]["content"])
+            return json.dumps([{"event": "Agent breached Australia's Medicare portal", "ids": [0, 1]}])
+
+    class Factory:
+        @staticmethod
+        def get_instance(name):
+            return Model()
+    import app.ai_models as ai
+    monkeypatch.setattr(ai, "LiteLLMModel", Factory)
+    monkeypatch.setattr(ai, "extract_content", lambda r: r)
+    cands = [{"name": f"n{i}", "description": f"what {i}", "significance": "medium",
+              "article_uris": [str(i)]} for i in range(2)]
+    out, _ = asyncio.run(svc._merge_chunk(cands, 5, ["T"], date(2026, 10, 1), date(2026, 10, 2), "m"))
+    assert out[0]["merge_event"] == "Agent breached Australia's Medicare portal"
+    assert "n0 — what 0" in seen[0]
+    asyncio.run(svc._merge_chunk(out, 5, ["T"], date(2026, 10, 1), date(2026, 10, 2), "m"))
+    assert "Agent breached Australia's Medicare portal" in seen[1]
+
+
 def test_merge_falls_back_to_ranking_when_the_call_fails(monkeypatch):
     class Boom:
         @staticmethod

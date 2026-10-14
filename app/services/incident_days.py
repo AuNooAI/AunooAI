@@ -400,13 +400,18 @@ def _combine(group: List[Dict]) -> Dict:
     """One incident from a group of candidates reporting the same development.
     The strongest member (significance, then articles cited) keeps its wording;
     the others contribute their articles and dates. Members may themselves be
-    groups from an earlier merge round."""
+    groups from an earlier merge round.
+
+    The kept member's own articles come first, because the write-up reads the
+    first few: in date order a card headed by OpenAI's 26 Sep disclosure about
+    US government sites was written from six 24 Sep articles about the
+    Australian Medicare breach (wileytest, 14 Oct 2026)."""
     group = sorted(group, key=lambda i: (-_sig(i), -len(i.get("article_uris") or [])))
     base = dict(group[0])
     if len(group) == 1:
         return base
     uris, seen = [], set()
-    for inc in sorted(group, key=lambda i: str(i.get("slice_day") or "")):
+    for inc in [group[0]] + sorted(group[1:], key=lambda i: str(i.get("slice_day") or "")):
         for u in inc.get("article_uris") or []:
             if isinstance(u, str) and u not in seen:
                 seen.add(u)
@@ -465,21 +470,28 @@ async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: d
     Returns (items, used_llm); falls back to a plain ranking on failure."""
     lines = []
     for i, c in enumerate(items):
-        name = re.sub(r"\s+", " ", str(c.get("name") or ""))[:160]
+        # A group from an earlier round shows the event it was named for.
+        name = re.sub(r"\s+", " ", str(c.get("merge_event") or c.get("name") or ""))[:160]
+        what = "" if c.get("merge_event") else re.sub(r"\s+", " ", str(c.get("description") or ""))[:160]
         lines.append(f"{i}|{c.get('slice_day') or ''}|{c.get('topic') or ''}|"
-                     f"{(c.get('significance') or '').lower()}|{len(c.get('article_uris') or [])}|{name}")
+                     f"{(c.get('significance') or '').lower()}|{len(c.get('article_uris') or [])}|{name}"
+                     + (f" — {what}" if what else ""))
     prompt = (
         f"Below are {len(items)} findings an analyst extracted, day by day, from articles collected "
         f"between {start.isoformat()} and {end.isoformat()} for these topics: {', '.join(topics)}.\n"
-        "Each line is: id|day|topic|significance|articles cited|headline.\n\n"
+        "Each line is: id|day|topic|significance|articles cited|headline — what happened.\n\n"
         "1. Most findings are about different events. Group findings only when they report the same "
         "specific development (the same actors and the same event), for example the same deal "
         "reported on several days. Never group findings just because they share a theme, a company "
-        "or a country.\n"
+        "or a country. A different victim, a different place or a later new disclosure is a separate "
+        "development, even in the same running story: an AI agent breaching one government's portal "
+        "and a later disclosure that agents also entered other countries' sites are two groups.\n"
         f"2. Return the {keep} most important groups for a strategic intelligence analyst, most "
         "important first; a finding that matches nothing else is a group of one. Weigh significance, "
         "how many articles and days carry the story, and material impact. Do not invent items.\n\n"
-        "Answer with JSON only: [{\"ids\": [3, 17, 42]}, ...]\n\n" + "\n".join(lines))
+        "Name each group's event in one line: who did what, to whom, where and when. One event has one "
+        "victim or target and one place; if you cannot name it that way, the findings are not one group.\n\n"
+        "Answer with JSON only: [{\"event\": \"...\", \"ids\": [3, 17, 42]}, ...]\n\n" + "\n".join(lines))
     try:
         from app.ai_models import LiteLLMModel, extract_content
         model = LiteLLMModel.get_instance(model_name)
@@ -505,7 +517,11 @@ async def _merge_chunk(items: List[Dict], keep: int, topics: List[str], start: d
                 logger.warning(f"incident merge: ignored a {len(ids)}-finding group as implausible")
                 continue
             used.update(ids)
-            out.append(_combine([items[i] for i in ids]))
+            merged = _combine([items[i] for i in ids])
+            event = g.get("event") if isinstance(g, dict) else None
+            if len(ids) > 1 and isinstance(event, str) and event.strip():
+                merged["merge_event"] = event.strip()[:200]
+            out.append(merged)
             if len(out) >= keep:
                 break
         if not out:
