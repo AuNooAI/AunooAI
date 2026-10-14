@@ -45,7 +45,7 @@ import {
   listIncidents, createIncident,
   attachIncidentEvidence,
   getEmployeeRisk, getRiskSummary, getRiskAssessment, updateBrandConfig, pollOfficialSourcesNow,
-  getAppRatings, type BWAppRatings,
+  getAppRatings, type BWAppRatings, type BWAppRating,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
@@ -110,6 +110,109 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
 ];
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
+// App ratings tile (docs/APP_STORE_REVIEWS_SPEC.md): the store's rating where it
+// gives one (Google Play), otherwise the average of the reviews we collected,
+// always with its count; a 12-week sparkline of the weekly average on a fixed
+// 1-5 scale so a small move is not drawn as a large one; weeks with no reviews
+// are gaps, not zeros.
+const APP_STORE_LABEL: Record<string, string> = { google_play: 'Android · Google Play', app_store: 'iPhone · App Store' };
+
+function AppRatingTile({ app }: { app: BWAppRating }) {
+  const [hover, setHover] = useState<number | null>(null);
+  // The sparkline fills the tile, so it is measured rather than fixed.
+  const [boxW, setBoxW] = useState(240);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const w = Math.round(entries[0]?.contentRect.width || 0);
+      if (w > 0) setBoxW(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const c = app.collected;
+  // Start at the first week with reviews (collection reaches back 30 days from
+  // its first run), but keep at least four weeks so a short series is not
+  // stretched across the whole tile.
+  const allWeeks = c?.weekly || [];
+  const firstWithData = allWeeks.findIndex(w => w.n > 0);
+  const weekly = firstWithData < 0 ? allWeeks.slice(-4) : allWeeks.slice(Math.min(firstWithData, Math.max(0, allWeeks.length - 4)));
+  const lowStars = (c?.stars_30d?.['1'] || 0) + (c?.stars_30d?.['2'] || 0);
+  const storeRated = app.rating != null;
+  const value = storeRated ? app.rating : c?.avg_30d ?? null;
+  const valueNote = storeRated
+    ? `store rating from ${app.review_count != null ? app.review_count.toLocaleString() : '?'} reviews`
+      + (app.downloads != null ? ` · ${app.downloads.toLocaleString()} downloads` : '')
+    : c?.n_30d ? `average of the ${c.n_30d} reviews we collected in 30 days (the App Store gives no overall rating)` : 'no reviews collected yet';
+  const delta = storeRated ? app.rating_change_30d
+    : (c?.avg_30d != null && c?.avg_prior_30d != null && c.n_prior_30d >= 3 ? Math.round((c.avg_30d - c.avg_prior_30d) * 100) / 100 : null);
+  const W = boxW, H = 40, P = 4;
+  const x = (i: number) => P + (i * (W - 2 * P)) / Math.max(1, weekly.length - 1);
+  const y = (v: number) => P + ((5 - v) * (H - 2 * P)) / 4;
+  const segments: string[] = [];
+  let cur = '';
+  weekly.forEach((w, i) => {
+    if (w.avg == null) { if (cur) segments.push(cur); cur = ''; return; }
+    cur += `${cur ? 'L' : 'M'}${x(i).toFixed(1)},${y(w.avg).toFixed(1)}`;
+  });
+  if (cur) segments.push(cur);
+  const lastIdx = weekly.map(w => w.avg != null).lastIndexOf(true);
+  const hovered = hover != null ? weekly[hover] : null;
+  const fmtWeek = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return (
+    <div className="border border-gray-100 dark:border-gray-700 rounded-md p-3 flex flex-col gap-1.5" title={`${app.store} ${app.app_id}`}>
+      <div className="text-xs font-medium text-gray-600 dark:text-gray-300">
+        {APP_STORE_LABEL[app.store] || app.store} {app.country.toUpperCase()}
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className={`text-2xl font-semibold ${value == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
+          {value != null ? `${value.toFixed(2)}★` : '—'}
+        </span>
+        {delta != null && delta !== 0 && (
+          <span className={`text-xs font-medium ${delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+            {delta > 0 ? '▲ +' : '▼ '}{delta.toFixed(2)} vs 30 days ago
+          </span>
+        )}
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-gray-400">{valueNote}</div>
+      <div ref={boxRef} className="relative w-full" onMouseLeave={() => setHover(null)}>
+        <svg width={W} height={H} role="img" aria-label={`Weekly average stars of collected reviews, last ${weekly.length} weeks`} className="overflow-visible">
+          <line x1={P} x2={W - P} y1={y(3)} y2={y(3)} className="stroke-gray-200 dark:stroke-gray-700" strokeWidth={1} strokeDasharray="2 3" />
+          {segments.map((d, i) => <path key={i} d={d} fill="none" className="stroke-gray-400 dark:stroke-gray-500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />)}
+          {weekly.map((w, i) => w.avg != null && (
+            <circle key={i} cx={x(i)} cy={y(w.avg)} r={i === lastIdx || i === hover ? 4 : 2}
+              className={i === lastIdx ? 'fill-[#2a78d6] dark:fill-[#3987e5] stroke-white dark:stroke-gray-800' : 'fill-gray-400 dark:fill-gray-500 stroke-white dark:stroke-gray-800'} strokeWidth={i === lastIdx ? 2 : 0} />
+          ))}
+          {weekly.map((_, i) => (
+            <rect key={`h${i}`} x={x(i) - (W - 2 * P) / (2 * Math.max(1, weekly.length - 1))} y={0}
+              width={(W - 2 * P) / Math.max(1, weekly.length - 1)} height={H} fill="transparent"
+              onMouseEnter={() => setHover(i)} />
+          ))}
+        </svg>
+        <div className="text-[10px] text-gray-400 dark:text-gray-500 h-3.5">
+          {hovered
+            ? (hovered.avg != null ? `Week of ${fmtWeek(hovered.week)}: ${hovered.avg.toFixed(2)}★ from ${hovered.n} review${hovered.n === 1 ? '' : 's'}` : `Week of ${fmtWeek(hovered.week)}: no reviews`)
+            : weekly.length ? `Weekly average since ${fmtWeek(weekly[0].week)} · dashed line = 3★` : ''}
+        </div>
+      </div>
+      <div className="text-[11px] text-gray-600 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-1.5">
+        {c?.n_30d
+          ? <>{storeRated
+                ? <>Last 30 days: <strong>{c.avg_30d?.toFixed(2)}★</strong> from {c.n_30d} review{c.n_30d === 1 ? '' : 's'}</>
+                : <>Last 30 days: {c.n_30d} review{c.n_30d === 1 ? '' : 's'}</>} · {lowStars} at 1–2★
+              {storeRated && c.avg_30d != null && c.n_30d >= 5 && Math.abs(c.avg_30d - (app.rating as number)) >= 0.3 && (
+                <span className="block text-gray-700 dark:text-gray-200">
+                  Recent reviews run {Math.abs(c.avg_30d - (app.rating as number)).toFixed(2)}★ {c.avg_30d < (app.rating as number) ? 'below' : 'above'} the store rating
+                </span>
+              )}</>
+          : 'No reviews collected in the last 30 days'}
+      </div>
+    </div>
+  );
+}
+
 function KeywordTagInput({ label, keywords, inputValue, setInputValue, onAdd, onRemove, meta }: {
   label: string;
   keywords: string[];
@@ -3164,38 +3267,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
             {appRatings?.brand_id === primarySelectedId && appRatings.apps.length > 0 && (
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">📱 App ratings</h3>
-                  <span className="text-[11px] text-gray-400">
-                    {Object.entries(appRatings.recent_reviews_30d).map(([store, stars]) => {
-                      const total = Object.values(stars).reduce((a, b) => a + b, 0);
-                      const low = (stars['1'] || 0) + (stars['2'] || 0);
-                      return `${store}: ${total} reviews in 30d, ${low} at 1-2★`;
-                    }).join(' · ') || 'no reviews in the last 30 days'}
-                  </span>
+                  <span className="text-[11px] text-gray-400">Collected daily from Google Play, weekly from the App Store</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                  {appRatings.apps.map(a => (
-                    <div key={`${a.store}-${a.app_id}-${a.country}`} className="border border-gray-100 dark:border-gray-700 rounded p-2.5">
-                      <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate" title={a.app_id}>
-                        {a.store === 'google_play' ? 'Google Play' : 'App Store'} · {a.country.toUpperCase()} · {a.app_id}
-                      </div>
-                      <div className="mt-1 flex items-baseline gap-2">
-                        <span className={`text-xl font-bold ${a.rating != null && a.rating < 3.5 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
-                          {a.rating != null ? a.rating.toFixed(2) : '—'}
-                        </span>
-                        {a.rating_change_30d != null && a.rating_change_30d !== 0 && (
-                          <span className={`text-xs font-semibold ${a.rating_change_30d < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                            {a.rating_change_30d > 0 ? '+' : ''}{a.rating_change_30d.toFixed(2)} in 30d
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-gray-400">
-                        {a.review_count != null ? `${a.review_count.toLocaleString()} reviews` : 'rating not given by this store'}
-                        {a.downloads != null ? ` · ${a.downloads.toLocaleString()} downloads` : ''}
-                      </div>
-                    </div>
-                  ))}
+                  {appRatings.apps.map(a => <AppRatingTile key={`${a.store}-${a.app_id}-${a.country}`} app={a} />)}
                 </div>
               </div>
             )}

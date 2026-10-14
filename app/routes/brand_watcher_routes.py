@@ -6852,61 +6852,94 @@ async def get_employee_risk(
 
 @router.get("/brands/{brand_id}/app-ratings")
 async def get_brand_app_ratings(brand_id: int, session=Depends(verify_session)):
-    """Per app and country store: the latest rating, the change over 30 days,
-    and the app reviews landed in the last 30 days by stars
-    (docs/APP_STORE_REVIEWS_SPEC.md). Empty when the brand lists no apps."""
-    from datetime import timezone
+    """One entry per configured app and country store (docs/APP_STORE_REVIEWS_SPEC.md):
+    the store's own rating where it gives one (Google Play), and always the
+    reviews we collected — 30-day average with its count, the 30 days before,
+    the 30-day split by stars, and a weekly average for the last 12 weeks."""
+    from datetime import timezone, date as _date
+    from app.services import bw_app_reviews as _ar
     conn = get_database_instance()._temp_get_connection()
     try:
-        cfg_raw = conn.execute(text("SELECT config FROM bw_brands WHERE id = :b"),
-                               {"b": brand_id}).scalar()
-        if cfg_raw is None and not conn.execute(
-                text("SELECT 1 FROM bw_brands WHERE id = :b"), {"b": brand_id}).fetchone():
+        row = conn.execute(text("SELECT config FROM bw_brands WHERE id = :b"),
+                           {"b": brand_id}).fetchone()
+        if row is None:
             raise HTTPException(status_code=404, detail="Brand not found")
-        cfg = _cfg_dict(cfg_raw)
-        targets = cfg.get("app_store_targets") or []
-        apps = []
+        cfg = _cfg_dict(row[0])
+        targets = _ar.targets_for(cfg, "google_play") + _ar.targets_for(cfg, "app_store")
+        today = datetime.now(timezone.utc).date()
+        d30, d60 = (today - timedelta(days=30)).isoformat(), (today - timedelta(days=60)).isoformat()
+        week0 = today - timedelta(days=today.weekday()) - timedelta(weeks=11)
+
+        snaps: Dict[tuple, list] = {}
         try:
-            rows = conn.execute(text("""
+            for store, app_id, country, d, rating, rc, dl in conn.execute(text("""
                 SELECT store, app_id, country, snapshot_date, rating, review_count, downloads
-                FROM bw_app_snapshots
-                WHERE brand_id = :b AND snapshot_date >= CURRENT_DATE - 400
-                ORDER BY store, app_id, country, snapshot_date
-            """), {"b": brand_id}).fetchall()
+                  FROM bw_app_snapshots
+                 WHERE brand_id = :b AND snapshot_date >= CURRENT_DATE - 400
+                 ORDER BY snapshot_date"""), {"b": brand_id}).fetchall():
+                snaps.setdefault((store, app_id, country.upper()), []).append(
+                    {"date": str(d), "rating": float(rating) if rating is not None else None,
+                     "review_count": rc, "downloads": dl})
         except Exception as _se:
             conn.rollback()
             logger.warning(f"app ratings read failed for brand {brand_id}: {_se}")
-            rows = []
-        series: Dict[tuple, list] = {}
-        for store, app_id, country, d, rating, rc, dl in rows:
-            series.setdefault((store, app_id, country), []).append(
-                {"date": str(d), "rating": float(rating) if rating is not None else None,
-                 "review_count": rc, "downloads": dl})
-        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
-        for (store, app_id, country), pts in series.items():
-            rated = [p for p in pts if p["rating"] is not None]
-            latest = pts[-1]
-            base = next((p for p in rated if p["date"] >= cutoff), None)
-            change = (round(rated[-1]["rating"] - base["rating"], 2)
-                      if rated and base and base is not rated[-1] else None)
-            apps.append({"store": store, "app_id": app_id, "country": country,
-                         "latest_date": latest["date"],
-                         "rating": rated[-1]["rating"] if rated else None,
-                         "rating_change_30d": change,
-                         "review_count": latest["review_count"],
-                         "downloads": latest["downloads"],
-                         "history": pts})
-        star_rows = conn.execute(text("""
-            SELECT a.news_source, a.social_meta->>'rating', COUNT(DISTINCT a.uri)
-            FROM articles a
-            JOIN bw_article_categories c ON c.article_uri = a.uri AND c.brand_id = :b
-            WHERE a.news_source IN ('Google Play', 'App Store')
-              AND a.publication_date >= :cut
-            GROUP BY 1, 2
-        """), {"b": brand_id, "cut": cutoff}).fetchall()
+
+        reviews: Dict[tuple, list] = {}
         recent: Dict[str, Dict[str, int]] = {}
-        for ns, stars, n in star_rows:
-            recent.setdefault(ns, {})[str(stars or "?")] = int(n)
+        for ns, meta, pub in conn.execute(text("""
+            SELECT DISTINCT ON (a.uri) a.news_source, a.social_meta, a.publication_date
+              FROM articles a
+              JOIN bw_article_categories c ON c.article_uri = a.uri AND c.brand_id = :b
+             WHERE a.news_source IN ('Google Play', 'App Store')
+               AND a.publication_date >= :since
+             ORDER BY a.uri"""), {"b": brand_id, "since": min(d60, week0.isoformat())}).fetchall():
+            m = meta if isinstance(meta, dict) else {}
+            try:
+                stars = int(m.get("rating"))
+            except (TypeError, ValueError):
+                continue
+            day = str(pub or "")[:10]
+            key = (m.get("store"), str(m.get("app_id") or ""), str(m.get("country") or "").upper())
+            reviews.setdefault(key, []).append((day, stars))
+            if day >= d30:
+                recent.setdefault(ns, {})
+                recent[ns][str(stars)] = recent[ns].get(str(stars), 0) + 1
+
+        def _avg(xs):
+            return round(sum(xs) / len(xs), 2) if xs else None
+
+        apps = []
+        for t in targets:
+            key = (t["store"], t["app_id"], t["country"].upper())
+            pts = snaps.get(key, [])
+            rated = [p for p in pts if p["rating"] is not None]
+            base = next((p for p in rated if p["date"] >= d30), None)
+            mine = reviews.get(key, [])
+            last30 = [s_ for d, s_ in mine if d >= d30]
+            prior30 = [s_ for d, s_ in mine if d60 <= d < d30]
+            weekly = []
+            for w in range(12):
+                ws = week0 + timedelta(weeks=w)
+                we = (ws + timedelta(days=7)).isoformat()
+                xs = [s_ for d, s_ in mine if ws.isoformat() <= d < we]
+                weekly.append({"week": ws.isoformat(), "avg": _avg(xs), "n": len(xs)})
+            latest = pts[-1] if pts else {}
+            apps.append({
+                "store": t["store"], "app_id": t["app_id"], "country": t["country"],
+                "latest_date": latest.get("date"),
+                "rating": rated[-1]["rating"] if rated else None,
+                "rating_change_30d": (round(rated[-1]["rating"] - base["rating"], 2)
+                                      if rated and base and base is not rated[-1] else None),
+                "review_count": latest.get("review_count"),
+                "downloads": latest.get("downloads"),
+                "history": pts,
+                "collected": {
+                    "avg_30d": _avg(last30), "n_30d": len(last30),
+                    "avg_prior_30d": _avg(prior30), "n_prior_30d": len(prior30),
+                    "stars_30d": {str(k): last30.count(k) for k in range(1, 6)},
+                    "weekly": weekly,
+                },
+            })
         return {"brand_id": brand_id, "configured": bool(targets),
                 "targets": targets, "apps": apps, "recent_reviews_30d": recent}
     except HTTPException:

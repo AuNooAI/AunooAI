@@ -1511,12 +1511,21 @@ export interface BWAppRating {
   store: 'google_play' | 'app_store';
   app_id: string;
   country: string;
-  latest_date: string;
+  latest_date: string | null;
   rating: number | null;
   rating_change_30d: number | null;
   review_count: number | null;
   downloads: number | null;
   history: { date: string; rating: number | null; review_count: number | null; downloads: number | null }[];
+  /** The reviews we collected for this app, whatever the store reports. */
+  collected?: {
+    avg_30d: number | null;
+    n_30d: number;
+    avg_prior_30d: number | null;
+    n_prior_30d: number;
+    stars_30d: Record<string, number>;
+    weekly: { week: string; avg: number | null; n: number }[];
+  };
 }
 
 export interface BWAppRatings {
