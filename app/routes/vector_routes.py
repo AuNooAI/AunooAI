@@ -1873,6 +1873,38 @@ def demote_unstated_event_day(inc: Dict, cited: List[Dict]) -> None:
         inc["timeline"]["event_date"] = None
 
 
+DATE_CHECK_ARTICLES = 40
+
+
+def demote_unstated_incident_days(incidents: List[Dict], articles: List) -> None:
+    """demote_unstated_event_day over a list of incidents, against the article
+    rows they were written from (dicts, or tuples in the order uri, title,
+    summary, news_source, publication_date). An incident that loses its day
+    shows "reported <published>". Older prompts put the date straight into
+    timeline; such a date is checked the same way."""
+    by_uri = {}
+    for a in articles or []:
+        d = a if isinstance(a, dict) else {"uri": a[0], "title": a[1], "summary": a[2], "publication_date": a[4]}
+        by_uri[d.get("uri")] = d
+    for inc in incidents:
+        if not isinstance(inc, dict):
+            continue
+        tl = inc.get("timeline")
+        if not inc.get("event_date") and isinstance(tl, str) and _FULL_DATE.match(tl.strip()):
+            inc["event_date"] = tl.strip()
+        if not inc.get("event_date"):
+            continue
+        cited = [by_uri[u] for u in (inc.get("article_uris") or [])[:DATE_CHECK_ARTICLES]
+                 if isinstance(u, str) and u in by_uri]
+        demote_unstated_event_day(inc, cited)
+        if inc.get("event_date"):
+            continue
+        pubs = sorted(p for p in (str(a.get("publication_date") or "")[:10] for a in cited) if p)
+        published = str(inc.get("published") or "")[:10] or (pubs[0] if pubs else "")
+        inc["published"] = published or None
+        inc["timeline"] = f"reported {published}" if published else ""
+
+
 def date_incident_timeline(inc: Dict) -> None:
     """Card date: a full date the articles state, else "reported <published>".
 
@@ -2321,6 +2353,7 @@ def _postprocess_incidents(incidents: List[Dict], articles: List, db) -> None:
             inc["event_date"] = tl.get("event_date") if isinstance(tl.get("event_date"), str) else None
             inc["published"] = tl.get("published") if isinstance(tl.get("published"), str) else None
             date_incident_timeline(inc)
+    demote_unstated_incident_days(incidents, articles)
 
     try:
         _art_rows = [a if isinstance(a, dict) else {'uri': a[0], 'title': a[1], 'publication_date': a[4]}
@@ -2561,7 +2594,6 @@ async def incident_tracking_job(job_id: str, session=Depends(verify_session_opti
 
 WRITE_UP_CHUNK = 10
 WRITE_UP_ARTICLES = 6
-DATE_CHECK_ARTICLES = 40
 
 
 async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
