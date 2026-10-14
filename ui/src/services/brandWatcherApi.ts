@@ -1535,6 +1535,16 @@ export interface BWAppRatings {
   recent_reviews_30d: Record<string, Record<string, number>>;
 }
 
+export interface BWAllAppRatings {
+  brands: { brand_id: number; brand_name: string; color: string | null; is_primary: boolean; apps: BWAppRating[] }[];
+}
+
+export async function getAllAppRatings(): Promise<BWAllAppRatings> {
+  const res = await fetch(`${BASE}/app-ratings`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch app ratings: ${res.status}`);
+  return res.json();
+}
+
 export async function getAppRatings(brandId: number): Promise<BWAppRatings> {
   const res = await fetch(`${BASE}/brands/${brandId}/app-ratings`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch app ratings: ${res.status}`);

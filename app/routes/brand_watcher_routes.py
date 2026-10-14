@@ -6850,6 +6850,27 @@ async def get_employee_risk(
         conn.close()
 
 
+@router.get("/app-ratings")
+async def get_all_app_ratings(session=Depends(verify_session)):
+    """Every enabled brand that lists apps, primary first, each in the shape of
+    /brands/{id}/app-ratings: the comparison view's app ratings table."""
+    conn = get_database_instance()._temp_get_connection()
+    try:
+        rows = conn.execute(text("""
+            SELECT id, display_name, color, is_primary FROM bw_brands
+             WHERE enabled = true AND config ? 'app_store_targets'
+             ORDER BY is_primary DESC, display_name""")).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for bid, name, color, primary in rows:
+        r = await get_brand_app_ratings(int(bid), session=session)
+        if r.get("apps"):
+            out.append({"brand_id": int(bid), "brand_name": name, "color": color,
+                        "is_primary": bool(primary), "apps": r["apps"]})
+    return {"brands": out}
+
+
 @router.get("/brands/{brand_id}/app-ratings")
 async def get_brand_app_ratings(brand_id: int, session=Depends(verify_session)):
     """One entry per configured app and country store (docs/APP_STORE_REVIEWS_SPEC.md):

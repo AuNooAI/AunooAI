@@ -45,7 +45,7 @@ import {
   listIncidents, createIncident,
   attachIncidentEvidence,
   getEmployeeRisk, getRiskSummary, getRiskAssessment, updateBrandConfig, pollOfficialSourcesNow,
-  getAppRatings, type BWAppRatings, type BWAppRating,
+  getAppRatings, getAllAppRatings, type BWAppRatings, type BWAppRating, type BWAllAppRatings,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
@@ -117,12 +117,20 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
 // are gaps, not zeros.
 const APP_STORE_LABEL: Record<string, string> = { google_play: 'Android · Google Play', app_store: 'iPhone · App Store' };
 
-function AppRatingTile({ app }: { app: BWAppRating }) {
+type WeeklyStars = { week: string; avg: number | null; n: number }[];
+const fmtWeekStart = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+// Weekly average stars on a fixed 1-5 scale; gaps for weeks with no reviews;
+// the latest week in the accent; hover shows the week's average and N. Width
+// follows the container unless given.
+function WeeklyStarsSparkline({ weekly, height = 40, caption = true, fixedWidth }: {
+  weekly: WeeklyStars; height?: number; caption?: boolean; fixedWidth?: number;
+}) {
   const [hover, setHover] = useState<number | null>(null);
-  // The sparkline fills the tile, so it is measured rather than fixed.
-  const [boxW, setBoxW] = useState(240);
+  const [boxW, setBoxW] = useState(fixedWidth || 240);
   const boxRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
+    if (fixedWidth) return;
     const el = boxRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(entries => {
@@ -131,25 +139,10 @@ function AppRatingTile({ app }: { app: BWAppRating }) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  const c = app.collected;
-  // Start at the first week with reviews (collection reaches back 30 days from
-  // its first run), but keep at least four weeks so a short series is not
-  // stretched across the whole tile.
-  const allWeeks = c?.weekly || [];
-  const firstWithData = allWeeks.findIndex(w => w.n > 0);
-  const weekly = firstWithData < 0 ? allWeeks.slice(-4) : allWeeks.slice(Math.min(firstWithData, Math.max(0, allWeeks.length - 4)));
-  const lowStars = (c?.stars_30d?.['1'] || 0) + (c?.stars_30d?.['2'] || 0);
-  const storeRated = app.rating != null;
-  const value = storeRated ? app.rating : c?.avg_30d ?? null;
-  const valueNote = storeRated
-    ? `store rating from ${app.review_count != null ? app.review_count.toLocaleString() : '?'} reviews`
-      + (app.downloads != null ? ` · ${app.downloads.toLocaleString()} downloads` : '')
-    : c?.n_30d ? `average of the ${c.n_30d} reviews we collected in 30 days (the App Store gives no overall rating)` : 'no reviews collected yet';
-  const delta = storeRated ? app.rating_change_30d
-    : (c?.avg_30d != null && c?.avg_prior_30d != null && c.n_prior_30d >= 3 ? Math.round((c.avg_30d - c.avg_prior_30d) * 100) / 100 : null);
-  const W = boxW, H = 40, P = 4;
-  const x = (i: number) => P + (i * (W - 2 * P)) / Math.max(1, weekly.length - 1);
+  }, [fixedWidth]);
+  const W = fixedWidth || boxW, H = height, P = 4;
+  const step = (W - 2 * P) / Math.max(1, weekly.length - 1);
+  const x = (i: number) => P + i * step;
   const y = (v: number) => P + ((5 - v) * (H - 2 * P)) / 4;
   const segments: string[] = [];
   let cur = '';
@@ -160,7 +153,53 @@ function AppRatingTile({ app }: { app: BWAppRating }) {
   if (cur) segments.push(cur);
   const lastIdx = weekly.map(w => w.avg != null).lastIndexOf(true);
   const hovered = hover != null ? weekly[hover] : null;
-  const fmtWeek = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const hoverText = hovered
+    ? (hovered.avg != null ? `Week of ${fmtWeekStart(hovered.week)}: ${hovered.avg.toFixed(2)}★ from ${hovered.n} review${hovered.n === 1 ? '' : 's'}` : `Week of ${fmtWeekStart(hovered.week)}: no reviews`)
+    : null;
+  if (!weekly.some(w => w.avg != null)) {
+    return <div className="text-[11px] text-gray-400 dark:text-gray-500">no reviews yet</div>;
+  }
+  return (
+    <div ref={boxRef} className={`relative ${fixedWidth ? '' : 'w-full'}`} style={fixedWidth ? { width: fixedWidth } : undefined} onMouseLeave={() => setHover(null)}>
+      <svg width={W} height={H} role="img" aria-label={`Weekly average stars of collected reviews over ${weekly.length} weeks`} className="overflow-visible block">
+        <line x1={P} x2={W - P} y1={y(3)} y2={y(3)} className="stroke-gray-200 dark:stroke-gray-700" strokeWidth={1} strokeDasharray="2 3" />
+        {segments.map((d, i) => <path key={i} d={d} fill="none" className="stroke-gray-400 dark:stroke-gray-500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />)}
+        {weekly.map((w, i) => w.avg != null && (
+          <circle key={i} cx={x(i)} cy={y(w.avg)} r={i === lastIdx || i === hover ? 4 : 2}
+            className={i === lastIdx ? 'fill-[#2a78d6] dark:fill-[#3987e5] stroke-white dark:stroke-gray-800' : 'fill-gray-400 dark:fill-gray-500 stroke-white dark:stroke-gray-800'} strokeWidth={i === lastIdx ? 2 : 0} />
+        ))}
+        {weekly.map((_, i) => (
+          <rect key={`h${i}`} x={x(i) - step / 2} y={0} width={step} height={H} fill="transparent" onMouseEnter={() => setHover(i)} />
+        ))}
+      </svg>
+      {caption
+        ? <div className="text-[10px] text-gray-400 dark:text-gray-500 h-3.5">{hoverText || (weekly.length ? `Weekly average since ${fmtWeekStart(weekly[0].week)} · dashed line = 3★` : '')}</div>
+        : hoverText && (
+          <div className="absolute z-10 bottom-full mb-1 left-0 whitespace-nowrap rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] px-2 py-1 pointer-events-none">{hoverText}</div>
+        )}
+    </div>
+  );
+}
+
+// The weeks from the first with reviews (never fewer than four), so a short
+// series is not stretched; a shared start keeps rows of a table aligned.
+function weeksFrom(all: WeeklyStars, start?: number): WeeklyStars {
+  if (start != null) return all.slice(start);
+  const first = all.findIndex(w => w.n > 0);
+  return first < 0 ? all.slice(-4) : all.slice(Math.min(first, Math.max(0, all.length - 4)));
+}
+
+function AppRatingTile({ app }: { app: BWAppRating }) {
+  const c = app.collected;
+  const lowStars = (c?.stars_30d?.['1'] || 0) + (c?.stars_30d?.['2'] || 0);
+  const storeRated = app.rating != null;
+  const value = storeRated ? app.rating : c?.avg_30d ?? null;
+  const valueNote = storeRated
+    ? `store rating from ${app.review_count != null ? app.review_count.toLocaleString() : '?'} reviews`
+      + (app.downloads != null ? ` · ${app.downloads.toLocaleString()} downloads` : '')
+    : c?.n_30d ? `average of the ${c.n_30d} reviews we collected in 30 days (the App Store gives no overall rating)` : 'no reviews collected yet';
+  const delta = storeRated ? app.rating_change_30d
+    : (c?.avg_30d != null && c?.avg_prior_30d != null && c.n_prior_30d >= 3 ? Math.round((c.avg_30d - c.avg_prior_30d) * 100) / 100 : null);
   return (
     <div className="border border-gray-100 dark:border-gray-700 rounded-md p-3 flex flex-col gap-1.5" title={`${app.store} ${app.app_id}`}>
       <div className="text-xs font-medium text-gray-600 dark:text-gray-300">
@@ -177,26 +216,7 @@ function AppRatingTile({ app }: { app: BWAppRating }) {
         )}
       </div>
       <div className="text-[11px] text-gray-500 dark:text-gray-400">{valueNote}</div>
-      <div ref={boxRef} className="relative w-full" onMouseLeave={() => setHover(null)}>
-        <svg width={W} height={H} role="img" aria-label={`Weekly average stars of collected reviews, last ${weekly.length} weeks`} className="overflow-visible">
-          <line x1={P} x2={W - P} y1={y(3)} y2={y(3)} className="stroke-gray-200 dark:stroke-gray-700" strokeWidth={1} strokeDasharray="2 3" />
-          {segments.map((d, i) => <path key={i} d={d} fill="none" className="stroke-gray-400 dark:stroke-gray-500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />)}
-          {weekly.map((w, i) => w.avg != null && (
-            <circle key={i} cx={x(i)} cy={y(w.avg)} r={i === lastIdx || i === hover ? 4 : 2}
-              className={i === lastIdx ? 'fill-[#2a78d6] dark:fill-[#3987e5] stroke-white dark:stroke-gray-800' : 'fill-gray-400 dark:fill-gray-500 stroke-white dark:stroke-gray-800'} strokeWidth={i === lastIdx ? 2 : 0} />
-          ))}
-          {weekly.map((_, i) => (
-            <rect key={`h${i}`} x={x(i) - (W - 2 * P) / (2 * Math.max(1, weekly.length - 1))} y={0}
-              width={(W - 2 * P) / Math.max(1, weekly.length - 1)} height={H} fill="transparent"
-              onMouseEnter={() => setHover(i)} />
-          ))}
-        </svg>
-        <div className="text-[10px] text-gray-400 dark:text-gray-500 h-3.5">
-          {hovered
-            ? (hovered.avg != null ? `Week of ${fmtWeek(hovered.week)}: ${hovered.avg.toFixed(2)}★ from ${hovered.n} review${hovered.n === 1 ? '' : 's'}` : `Week of ${fmtWeek(hovered.week)}: no reviews`)
-            : weekly.length ? `Weekly average since ${fmtWeek(weekly[0].week)} · dashed line = 3★` : ''}
-        </div>
-      </div>
+      <WeeklyStarsSparkline weekly={weeksFrom(c?.weekly || [])} />
       <div className="text-[11px] text-gray-600 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-1.5">
         {c?.n_30d
           ? <>{storeRated
@@ -208,6 +228,78 @@ function AppRatingTile({ app }: { app: BWAppRating }) {
                 </span>
               )}</>
           : 'No reviews collected in the last 30 days'}
+      </div>
+    </div>
+  );
+}
+
+// Comparison view: one row per brand with apps. Google Play shows the store's
+// own rating; both stores show the collected 30-day average with its N and a
+// weekly sparkline on a shared start week, so rows line up.
+function AppRatingsComparison({ brands }: { brands: BWAllAppRatings['brands'] }) {
+  const allWeekly = brands.flatMap(b => b.apps.map(a => a.collected?.weekly || []));
+  const len = Math.max(0, ...allWeekly.map(w => w.length));
+  const firsts = allWeekly.map(w => w.findIndex(x => x.n > 0)).filter(i => i >= 0);
+  const start = firsts.length ? Math.min(Math.min(...firsts), Math.max(0, len - 4)) : Math.max(0, len - 4);
+  const pick = (b: BWAllAppRatings['brands'][number], store: string) => b.apps.find(a => a.store === store);
+  const play = (b: BWAllAppRatings['brands'][number]) => pick(b, 'google_play')?.rating ?? -1;
+  const rows = [...brands].sort((a, b) => (a.is_primary === b.is_primary ? play(b) - play(a) : a.is_primary ? -1 : 1));
+  const cell = (a: BWAppRating | undefined, storeRated: boolean) => {
+    if (!a) return <td className="px-3 py-2 text-[11px] text-gray-400 dark:text-gray-500" colSpan={2}>not tracked</td>;
+    const c = a.collected;
+    return (
+      <>
+        <td className="px-3 py-2 align-top whitespace-nowrap">
+          {storeRated && a.rating != null && <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{a.rating.toFixed(2)}★ <span className="text-[10px] font-normal text-gray-400">store</span></div>}
+          <div className={`text-[11px] ${storeRated || (c?.n_30d || 0) < 5 ? 'text-gray-500 dark:text-gray-400' : 'text-sm font-semibold text-gray-900 dark:text-gray-100'}`}
+            title={(c?.n_30d || 0) < 5 ? 'Fewer than 5 reviews in 30 days: the average says little' : undefined}>
+            {c?.avg_30d != null ? `${c.avg_30d.toFixed(2)}★` : '—'}
+            <span className="text-[10px] font-normal text-gray-400"> 30d, n={c?.n_30d || 0}{(c?.n_30d || 0) > 0 && (c?.n_30d || 0) < 5 ? ' · few reviews' : ''}</span>
+          </div>
+        </td>
+        <td className="px-3 py-2 align-middle"><WeeklyStarsSparkline weekly={(c?.weekly || []).slice(start)} height={28} caption={false} fixedWidth={120} /></td>
+      </>
+    );
+  };
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">App ratings</h3>
+        <span className="text-[11px] text-gray-400">
+          Store rating from Google Play; 30-day averages and n from the reviews we collected. Sparklines: weekly average since {(allWeekly.find(w => w[start])?.[start]?.week && fmtWeekStart(allWeekly.find(w => w[start])![start].week)) || '—'}, dashed line = 3★
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700">
+              <th className="px-3 py-2 font-medium">Brand</th>
+              <th className="px-3 py-2 font-medium" colSpan={2}>Android · Google Play</th>
+              <th className="px-3 py-2 font-medium" colSpan={2}>iPhone · App Store</th>
+              <th className="px-3 py-2 font-medium">1–2★ in 30 days</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(b => {
+              const low = b.apps.reduce((t, a) => t + (a.collected?.stars_30d?.['1'] || 0) + (a.collected?.stars_30d?.['2'] || 0), 0);
+              const n = b.apps.reduce((t, a) => t + (a.collected?.n_30d || 0), 0);
+              return (
+                <tr key={b.brand_id} className="border-b border-gray-50 dark:border-gray-700/50">
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-2 text-sm text-gray-800 dark:text-gray-100">
+                      <span className="w-2.5 h-2.5 rounded-full ring-1 ring-gray-300 dark:ring-gray-500" style={{ background: b.color || '#6b7280' }} />
+                      <span className={b.is_primary ? 'font-semibold' : ''}>{b.brand_name}</span>
+                      {b.apps.some(a => a.country.toUpperCase() !== 'GB') && <span className="text-[10px] text-gray-400">{Array.from(new Set(b.apps.map(a => a.country.toUpperCase()))).join('/')} store</span>}
+                    </span>
+                  </td>
+                  {cell(pick(b, 'google_play'), true)}
+                  {cell(pick(b, 'app_store'), false)}
+                  <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">{low} <span className="text-[11px] text-gray-400">of {n}{n >= 10 ? ` (${Math.round((100 * low) / n)}%)` : ''}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -691,6 +783,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // Employee / workforce picture (Glassdoor aggregates + reviews + workforce risks).
   const [employeeRisk, setEmployeeRisk] = useState<BWEmployeeRisk | null>(null);
   const [appRatings, setAppRatings] = useState<BWAppRatings | null>(null);
+  const [allAppRatings, setAllAppRatings] = useState<BWAllAppRatings | null>(null);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // Per-brand adverse-risk rollup (feeds the Analysis tab + HTML report).
   const [riskSummary, setRiskSummary] = useState<BWRiskSummary | null>(null);
@@ -2046,6 +2139,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     getAppRatings(primarySelectedId).then(setAppRatings).catch(() => setAppRatings(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, primarySelectedId]);
+
+  // --- App ratings for every brand, for the comparison view ---
+  useEffect(() => {
+    if (activeTab !== 'comparison' || allAppRatings) return;
+    getAllAppRatings().then(setAllAppRatings).catch(() => setAllAppRatings({ brands: [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // --- Risk rollup for the Analysis tab ---
   useEffect(() => {
@@ -5613,6 +5713,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               by article volume
             </label>
           )}
+          {allAppRatings && allAppRatings.brands.length > 0 && <AppRatingsComparison brands={allAppRatings.brands} />}
           {/* Share of Voice — Pie Chart */}
           {sovShown.length > 0 && (() => {
             const pieData = sovShown.map(sov => ({
