@@ -304,3 +304,48 @@ def test_a_snapshot_that_never_finishes_is_a_failure(monkeypatch):
     monkeypatch.setattr(ar, "SNAPSHOT_WAIT_SECONDS", 0)
     with pytest.raises(RuntimeError, match="not ready"):
         asyncio.run(ar._scrape("app_store", {"url": "u"}))
+
+
+# ---------------------------------------------------------------------------
+# Daily briefing source
+# ---------------------------------------------------------------------------
+
+def _review_row(conn, text, bid, uri, day, stars, body="Too many notifications and no coach replies at all."):
+    conn.execute(text("INSERT INTO articles (uri, title, summary, news_source, publication_date, social_meta) "
+                      "VALUES (:u, 't', :s, 'Google Play', :d, CAST(:m AS jsonb))"),
+                 {"u": uri, "s": body, "d": day, "m": json.dumps({"store": "google_play", "rating": stars})})
+    conn.execute(text("INSERT INTO bw_article_categories (article_uri, brand_id, category, classification_method, confidence, relevance_score) "
+                      "VALUES (:u, :b, 'Brand Sentiment & Perception', 'official', 1, 1)"), {"u": uri, "b": bid})
+
+
+def test_briefing_source_states_facts_and_skips_quiet_competitors(db):
+    conn, text = db
+    conn.execute(text("UPDATE bw_brands SET is_primary = true WHERE id = 1"))
+    conn.execute(text(
+        "INSERT INTO bw_brands (id, name, display_name, enabled, is_primary, brand_keywords, config) VALUES "
+        "(2, 'Quiet', 'Quiet', true, false, '[]', CAST(:c AS jsonb)), "
+        "(3, 'Loud', 'Loud', true, false, '[]', CAST(:c AS jsonb))"),
+        {"c": json.dumps({"app_store_targets": [{"store": "google_play", "app_id": "com.x", "country": "GB"}]})})
+    ar.save_snapshot(conn, 1, PLAY, {"rating": 4.60}, _today(7))
+    ar.save_snapshot(conn, 1, PLAY, {"rating": 4.50}, _today(0))
+    _review_row(conn, text, 1, "u1", _today(0), 1, body="word " * 60)
+    _review_row(conn, text, 1, "u2", _today(0), 5)
+    _review_row(conn, text, 2, "q1", _today(0), 5)            # one happy review: not news
+    for i in range(3):
+        _review_row(conn, text, 3, f"l{i}", _today(0), 2)      # three complaints: news
+    _review_row(conn, text, 1, "old", _today(20), 1)          # outside the day
+
+    item = ar.briefing_source(conn, hours=24)
+    s = item["summary"]
+    assert item["title"] == "App store reviews and ratings, last day"
+    assert "Example: Google Play rating 4.50 stars, down 0.10 since" in s
+    assert "2 app reviews dated in the last day, 1 of them 1 or 2 stars" in s
+    assert "…" in s and "word word" in s                       # the long quote is cut at a word
+    assert "Loud:" in s and "3 of them 1 or 2 stars" in s
+    assert "Quiet" not in s
+    assert item["uri"].startswith("https://play.google.com/store/apps/details?id=com.example.app#app-reviews-")
+
+
+def test_briefing_source_is_none_when_nothing_happened(db):
+    conn, text = db
+    assert ar.briefing_source(conn, hours=24) is None

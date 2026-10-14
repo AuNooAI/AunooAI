@@ -9,6 +9,7 @@ import type {
   Brand, BWStats, BWCategory, BWSentimentTrend, BWAlert,
   BWComparison, BWShareOfVoice, BWSocialResponse, BWSavedNarrative,
   BWRiskSummary, BWIncident, BWEmployeeRisk, BWRiskAssessment,
+  BWAllAppRatings, BWAppRating, BWAppReviews,
 } from './brandWatcherApi';
 import { stripSocialMarkdown } from './socialText';
 import { computePostedVsSeen, computePlatformMix, computeNegThemes,
@@ -35,6 +36,8 @@ export interface BrandReportData {
     signals: { key: string; band: string | null; score: number | null }[];
   }[] | null;
   employee?: BWEmployeeRisk | null;        // Glassdoor aggregates + reviews + workforce risks
+  appRatings?: BWAllAppRatings | null;      // app store ratings for every brand that lists apps
+  appReviews?: BWAppReviews | null;         // the brand's recent 1-2 star app reviews
   perception?: { brands: import('./brandWatcherApi').BWPerceptionBrand[] } | null; // five-dimension perception scores
   allBrandPosts?: any[] | null;            // all-brands social snapshot for the swimlane
   laneBrands?: string[] | null;            // lane order (brand display names)
@@ -94,6 +97,99 @@ function articleRow(a: { uri: string; title: string; publication_date: string | 
     <a href="${esc(a.uri)}" target="_blank" rel="noopener noreferrer" class="art-title">${esc(a.title || '(untitled)')}</a>
     <span class="art-meta">${sent}${src ? `<span class="src">${src}</span>` : ''}${date ? `<span class="date">${date}</span>` : ''}</span>
   </div>`;
+}
+
+// ---- App store reviews (docs/APP_STORE_REVIEWS_SPEC.md) -------------------
+
+const APP_LABEL: Record<string, string> = { google_play: 'Android · Google Play', app_store: 'iPhone · App Store' };
+
+/** Weekly average stars as a static sparkline: fixed 1-5 scale, gaps for
+ *  empty weeks, the latest week in the accent, each point titled with its
+ *  week, average and n. */
+function appSparkline(weekly: { week: string; avg: number | null; n: number }[], w = 140, h = 28): string {
+  if (!weekly.some(x => x.avg != null)) return '<span class="muted">no reviews yet</span>';
+  const P = 3, step = (w - 2 * P) / Math.max(1, weekly.length - 1);
+  const x = (i: number) => P + i * step, y = (v: number) => P + ((5 - v) * (h - 2 * P)) / 4;
+  const segs: string[] = []; let cur = '';
+  weekly.forEach((p, i) => {
+    if (p.avg == null) { if (cur) segs.push(cur); cur = ''; return; }
+    cur += `${cur ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.avg).toFixed(1)}`;
+  });
+  if (cur) segs.push(cur);
+  const last = weekly.map(p => p.avg != null).lastIndexOf(true);
+  const dots = weekly.map((p, i) => p.avg == null ? '' :
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(p.avg).toFixed(1)}" r="${i === last ? 3.5 : 2}" fill="${i === last ? '#2a78d6' : '#9ca3af'}" stroke="#fff" stroke-width="${i === last ? 1.5 : 0}"><title>Week of ${esc(p.week)}: ${p.avg.toFixed(2)}★ from ${p.n} review${p.n === 1 ? '' : 's'}</title></circle>`).join('');
+  return `<svg width="${w}" height="${h}" role="img" aria-label="Weekly average stars" style="overflow:visible;vertical-align:middle">`
+    + `<line x1="${P}" x2="${w - P}" y1="${y(3)}" y2="${y(3)}" stroke="#e5e7eb" stroke-dasharray="2 3"/>`
+    + segs.map(dd => `<path d="${dd}" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join('')
+    + dots + '</svg>';
+}
+
+function appWeeksStart(all: { week: string; avg: number | null; n: number }[][]): number {
+  const len = Math.max(0, ...all.map(w => w.length));
+  const firsts = all.map(w => w.findIndex(p => p.n > 0)).filter(i => i >= 0);
+  return firsts.length ? Math.min(Math.min(...firsts), Math.max(0, len - 4)) : Math.max(0, len - 4);
+}
+
+function appReviewsSection(d: BrandReportData, brandName: string): string {
+  const all = d.appRatings?.brands || [];
+  if (!all.length) return '';
+  const mine = all.find(b => d.brand && b.brand_id === d.brand.id);
+  const start = appWeeksStart(all.flatMap(b => b.apps.map(a => a.collected?.weekly || [])));
+  const lowOf = (a: BWAppRating) => (a.collected?.stars_30d?.['1'] || 0) + (a.collected?.stars_30d?.['2'] || 0);
+  const tile = (a: BWAppRating) => {
+    const c = a.collected;
+    const label = `${APP_LABEL[a.store] || a.store} ${a.country.toUpperCase()}`;
+    if (a.rating != null) {
+      const gap = c?.avg_30d != null && c.n_30d >= 5 && Math.abs(c.avg_30d - a.rating) >= 0.3
+        ? ` · recent reviews run ${Math.abs(c.avg_30d - a.rating).toFixed(2)}★ ${c.avg_30d < a.rating ? 'below' : 'above'} it` : '';
+      return statCard(label, `${a.rating.toFixed(2)}★`,
+        `store rating from ${a.review_count != null ? a.review_count.toLocaleString() : '?'} reviews; last 30 days ${c?.avg_30d != null ? `${c.avg_30d.toFixed(2)}★` : '—'} from ${c?.n_30d || 0} reviews, ${lowOf(a)} at 1–2★${gap}`);
+    }
+    return statCard(label, c?.avg_30d != null ? `${c.avg_30d.toFixed(2)}★` : '—',
+      `average of the ${c?.n_30d || 0} reviews we collected in 30 days (the App Store gives no overall rating), ${lowOf(a)} at 1–2★`);
+  };
+  const rows = [...all].sort((a, b) => {
+    if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+    const ra = a.apps.find(x => x.store === 'google_play')?.rating ?? -1;
+    const rb = b.apps.find(x => x.store === 'google_play')?.rating ?? -1;
+    return rb - ra;
+  }).map(b => {
+    const cell = (store: string) => {
+      const a = b.apps.find(x => x.store === store);
+      if (!a) return '<td class="muted" colspan="2">not tracked</td>';
+      const c = a.collected; const n = c?.n_30d || 0;
+      const store_ = a.rating != null ? `<strong>${a.rating.toFixed(2)}★</strong> <span class="muted">store</span><br>` : '';
+      return `<td style="white-space:nowrap">${store_}${c?.avg_30d != null ? `${c.avg_30d.toFixed(2)}★` : '—'} <span class="muted">30d, n=${n}${n > 0 && n < 5 ? ', few reviews' : ''}</span></td>`
+        + `<td>${appSparkline((c?.weekly || []).slice(start))}</td>`;
+    };
+    const low = b.apps.reduce((t, a) => t + lowOf(a), 0);
+    const n = b.apps.reduce((t, a) => t + (a.collected?.n_30d || 0), 0);
+    const self = d.brand && b.brand_id === d.brand.id;
+    return `<tr style="border-top:1px solid var(--border)${self ? ';background:var(--accent-tint)' : ''}">`
+      + `<td style="padding:6px 8px;white-space:nowrap">${self ? `<strong>${esc(b.brand_name)}</strong>` : esc(b.brand_name)}</td>`
+      + cell('google_play') + cell('app_store')
+      + `<td style="white-space:nowrap">${low} <span class="muted">of ${n}${n >= 10 ? ` (${Math.round((100 * low) / n)}%)` : ''}</span></td></tr>`;
+  }).join('');
+  const firstWeek = all.flatMap(b => b.apps).map(a => a.collected?.weekly?.[start]?.week).find(Boolean);
+  const reviews = d.appReviews?.reviews || [];
+  const reviewsHtml = reviews.length
+    ? reviews.slice(0, 8).map(r => `<div style="margin:8px 0"><div class="muted" style="font-style:normal;font-size:11.5px">${esc(r.date)} · ${esc(APP_LABEL[r.store || ''] || r.store || '')} · ${r.stars ?? '?'}★${r.developer_replied ? ' · the company replied' : ''}</div><div>${esc(String(r.text || r.title || '').slice(0, 320))}${String(r.text || '').length > 320 ? '…' : ''}</div></div>`).join('')
+    : '<p class="muted">No 1–2★ reviews in the last 30 days.</p>';
+  return `
+  <section id="apps">
+    <h2>App Reviews${mine ? ` — ${esc(brandName)}` : ''}</h2>
+    <p class="muted" style="font-style:normal;margin:0 0 10px">Collected daily from Google Play and weekly from the App Store. The store rating is Google Play's own average; the 30-day figures are the reviews we collected, with their count (n). An average from fewer than 5 reviews says little.</p>
+    ${mine ? `<div class="stat-grid">${mine.apps.map(tile).join('')}</div>` : ''}
+    <div class="card"><h3>Against competitors</h3>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr class="muted" style="font-style:normal;text-align:left"><th style="padding:6px 8px">Brand</th><th colspan="2">Android · Google Play</th><th colspan="2">iPhone · App Store</th><th>1–2★ in 30 days</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="muted" style="margin:8px 0 0;font-size:11.5px">Sparklines: weekly average since ${esc(firstWeek || '—')}, dashed line = 3★, latest week in blue; hover a point for its n.</p>
+    </div>
+    ${mine ? `<div class="card"><h3>Recent 1–2★ reviews (last 30 days)</h3>${reviewsHtml}</div>` : ''}
+  </section>`;
 }
 
 export function buildBrandWatcherReportHtml(d: BrandReportData): string {
@@ -519,6 +615,7 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
     <a href="#perception">Perception</a>
     <a href="#risk">Risk</a>
     <a href="#workforce">Workforce</a>
+    ${d.appRatings?.brands?.length ? '<a href="#apps">Apps</a>' : ''}
     <a href="#insights">Insights</a>
     <a href="#social">Social</a>
   </nav>
@@ -690,6 +787,8 @@ footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);color
       <div class="card"><h3>Workforce risk findings</h3>${wfRiskRows}</div>
     </div>` : '<div class="card"><p class="muted">No Glassdoor data for this brand — enable the Glassdoor source to populate this section.</p></div>'}
   </section>
+
+  ${appReviewsSection(d, brandName)}
 
   <section id="insights">
     <h2>Insights</h2>

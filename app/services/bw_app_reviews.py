@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -453,3 +453,101 @@ def negative_counts(conn, brand_id: int, baseline_weeks: int) -> Tuple[int, floa
     """), {"b": brand_id, "w": int(baseline_weeks)}).fetchone()
     recent, prior = int(row[0] or 0), int(row[1] or 0)
     return recent, (prior / baseline_weeks if baseline_weeks else 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Daily briefing source
+# ---------------------------------------------------------------------------
+
+BRIEFING_COMPETITOR_MOVE = 0.05   # store rating change over 7 days worth naming
+BRIEFING_COMPETITOR_LOW = 3       # new 1-2 star reviews that make a competitor worth naming
+
+
+def briefing_source(conn, hours: int = 24) -> Optional[Dict[str, Any]]:
+    """App store facts for the daily briefing writer, as one source item, or
+    None when nothing happened.
+
+    The briefing writer and its checks hold every figure and quote to the
+    source items, so this note states plain facts: each app's store rating and
+    its 7-day change, new reviews and new 1-2 star reviews in the window, and
+    up to three short complaints for the primary brand. A competitor is named
+    only when its rating moved or it drew several low-star reviews.
+    """
+    # By the review's own date, not when we stored it: a first run stores a
+    # month of reviews at once. Store review dates carry no time, so the
+    # window starts at the beginning of the day ``hours`` ago.
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    window = "day" if hours == 24 else f"{hours // 24} days" if hours % 24 == 0 else f"{hours} hours"
+    brands = conn.execute(text("""
+        SELECT id, display_name, is_primary, config FROM bw_brands
+         WHERE enabled = true AND config ? 'app_store_targets'
+         ORDER BY is_primary DESC, display_name""")).fetchall()
+    if not brands:
+        return None
+    lines: List[str] = []
+    link = None
+    for bid, name, primary, cfg in brands:
+        cfg = cfg if isinstance(cfg, dict) else json.loads(cfg or "{}")
+        targets = targets_for(cfg, "google_play") + targets_for(cfg, "app_store")
+        new = conn.execute(text("""
+            SELECT DISTINCT ON (a.uri) a.social_meta->>'store', a.social_meta->>'rating',
+                   a.summary, a.publication_date
+              FROM articles a
+              JOIN bw_article_categories c ON c.article_uri = a.uri AND c.brand_id = :b
+             WHERE a.news_source IN ('Google Play', 'App Store')
+               AND a.publication_date >= :since
+             ORDER BY a.uri"""), {"b": bid, "since": since.date().isoformat()}).fetchall()
+        low = [r for r in new if str(r[1]) in ("1", "2")]
+        moves = []
+        for t in targets:
+            if t["store"] != "google_play":
+                continue
+            snaps = conn.execute(text("""
+                SELECT snapshot_date, rating FROM bw_app_snapshots
+                 WHERE brand_id = :b AND store = 'google_play' AND app_id = :a
+                   AND rating IS NOT NULL AND snapshot_date >= CURRENT_DATE - 8
+                 ORDER BY snapshot_date"""), {"b": bid, "a": t["app_id"]}).fetchall()
+            if not snaps:
+                continue
+            latest = float(snaps[-1][1])
+            change = round(latest - float(snaps[0][1]), 2) if len(snaps) > 1 and snaps[0][0] != snaps[-1][0] else None
+            moves.append((latest, change, snaps[0][0]))
+            if primary and link is None:
+                link = store_url(t)
+        moved = any(c is not None and abs(c) >= BRIEFING_COMPETITOR_MOVE for _, c, _ in moves)
+        if not primary and not moved and len(low) < BRIEFING_COMPETITOR_LOW:
+            continue
+        if primary and not new and not moved:
+            continue
+        parts = []
+        for latest, change, since_day in moves:
+            parts.append(f"Google Play rating {latest:.2f} stars"
+                         + (f", {'up' if change > 0 else 'down'} {abs(change):.2f} since {since_day}"
+                            if change else ", unchanged over the week" if change == 0 else ""))
+        parts.append(f"{len(new)} app review{'' if len(new) == 1 else 's'} dated in the last {window}, "
+                     f"{len(low)} of them 1 or 2 stars")
+        line = f"{name}: " + "; ".join(parts) + "."
+        if primary and low:
+            quotes = []
+            for r in low[:3]:
+                q = " ".join(str(r[2] or "").split())
+                if len(q) > 180:
+                    q = q[:180].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+                if q:
+                    quotes.append(f'"{q}" ({"Google Play" if r[0] == "google_play" else "App Store"}, {r[1]} star{"" if str(r[1]) == "1" else "s"})')
+            if quotes:
+                line += " Complaints: " + " ".join(quotes)
+        lines.append(line)
+    if not lines:
+        return None
+    today = datetime.now(timezone.utc).date().isoformat()
+    return {
+        "title": f"App store reviews and ratings, last {window}",
+        "source": "Aunoo app review collection (Google Play and App Store)",
+        "news_source": "App store reviews",
+        "publication_date": today,
+        "summary": " ".join(lines),
+        # One item per day: the store page, with the day as a fragment.
+        "uri": f"{link or 'https://play.google.com/store'}#app-reviews-{today}",
+        "topic": "App store reviews",
+    }

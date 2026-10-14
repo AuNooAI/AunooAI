@@ -1545,6 +1545,25 @@ export async function getAllAppRatings(): Promise<BWAllAppRatings> {
   return res.json();
 }
 
+export interface BWAppReviews {
+  brand: string;
+  brand_id: number;
+  days_back: number;
+  count: number;
+  reviews: { store: string | null; country: string | null; app_id: string | null; date: string;
+             stars: number | null; sentiment: string | null; title: string; text: string | null;
+             original_text: string | null; developer_replied: boolean; found_helpful: number | null;
+             url: string }[];
+}
+
+export async function getAppReviews(brandId: number, opts: { daysBack?: number; maxStars?: number; limit?: number } = {}): Promise<BWAppReviews> {
+  const q = new URLSearchParams({ days_back: String(opts.daysBack ?? 30), limit: String(opts.limit ?? 20) });
+  if (opts.maxStars != null) q.set('max_stars', String(opts.maxStars));
+  const res = await fetch(`${BASE}/brands/${brandId}/app-reviews?${q}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to fetch app reviews: ${res.status}`);
+  return res.json();
+}
+
 export async function getAppRatings(brandId: number): Promise<BWAppRatings> {
   const res = await fetch(`${BASE}/brands/${brandId}/app-ratings`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to fetch app ratings: ${res.status}`);

@@ -1352,6 +1352,28 @@ async def compose_daily_briefing_stream(
                     briefing_id, username, _emerging_to_briefing(t, pick.get("reason", ""), t.get("topic_filter") or "")):
                 staged_e += 1
 
+        # App store reviews and ratings for the brands that list apps, as one
+        # plain-fact item the writer can cite (docs/APP_STORE_REVIEWS_SPEC.md).
+        # Nothing is staged when nothing moved. Best effort: a failure here
+        # never costs the briefing.
+        try:
+            from app.core.modules import is_module_enabled
+            if is_module_enabled("brand_watcher"):
+                from app.services.bw_app_reviews import briefing_source
+                app_conn = db._temp_get_connection()
+                try:
+                    app_item = briefing_source(app_conn, hours=24)
+                finally:
+                    app_conn.close()
+                if app_item and facade.add_article_to_desk_briefing(
+                        briefing_id, username,
+                        _article_to_briefing(app_item, "Daily app store reviews and ratings for the brands we track",
+                                             app_item["topic"])):
+                    staged_a += 1
+                    diag["app_reviews_item"] = True
+        except Exception as app_err:  # noqa: BLE001
+            logger.warning(f"[compose] app review item not staged: {app_err}")
+
         staged_anything = bool(staged_a or staged_i or staged_e)
         yield _evt("stage", "completed",
                    f"Staged {staged_a} articles, {staged_i} incidents, {staged_e} emerging topics",

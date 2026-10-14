@@ -6850,6 +6850,26 @@ async def get_employee_risk(
         conn.close()
 
 
+@router.get("/brands/{brand_id}/app-reviews")
+async def get_brand_app_reviews(
+    brand_id: int,
+    days_back: int = Query(30, ge=1, le=730),
+    max_stars: Optional[int] = Query(None, ge=1, le=5),
+    store: Optional[str] = Query(None, description="google_play or app_store"),
+    limit: int = Query(20, ge=1, le=500),
+    session=Depends(verify_session),
+):
+    """Review text for one brand, newest first, with no reviewer names. The
+    same reader as the MCP tool get_app_reviews."""
+    from app.mcp_access.brand_tools import get_app_reviews
+    from app.mcp_access.errors import ToolError
+    try:
+        return await get_app_reviews(brand_id=brand_id, days_back=days_back, store=store,
+                                     max_stars=max_stars, limit=limit)
+    except ToolError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/app-ratings")
 async def get_all_app_ratings(session=Depends(verify_session)):
     """Every enabled brand that lists apps, primary first, each in the shape of

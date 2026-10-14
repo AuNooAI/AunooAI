@@ -45,7 +45,7 @@ import {
   listIncidents, createIncident,
   attachIncidentEvidence,
   getEmployeeRisk, getRiskSummary, getRiskAssessment, updateBrandConfig, pollOfficialSourcesNow,
-  getAppRatings, getAllAppRatings, type BWAppRatings, type BWAppRating, type BWAllAppRatings,
+  getAppRatings, getAllAppRatings, getAppReviews, type BWAppRatings, type BWAppRating, type BWAllAppRatings,
   runSignals, getSignalsDetail, getPerception,
   type BWAlertConfig, type BWAlertEvent, type BWBrandSources,
   type BWArticleSignals,
@@ -2256,7 +2256,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     setExportingReport(true);
     try {
       // Pre-fetch all tab data in parallel
-      const fetches: Promise<any>[] = [fetchComparison(), fetchShareOfVoice()];
+      const fetches: Promise<any>[] = [fetchComparison(), fetchShareOfVoice(),
+        // The comparison view's app ratings table is part of the PDF.
+        getAllAppRatings().then(setAllAppRatings).catch(console.error)];
       if (primarySelectedId) {
         fetches.push(
           getSentimentTrends(primarySelectedId, config.daysBack)
@@ -2313,6 +2315,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         getPerception(config.daysBack).catch(() => null),
       ]);
       const assessD = bid ? await getRiskAssessment(bid).catch(() => riskAssessment) : null;
+      const [appRatingsD, appReviewsD] = await Promise.all([
+        getAllAppRatings().catch(() => allAppRatings),
+        bid ? getAppReviews(bid, { maxStars: 2, daysBack: 30, limit: 8 }).catch(() => null) : Promise.resolve(null),
+      ]);
       downloadBrandWatcherReport({
         brand: selectedBrand,
         daysBack: config.daysBack,
@@ -2330,6 +2336,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         allBrandPosts: lanePostsD,
         laneBrands: brands.map(b => b.display_name),
         perception: perceptionD,
+        appRatings: appRatingsD,
+        appReviews: appReviewsD,
         generatedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -2339,7 +2347,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [primarySelectedId, selectedBrand, config.daysBack, config.selectedTopics, stats, categories,
       comparison, shareOfVoice, social, sentimentTrends, brandAlerts, narrative,
-      brands, riskSummary, riskAssessment, employeeRisk, benchPosts]);
+      brands, riskSummary, riskAssessment, employeeRisk, benchPosts, allAppRatings]);
 
   // --- Dedicated Social report (HTML) — social listening only, not the full brand report ---
   const handleExportSocialReport = useCallback(async () => {
