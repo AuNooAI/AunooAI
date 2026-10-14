@@ -94,12 +94,12 @@ _DAY_SYSTEM = """You read a batch of news articles about {topic} and list the de
 Types: incident (needs response: layoffs, breaches, regulatory action, lawsuits, failures), event (launches, funding, partnerships, pilots, milestones), entity (an organisation, person or product newly worth tracking), expertise (expert analysis or warnings), informed_insider (leaks, internal memos), trend_signal (adoption or market shifts), strategic_shift (policy pivots, strategic realignment).
 
 For each distinct development output one JSON object with short keys:
-{{"n": "factual headline", "t": "type", "st": "subtype, e.g. regulatory_action, mna, product_launch, funding_round, expert_warning, adoption_trend", "s": "high|medium|low", "a": [numbers of the articles that report it], "d": "YYYY-MM-DD when the articles state the event date, else null", "x": "one factual sentence: who did what"}}
+{{"n": "factual headline", "t": "type", "st": "subtype, e.g. regulatory_action, mna, product_launch, funding_round, expert_warning, adoption_trend", "s": "high|medium|low", "a": [numbers of the articles that report it], "d": "YYYY-MM-DD when the articles state the day, YYYY-MM when they state only the month, else null", "x": "one factual sentence: who did what"}}
 
 Rules:
 - Several articles about the same development go in one object.
 - Be inclusive: anything newsworthy gets an object. Skip only items with no news in them (how-to guides, listicles, ads, event listings).
-- "d" is the date the event happened as an article states it. Never use a publication date there; never guess a year.
+- "d" is the date the event happened as an article states it. Never use a publication date there; never guess a year; never add a day the article does not give ("in June 2026" is 2026-06, not 2026-06-01).
 - Lower significance for low-credibility or fringe sources and for self-reported extraordinary claims.
 Output a JSON array only."""
 
@@ -153,7 +153,7 @@ async def _read_batch(req, topic: str, articles: List[Dict], prof: str) -> List[
             "significance": str(r.get("s") or "medium").lower(),
             "description": str(r.get("x") or "")[:600],
             "article_uris": [a["uri"] for a in cited],
-            "event_date": d if isinstance(d, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", d) else None,
+            "event_date": d if isinstance(d, str) and re.match(r"^\d{4}-\d{2}(-\d{2})?$", d) else None,
             "published": pubs[0] if pubs else None,
         })
     return out

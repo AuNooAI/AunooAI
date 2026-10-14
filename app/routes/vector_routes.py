@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
 import re
@@ -1829,6 +1829,48 @@ _MONTH_YEAR = re.compile(r"\b(" + _MONTH_NAMES + r")\.?(\s+\d{1,2}(?:st|nd|rd|th
 
 
 _FULL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December"]
+
+
+def demote_unstated_event_day(inc: Dict, cited: List[Dict]) -> None:
+    """Keep only the month of an event date whose day no cited article states.
+
+    The daily reading pads "in June" to 2026-06-01 and sometimes invents a
+    day outright (wileytest, 14 Oct 2026: the OpenAI Medicare and Gemini
+    incidents, both reported in September, showed 01.06.2026 and
+    01.05.2026). A full date stays when a cited title or summary names that
+    day ("June 18", "18 June", the ISO date), or when it falls within a week
+    before a cited article's publication date, where "on Monday" is how
+    articles state it. Otherwise the year-month goes to event_period and the
+    card shows when the story was reported.
+    """
+    ev = inc.get("event_date")
+    if not (isinstance(ev, str) and _FULL_DATE.match(ev.strip()[:10])) or not cited:
+        return
+    ev = ev.strip()[:10]
+    try:
+        ev_d = datetime.strptime(ev, "%Y-%m-%d").date()
+    except ValueError:
+        inc["event_date"] = None
+        return
+    for a in cited:
+        try:
+            pub = datetime.strptime(str(a.get("publication_date") or "")[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if timedelta(0) <= pub - ev_d <= timedelta(days=7):
+            return
+    text = " ".join(f"{a.get('title') or ''} {a.get('summary') or ''}" for a in cited)
+    month = _MONTHS[ev_d.month - 1]
+    names = f"{month}|{month[:3]}" + ("|Sept" if ev_d.month == 9 else "")
+    day = rf"0?{ev_d.day}(?:st|nd|rd|th)?"
+    if ev in text or re.search(rf"\b(?:{names})\.?\s+{day}\b|\b{day}\s+(?:of\s+)?(?:{names})\b", text, re.I):
+        return
+    inc["event_period"] = ev[:7]
+    inc["event_date"] = None
+    if isinstance(inc.get("timeline"), dict):
+        inc["timeline"]["event_date"] = None
 
 
 def date_incident_timeline(inc: Dict) -> None:
@@ -2519,6 +2561,7 @@ async def incident_tracking_job(job_id: str, session=Depends(verify_session_opti
 
 WRITE_UP_CHUNK = 10
 WRITE_UP_ARTICLES = 6
+DATE_CHECK_ARTICLES = 40
 
 
 async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
@@ -2532,7 +2575,10 @@ async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
         return incidents, 0
     picked = {i: [u for u in (inc.get('article_uris') or []) if isinstance(u, str)][:WRITE_UP_ARTICLES]
               for i, inc in enumerate(incidents)}
-    uris = sorted({u for us in picked.values() for u in us})
+    # Dates are checked against more of the cited articles than the write-up reads.
+    checked = {i: [u for u in (inc.get('article_uris') or []) if isinstance(u, str)][:DATE_CHECK_ARTICLES]
+               for i, inc in enumerate(incidents)}
+    uris = sorted({u for us in checked.values() for u in us})
 
     def _rows():
         conn = db._temp_get_connection()
@@ -2545,6 +2591,8 @@ async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
             conn.close()
 
     rows = await asyncio.to_thread(_rows)
+    for i, inc in enumerate(incidents):
+        demote_unstated_event_day(inc, [rows[u] for u in checked[i] if u in rows])
     system_prompt = await asyncio.to_thread(_incident_system_prompt, req, db)
     sem = asyncio.Semaphore(4)
     written = {}
@@ -2613,6 +2661,8 @@ async def _write_up_incidents(req, incidents: List[Dict], db) -> tuple:
         if isinstance(ev, str) and newest and ev[:10] > newest:
             inc["event_period"] = ev
             inc["event_date"] = None
+        demote_unstated_event_day(inc, [rows[u] for u in (inc.get("article_uris") or [])[:DATE_CHECK_ARTICLES]
+                                        if u in rows])
         date_incident_timeline(inc)
     return out, len(written)
 
