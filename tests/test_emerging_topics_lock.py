@@ -77,7 +77,13 @@ def test_two_different_scopes_run_concurrently():
 
 def test_the_global_scope_does_not_block_a_named_scope():
     everything = DetectionRunLock(None)
-    everything.acquire()
+    try:
+        everything.acquire()
+    except DetectionAlreadyRunning:
+        # The tests share the live site's database. When the site's own
+        # detection run holds the global scope (14 Oct 2026, in a full-suite
+        # run slowed to ten minutes), there is nothing for this test to take.
+        pytest.skip("a live detection run holds the global scope")
     try:
         named = DetectionRunLock("lock-test-named")
         named.acquire()

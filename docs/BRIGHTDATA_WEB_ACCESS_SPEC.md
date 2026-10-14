@@ -253,3 +253,13 @@ about 1.5 hours more once the terms question is answered.
   characters. The page's own text can't close the block early.
 - **Refinement-stage web results aren't fetched.** Only the planner queries' results are, after
   sampling, three per query.
+- **Retry (14 Oct 2026, later).** Shortening the queries didn't help. The planner's queries are
+  already 5–8 keywords, and cutting six real ones to four words gave results 4 times out of 6,
+  against 5 out of 6 at full length. Repeating the same query showed the failures are random:
+  "Palo Alto Networks agentic" gave 8 results and then none, and "Microsoft Security Copilot
+  agentic" gave none and then 8. So a search that comes back empty, unreadable or timed out is
+  tried once more (`BRIGHTDATA_WEB_SEARCH_ATTEMPTS`, default 2). A refusal, such as a spent
+  budget or a tool that isn't allowed, is not retried. Every attempt counts against both
+  budgets. In the live check, 4 of the 6 planner queries returned results, and the retry turned
+  one empty answer into 9 results. A search can now take up to 90 seconds before it falls
+  through to the next provider.

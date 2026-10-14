@@ -239,3 +239,60 @@ def test_deep_research_fetches_three_per_query_and_drops_off_topic(env, monkeypa
     assert "https://internal/1" not in fetched
     texts = [a for a in state.raw_results if a.get("_web_page_text")]
     assert all("Oviva" in a["_web_page_text"] for a in texts)
+
+
+# ---------------------------------------------------------------------------
+# Retry (measured 14 Oct 2026: the same query gave 8 results, then none)
+# ---------------------------------------------------------------------------
+
+def _sequence(*answers):
+    """A transport that gives each answer in turn: a dict is a search result,
+    an exception is raised."""
+    calls = []
+
+    async def t(name, args, timeout):
+        a = answers[len(calls)]
+        calls.append(name)
+        if isinstance(a, BaseException):
+            raise a
+        return WRAP.format(body=json.dumps(a))
+    return t, calls
+
+
+def test_an_empty_search_is_tried_once_more(env):
+    t, calls = _sequence({"organic": []}, SERP)
+    out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert out["total_results"] == 2 and len(calls) == 2 and env.calls == 2
+
+
+def test_a_timed_out_search_is_tried_once_more(env):
+    t, calls = _sequence(asyncio.TimeoutError(), SERP)
+    out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert out["total_results"] == 2 and len(calls) == 2
+
+
+def test_two_empty_answers_give_up(env):
+    t, calls = _sequence({"organic": []}, {"organic": []}, SERP)
+    out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert out["articles"] == [] and "no results" in out["error"] and len(calls) == 2
+
+
+def test_a_refusal_is_not_retried(env):
+    env.res = _Res(ok=False, reason="budget")
+    t, calls = _sequence(SERP, SERP)
+    out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert "budget" in out["error"] and calls == [] and env.calls == 1
+
+
+def test_the_retry_respects_the_run_budget(env):
+    t, calls = _sequence({"organic": []}, SERP)
+    with bw.use_budget(bw.new_run_budget(1)):
+        out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert "run" in out["error"] and len(calls) == 1
+
+
+def test_attempts_are_configurable(env, monkeypatch):
+    monkeypatch.setenv("BRIGHTDATA_WEB_SEARCH_ATTEMPTS", "1")
+    t, calls = _sequence({"organic": []}, SERP)
+    out = asyncio.run(bw.web_search("alpha", transport=t))
+    assert out["articles"] == [] and len(calls) == 1

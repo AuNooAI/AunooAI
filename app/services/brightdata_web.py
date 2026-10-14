@@ -131,7 +131,13 @@ def use_budget(budget: Optional[RunBudget]) -> Iterator[Optional[RunBudget]]:
 # ---------------------------------------------------------------------------
 
 class BrightDataWebError(RuntimeError):
-    pass
+    """``retryable`` is True for a failure another attempt may not repeat (a
+    timeout, a transport or server error) and False for a refusal (budget
+    spent, tool not allowed, not configured)."""
+
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 def _daily_allowance() -> Optional[str]:
@@ -178,7 +184,7 @@ async def _session_call(name: str, args: Dict[str, Any], timeout: float) -> str:
                 res = await s.call_tool(name, args)
                 textv = "".join(getattr(c, "text", "") or "" for c in res.content)
                 if getattr(res, "isError", False):
-                    raise BrightDataWebError(textv[:300] or "tool error")
+                    raise BrightDataWebError(textv[:300] or "tool error", retryable=True)
                 return textv
     return await asyncio.wait_for(go(), timeout=timeout)
 
@@ -199,14 +205,14 @@ async def _call(name: str, args: Dict[str, Any], timeout: float, transport=None)
     try:
         return _unwrap(await (transport or _session_call)(name, args, timeout))
     except BrightDataWebError as e:
-        raise BrightDataWebError(_redact(e)) from None
+        raise BrightDataWebError(_redact(e), retryable=e.retryable) from None
     except asyncio.TimeoutError:
-        raise BrightDataWebError(f"{name} timed out after {timeout:.0f}s") from None
+        raise BrightDataWebError(f"{name} timed out after {timeout:.0f}s", retryable=True) from None
     except BaseException as e:                               # noqa: BLE001
         # The MCP client raises exception groups carrying the URL.
         if isinstance(e, (KeyboardInterrupt, SystemExit, asyncio.CancelledError)):
             raise
-        raise BrightDataWebError(f"{name} failed: {_redact(e)[:300]}") from None
+        raise BrightDataWebError(f"{name} failed: {_redact(e)[:300]}", retryable=True) from None
 
 
 # ---------------------------------------------------------------------------
@@ -217,20 +223,55 @@ def _empty(query: str, error: str) -> Dict[str, Any]:
     return {"error": error, "query": query, "total_results": 0, "articles": []}
 
 
+#: Attempts per search. Measured 14 Oct 2026: the same query returned eight
+#: results on one try and none on the next, in both orders, so an empty or
+#: timed-out search is worth one more try; a query empty three times running
+#: ("LG Energy Solution Panasonic battery cell pricing lithium market") was not.
+DEFAULT_SEARCH_ATTEMPTS = 2
+
+
+async def _search_once(query: str, timeout: float, transport) -> List[Dict[str, Any]]:
+    """The organic results of one search. Raises BrightDataWebError; an
+    unreadable answer counts as retryable."""
+    raw = await _call("search_engine", {"query": query}, timeout, transport)
+    try:
+        return list(json.loads(raw).get("organic") or [])
+    except (ValueError, AttributeError):
+        raise BrightDataWebError("Bright Data search returned no readable results",
+                                 retryable=True) from None
+
+
 async def web_search(query: str, max_results: int = 10, *, transport=None) -> Dict[str, Any]:
-    """Google results through Bright Data, in ``google_web_search``'s shape."""
-    try:
-        timeout = float(_int_env("BRIGHTDATA_WEB_SEARCH_TIMEOUT", int(DEFAULT_SEARCH_TIMEOUT)))
-        raw = await _call("search_engine", {"query": query}, timeout, transport)
-    except BrightDataWebError as e:
-        logger.info("brightdata web search unavailable: %s", e)
-        return _empty(query, str(e))
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        return _empty(query, "Bright Data search returned no readable results")
+    """Google results through Bright Data, in ``google_web_search``'s shape.
+
+    An empty, unreadable or timed-out search is tried again, up to
+    ``BRIGHTDATA_WEB_SEARCH_ATTEMPTS`` in all. A refusal (budget spent, tool
+    not allowed) is not, and every attempt counts against both budgets.
+    """
+    timeout = float(_int_env("BRIGHTDATA_WEB_SEARCH_TIMEOUT", int(DEFAULT_SEARCH_TIMEOUT)))
+    attempts = max(1, _int_env("BRIGHTDATA_WEB_SEARCH_ATTEMPTS", DEFAULT_SEARCH_ATTEMPTS))
+    organic: List[Dict[str, Any]] = []
+    last_error = "Bright Data search returned no results"
+    for attempt in range(1, attempts + 1):
+        try:
+            organic = await _search_once(query, timeout, transport)
+        except BrightDataWebError as e:
+            last_error = str(e)
+            if not e.retryable:
+                break
+            if attempt < attempts:
+                logger.info("brightdata web search attempt %d failed (%s); trying again", attempt, e)
+            continue
+        if organic:
+            break
+        last_error = "Bright Data search returned no results"
+        if attempt < attempts:
+            logger.info("brightdata web search attempt %d came back empty; trying again", attempt)
+    if not organic:
+        logger.info("brightdata web search unavailable: %s", last_error)
+        return _empty(query, last_error)
     articles = []
-    for item in (data.get("organic") or [])[:max_results]:
+    for item in organic[:max_results]:
         link = item.get("link") or ""
         if not link:
             continue
