@@ -1069,7 +1069,8 @@ async def _profile_voices(conn, market: Dict[str, Any], now: datetime) -> int:
     last run was on 8 Sep, and 24 of the market's top 30 voices showed no
     role, so a promoter and an analyst looked the same in the Social panel.
     The daily cap keeps the xpoz key, which other sites share, and the model
-    spend small; the job runs in the background like the button's.
+    spend small. The tick waits for the job: it runs under asyncio.run, which
+    cancels a task left pending when the tick returns (see mvp.wait).
     """
     market_id = market["id"]
     per_day = _profiles_per_day()
@@ -1090,10 +1091,16 @@ async def _profile_voices(conn, market: Dict[str, Any], now: datetime) -> int:
         todo = [v for v in voices
                 if (v.get("platform") or "").lower() in mvp.PROFILABLE
                 and not (v.get("account") or {}).get("profiled")][:per_day]
-        job = mvp.start_many(get_database_instance(), market_id,
-                             market["name"], todo)
-        mc.close_run(conn, run_id, status="succeeded",
-                     received=len(voices), new=job.get("total", 0))
+        conn.commit()  # no transaction held open across the minutes the job takes
+        mvp.start_many(get_database_instance(), market_id, market["name"], todo)
+        job = await mvp.wait(market_id)
+        failed = int(job.get("failed") or 0)
+        mc.close_run(conn, run_id,
+                     status="partial" if failed and job.get("built") else
+                            "failed" if failed else "succeeded",
+                     received=len(voices), new=int(job.get("built") or 0),
+                     skipped=failed,
+                     error="; ".join(job.get("errors") or [])[:500] or None)
         conn.commit()
     except Exception as exc:  # noqa: BLE001
         conn.rollback()

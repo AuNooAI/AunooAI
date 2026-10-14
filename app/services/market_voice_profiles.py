@@ -44,6 +44,22 @@ def status(market_id: Any) -> Dict[str, Any]:
     return {k: v for k, v in job.items() if k != "task"}
 
 
+async def wait(market_id: Any) -> Dict[str, Any]:
+    """Wait for the job under ``market_id`` to finish, and return its status.
+
+    A job is a task on the loop that started it. The scheduler's tick runs
+    under ``asyncio.run`` on its own thread (97bd00af, 9 Oct 2026), which
+    cancels every task still pending when the tick returns, so a job the tick
+    starts and leaves behind is cancelled before it profiles anyone. From
+    10 Oct to 14 Oct the scheduled runs reported 25 queued and built none.
+    """
+    job = _JOBS.get(market_id) or {}
+    task = job.get("task")
+    if task is not None:
+        await asyncio.shield(task)
+    return status(market_id)
+
+
 def running(market_id: Any) -> bool:
     job = _JOBS.get(market_id)
     return bool(job and job.get("state") == "running")
