@@ -1,6 +1,6 @@
 # App store reviews as a Brand Watcher source — spec
 
-Status: built on bugfixing 14 Oct 2026, not yet on oviva. First customer site: oviva.aunoo.ai.
+Status: built on bugfixing 14 Oct 2026; backend live on oviva 14 Oct 2026 (no ratings card yet, see "Oviva go-live"). First customer site: oviva.aunoo.ai.
 Code: `app/services/bw_app_reviews.py`, wired in through `bw_official_sources.py`; migration
 `bw_app_001`; tests `tests/test_bw_app_reviews.py`. See "As built" at the end for where the
 build differs from the design below.
@@ -301,3 +301,25 @@ Where the build differs from the design above:
   50-review cap per call and never lands old reviews.
 - **The ratings card** is on the brand dashboard, under the summary cards. It shows only when the
   brand has snapshots.
+
+## Oviva go-live (14 Oct 2026)
+
+- **Apps configured on brand 1 (Oviva):** Google Play `com.rementr` (GB, English) and App Store
+  `899484812`, "Oviva: Weight Loss Plan & Coach" (gb). A free search found the App Store ID, and
+  the developer link in the same results names Oviva AG. The German DiGA apps
+  (`com.rementr.diga`, App Store `1556652646`) are left out, because the Oviva site covers the UK
+  programme. `app_review_author_role` is `patient`. Glassdoor stays on.
+- **Code:** patched in, not copied, with backups `*.bak-appreviews-20261014`. Migration
+  `bw_app_001` uses `down_revision` `ts_011`. The 12 tests pass on oviva.
+- **First run, started by hand at 17:19:**
+  - Google Play returned 41 reviews from the last 30 days. The app is rated 4.56 from 30,685
+    reviews, with 413,777 downloads.
+  - **One App Store call returned 50 reviews.** That is the first measurement, and 14 of them
+    fell inside the 30 days. None had a developer reply.
+  - 91 records in all, about $0.23 at $2.50 per 1,000.
+  - 55 reviews landed and were linked to the brand. 47 were positive, 4 neutral and 4 negative.
+    None was flagged by the risk check.
+- **No ratings card yet.** Oviva's UI bundle was rebuilt on 6 Oct (`index-C4VEdyGh.js`) from a
+  base nobody recorded. Adding the card means finding that base first, as in the 2 Oct recovery
+  (see the UI-build-from-HEAD note), so a rebuild doesn't roll Oviva's pages back. The alert
+  rules run with their default thresholds until the settings rows ship with the card.
