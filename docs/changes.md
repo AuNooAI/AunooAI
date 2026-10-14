@@ -1,5 +1,337 @@
 # Changes
 
+## 2026-10-14 — App store reviews for Oviva and its competitors, health side-effect alerts, Bright Data web search for deep research, voice profiling restored on six sites
+
+### Goal
+Oliver asked what Bright Data's MCP server could add, then asked for app store reviews for Oviva
+(and later its competitors, available through MCP), web search for Auspex, and a fix for
+aisecwire's voices card, which showed only Bluesky accounts. Fixing the card turned up a broken
+scheduler on six sites.
+
+### Feature · App store reviews as a Brand Watcher source (`bb4c2175`, `ed6b6efc`)
+- **What it does:** a brand lists its apps in `bw_brands.config.app_store_targets`, one entry per
+  app per country store, and turns on the `google_play` / `app_store` official sources. Each new
+  review lands as a brand post (`news_source` "Google Play" / "App Store", category Brand
+  Sentiment & Perception). Spec: `docs/APP_STORE_REVIEWS_SPEC.md`.
+- **`app/services/bw_app_reviews.py`** (new) calls Bright Data's review scrapers through the
+  existing REST client (`LinkedInDatasetClient.scrape_sync`), not MCP:
+  - Google Play is `gd_m6zagkt024uwvvwuyu`, with `start_date` set to the cursor, `country`,
+    `language`, and at most 50 reviews per call.
+  - The App Store is `gd_m734msue16e0adkbit`. It takes a URL only, so our code drops reviews
+    older than the cursor.
+  - Reviewer names are never stored, because health app reviews describe the writer's own
+    conditions. Non-English reviews are translated when they land.
+  - `config.app_review_author_role` sets who wrote the review (`patient` for Oviva and its
+    competitors, `customer` by default).
+- **`app/services/bw_official_sources.py`** gains the two sources and `_poll_app_reviews`. The
+  cursor moves only when every target succeeded.
+  - The App Store is polled weekly (`BW_APP_STORE_POLL_DAYS`, default 7), because its scraper
+    returns the latest 50 reviews whatever their age, and up to 500 for a big app.
+  - Google Play stays daily.
+- **New tables:** migration `bw_app_001` adds `bw_app_snapshots` (each app's rating, review count
+  and downloads per day) and `bw_app_review_calls` (one row per scraper call). The call log
+  enforces `BW_APP_REVIEWS_MONTHLY_RECORDS` (default 4,000, about $10 at $2.50 per 1,000 records)
+  and is what we check against the bill. We didn't use the shared host ledger, because it
+  counts requests per key across sites, not records per site.
+- **Alerts:** `app_rating_drop` (a fall of 0.1 or more within 35 days, readings at least 7 days
+  apart) and `app_negative_spike` (1–2 star reviews at double the weekly average of the 8 weeks
+  before, with at least 5 of them), in `brand_watcher_monitor.py`.
+- **Elsewhere in the app:** `social_sources.classify_source` maps both stores to the `community`
+  channel, so reviews count as voices, not press. The perception breakdown counts them as
+  `app_reviews`. `GET /api/brand-watcher/brands/{id}/app-ratings` feeds an "App ratings" card on
+  the brand dashboard and two rows in the alert settings (`BrandWatcherTab.tsx`).
+- **Unfinished scrapes (`ed6b6efc`):** for WeightWatchers' App Store page, Bright Data handed back
+  a "still in progress" note with a snapshot ID instead of reviews. We counted that note as one
+  record and the cursor moved on. Now `_scrape` waits up to 5 minutes for the snapshot, or fails
+  the call so the next poll fetches the day again.
+
+### Feature · App review tools on the MCP server (`ed6b6efc`)
+- `get_app_ratings` returns ratings for one brand, or for every brand that lists apps, so a brand
+  can be compared with its competitors.
+- `get_app_reviews` returns review text, newest first, filterable by `store` and `max_stars`,
+  with no reviewer names.
+- Both are in `app/mcp_access/brand_tools.py` and `tools.py`. The `brand_briefing` recipe gains
+  step 6, which uses them.
+
+### Feature · Bright Data web search and full-page text in Auspex deep research (`67ce069e`, `bc7a9b43`)
+- **Google search was already dead on bugfixing.** Google Programmable Search answered every
+  request with 403 `API_KEY_SERVICE_BLOCKED`, so deep research's web searches all fell through to
+  TheNewsAPI's last 7 days.
+- **`app/services/brightdata_web.py`** (new) calls Bright Data's MCP server for two tools only:
+  `search_engine` and `scrape_as_markdown`.
+  - The URL names them in `tools=`, and the code refuses any other tool name. This matters
+    because `run_scraper`, which bills per record, is on even when no tool groups are switched
+    on.
+  - The token is redacted from every log line and error.
+  - Budgets: 150 calls a day per Bright Data token across all sites (host
+    `quota_policy.json`), and 25 per research run.
+- **`AuspexToolsService.web_search`** tries Bright Data, then Google. `search_router` uses it in
+  both the external and the hybrid branch.
+- **Deep research fetches pages.** After sampling, it fetches the full text of up to 3 web results
+  per planner query. It drops pages that don't mention the query, and passes the rest to
+  synthesis inside a quoted-web-page block. Nothing fetched is stored.
+- **Retry (`bc7a9b43`):** a search that comes back empty, unreadable or timed out is tried once
+  more (`BRIGHTDATA_WEB_SEARCH_ATTEMPTS`, default 2). We measured that shortening the queries
+  doesn't help. See Verification.
+- **`scripts/brightdata_mcp_tools.py`** saves the free tool list to
+  `docs/brightdata_mcp_tools.json`.
+- **Phase 2 is not built.** That would offer search and fetch to customers through `/mcp`, and it
+  waits on Bright Data's terms.
+
+### Fix · Scheduled voice profiling built nothing on six sites since 9 Oct (`d48d907b`)
+- **The symptom:** aisecwire's "Influence and Influencers" card showed only Bluesky accounts. It
+  had 145 X posts from 143 authors and 79 Reddit posts from 53 authors, none of them profiled.
+- **The cause:** since `97bd00af` (9 Oct), the market tick runs under `asyncio.run` on its own
+  thread. `_profile_voices` started the profiling job with `asyncio.create_task` and returned, and
+  `asyncio.run` cancelled the task when the tick ended. A cancellation isn't logged, so every
+  scheduled run from 10 Oct was recorded as "succeeded, 25 queued" and built none. Bugfixing fell
+  from 26–50 profiles a day to the 2–6 started by hand.
+- **The fix:** the step commits, starts the job, and awaits it through a new
+  `market_voice_profiles.wait()`. It then records what was built and what failed.
+  `tests/test_market_voice_profiles_schedule.py` fails without the wait.
+
+### Feature · The voices card keeps places for each platform (`516c01f0`)
+Ranked by followers alone, the card's ten open places went to one platform. X follower counts
+dwarf Reddit's, so aisecwire showed no Reddit voice although seven qualified, and bugfixing's AI
+in the SOC card was all X.
+- `_keep_platform_places` gives each platform up to 2 of the 10 open places
+  (`_V2_VOICES_PER_PLATFORM`).
+- `_v2_tracked_voices` now fetches the top voices per platform instead of the top 20 overall.
+
+### Fix · Bots no longer get a person's role (`0f8d4e22`)
+The model read automated accounts as people. aisecwire listed reddit/ClaudeAI-mod-bot as a
+practitioner, and bugfixing had skypilot-bot, cscr-bot and four news-mirror bots as analyst or
+press.
+- **`social_profile_service.looks_automated`** catches "bot" as a part of the handle or display
+  name, a feed-style "<word>bot" from a fixed prefix list (not jtalbot or abbot), AutoModerator,
+  `[bot]` and `:bot:` labels, and bios that say the account posts automatically or from RSS.
+- **`_market_meta`** moves practitioner and analyst-or-press readings to `promoter_or_bot` and
+  records why in `metadata.automated`. Vendor readings stand, because they feed vendor linking.
+- **The role prompt** says software-run accounts are `promoter_or_bot`.
+- **`scripts/mark_automated_accounts.py`** corrected stored profiles: bugfixing 6, aisecurity 1,
+  and 0 on abm, oviva, panaya, sunstar and wileytest.
+
+### Fix · Topic names without trend words (`21e2d560`)
+The model named a market topic "Prophet Security funding and momentum". "Funding and momentum" is
+banned report copy, so `test_front_page_has_no_banned_copy_patterns` failed on live data.
+- The grouping prompt now rules out "momentum", "traction", "rapidly evolving" and "landscape".
+- `market_topics.tidy_name` strips them. It keeps "Momentum Cyber" (a capitalised word follows),
+  and leaves a name alone if fewer than two words would remain.
+- `latest()` tidies names in stored runs, so existing topics read correctly without a new model
+  call.
+
+### Fix · Tests that failed on other sites' or the live site's activity (`5a25096c`, `bc7a9b43`)
+- **`test_observer_readable_rule`** now also reads `incident_days.py`. The incident query moved
+  there in `0e0ce9eb` and still applies the readable rule through `_base_filter()`.
+- **`test_emerging_topics_lock`** filters `pg_locks` to the current database. wileytest's own
+  detection run held the same advisory key in its own database. The leak test now compares with
+  the count before it ran, and the global-scope test skips when the live site holds that scope.
+- **`test_market_corpus_excluded`** asks for its one row through `uris=`. The newest match was a
+  February 2025 post re-matched that day, which sorted past the first 2,000 rows.
+
+### Ops/config
+- **bugfixing `.env`:** `BRIGHTDATA_MCP_TOKEN` (a different key from `BRIGHTDATA_API_KEY`) and
+  `BRIGHTDATA_MCP_GROUPS`. Backup `.env.bak-brightdata-mcp-20261013`.
+- **Host `/home/orochford/tenants/_shared/quota_policy.json`:**
+  `"brightdata_web": {"period": "day", "budget": 150}`. Backup
+  `quota_policy.json.bak-brightdata-web-20261014`.
+- **Oviva brand settings (`bw_brands.config`):**
+
+  | Brand | Google Play | App Store |
+  |---|---|---|
+  | Oviva (1) | `com.rementr` (GB) | `899484812` (gb) |
+  | Second Nature | `uk.co.ourpath.android` | `885435960` |
+  | Numan | `com.numan.healthcare` | `1624465181` |
+  | Voy | `co.manual.voy` | `6471655955` |
+  | Juniper | `vc.eucalyptus.juniper` | `1661064221` |
+  | Noom | `com.wsl.noom` | removed (500 reviews per call) |
+  | WeightWatchers | `com.weightwatchers.mobile` | removed (500 reviews per call) |
+  | Zanadio | `de.aidhere.zanadio` (DE) | `1499824614` (de) |
+  | HelloBetter | `de.hellobetter.companion` (DE) | not found |
+
+  - We checked each Google Play developer by fetching the store page. The App Store IDs come from
+    search results.
+  - The previous settings are kept only in this session's scratchpad.
+- **Docs:** `docs/BRIGHTDATA_WEB_ACCESS_SPEC.md`, `docs/BRIGHTDATA_BRAND_MARKET_SOURCES.md` (the
+  options review for Brand Watcher and the Market Monitor, with dataset IDs from Bright Data's
+  catalog), `docs/APP_STORE_REVIEWS_SPEC.md`, `docs/brightdata_mcp_tools.json`.
+
+### Feature · App ratings card: a tile per app, with a trend and n (`ca5e5940`)
+The first card showed raw app IDs, a dash for the App Store (which gives no overall rating), and no
+trend or sample size (Oliver: "looks basic … shows not rated apps").
+- **`/brands/{id}/app-ratings`** now lists the brand's configured apps only. For each app it adds
+  what we collected: the 30-day average and its count, the 30 days before, the 30-day split by
+  stars, and a weekly average for the last 12 weeks.
+- **Each tile** leads with the store rating, or with the collected average and its n where the
+  store gives none.
+  - A sparkline shows the weekly average on a fixed 1–5 scale. Weeks with no reviews are gaps, and
+    hovering a week shows its average and n.
+  - The footer gives the 30-day count and how many were 1–2★.
+  - When recent reviews sit 0.3★ or more away from the store rating, the tile says so. Voy's
+    Android app: 3.81 from 27 reviews, against a store rating of 4.71.
+- **Checked by rendering:** we rendered the component with oviva's data through esbuild and
+  `react-dom/server`, and screenshotted it in light and dark mode with Playwright's headless
+  Chromium (`/root/.cache/ms-playwright/chromium_headless_shell-1223`). The first screenshots led
+  to three fixes: the sparkline now fills the tile, downloads moved next to the review count, and
+  App Store tiles no longer repeat the headline in the footer.
+
+### Feature · App ratings in the comparison view (`04260306`)
+`GET /api/brand-watcher/app-ratings` returns every brand that lists apps. The comparison view's new
+table (`AppRatingsComparison`) has one row per brand, primary first, then by Google Play rating.
+- **Each store** shows the store rating, the 30-day average with n, and a sparkline. All
+  sparklines share a start week, so the rows line up.
+- **The last column** gives 1–2★ reviews in 30 days.
+- **Small samples:** averages from fewer than 5 reviews are muted and marked "few reviews". The
+  1–2★ share shows only from 10 reviews.
+- **The sparkline is now one component** (`WeeklyStarsSparkline`), shared with the dashboard tile.
+- **Brand dots have an outline,** because Oviva's (`#222222`) and Zanadio's (`#000000`) colours
+  vanished in dark mode.
+
+### Feature · App ratings in the brand report and the daily briefing (`667369a1`)
+- **The HTML report** (`brandReportHtml.ts`) gains an "App Reviews" section after Workforce
+  Signal. It has the brand's app tiles, the comparison table with static sparklines (each point
+  carries an SVG title with its week, average and n), and the brand's recent 1–2★ reviews
+  quoted.
+- **The PDF export** loads the all-brands ratings before capture, so the comparison table is in
+  the PDF.
+- **`GET /brands/{id}/app-reviews`** returns review text through the same reader as the MCP tool
+  `get_app_reviews`.
+- **The daily briefing:** `daily_briefing_compose_service` now stages one item, "App store reviews
+  and ratings, last day", built by `bw_app_reviews.briefing_source`.
+  - It states store ratings and their 7-day change, how many reviews are dated in the window and
+    how many of those were 1–2★, and up to three of the primary brand's complaints.
+  - Competitors are named only when their rating moved by 0.05 or more, or they drew 3 or more
+    low-star reviews. Nothing is staged when nothing moved.
+  - The item is staged, not added at finalise, so the writer's "Article N" citations stay aligned
+    and the review checks hold its figures to it. Its link is the primary brand's Google Play
+    page, with the day as a fragment.
+  - The window is by the review's own date. A first version counted by submission date and would
+    have reported "55 new reviews today" after the first 30-day collection.
+
+### Feature · The risk check flags health side effects (`43adf2bc`, `d06a4b90`)
+- **The miss:** an Oviva Google Play review (7 Oct) said the staff's suggestions "would make me
+  physically sick". It was never screened. `RISK_TRIGGER_RE` had no health words, and none of the
+  eight risk types covered a person reporting harm to their own health.
+- **`brand_screening.py`** gains the risk type `adverse_health_effect`. It is harm the person, or
+  someone they care for, actually experienced and links to the company's product, medication,
+  programme or advice.
+  - Severity is high for hospital or emergency care, a serious or lasting reaction, or a child or
+    pregnancy, and medium otherwise.
+  - The prompt version went to v2.1, then to v2.2 after a Noom review warning that the app "could
+    trigger people with past eating disorders" was flagged. A warning about others is not a
+    reported side effect.
+  - The keyword fallback tags only unmistakable first-person forms.
+- **`HEALTH_TRIGGER_RE`** (side effect, nausea, "made me sick", hospital, doctor and so on) gates
+  app reviews only (`_risk_pass(..., health=True)`). News screening keeps its old gate, because
+  "hospital" would send most health coverage to the model.
+- **`scripts/screen_app_reviews.py`** screens stored app reviews not yet seen under the current
+  prompt version.
+
+### Feature · An alert on every reported health side effect (`61116ea0`)
+- **The rule:** `health_side_effect` in `brand_watcher_monitor.py` fires once per
+  `adverse_health_effect` finding, deduplicated on the review, at the finding's severity. It
+  exists because the existing `high_risk_finding` rule fires on high only, so a medium-severity
+  side effect was seen only by whoever opened the Risk view.
+- **The alert body** (`health_side_effect_events`) quotes what the person wrote and gives the
+  screener's reading, the link, and "Aunoo has not verified it and does not know who wrote it".
+- **`brand_alert_service._recipients_for`** adds `rules.<rule>.recipients` for one rule only, so a
+  customer's safety team can receive these without receiving every other alert. It is empty by
+  default, with no UI field yet.
+- **The rule has a row in the alert settings.**
+
+### Verification
+- **Full suite on bugfixing after the last change:** 2,376 passed, 0 failed. Earlier failures
+  are covered in the tests fix above.
+- **Paid test call, 13 Oct:** Google Play, Oviva, 5 reviews, snapshot `sd_mv72982jnx6gz1cnh`,
+  back in about 4 s. The response carries no cost figure.
+- **Oviva's first run, 14 Oct 17:19:** 41 Google Play and 50 App Store records, 55 reviews
+  landed. Google Play UK rating 4.56 from 30,685 reviews.
+- **Competitors' first run, 17:50:** 883 records, bringing the month to 974. Google Play
+  ratings: Voy 4.71, Second Nature 4.68, Juniper 4.54, WeightWatchers 4.27, Numan 4.15, Noom 4.12,
+  HelloBetter 4.08, Zanadio 3.96.
+- **MCP:** both tools checked over oviva's real `/mcp` with a one-day key (#9), revoked
+  afterwards.
+- **Bright Data search, live:**
+  - Searches took 28–64 s with no location set or with `gb`. The `bing` engine answered in 6–12 s,
+    but in Traditional Chinese, with every link behind a redirect, so we don't use it.
+  - Six real planner queries returned results 5 times out of 6 at full length, and 4 out of 6 cut
+    to four words.
+  - The same query flipped between 8 results and none in both orders, so the failures are random.
+  - With the retry, 4 of 6 returned results, and one empty answer became 9 results.
+  - Page fetches took 5–7 s.
+- **Deep research, one live run:** 427 s, 11 pages fetched, about 22 Bright Data calls, 3 searches
+  timed out.
+- **Later work on oviva:**
+  - Full suite on bugfixing after `667369a1`: 2,380 passed, 0 failed. The app-review, health and
+    MCP tests (27, plus 58 risk-related) pass on bugfixing and oviva.
+  - Health screening on the real review: `adverse_health_effect`, medium, 0.7. A crash complaint
+    and a happy review gave nothing.
+  - Recheck of stored reviews on oviva: 209 reviews, 5 matched the gate, and 1 was flagged under
+    v2.2 (the Oviva review). The Noom warning is no longer flagged.
+  - The first health alert, #373 (medium), was delivered at 19:04 in-app and by email to
+    oliver.rochford@aunoo.ai, ryan.marohn@aunoo.ai and wiley@aunoo.ai.
+  - `briefing_source` on oviva's data for the last day: "Oviva: Google Play rating 4.56 stars; 3
+    app reviews dated in the last day, 1 of them 1 or 2 stars." No real briefing has been composed
+    since, because composing creates a visible draft and spends model calls.
+- **Oviva UI:** a scratch build from `28c4d770` with the Swiss code removed reproduced all 64 of
+  oviva's assets byte for byte. Then the card was added, giving bundle `index-By7JcAVj.js`.
+
+### Propagation
+- **The later app-review work** (the card redesign, the comparison table, the report and briefing
+  item, the health risk type, and the health alert) is on oviva and in the bugfixing tree.
+  - On oviva, the backend was patched with backups `*.bak-apptiles-*`, `*.bak-appcompare-*`,
+    `*.bak-appreviewsroute-*`, `*.bak-appbriefing-*`, `*.bak-health-*` and `*.bak-healthalert-*`.
+  - Oviva's UI was rebuilt each time from the proven base (`28c4d770` minus the Swiss code), plus
+    the UI diffs of `bb4c2175`, `ca5e5940`, `04260306`, `667369a1` and `61116ea0`. The backups
+    are `ui-backup-20261014-{apptiles,appcompare,appreport,healthalert}/`.
+  - The last oviva restart was at 19:03.
+- **bugfixing's live UI bundle** was rebuilt three times today from the live tree. That tree holds
+  another session's uncommitted UI work (the PAM removal), so the bundle carries it, and the built
+  files were not committed. The bugfixing service was not restarted for the later backend
+  changes. No bugfixing brand lists apps, so nothing there uses them.
+- **bugfixing (canonical):** all of the above, live since the 17:13 restart. The app-review MCP
+  tools and the weekly App Store poll came later, after 17:13, so they need one more restart
+  there. Only oviva uses them.
+- **oviva:** app store reviews, the card, the MCP tools, the weekly App Store poll, the snapshot
+  wait, and the voice-profiling and bot fixes.
+  - Code was patched in with backups `*.bak-appreviews-*`, `*.bak-mcpapps-*`,
+    `*.bak-voiceprofiles-*` and `*.bak-bots-*`. Migration `bw_app_001` uses `down_revision`
+    `ts_011`. The previous UI is in `ui-backup-20261014-appratings/`.
+  - Restarted at 17:58.
+- **Voice-profiling fix:** abm, aisecurity, oviva, panaya and sunstar. All restarted.
+- **Bot rule:** abm, aisecurity, oviva, panaya, sunstar and wileytest. All restarted.
+  - Not needed on abbott, ibaset, interroll, pbm, wbm and wiley, which have no market roles.
+  - bwtemplate (stopped) is not patched.
+- **Voices card platform places:** aisecurity only, plus bugfixing.
+- **Topic names:** abm, aisecurity and panaya, all restarted.
+- **Bright Data web search:** bugfixing only.
+
+### Lessons
+- **Render a new UI component and look at it before shipping it.** The first app ratings tile
+  passed the typecheck and looked wrong: a 168 px sparkline in a 500 px tile, a stray downloads line,
+  and a repeated average. A static render through esbuild and `react-dom/server`, screenshotted
+  with the Playwright headless shell, took minutes.
+- **Show n next to every average built from collected reviews,** and mute averages from fewer than
+  5. Two of the comparison table's "averages" rested on one review.
+- **A risk taxonomy built for news misses first-person health reports.** Gate first-person channels
+  (app reviews) with their own vocabulary, and define the type as harm the person experienced.
+  Otherwise warnings about possible harm to others get flagged too.
+- **Await background work inside the tick.** A task started with `asyncio.create_task` inside the
+  off-loop market tick (or any monitor run under `asyncio.run`) is cancelled when the tick
+  returns, and nothing logs it.
+- **Read Bright Data's sync answer before counting it.** A sync scrape can return a progress note
+  instead of records. Check for `snapshot_id` with no record fields before treating the answer as
+  data.
+- **The App Store review scraper has no date or count input,** and returns 50 to 500 reviews. Poll
+  it weekly, and leave out apps the size of Noom's.
+- **Bright Data's `groups` setting doesn't keep paid tools away from an agent.** `run_scraper` is
+  in the base set. Name the allowed tools in `tools=`, and check the names in code too.
+- **Prove a tenant's UI base before rebuilding it.** For oviva, compare every asset with `cmp`, and
+  compare chunk code with the hashed file names masked, because one changed chunk renames all the
+  chunks that import it.
+- **Tests that read `pg_locks` or live rows can fail on what other sites or the live site are
+  doing.** Scope them to this database and this row.
+
 ## 2026-10-12 — Market page: the relevance assessment's verdict counts; aisecwire.com in teal; Zaun and Rein Security
 
 ### Goal
