@@ -360,7 +360,89 @@ async def get_vendor_benchmark(ctx=None, vendor: str | None = None,
         conn.close()
 
 
+async def get_app_ratings(ctx=None, brand: str | None = None,
+                          brand_id: int | None = None) -> dict[str, Any]:
+    """App store ratings for one brand, or for every brand that lists apps
+    (docs/APP_STORE_REVIEWS_SPEC.md)."""
+    _module_on("brand_watcher")
+    from app.routes.brand_watcher_routes import get_brand_app_ratings
+    conn = _conn()
+    try:
+        if brand or brand_id is not None:
+            ids = [_brand_row(conn, brand, brand_id)]
+        else:
+            ids = [(int(r[0]), r[1]) for r in conn.execute(text("""
+                SELECT id, display_name FROM bw_brands
+                 WHERE enabled = true AND config ? 'app_store_targets'
+                 ORDER BY is_primary DESC, display_name""")).fetchall()]
+    finally:
+        conn.close()
+    brands = []
+    for bid, name in ids:
+        res = _plain(await get_brand_app_ratings(bid, session=None))
+        for a in res.get("apps") or []:
+            a.pop("history", None)  # the daily series; the latest figures are enough here
+        brands.append({"brand": name, "brand_id": bid, "configured": res.get("configured"),
+                       "apps": res.get("apps") or [],
+                       "reviews_last_30_days_by_stars": res.get("recent_reviews_30d") or {}})
+    return {"brands": brands,
+            "note": ("rating is the store's own average (Google Play only; the App Store "
+                     "scraper returns none). rating_change_30d compares the latest daily "
+                     "snapshot with the first inside 30 days. Reviews are collected daily "
+                     "from Google Play and weekly from the App Store.")}
+
+
+async def get_app_reviews(ctx=None, brand: str | None = None, brand_id: int | None = None,
+                          days_back: int = 30, store: str | None = None,
+                          max_stars: int | None = None, limit: int = 100) -> dict[str, Any]:
+    """The text of one brand's app store reviews, newest first. Reviewer names
+    are never stored, so none are returned."""
+    _module_on("brand_watcher")
+    stores = {"google_play": "Google Play", "app_store": "App Store"}
+    if store and store not in stores:
+        raise ToolError("store must be google_play or app_store")
+    conn = _conn()
+    try:
+        bid, name = _brand_row(conn, brand, brand_id)
+        sources = [stores[store]] if store else list(stores.values())
+        params: dict[str, Any] = {"b": bid, "src": sources,
+                                  "since": f"{max(1, min(int(days_back), 730))} days",
+                                  "lim": max(1, min(int(limit), 500))}
+        star_clause = ""
+        if max_stars is not None:
+            star_clause = ("AND (a.social_meta->>'rating') ~ '^[1-5]$' "
+                           "AND CAST(a.social_meta->>'rating' AS int) <= :ms")
+            params["ms"] = max(1, min(int(max_stars), 5))
+        rows = conn.execute(text(f"""
+            SELECT DISTINCT a.uri, a.news_source, a.publication_date, a.title, a.summary,
+                   a.original_summary, a.sentiment, a.social_meta
+              FROM articles a
+              JOIN bw_article_categories c ON c.article_uri = a.uri AND c.brand_id = :b
+             WHERE a.news_source = ANY(:src)
+               AND a.publication_date >= to_char(NOW() - CAST(:since AS interval), 'YYYY-MM-DD')
+               {star_clause}
+             ORDER BY a.publication_date DESC
+             LIMIT :lim"""), params).mappings().all()
+    finally:
+        conn.close()
+    reviews = []
+    for r in rows:
+        meta = r["social_meta"] if isinstance(r["social_meta"], dict) else {}
+        reviews.append({
+            "store": meta.get("store"), "country": meta.get("country"), "app_id": meta.get("app_id"),
+            "date": str(r["publication_date"] or "")[:10], "stars": meta.get("rating"),
+            "sentiment": r["sentiment"], "title": r["title"],
+            "text": r["summary"], "original_text": r["original_summary"],
+            "developer_replied": bool(meta.get("has_developer_reply")),
+            "found_helpful": meta.get("found_helpful"), "url": r["uri"],
+        })
+    return {"brand": name, "brand_id": bid, "days_back": int(days_back),
+            "count": len(reviews), "reviews": reviews}
+
+
 HANDLERS = {
+    "get_app_ratings": get_app_ratings,
+    "get_app_reviews": get_app_reviews,
     "list_brands": list_brands,
     "get_brand_stats": get_brand_stats,
     "get_brand_articles": get_brand_articles,

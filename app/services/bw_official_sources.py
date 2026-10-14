@@ -896,7 +896,8 @@ def _term_mentioned(terms: List[str], text_l: str) -> bool:
 
 
 def _due_since(source_state: Dict[str, Any], source: str, now: datetime,
-               force: bool = False) -> Optional[datetime]:
+               force: bool = False,
+               interval: timedelta = POLL_INTERVAL) -> Optional[datetime]:
     """The ``since`` window start for this source, or None if not due yet."""
     last = (source_state.get(source) or {}).get("last_polled_at")
     if not last:
@@ -907,7 +908,7 @@ def _due_since(source_state: Dict[str, Any], source: str, now: datetime,
         return now - INITIAL_LOOKBACK
     if last_dt.tzinfo is None:
         last_dt = last_dt.replace(tzinfo=timezone.utc)
-    if not force and now - last_dt < POLL_INTERVAL:
+    if not force and now - last_dt < interval:
         return None
     return last_dt
 
@@ -1017,6 +1018,21 @@ async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
 APP_REVIEW_SOURCES = ("google_play", "app_store")
 
 
+def _app_poll_interval(source: str) -> timedelta:
+    """Google Play takes a start date, so a daily poll fetches only new
+    reviews. The App Store scraper takes no date and returns the latest 50
+    whatever their age (measured on Oviva, 14 Oct 2026: 14 of 50 fell in the
+    last 30 days), so it is polled weekly: daily, nine apps would fetch about
+    13,500 mostly old reviews a month."""
+    if source != "app_store":
+        return POLL_INTERVAL
+    try:
+        days = float(os.getenv("BW_APP_STORE_POLL_DAYS", "") or 7)
+    except ValueError:
+        days = 7.0
+    return timedelta(days=max(1.0, days))
+
+
 async def _poll_app_reviews(conn, brand: Dict[str, Any], cfg: Dict[str, Any],
                             source_state: Dict[str, Any], source: str, now: datetime,
                             force: bool, risk_budget: List[int],
@@ -1027,7 +1043,8 @@ async def _poll_app_reviews(conn, brand: Dict[str, Any], cfg: Dict[str, Any],
     cap-skipped day is fetched again on the next poll.
     """
     from app.services import bw_app_reviews as ar
-    since = _due_since(source_state, source, now, force=force)
+    since = _due_since(source_state, source, now, force=force,
+                       interval=_app_poll_interval(source))
     if since is None or not ar.targets_for(cfg, source):
         return False
     rows, complete = await ar.fetch_app_reviews(conn, brand, cfg, source, since)

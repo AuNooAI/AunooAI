@@ -186,6 +186,37 @@ TOOLS: dict[str, ToolSpec] = {
     ),
     # ---- Brand Watcher (handlers in brand_tools.py; each says so when the
     # module is off on this site) ----
+    "get_app_ratings": ToolSpec(
+        name="get_app_ratings",
+        description=(
+            "App store ratings for monitored brands: each app's store rating, change over "
+            "30 days, review count and downloads, plus the last 30 days of reviews by stars. "
+            "Without a brand, every brand that lists apps, so a brand can be compared with "
+            "its competitors."
+        ),
+        properties={
+            "brand": {"type": "string", "description": "Brand display name from list_brands (default: every brand with apps)"},
+            "brand_id": {"type": "integer"},
+        },
+        timeout=30.0,
+    ),
+    "get_app_reviews": ToolSpec(
+        name="get_app_reviews",
+        description=(
+            "The text of one brand's Google Play and App Store reviews, newest first, with "
+            "stars, date, store, country and whether the company replied. No reviewer names."
+        ),
+        properties={
+            "brand": {"type": "string", "description": "Brand display name from list_brands (default: the primary brand)"},
+            "brand_id": {"type": "integer"},
+            "days_back": {"type": "integer", "description": "Window in days (default 30)", "default": 30},
+            "store": {"type": "string", "description": "Only one store: google_play or app_store"},
+            "max_stars": {"type": "integer", "description": "Only reviews at or below this many stars, e.g. 2 for complaints"},
+            "limit": {"type": "integer", "description": "Maximum reviews (default 100, max 500)", "default": 100},
+        },
+        timeout=30.0,
+        max_bytes=_ARTICLE_LIST_BYTES,
+    ),
     "list_brands": ToolSpec(
         name="list_brands",
         description="The brands this site monitors (the primary brand and its competitors), with the markets each sits in. Call before the other brand tools.",

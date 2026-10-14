@@ -293,10 +293,39 @@ def _payload(target: Dict[str, str], since: datetime) -> Dict[str, Any]:
     return p
 
 
+#: How long to wait for a scrape Bright Data could not finish inside the
+#: synchronous call. WeightWatchers' App Store page (14 Oct 2026) came back as
+#: "still in progress" with a snapshot id instead of reviews.
+SNAPSHOT_WAIT_SECONDS = 300
+SNAPSHOT_POLL_SECONDS = 15
+
+
+def _pending_snapshot(records: List[Dict[str, Any]]) -> Optional[str]:
+    """The snapshot id when the sync call handed back a progress note instead
+    of records, else None."""
+    if len(records) == 1 and records[0].get("snapshot_id") and not records[0].get("review_id"):
+        return str(records[0]["snapshot_id"])
+    return None
+
+
 async def _scrape(store: str, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    import asyncio
     from app.services.brightdata_linkedin import LinkedInDatasetClient, api_key
     client = LinkedInDatasetClient(api_key())
-    return await client.scrape_sync(_dataset(store), [payload])
+    records = await client.scrape_sync(_dataset(store), [payload])
+    snapshot = _pending_snapshot(records)
+    if not snapshot:
+        return records
+    waited = 0
+    while waited < SNAPSHOT_WAIT_SECONDS:
+        await asyncio.sleep(SNAPSHOT_POLL_SECONDS)
+        waited += SNAPSHOT_POLL_SECONDS
+        status = str((await client.snapshot_status(snapshot)).get("status") or "").lower()
+        if status == "ready":
+            return await client.fetch_snapshot(snapshot)
+        if status in ("failed", "canceled", "cancelled"):
+            raise RuntimeError(f"Bright Data snapshot {snapshot} {status}")
+    raise RuntimeError(f"Bright Data snapshot {snapshot} not ready after {SNAPSHOT_WAIT_SECONDS}s")
 
 
 async def fetch_app_reviews(conn, brand: Dict[str, Any], cfg: Dict[str, Any],

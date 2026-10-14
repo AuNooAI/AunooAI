@@ -248,3 +248,59 @@ def test_app_reviews_classify_as_community_voices():
     from app.services.social_sources import classify_source
     assert classify_source("Google Play", "official:play.google.com") == ("google_play", "community")
     assert classify_source("App Store", "official:apps.apple.com") == ("app_store", "community")
+
+
+def test_app_store_polls_weekly_and_google_play_daily(monkeypatch):
+    from app.services import bw_official_sources as bos
+    now = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    state = {"app_store": {"last_polled_at": "2026-10-16T00:00:00+00:00"},
+             "google_play": {"last_polled_at": "2026-10-16T00:00:00+00:00"}}
+    assert bos._due_since(state, "app_store", now, interval=bos._app_poll_interval("app_store")) is None
+    assert bos._due_since(state, "google_play", now, interval=bos._app_poll_interval("google_play")) is not None
+    monkeypatch.setenv("BW_APP_STORE_POLL_DAYS", "3")
+    assert bos._due_since(state, "app_store", now, interval=bos._app_poll_interval("app_store")) is not None
+
+
+def test_a_progress_note_is_waited_for_not_counted_as_a_review(monkeypatch):
+    calls = []
+
+    class _Client:
+        def __init__(self, key):
+            pass
+
+        async def scrape_sync(self, dataset, payload):
+            return [{"snapshot_id": "sd_x", "message": "Your request is still in progress"}]
+
+        async def snapshot_status(self, sid):
+            calls.append("status")
+            return {"status": "running" if len(calls) < 2 else "ready"}
+
+        async def fetch_snapshot(self, sid):
+            return [_apple_rec("r1", 4, "2026-10-01")]
+
+    import app.services.brightdata_linkedin as bl
+    monkeypatch.setattr(bl, "LinkedInDatasetClient", _Client)
+    monkeypatch.setattr(bl, "api_key", lambda: "k")
+    monkeypatch.setattr(ar, "SNAPSHOT_POLL_SECONDS", 0)
+    out = asyncio.run(ar._scrape("app_store", {"url": "u"}))
+    assert [r["review_id"] for r in out] == ["r1"] and calls == ["status", "status"]
+
+
+def test_a_snapshot_that_never_finishes_is_a_failure(monkeypatch):
+    class _Client:
+        def __init__(self, key):
+            pass
+
+        async def scrape_sync(self, dataset, payload):
+            return [{"snapshot_id": "sd_y", "message": "still in progress"}]
+
+        async def snapshot_status(self, sid):
+            return {"status": "running"}
+
+    import app.services.brightdata_linkedin as bl
+    monkeypatch.setattr(bl, "LinkedInDatasetClient", _Client)
+    monkeypatch.setattr(bl, "api_key", lambda: "k")
+    monkeypatch.setattr(ar, "SNAPSHOT_POLL_SECONDS", 0)
+    monkeypatch.setattr(ar, "SNAPSHOT_WAIT_SECONDS", 0)
+    with pytest.raises(RuntimeError, match="not ready"):
+        asyncio.run(ar._scrape("app_store", {"url": "u"}))

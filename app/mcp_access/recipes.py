@@ -102,6 +102,7 @@ Tool sequence:
 3. `get_brand_voices` with brand="{brand}", days_back={days}: who is talking and what each audience thinks; read the digests for the focus pair (for a health brand, clinicians and patients).
 4. `get_brand_articles` with brand="{brand}", days_back={days}, per_page=15, sort_by="relevance" for the news behind the numbers.
 5. `get_brand_perception` with days_back={days} to place the brand against its competitors.
+6. `get_app_ratings` with no brand, to compare app ratings across the brands that list apps; if the brand has apps, `get_app_reviews` with brand="{brand}", days_back={days}, max_stars=2 for what customers complain about. Skip this step when no brand lists apps.
 
 Write: the state of the brand in two sentences; what changed in the window; what each audience says, with one quote each; the competitor comparison; what to watch. Give every number its denominator. Observational, not advice.
 
