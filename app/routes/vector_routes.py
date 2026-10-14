@@ -1841,8 +1841,8 @@ def demote_unstated_event_day(inc: Dict, cited: List[Dict]) -> None:
     incidents, both reported in September, showed 01.06.2026 and
     01.05.2026). A full date stays when a cited title or summary names that
     day ("June 18", "18 June", the ISO date), or when it falls within a week
-    before a cited article's publication date, where "on Monday" is how
-    articles state it. Otherwise the year-month goes to event_period and the
+    either side of a cited article's publication date, where "on Monday" or
+    "next Tuesday" is how articles state it. Otherwise the year-month goes to event_period and the
     card shows when the story was reported.
     """
     ev = inc.get("event_date")
@@ -1859,7 +1859,7 @@ def demote_unstated_event_day(inc: Dict, cited: List[Dict]) -> None:
             pub = datetime.strptime(str(a.get("publication_date") or "")[:10], "%Y-%m-%d").date()
         except ValueError:
             continue
-        if timedelta(0) <= pub - ev_d <= timedelta(days=7):
+        if abs(pub - ev_d) <= timedelta(days=7):
             return
     text = " ".join(f"{a.get('title') or ''} {a.get('summary') or ''}" for a in cited)
     month = _MONTHS[ev_d.month - 1]
