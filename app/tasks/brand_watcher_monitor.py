@@ -510,6 +510,10 @@ _ADVERSE_RULE_DEFAULTS = {
     # weeks before: catches a bad release long before the rating moves.
     "app_negative_spike":      {"enabled": True, "multiplier": 2.0, "min_count": 5,
                                 "baseline_weeks": 8},
+    # Every reported health side effect, one alert per report, whatever its
+    # severity (adverse_health_effect, brand_screening v2.2). "recipients" adds
+    # addresses for this rule only, e.g. a customer's safety team.
+    "health_side_effect":      {"enabled": True, "window_hours": 72, "recipients": []},
 }
 
 _NEG_SENT_SQL = "(sentiment ILIKE '%negativ%' OR sentiment ILIKE '%concern%' OR sentiment ILIKE '%pessimis%' OR sentiment ILIKE '%critical%' OR sentiment ILIKE '%alarm%')"
@@ -583,6 +587,45 @@ def _fired_recently(conn, brand_id, rule, hours, key_prefix: str = None) -> bool
         q += " AND dedup_key LIKE :pfx"
         params["pfx"] = key_prefix.replace("%", "").replace("_", r"\_") + "%"
     return conn.execute(_text(q), params).fetchone() is not None
+
+
+def health_side_effect_events(conn, brand_id: int, window_hours: int) -> list:
+    """adverse_health_effect findings for one brand detected in the window,
+    as alert bodies. States what the person wrote and what the screener read;
+    claims nothing beyond that."""
+    from sqlalchemy import text as _text
+    rows = conn.execute(_text("""
+        SELECT r.article_uri, r.severity, r.justification, a.news_source, a.publication_date,
+               a.title, COALESCE(a.original_summary, a.summary, ''), a.social_meta
+          FROM bw_article_risks r
+          JOIN articles a ON a.uri = r.article_uri
+         WHERE r.brand_id = :b AND r.risk_type = 'adverse_health_effect'
+           AND r.detected_at >= NOW() - (:wh || ' hours')::interval
+         ORDER BY r.detected_at
+    """), {"b": brand_id, "wh": str(window_hours)}).fetchall()
+    out = []
+    for uri, severity, why, source, pub, title, textv, meta in rows:
+        meta = meta if isinstance(meta, dict) else {}
+        stars = meta.get("rating")
+        channel = source or "review"
+        quote = " ".join(str(textv).split())
+        if len(quote) > 600:
+            quote = quote[:600].rsplit(" ", 1)[0] + "…"
+        body = (
+            f"A {channel} {'review' if source in ('Google Play', 'App Store') else 'post'} dated "
+            f"{str(pub or '')[:10]}{f' ({stars}★)' if stars else ''} describes harm to the writer's health "
+            f"that they link to the brand.\n\n"
+            f"> {quote}\n\n"
+            f"Screener's reading ({severity}): {why or 'no reading recorded'}\n\n"
+            f"Source: {uri}\n\n"
+            "This comes from a public post by a member of the public. Aunoo has not verified it "
+            "and does not know who wrote it."
+        )
+        out.append({"uri": uri, "severity": severity if severity in ("high", "medium", "low") else "medium",
+                    "channel": channel, "body": body,
+                    "payload": {"article_uri": uri, "source": source, "stars": stars,
+                                "published": str(pub or "")[:10], "justification": why}})
+    return out
 
 
 def _insert_alert_event(conn, brand_id, rule, severity, title, body, payload, dedup_key) -> bool:
@@ -1059,6 +1102,17 @@ def evaluate_adverse_alerts(db) -> int:
                             {"recent": recent, "weekly_baseline": round(weekly, 2),
                              "baseline_weeks": bw_weeks},
                             f"app_negative_spike|{bid}|{week}"):
+                        created += 1
+
+            # 9d) Reported health side effect: every adverse_health_effect
+            #     finding, one alert per report (dedup on the article).
+            rc = rule("health_side_effect")
+            if rc.get("enabled"):
+                for ev in health_side_effect_events(conn, bid, int(rc.get("window_hours", 72))):
+                    if _insert_alert_event(conn, bid, "health_side_effect", ev["severity"],
+                            f"{bname}: reported health side effect ({ev['channel']})",
+                            ev["body"], ev["payload"],
+                            f"health_side_effect|{bid}|{ev['uri']}"):
                         created += 1
 
             # 10) Five Signals screen failure: a screened article whose claim

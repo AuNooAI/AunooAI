@@ -355,6 +355,18 @@ def _deliver_webhook(event: Dict[str, Any], url: str) -> bool:
         return False
 
 
+def _recipients_for(cfg: Dict[str, Any], rule: str) -> List[str]:
+    """The site's alert recipients plus any the rule adds for itself
+    (rules.<rule>.recipients), without duplicates."""
+    extra = ((cfg.get("rules") or {}).get(rule) or {}).get("recipients") or []
+    out: List[str] = []
+    for addr in list(cfg.get("email_recipients") or []) + [a for a in extra if isinstance(a, str)]:
+        a = addr.strip()
+        if a and a.lower() not in {x.lower() for x in out}:
+            out.append(a)
+    return out
+
+
 def deliver_pending_events(db, conn) -> int:
     """Deliver all bw_alert_events rows with delivered IS NULL. Returns count delivered."""
     cfg = get_alert_config(conn)
@@ -374,7 +386,7 @@ def deliver_pending_events(db, conn) -> int:
         if channels.get("in_app", True):
             delivered["in_app"] = _deliver_in_app(db, event)
         if channels.get("email"):
-            delivered["email"] = _deliver_email(event, cfg["email_recipients"])
+            delivered["email"] = _deliver_email(event, _recipients_for(cfg, rule))
         if channels.get("webhook"):
             delivered["webhook"] = _deliver_webhook(event, cfg["webhook_url"])
         conn.execute(text("UPDATE bw_alert_events SET delivered = :d WHERE id = :i"),

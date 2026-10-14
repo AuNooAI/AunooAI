@@ -107,6 +107,8 @@ const BW_ALERT_RULE_DEFS: Array<{ key: string; label: string; params: Array<{ k:
     { k: 'rating_drop', label: 'rating drop ≥', def: 0.1, step: 0.05 }, { k: 'lookback_days', label: 'lookback (d)', def: 35 }, { k: 'min_span_days', label: 'min span (d)', def: 7 }] },
   { key: 'app_negative_spike', label: '1-2 star app review surge', params: [
     { k: 'multiplier', label: 'multiplier', def: 2, step: 0.5 }, { k: 'min_count', label: 'min reviews', def: 5 }, { k: 'baseline_weeks', label: 'baseline (wk)', def: 8 }] },
+  { key: 'health_side_effect', label: 'Reported health side effect (every report)', params: [
+    { k: 'window_hours', label: 'look back (h)', def: 72 }] },
 ];
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)

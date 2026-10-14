@@ -71,3 +71,11 @@ def test_app_reviews_reach_the_model_on_health_words(monkeypatch):
 def test_other_official_sources_keep_the_old_gate(monkeypatch):
     flagged, seen, stored = _run(monkeypatch, health=False)
     assert flagged == 0 and seen == []
+
+
+def test_rule_recipients_are_added_without_duplicates():
+    from app.services.brand_alert_service import _recipients_for
+    cfg = {"email_recipients": ["a@x.com", "b@x.com"],
+           "rules": {"health_side_effect": {"recipients": ["safety@client.com", "A@x.com"]}}}
+    assert _recipients_for(cfg, "health_side_effect") == ["a@x.com", "b@x.com", "safety@client.com"]
+    assert _recipients_for(cfg, "neg_social_spike") == ["a@x.com", "b@x.com"]

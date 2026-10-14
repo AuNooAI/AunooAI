@@ -349,3 +349,21 @@ def test_briefing_source_states_facts_and_skips_quiet_competitors(db):
 def test_briefing_source_is_none_when_nothing_happened(db):
     conn, text = db
     assert ar.briefing_source(conn, hours=24) is None
+
+
+def test_health_side_effect_alert_body(db):
+    conn, text = db
+    from app.tasks.brand_watcher_monitor import health_side_effect_events
+    _review_row(conn, text, 1, "h1", _today(1), 1,
+                body="The things they were suggesting would make me physically sick.")
+    conn.execute(text("INSERT INTO bw_article_risks (article_uri, brand_id, risk_type, severity, confidence, method, justification) "
+                      "VALUES ('h1', 1, 'adverse_health_effect', 'medium', 0.7, 'llm', 'User reports advice made them sick.')"))
+    conn.execute(text("INSERT INTO bw_article_risks (article_uri, brand_id, risk_type, severity, confidence, method) "
+                      "VALUES ('h1', 1, 'legal_regulatory', 'high', 0.5, 'llm')"))   # other types are not this rule's
+    evs = health_side_effect_events(conn, 1, 72)
+    assert len(evs) == 1
+    e = evs[0]
+    assert e["severity"] == "medium" and e["uri"] == "h1"
+    assert "> The things they were suggesting would make me physically sick." in e["body"]
+    assert "(1★)" in e["body"] and "Aunoo has not verified it" in e["body"]
+    assert "Screener's reading (medium): User reports advice made them sick." in e["body"]
