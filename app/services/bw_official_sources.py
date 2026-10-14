@@ -983,12 +983,15 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
 
 
 async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
-                     budget: List[int]) -> int:
-    """WS3 adverse-risk pass over freshly landed official records (bounded)."""
+                     budget: List[int], health: bool = False) -> int:
+    """WS3 adverse-risk pass over freshly landed official records (bounded).
+
+    ``health`` adds the health vocabulary to the gate, for first-person
+    channels such as app reviews, where people report side effects."""
     if not landed_uris:
         return 0
     from app.services.brand_screening import (
-        RISK_TRIGGER_RE, llm_detect_risks, keyword_risk_fallback,
+        RISK_TRIGGER_RE, HEALTH_TRIGGER_RE, llm_detect_risks, keyword_risk_fallback,
         store_article_risks, record_verdict)
     rows = conn.execute(text("""
         SELECT uri, title, COALESCE(summary, '') FROM articles
@@ -999,7 +1002,7 @@ async def _risk_pass(conn, brand: Dict[str, Any], landed_uris: List[str],
         if budget[0] <= 0:
             break
         blob = f"{title}. {summary}"
-        if not RISK_TRIGGER_RE.search(blob):
+        if not (RISK_TRIGGER_RE.search(blob) or (health and HEALTH_TRIGGER_RE.search(blob))):
             continue
         budget[0] -= 1
         risks = await llm_detect_risks(title or "", summary or "", brand["display_name"])
@@ -1050,7 +1053,7 @@ async def _poll_app_reviews(conn, brand: Dict[str, Any], cfg: Dict[str, Any],
     rows, complete = await ar.fetch_app_reviews(conn, brand, cfg, source, since)
     landed = _land_and_attribute(conn, brand, source, rows)
     ar.finish_landed(conn, landed, rows, cfg)
-    flagged = await _risk_pass(conn, brand, landed, risk_budget)
+    flagged = await _risk_pass(conn, brand, landed, risk_budget, health=True)
     if complete:
         _mark_polled(conn, brand["id"], source, now)
     conn.commit()

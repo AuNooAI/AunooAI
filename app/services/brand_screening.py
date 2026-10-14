@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 
 # Bump on any change to RISK_TYPES, the screening prompt, or the fallback rules —
 # stored on every verdict so historical evaluations can name their screener.
-PROMPT_VERSION = "v2.0"
+PROMPT_VERSION = "v2.1"  # v2.1 (14 Oct 2026): adverse_health_effect
 SCREENING_MODEL = "bedrock-kimi-k2-5"
 
 RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
               "esg", "executive_misconduct", "data_breach", "workforce_labor",
-              "product_safety"]
+              "product_safety", "adverse_health_effect"]
 
 # Categories whose articles get screened even when tone is neutral — hostile
 # events often arrive in neutral-toned wire copy.
@@ -50,6 +50,24 @@ RISK_TRIGGER_RE = re.compile(
     re.IGNORECASE)
 
 NEG_SENT_RE = re.compile(r"negativ|concern|pessimis|critical|alarm", re.IGNORECASE)
+
+# People describing harm to their own health. Used for app reviews (and other
+# first-person channels) on top of RISK_TRIGGER_RE: a patient on a GLP-1
+# programme wrote that the staff's suggestions "would make me physically sick"
+# (Oviva, Google Play, 7 Oct 2026) and none of the risk vocabulary matched, so
+# the review never reached the model. Kept off news screening, where words like
+# "hospital" would send most health coverage to the model.
+HEALTH_TRIGGER_RE = re.compile(
+    r"side[- ]?effects?|adverse (reaction|event|effect)|\breaction\b|allerg|"
+    r"nause|vomit|throw(ing)? up|\bsick\b|\bunwell\b|made me (feel )?(ill|ill\b|poorly)|"
+    r"dizz|faint|headache|migraine|\brash\b|hives|"
+    r"diarrh|constipat|stomach (pain|ache|cramp)|abdominal|bloat|"
+    r"pancreat|gall ?bladder|kidney|liver|"
+    r"hypo(glyc)?|blood sugar|dehydrat|palpitation|chest pain|heart rate|"
+    r"hair (loss|falling)|depress|anxiet|suicid|self[- ]harm|eating disorder|binge|"
+    r"hospital|\bA&E\b|\bER\b|ambulance|\bGP\b|doctor|"
+    r"overdos|wrong dose|dosage|injection site",
+    re.IGNORECASE)
 
 
 def should_screen(sentiment: str, text_content: str, categories=None, forced: bool = False) -> bool:
@@ -81,6 +99,10 @@ def keyword_risk_fallback(text_content: str) -> list:
     if re.search(r"(trade|labou?r|staff) union|union (members?|dispute|vote|action|strike)|(staff|workers?|employees?) (strike|walkout)|strike (action|ballot)|redundanc|tribunal|unfair dismissal|toxic (workplace|culture)|pay dispute|wage theft|mass layoff", t): add("workforce_labor", "medium")
     # Same collision logic: "recall" alone matches memory/recollection prose.
     if re.search(r"(product|safety|vehicle|device|consumer) recall|recall(s|ed)? (its|their|the|all|products?|units)|safety (hazard|defect)|defective (product|unit|device)|caused injur", t): add("product_safety", "high")
+    # Only the unmistakable first-person forms: the fallback tags directly.
+    if re.search(r"side[- ]?effects?|adverse reaction|(made|makes?|making) me (feel |physically )?(sick|ill|unwell)|"
+                 r"(ended up|was admitted|went) (in|to) (hospital|a&e)|allergic reaction", t):
+        add("adverse_health_effect", "medium")
     return found
 
 
@@ -93,11 +115,13 @@ async def llm_detect_risks(title: str, summary: str, brand_name: str) -> Optiona
 Article Title: {title}
 Article Summary: {(summary or "")[:1500]}
 
-Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, consumer discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware), workforce_labor (strikes, union disputes, mass layoffs/redundancies, employment tribunals, unfair-dismissal or workplace-discrimination claims, toxic-culture allegations, pay disputes), product_safety (product recalls, safety defects, hazards, harm to users).
+Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action, fines, probes), financial_distress (bankruptcy risk, downgrades, defaults), fraud_integrity (fraud, corruption, research/publication integrity, retractions), esg (environmental/social harms, consumer discrimination, boycotts), executive_misconduct (leadership scandals, forced departures), data_breach (hacks, breaches, ransomware), workforce_labor (strikes, union disputes, mass layoffs/redundancies, employment tribunals, unfair-dismissal or workplace-discrimination claims, toxic-culture allegations, pay disputes), product_safety (product recalls, safety defects, hazards, harm to users), adverse_health_effect (a person reports a side effect, symptom, illness, injury or other harm to their own or a dependant's health that they link to the company's product, medication, programme, service or advice).
 
 Rules:
 - Only flag risks where {brand_name} is the SUBJECT of the adverse event (not merely mentioned, not the plaintiff suing someone else unless it exposes them to counter-risk).
 - Routine negative sentiment (bad quarter, critical review) is NOT a risk finding unless it fits a type above.
+- A user or patient describing harm to their health that they link to {brand_name}'s product, medication, programme or advice IS adverse_health_effect, even in a single review and even when the rest is a complaint about service. A complaint about the app, the price or the support alone is not.
+- For adverse_health_effect, severity high = hospital or emergency treatment, a serious or lasting reaction, or harm to a child or pregnancy; medium = any other reported symptom or side effect.
 - severity: high = material/ongoing threat; medium = notable; low = minor/speculative.
 - justification: one factual sentence naming the event, no adjectives beyond the facts.
 
