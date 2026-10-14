@@ -4570,6 +4570,11 @@ def _v2_vendor_domains(conn, market_id: int) -> Dict[str, str]:
 _VOICE_ROLES = {"practitioner": "Practitioner", "analyst_or_press": "Analyst / press"}
 _V2_VOICES_SHOWN = 10
 _V2_VOICES_MORE = 10
+#: Open places each platform keeps on the voices card when it has voices to
+#: fill them. Ranked by reach alone, the card was all one platform: X accounts
+#: outnumber Reddit's in followers by orders of magnitude, so aisecwire's card
+#: showed no Reddit voice although seven qualified (user, 14 Oct 2026).
+_V2_VOICES_PER_PLATFORM = 2
 
 
 def _v2_tracked_voices(conn, market_id: int,
@@ -4585,23 +4590,55 @@ def _v2_tracked_voices(conn, market_id: int,
     """
     from sqlalchemy import text as _sql
 
+    # Up to ``limit`` per platform, so a platform with small follower counts
+    # still reaches the card, which then keeps each platform a place.
     return [dict(r) for r in conn.execute(_sql("""
-        SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.followers_count,
-               sa.profile_url, sa.metadata->>'market_role' AS role,
-               EXISTS (SELECT 1 FROM market_follows mf
-                        WHERE mf.market_id = :m AND mf.account_id = sa.id) AS watchlisted
-          FROM social_accounts sa
-         WHERE sa.last_profiled_at IS NOT NULL
-           AND (EXISTS (SELECT 1 FROM market_follows mf
-                         WHERE mf.market_id = :m AND mf.account_id = sa.id)
-                OR (sa.metadata->>'market_role' = ANY(:roles)
-                    AND EXISTS (SELECT 1 FROM bw_market_articles ma
-                                  JOIN articles a ON a.uri = ma.article_uri
-                                 WHERE ma.market_id = :m
-                                   AND lower(a.social_meta->>'author') = sa.handle_canonical)))
-         ORDER BY watchlisted DESC, sa.followers_count DESC NULLS LAST, sa.handle
-         LIMIT :lim
+        SELECT id, platform, handle, display_name, followers_count, profile_url,
+               role, watchlisted
+          FROM (
+            SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.followers_count,
+                   sa.profile_url, sa.metadata->>'market_role' AS role,
+                   EXISTS (SELECT 1 FROM market_follows mf
+                            WHERE mf.market_id = :m AND mf.account_id = sa.id) AS watchlisted,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY sa.platform
+                       ORDER BY EXISTS (SELECT 1 FROM market_follows mf
+                                         WHERE mf.market_id = :m AND mf.account_id = sa.id) DESC,
+                                sa.followers_count DESC NULLS LAST, sa.handle) AS platform_rank
+              FROM social_accounts sa
+             WHERE sa.last_profiled_at IS NOT NULL
+               AND (EXISTS (SELECT 1 FROM market_follows mf
+                             WHERE mf.market_id = :m AND mf.account_id = sa.id)
+                    OR (sa.metadata->>'market_role' = ANY(:roles)
+                        AND EXISTS (SELECT 1 FROM bw_market_articles ma
+                                      JOIN articles a ON a.uri = ma.article_uri
+                                     WHERE ma.market_id = :m
+                                       AND lower(a.social_meta->>'author') = sa.handle_canonical)))
+          ) ranked
+         WHERE platform_rank <= :lim
+         ORDER BY watchlisted DESC, followers_count DESC NULLS LAST, handle
     """), {"m": market_id, "roles": list(_VOICE_ROLES), "lim": limit}).mappings().all()]
+
+
+def _keep_platform_places(rows: List[Dict[str, Any]], shown: int,
+                          per_platform: int = _V2_VOICES_PER_PLATFORM) -> List[Dict[str, Any]]:
+    """``rows`` in card order, with each platform's first ``per_platform``
+    rows moved inside the first ``shown``. The other open places go in card
+    order as before, and the open rows keep their card order among
+    themselves."""
+    picked: List[int] = []
+    taken: Dict[str, int] = {}
+    for i, r in enumerate(rows):
+        platform = str(r.get("platform") or "").lower()
+        if taken.get(platform, 0) < per_platform:
+            taken[platform] = taken.get(platform, 0) + 1
+            picked.append(i)
+    keep = set(picked[:shown])
+    for i in range(len(rows)):
+        if len(keep) >= shown:
+            break
+        keep.add(i)
+    return [rows[i] for i in sorted(keep)] + [r for i, r in enumerate(rows) if i not in keep]
 
 
 def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
@@ -4625,6 +4662,7 @@ def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
     # this period" (user, 15 Sep 2026). Stable sort, so the followed-first,
     # then-by-reach order the query returns survives within each group.
     rows = sorted(rows, key=lambda r: _posts_for(r) == 0)
+    rows = _keep_platform_places(rows, _V2_VOICES_SHOWN)
 
     def row_html(r: Dict[str, Any]) -> str:
         handle = f'@{esc(str(r["handle"]))}'
@@ -4650,9 +4688,9 @@ def _v2_voices_card(rows: List[Dict[str, Any]], tv: Optional[Dict[str, Any]], *,
                 + '</div>')
 
     shown = rows[:_V2_VOICES_SHOWN]
-    rest = rows[_V2_VOICES_SHOWN:]
+    rest = rows[_V2_VOICES_SHOWN:_V2_VOICES_SHOWN + _V2_VOICES_MORE]
     out = ['<p class="v2-subline">Voices who posted this period first, then the rest we '
-           'follow and track, by reach.</p>', "".join(row_html(r) for r in shown)]
+           'follow and track, by reach, with places kept for each platform.</p>', "".join(row_html(r) for r in shown)]
     if rest:
         more = "".join(row_html(r) for r in rest)
         out.append(_teaser_open("The rest of the voices we track") + more + _TEASER_END

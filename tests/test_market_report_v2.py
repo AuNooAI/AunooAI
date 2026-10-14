@@ -102,6 +102,35 @@ def test_voices_card_shows_ten_then_blurs_the_rest_in_the_shared_view():
     assert html._v2_voices_card([], tv, teaser=True) == ""
 
 
+def test_voices_card_keeps_open_places_for_each_platform():
+    # Twelve X accounts with big followings, two Reddit and one Bluesky with
+    # small ones: ranked by reach alone the open ten were all X (aisecwire,
+    # 14 Oct 2026).
+    rows = ([{"id": i, "platform": "twitter", "handle": f"x{i}", "display_name": f"X person {i}",
+              "followers_count": 100000 - i, "watchlisted": False, "role": "practitioner"}
+             for i in range(12)]
+            + [{"id": 100 + i, "platform": "reddit", "handle": f"r{i}", "display_name": f"Reddit person {i}",
+                "followers_count": 0, "watchlisted": False, "role": "practitioner"} for i in range(3)]
+            + [{"id": 200, "platform": "bluesky", "handle": "b0", "display_name": "Bluesky person",
+                "followers_count": 50, "watchlisted": False, "role": "analyst_or_press"}])
+    ordered = html._keep_platform_places(rows, 10)
+    open_ten = ordered[:10]
+    platforms = [r["platform"] for r in open_ten]
+    assert platforms.count("reddit") == 2 and platforms.count("bluesky") == 1
+    assert platforms.count("twitter") == 7
+    # The open places keep reach order within the card; nothing is dropped.
+    assert [r["handle"] for r in open_ten[:7]] == [f"x{i}" for i in range(7)]
+    assert len(ordered) == len(rows)
+    card = html._v2_voices_card(rows, {}, teaser=True)
+    assert card.index("Reddit person 1") < card.index(html._TEASER_START)
+    assert card.index("X person 8") > card.index(html._TEASER_START)
+
+
+def test_one_platform_alone_fills_the_card_as_before():
+    rows = [{"platform": "twitter", "handle": f"x{i}"} for i in range(12)]
+    assert html._keep_platform_places(rows, 10) == rows
+
+
 def test_followed_posts_are_kept_only_when_they_touch_the_market():
     import re
     from app.services import market_follow as mf
