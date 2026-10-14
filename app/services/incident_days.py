@@ -618,9 +618,6 @@ async def merge_and_rank(candidates: List[Dict], topics: List[str], start: date,
         final, ok, n = await _merge_rounds(pooled, limit, topics, start, end, model_name, sem)
         llm_ok, rounds = llm_ok and ok, rounds + n
 
-    async with sem:
-        final = await _fold_repeats(final, model_name)
-
     if per_topic > 0:
         # Candidates for each topic's places: twice what it needs, so the ones
         # that repeat a chosen card can be dropped and the places still filled.
@@ -646,65 +643,6 @@ def _brief(inc: Dict) -> str:
     name = re.sub(r"\s+", " ", str(inc.get("merge_event") or inc.get("name") or ""))[:160]
     what = re.sub(r"\s+", " ", str(inc.get("description") or ""))[:160]
     return f"{inc.get('slice_day') or ''}|{name}" + (f" — {what}" if what else "")
-
-
-async def _fold_repeats(cards: List[Dict], model_name: str) -> List[Dict]:
-    """Fold a card into an earlier one when both report the same event.
-
-    The merge splits a running story differently from run to run; wileytest's
-    open places once held OpenAI's US-sites disclosure twice under two
-    headlines. The later card's articles join the earlier card, which keeps
-    its place. On failure the cards are returned unchanged."""
-    if len(cards) < 2:
-        return cards
-    prompt = (
-        "\n".join(f"{i}|{_brief(c)}" for i, c in enumerate(cards)) +
-        "\n\nThese are news cards, most important first. List each card that reports the same specific "
-        "event as an EARLIER card (the same actors and the same development), with that earlier card. "
-        "A different event about the same company or country is not a repeat.\n"
-        "Answer with JSON only: {\"repeats\": [[later, earlier], ...]}")
-    try:
-        from app.ai_models import LiteLLMModel, extract_content
-        model = LiteLLMModel.get_instance(model_name)
-        response = await model.agenerate_response(
-            [{"role": "system", "content": "You answer with a JSON object only. No commentary, no markdown."},
-             {"role": "user", "content": prompt}], max_tokens=4000, temperature=0.0)
-        raw = extract_content(response).strip()
-        start = raw.rfind('{"repeats"')
-        data, _ = json.JSONDecoder().raw_decode(raw[start if start >= 0 else raw.find("{"):])
-        pairs = data.get("repeats") if isinstance(data, dict) else None
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"incident repeat fold failed, cards kept as they are: {e}")
-        return cards
-    into: Dict[int, int] = {}
-    for pr in pairs or []:
-        if (isinstance(pr, list) and len(pr) == 2 and all(isinstance(x, int) for x in pr)
-                and 0 <= pr[1] < pr[0] < len(cards) and pr[0] not in into):
-            target = pr[1]
-            while target in into:                   # an earlier card that itself folds
-                target = into[target]
-            into[pr[0]] = target
-    if not into:
-        return cards
-    groups: Dict[int, List[Dict]] = {}
-    for later, earlier in into.items():
-        groups.setdefault(earlier, [cards[earlier]]).append(cards[later])
-    out = []
-    for i, c in enumerate(cards):
-        if i in into:
-            continue
-        if i in groups:
-            folded = _combine(groups[i])
-            # The earlier card keeps its own fields and place; it gains the
-            # later cards' articles, days and finding count.
-            out.append({**c, "article_uris": list(dict.fromkeys(
-                            (c.get("article_uris") or []) + (folded.get("article_uris") or []))),
-                        "published": folded.get("published"), "days_seen": folded.get("days_seen"),
-                        "merged_from": folded.get("merged_from")})
-        else:
-            out.append(c)
-    logger.info(f"incident repeat fold: {len(into)} of {len(cards)} cards folded into earlier ones")
-    return out
 
 
 async def _repeats(chosen: List[Dict], offered: List[Dict], model_name: str) -> set:

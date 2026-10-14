@@ -195,18 +195,3 @@ def test_topic_places_skip_a_repeat_of_a_chosen_card(monkeypatch):
                                             date(2026, 10, 2), "m", limit=4, per_topic=2))
     assert [o["name"] for o in out if o.get("topic_place")] == ["small1", "small2"]
 
-
-def test_fold_repeats_moves_a_later_cards_articles_into_the_earlier_card(monkeypatch):
-    _model_answering(monkeypatch, lambda p: json.dumps({"repeats": [[2, 0]]}))
-    cards = [{"name": "US sites disclosure", "significance": "high", "article_uris": ["a", "b"]},
-             {"name": "Other event", "significance": "high", "article_uris": ["c"]},
-             {"name": "Images and US sites", "significance": "high", "article_uris": ["d", "e", "f"]}]
-    out = asyncio.run(svc._fold_repeats(cards, "m"))
-    assert [o["name"] for o in out] == ["US sites disclosure", "Other event"]
-    assert out[0]["article_uris"] == ["a", "b", "d", "e", "f"]
-
-
-def test_fold_repeats_keeps_cards_when_the_call_fails(monkeypatch):
-    _model_answering(monkeypatch, lambda p: "not json")
-    cards = [{"name": "x", "article_uris": ["a"]}, {"name": "y", "article_uris": ["b"]}]
-    assert asyncio.run(svc._fold_repeats(cards, "m")) == cards
