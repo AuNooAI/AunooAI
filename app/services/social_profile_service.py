@@ -25,6 +25,55 @@ _PLATFORMS = ("twitter", "reddit", "instagram", "tiktok", "bluesky")
 #: A profile that sells marketing services, whatever the model called it.
 _MARKETER = re.compile(r"\bseo\b|growth\s+hack|digital\s+marketing|"
                        r"marketing\s+(consultant|expert|agency)", re.I)
+# An account run by software: feed and RSS bots, auto-posters, moderator bots,
+# news tickers. The model read them as people: on 14 Oct 2026 aisecwire's
+# voices card listed reddit/ClaudeAI-mod-bot as a practitioner, and bugfixing
+# had skypilot-bot, cscr-bot and a dozen news-mirror bots as analyst / press.
+# Strict on purpose, since a person called Talbot is not a bot.
+_BOT_NAME_PARTS = {"bot", "bots"}
+_BOT_HANDLES = {"automoderator"}
+#: "<word>bot" counts only for these words, so "jtalbot" and "abbot" do not.
+_BOT_PREFIXES = ("feed", "news", "rss", "sec", "infosec", "cyber", "cve", "mod", "auto",
+                 "post", "repost", "alert", "arxiv", "paper", "crawl", "headline", "ticker",
+                 "deal", "job", "price", "zpravo", "link", "digest", "update")
+_BOT_LABEL = re.compile(r"\[bot\]|\(bot\)|:bot:", re.I)
+_BOT_BIO = re.compile(
+    r"\b(?:i am|i'm|this is|just|only) an? (?:\w+ )?bot\b|\bunofficial bot\b|\bbot account\b"
+    r"|\bautomat(?:ed|ic|ically) (?:account|bot|feed|news|posts?|posting|reposts?)\b"
+    r"|\bautomatically (?:posts?|shares?|reposts?|publishes)\b|\bposts? automatically\b"
+    r"|\brss[ -]?feed\b|\bfrom (?:the|its|their) rss\b|\bdal feed rss\b", re.I)
+
+
+def _name_parts(value: str) -> List[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value or "")
+    return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
+
+
+def looks_automated(handle: Optional[str], display_name: Optional[str] = None,
+                    bio: Optional[str] = None) -> Optional[str]:
+    """Why this account reads as software, or None when it reads as a person
+    or an organisation."""
+    if (handle or "").strip().lower() in _BOT_HANDLES:
+        return f"handle '{handle}'"
+    for part in _name_parts(handle or "") + _name_parts(display_name or ""):
+        if part in _BOT_NAME_PARTS:
+            return f"name part '{part}'"
+        if part.endswith("bot") and part[:-3] in _BOT_PREFIXES:
+            return f"name part '{part}'"
+    if _BOT_LABEL.search(display_name or ""):
+        return "bot label in the display name"
+    m = _BOT_BIO.search(bio or "")
+    if m:
+        return f"bio says '{m.group(0)}'"
+    return None
+
+
+#: Roles that put an account on a market's voices card. A bot read as one of
+#: these is moved to promoter_or_bot; vendor, reseller and investor readings
+#: stand, because a vendor's product account named "...bot" is still the
+#: vendor's, and that reading feeds vendor linking.
+_PERSON_ROLES = ("practitioner", "analyst_or_press")
+
 # The part an account plays in a market, when profiled for one. Stored in
 # social_accounts.metadata as market_role / market_org / market.
 MARKET_ROLES = ("vendor", "vendor_staff", "practitioner", "analyst_or_press",
@@ -389,7 +438,9 @@ class SocialProfileService:
                 "(works in the market's field or uses its products: a clinician or patient "
                 "for a health market, a security team member for a security market, a "
                 "librarian or researcher for a publishing market), analyst_or_press, reseller, "
-                'promoter_or_bot, investor (an investor, fund or VC account), unrelated>", '
+                'promoter_or_bot (also any account run by software: feed or RSS bots, '
+                'auto-posters, moderator bots, news tickers, even when what they post is about '
+                'the market), investor (an investor, fund or VC account), unrelated>", '
                 '"organisation": "<the company the account is or works for, or null>", '
                 # Which side of the market the account speaks from. "practitioner"
                 # covers both the GP who prescribes and the patient on the
@@ -563,10 +614,20 @@ class SocialProfileService:
         who = f"{(ident or {}).get('display_name') or ''} {(ident or {}).get('bio') or ''}"
         if role == "analyst_or_press" and _MARKETER.search(who):
             role = "promoter_or_bot"
-        return {"market_role": role,
+        bot_reason = None
+        if role in _PERSON_ROLES:
+            bot_reason = looks_automated((ident or {}).get("handle"),
+                                         (ident or {}).get("display_name"),
+                                         (ident or {}).get("bio"))
+            if bot_reason:
+                role = "promoter_or_bot"
+        meta = {"market_role": role,
                 "market_org": summary.get("organisation"),
                 "audience_role": summary.get("audience"),
                 "market": context, "market_read_at": _now()}
+        if bot_reason:
+            meta["automated"] = bot_reason
+        return meta
 
     async def reread(self, db, platform: str, handle: str, context: str) -> Optional[Dict]:
         """Run the model step again over the stored bio and sample posts.
