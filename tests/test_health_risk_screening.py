@@ -25,7 +25,7 @@ def test_health_vocabulary(text, hit):
 
 def test_health_is_a_risk_type_and_the_fallback_is_conservative():
     assert "adverse_health_effect" in bs.RISK_TYPES
-    assert bs.PROMPT_VERSION.startswith("v2.1")
+    assert bs.PROMPT_VERSION.startswith("v2.2")
     assert [f["risk_type"] for f in bs.keyword_risk_fallback("they would make me physically sick")] == ["adverse_health_effect"]
     assert bs.keyword_risk_fallback("I felt sick of the notifications") == []
 

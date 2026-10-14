@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Bump on any change to RISK_TYPES, the screening prompt, or the fallback rules —
 # stored on every verdict so historical evaluations can name their screener.
-PROMPT_VERSION = "v2.1"  # v2.1 (14 Oct 2026): adverse_health_effect
+PROMPT_VERSION = "v2.2"  # v2.1 (14 Oct 2026): adverse_health_effect; v2.2: experienced harm only
 SCREENING_MODEL = "bedrock-kimi-k2-5"
 
 RISK_TYPES = ["legal_regulatory", "financial_distress", "fraud_integrity",
@@ -120,7 +120,7 @@ Risk types (use ONLY these keys): legal_regulatory (lawsuits, regulatory action,
 Rules:
 - Only flag risks where {brand_name} is the SUBJECT of the adverse event (not merely mentioned, not the plaintiff suing someone else unless it exposes them to counter-risk).
 - Routine negative sentiment (bad quarter, critical review) is NOT a risk finding unless it fits a type above.
-- A user or patient describing harm to their health that they link to {brand_name}'s product, medication, programme or advice IS adverse_health_effect, even in a single review and even when the rest is a complaint about service. A complaint about the app, the price or the support alone is not.
+- A user or patient describing harm to their health that they link to {brand_name}'s product, medication, programme or advice IS adverse_health_effect, even in a single review and even when the rest is a complaint about service. It must be harm the person (or someone they care for) actually experienced; a warning that the product could harm other people, an opinion that it is unhealthy, or a complaint about the app, the price or the support is not.
 - For adverse_health_effect, severity high = hospital or emergency treatment, a serious or lasting reaction, or harm to a child or pregnancy; medium = any other reported symptom or side effect.
 - severity: high = material/ongoing threat; medium = notable; low = minor/speculative.
 - justification: one factual sentence naming the event, no adjectives beyond the facts.
