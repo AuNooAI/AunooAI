@@ -1,6 +1,8 @@
 # Bright Data web access for Auspex — spec
 
-Status: draft, 13 Oct 2026. Site: bugfixing.aunoo.ai only until it has run for a week.
+Status: phase 1 built on bugfixing 14 Oct 2026 (`app/services/brightdata_web.py`, tests
+`tests/test_brightdata_web.py`). Site: bugfixing.aunoo.ai only until it has run for a week. See
+"As built" at the end.
 
 ## Summary
 
@@ -219,3 +221,35 @@ The existing suite must stay green (baseline 2,267 passed, 0 failed on 11 Oct 20
 About 3 to 4 hours for phase 1: the client and snapshot script take about 1 hour, the router and
 deep-research changes 1 to 1.5 hours, and tests and the bugfixing rollout the rest. Phase 2 is
 about 1.5 hours more once the terms question is answered.
+
+## As built (14 Oct 2026)
+
+- **Google search was already off on bugfixing.** Google answered every request with 403
+  `API_KEY_SERVICE_BLOCKED`, so before this change deep research's web searches all fell through
+  to TheNewsAPI's last 7 days. Bright Data is now the only working web search on the site.
+- **Bright Data search is slow and uneven.** Measured live on 14 Oct 2026:
+  - "Oviva GLP-1" took 31 s and returned 9 good results.
+  - "Oviva weight loss" took 48 s and returned none.
+  - "Oviva GLP-1 weight loss programme UK" took 64 s with no location set, and 55 s with
+    `geo_location: gb`. Both returned none.
+  - The `bing` engine answered in 6–12 s, but as a Markdown page in Traditional Chinese with every
+    link behind a Bing redirect. We don't parse it.
+
+  So the search timeout is 45 s (`BRIGHTDATA_WEB_SEARCH_TIMEOUT`). A search that times out or
+  comes back empty falls through to Google and then TheNewsAPI, as designed.
+- **Page fetch is fast and clean:** 5–7 s per page, with the page's own text.
+- **Budgets.** The daily budget is in the host's `quota_policy.json`:
+  `"brightdata_web": {"period": "day", "budget": 150}`, counted per token across every site
+  (backup `quota_policy.json.bak-brightdata-web-20261014`). Without that entry,
+  `BRIGHTDATA_WEB_DAILY_CALLS` applies. The per-run budget lives on the research state
+  (`state.web_budget`). Each search and fetch sets it only around its own `await`, because
+  `conduct_research` is an async generator, and a context variable set across its `yield`s is
+  not safe.
+- **The routing change** is a new `AuspexToolsService.web_search()`, which tries Bright Data and
+  then Google. `search_router` calls it in both the external and the hybrid branches.
+  `metadata.search_method` (or `web_search_method` in hybrid) names the provider that answered.
+- **Fetched text in synthesis.** Fetched pages are added to the synthesis batch as
+  `web_page_text`, inside a `<<<QUOTED WEB PAGE … >>>END QUOTED WEB PAGE` block of at most 2,500
+  characters. The page's own text can't close the block early.
+- **Refinement-stage web results aren't fetched.** Only the planner queries' results are, after
+  sampling, three per query.

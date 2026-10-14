@@ -34,6 +34,7 @@ from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
 from app.services.search_router import get_search_router, SearchSource
+from app.services import brightdata_web
 from app.services.relevance_scorer import get_relevance_scorer, RelevanceScoringConfig
 from app.services.sampling import (
     get_registry,
@@ -86,6 +87,9 @@ class ResearchState:
 
     # Source tracking for internal vs external attribution
     sources_used: Dict[str, int] = field(default_factory=lambda: {"internal": 0, "external": 0})
+
+    # Bright Data web budget and page cache for this run (docs/BRIGHTDATA_WEB_ACCESS_SPEC.md)
+    web_budget: Any = None
 
     # Progress tracking
     current_stage: ResearchStage = ResearchStage.EXPLORATION
@@ -752,6 +756,8 @@ Respond with valid JSON matching the expected schema."""
         """
         all_articles = []
         seen_urls = set()
+        if state.web_budget is None:
+            state.web_budget = brightdata_web.new_run_budget()
 
         # Determine forced search source based on research mode config
         forced_source = None
@@ -890,13 +896,14 @@ Respond with valid JSON matching the expected schema."""
                     else:
                         source = None
 
-                results = await self.search_router.execute_routed_search(
-                    query=query_text,
-                    topic=state.topic,
-                    limit=config.articles_per_query,
-                    force_source=source,
-                    tools_service=self.tools
-                )
+                with brightdata_web.use_budget(state.web_budget):
+                    results = await self.search_router.execute_routed_search(
+                        query=query_text,
+                        topic=state.topic,
+                        limit=config.articles_per_query,
+                        force_source=source,
+                        tools_service=self.tools
+                    )
 
                 actual_source = results.get("source_used", results.get("source_type", "unknown"))
 
@@ -964,6 +971,13 @@ Respond with valid JSON matching the expected schema."""
         # Store results
         state.raw_results = all_articles
 
+        # Full text for the best web results (docs/BRIGHTDATA_WEB_ACCESS_SPEC.md)
+        if brightdata_web.configured():
+            yield {"status": "fetching_pages", "progress": 0.87}
+            fetched = await self._fetch_web_pages(state)
+            if fetched:
+                logger.info(f"Fetched full text for {fetched} web results")
+
         # Calculate source metadata
         sources = set()
         categories = set()
@@ -1029,13 +1043,14 @@ Respond with valid JSON matching the expected schema."""
 
                         try:
                             source = SearchSource.VECTOR_DB if search_type == "database" else None
-                            results = await self.search_router.execute_routed_search(
-                                query=query_text,
-                                topic=state.topic,
-                                limit=config.articles_per_query // 2,
-                                force_source=source,
-                                tools_service=self.tools
-                            )
+                            with brightdata_web.use_budget(state.web_budget):
+                                results = await self.search_router.execute_routed_search(
+                                    query=query_text,
+                                    topic=state.topic,
+                                    limit=config.articles_per_query // 2,
+                                    force_source=source,
+                                    tools_service=self.tools
+                                )
 
                             for article in results.get("articles", []):
                                 url = article.get("url") or article.get("uri", "")
@@ -1073,6 +1088,41 @@ Respond with valid JSON matching the expected schema."""
     # =====================================================
     # PARALLEL SEARCH STRATEGY METHODS
     # =====================================================
+
+    WEB_PAGES_PER_QUERY = 3
+
+    async def _fetch_web_pages(self, state: ResearchState) -> int:
+        """Fetch the full text of the top web results, up to three per planner
+        query, in the order the search ranked them. The text is kept on the
+        article as ``_web_page_text`` for synthesis and never stored. Pages that
+        do not mention the query are dropped."""
+        per_query: Dict[Any, int] = {}
+        picked = []
+        for article in state.raw_results:
+            if article.get("_source_type") != "external" or article.get("_web_page_text"):
+                continue
+            url = article.get("url") or ""
+            if not url.startswith("http"):
+                continue
+            key = article.get("_objective_id") or "general"
+            if per_query.get(key, 0) >= self.WEB_PAGES_PER_QUERY:
+                continue
+            per_query[key] = per_query.get(key, 0) + 1
+            picked.append(article)
+        if not picked:
+            return 0
+
+        async def one(article: Dict) -> bool:
+            with brightdata_web.use_budget(state.web_budget):
+                page = await brightdata_web.fetch_page(article["url"])
+            textv = page.get("text") or ""
+            if not textv or not brightdata_web.mentions_query(textv, f"{state.query} {article.get('title', '')}"):
+                return False
+            article["_web_page_text"] = textv
+            return True
+
+        results = await asyncio.gather(*(one(a) for a in picked), return_exceptions=True)
+        return sum(1 for r in results if r is True)
 
     async def _search_semantic(self, state: ResearchState, config: ResearchConfig, limit: int) -> List[Dict]:
         """Strategy 1: Vector search for semantic relevance."""
@@ -1393,6 +1443,9 @@ Respond with valid JSON matching the expected schema."""
                 "objective_id": article.get("_objective_id"),
                 "is_enriched": article in enriched_articles
             }
+            if article.get("_web_page_text"):
+                summary["web_page_text"] = brightdata_web.quoted_block(
+                    summary["url"], article["_web_page_text"])
             article_summaries.append(summary)
 
         # Store metadata_stats in state for writer to use

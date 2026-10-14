@@ -575,6 +575,20 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
+    async def web_search(self, query: str, max_results: int = 10) -> Dict:
+        """Open-web search: Bright Data first when configured, then Google.
+
+        Same result shape as google_web_search, with ``search_method`` naming
+        the provider that answered (docs/BRIGHTDATA_WEB_ACCESS_SPEC.md).
+        """
+        from app.services import brightdata_web
+        if brightdata_web.configured():
+            bd = await brightdata_web.web_search(query, max_results=max_results)
+            if not bd.get("error") and bd.get("total_results", 0) > 0:
+                return bd
+            logger.info("Bright Data search gave nothing (%s); trying Google", bd.get("error") or "no results")
+        return await self.google_web_search(query, max_results=max_results)
+
     async def google_web_search(self, query: str, max_results: int = 10) -> Dict:
         """Search using Google Programmable Search Engine."""
         import os

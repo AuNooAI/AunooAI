@@ -312,15 +312,15 @@ class SearchRouter:
                 results["metadata"]["search_method"] = db_results.get("search_method", "vector")
 
             elif source == SearchSource.EXTERNAL:
-                # Try Google PSE first, fall back to TheNewsAPI
-                ext_results = await tools_service.google_web_search(
+                # Web search (Bright Data, then Google PSE), then TheNewsAPI
+                ext_results = await tools_service.web_search(
                     query=query,
                     max_results=limit
                 )
 
-                # If Google search failed or returned no results, try TheNewsAPI
+                # If web search failed or returned no results, try TheNewsAPI
                 if ext_results.get("error") or ext_results.get("total_results", 0) == 0:
-                    logger.info("Google PSE unavailable or returned no results, falling back to TheNewsAPI")
+                    logger.info("Web search unavailable or returned no results, falling back to TheNewsAPI")
                     ext_results = await tools_service.search_news(
                         query=query,
                         max_results=limit,
@@ -328,7 +328,7 @@ class SearchRouter:
                     )
                     results["metadata"]["search_method"] = "thenewsapi"
                 else:
-                    results["metadata"]["search_method"] = "google_pse"
+                    results["metadata"]["search_method"] = ext_results.get("search_method", "google_pse")
 
                 results["articles"] = ext_results.get("articles", [])
                 results["total_count"] = ext_results.get("total_results", 0)
@@ -340,7 +340,7 @@ class SearchRouter:
                     topic=normalized_topic,  # Use normalized topic
                     limit=limit // 2
                 )
-                ext_task = tools_service.google_web_search(
+                ext_task = tools_service.web_search(
                     query=query,
                     max_results=limit // 2
                 )
@@ -370,7 +370,7 @@ class SearchRouter:
                     logger.warning(f"External search exception in hybrid: {ext_results}")
                 elif ext_results.get("error") or ext_results.get("total_results", 0) == 0:
                     # Google PSE failed or returned no results, try TheNewsAPI as fallback
-                    logger.info(f"Hybrid: Google PSE unavailable or empty (error: {ext_results.get('error')}), falling back to TheNewsAPI")
+                    logger.info(f"Hybrid: web search unavailable or empty (error: {ext_results.get('error')}), falling back to TheNewsAPI")
                     try:
                         news_results = await tools_service.search_news(
                             query=query,
@@ -383,7 +383,8 @@ class SearchRouter:
                         logger.warning(f"Hybrid: TheNewsAPI fallback also failed: {news_err}")
                 else:
                     ext_articles = ext_results.get("articles", [])
-                    logger.info(f"Hybrid: Google PSE returned {len(ext_articles)} articles")
+                    results["metadata"]["web_search_method"] = ext_results.get("search_method", "google_pse")
+                    logger.info(f"Hybrid: web search ({results['metadata']['web_search_method']}) returned {len(ext_articles)} articles")
 
                 for article in ext_articles:
                     article["source_type"] = "external"
