@@ -1164,8 +1164,13 @@ function App() {
                     <div>
                       <label className="text-sm font-semibold mb-2 block">Data Range (Days Back)</label>
                       <Select
-                        value={config.timeframe_days.toString()}
-                        onValueChange={(value) => updateConfig({ timeframe_days: parseInt(value) })}
+                        value={config.start_date || config.end_date ? 'custom' : config.timeframe_days.toString()}
+                        onValueChange={(value) => value === 'custom'
+                          ? updateConfig({
+                              start_date: new Date(Date.now() - config.timeframe_days * 86400000).toISOString().slice(0, 10),
+                              end_date: new Date().toISOString().slice(0, 10),
+                            })
+                          : updateConfig({ timeframe_days: parseInt(value), start_date: undefined, end_date: undefined })}
                       >
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="All Time" />
@@ -1178,8 +1183,30 @@ function App() {
                           <SelectItem value="180">Last 180 days</SelectItem>
                           <SelectItem value="365">Last year</SelectItem>
                           <SelectItem value="0">All Time</SelectItem>
+                          <SelectItem value="custom">Custom range</SelectItem>
                         </SelectContent>
                       </Select>
+                      {(config.start_date || config.end_date) && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            type="date"
+                            aria-label="From"
+                            className="flex-1 rounded-md border px-2 py-1 text-sm bg-background"
+                            value={config.start_date || ''}
+                            max={config.end_date || undefined}
+                            onChange={(e) => updateConfig({ start_date: e.target.value || undefined })}
+                          />
+                          <span className="text-sm text-muted-foreground">to</span>
+                          <input
+                            type="date"
+                            aria-label="To"
+                            className="flex-1 rounded-md border px-2 py-1 text-sm bg-background"
+                            value={config.end_date || ''}
+                            min={config.start_date || undefined}
+                            onChange={(e) => updateConfig({ end_date: e.target.value || undefined })}
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* AI Model */}
@@ -3740,7 +3767,9 @@ function App() {
               <div>Topic: <strong>{config.topic}</strong></div>
               <div>Articles: <strong>{data?.articles_analyzed || 0}</strong></div>
               <div>Model: <strong>{config.model}</strong></div>
-              <div>Timeframe: <strong>{config.timeframe_days} days</strong></div>
+              <div>Timeframe: <strong>{config.start_date || config.end_date
+                ? `${config.start_date || '…'} to ${config.end_date || 'today'}`
+                : `${config.timeframe_days} days`}</strong></div>
             </div>
           </div>
 

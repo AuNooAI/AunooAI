@@ -780,7 +780,10 @@ class DatabaseQueryFacade:
         conditions = [
             # NOTE: publication_date is TEXT, use strftime() to match DB format
             articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
-            articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
+            # Before the next day, so the end day counts whole: almost every
+            # row is ISO with a 'T', which sorts after "YYYY-MM-DD HH:MM:SS",
+            # and the end day's articles used to fall out of the window.
+            articles.c.publication_date < (end_date.date() + timedelta(days=1)).isoformat(),
             articles.c.summary != '',
             articles.c.summary != None,
             articles.c.analyzed == True,  # Only include analyzed/relevant articles

@@ -21,6 +21,10 @@ import {
 export interface AnalysisConfig {
   topic: string;
   timeframe_days: number;
+  // A fixed period (YYYY-MM-DD, both inclusive). When set it replaces
+  // timeframe_days; the Data Range picker shows "Custom range".
+  start_date?: string;
+  end_date?: string;
   model: string;
   source_quality: string;  // 'all' or 'high_quality'
   sample_size_mode: string;

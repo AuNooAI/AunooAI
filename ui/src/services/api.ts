@@ -391,6 +391,8 @@ async function fetchWithAuth<T>(
 export async function generateTrendConvergence(params: {
   topic: string;
   timeframe_days?: number;
+  start_date?: string;
+  end_date?: string;
   model: string;
   source_quality?: string;
   sample_size_mode?: string;
@@ -409,6 +411,8 @@ export async function generateTrendConvergence(params: {
 
   // Optional params with defaults
   queryParams.append('timeframe_days', String(params.timeframe_days || 365));
+  if (params.start_date) queryParams.append('start_date', params.start_date);
+  if (params.end_date) queryParams.append('end_date', params.end_date);
   queryParams.append('source_quality', params.source_quality || 'all');
   queryParams.append('sample_size_mode', params.sample_size_mode || 'auto');
   queryParams.append('consistency_mode', params.consistency_mode || 'balanced');
@@ -443,6 +447,8 @@ export async function generateTrendConvergence(params: {
 export async function loadCachedTrendConvergence(params: {
   topic: string;
   timeframe_days?: number;
+  start_date?: string;
+  end_date?: string;
   model: string;
   source_quality?: string;
   sample_size_mode?: string;
@@ -454,6 +460,8 @@ export async function loadCachedTrendConvergence(params: {
   const queryParams = new URLSearchParams();
   queryParams.append('model', params.model);
   queryParams.append('timeframe_days', String(params.timeframe_days || 365));
+  if (params.start_date) queryParams.append('start_date', params.start_date);
+  if (params.end_date) queryParams.append('end_date', params.end_date);
   queryParams.append('source_quality', params.source_quality || 'all');
   queryParams.append('sample_size_mode', params.sample_size_mode || 'auto');
   queryParams.append('consistency_mode', params.consistency_mode || 'balanced');
@@ -847,7 +855,8 @@ export interface SavedDashboardSummary {
 
 export interface SavedDashboardFull extends SavedDashboardSummary {
   topic: string;
-  config: AnalysisConfig;
+  // The hook's AnalysisConfig (hooks/useTrendConvergence.ts); not imported, so services stay free of UI imports
+  config: any;
   article_uris: string[];
   consensus_data?: TrendConvergenceData;
   strategic_data?: TrendConvergenceData;
@@ -861,7 +870,8 @@ export interface SaveDashboardRequest {
   topic: string;
   name: string;
   description?: string;
-  config: AnalysisConfig;
+  // The hook's AnalysisConfig (hooks/useTrendConvergence.ts); not imported, so services stay free of UI imports
+  config: any;
   article_uris: string[];
   tab_data: {
     consensus?: TrendConvergenceData;

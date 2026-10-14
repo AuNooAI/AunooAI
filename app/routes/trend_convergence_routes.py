@@ -73,6 +73,39 @@ class ProfileCreateRequest(BaseModel):
     custom_context: Optional[str] = None
     monitored_brands: List[str] = []  # Brand names to track in PAM analysis
 
+#: "All Time" in the Explore settings sends timeframe_days=0. Read from here.
+_ALL_TIME_START = datetime(2000, 1, 1)
+
+
+def analysis_window(timeframe_days: int, start_date: Optional[str] = None,
+                    end_date: Optional[str] = None) -> tuple:
+    """The period an Explore analysis reads articles from.
+
+    Returns (start, end, label). With start_date or end_date (YYYY-MM-DD,
+    both inclusive) the period is that range and label is "YYYY-MM-DD to
+    YYYY-MM-DD"; a missing end means today, a missing start means
+    timeframe_days before the end. Without either, it is timeframe_days back
+    from now and label is None. timeframe_days 0 means all time (it used to
+    mean "since midnight today").
+    """
+    now = datetime.now()
+    if not start_date and not end_date:
+        start = _ALL_TIME_START if timeframe_days <= 0 else now - timedelta(days=timeframe_days)
+        return start, now, None
+    try:
+        end = (datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+               if end_date else now)
+        if start_date:
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+        else:
+            start = _ALL_TIME_START if timeframe_days <= 0 else end - timedelta(days=timeframe_days)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="start_date and end_date must be dates as YYYY-MM-DD")
+    if start > end:
+        raise HTTPException(status_code=400, detail="start_date is after end_date")
+    return start, end, f"{start.date().isoformat()} to {end.date().isoformat()}"
+
+
 def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
     """Calculate optimal sample size based on model capabilities and mode"""
     
@@ -606,6 +639,8 @@ async def get_ai_disclosure_models(days: int = Query(30, ge=1, le=365)):
 async def generate_trend_convergence(
     topic: str,
     timeframe_days: int = Query(365),
+    start_date: Optional[str] = Query(None, description="First day to read (YYYY-MM-DD). With end_date, replaces timeframe_days."),
+    end_date: Optional[str] = Query(None, description="Last day to read (YYYY-MM-DD), inclusive. Defaults to today."),
     model: str = Query(...),
     source_quality: str = Query("all", description="Source quality filter: all, high_quality"),
     sample_size_mode: str = Query("auto"),
@@ -641,10 +676,15 @@ async def generate_trend_convergence(
             except Exception as e:
                 logger.error(f"Default organisational profile lookup failed: {e}")
 
+        window_start, window_end, window = analysis_window(timeframe_days, start_date, end_date)
+        if window:
+            timeframe_days = (window_end.date() - window_start.date()).days + 1
+
         # Generate comprehensive cache key for all parameters including tab
         cache_key = generate_comprehensive_cache_key(
             topic, timeframe_days, model, source_quality, sample_size_mode,
-            custom_limit, profile_id, consistency_mode, persona, customer_type, tab
+            custom_limit, profile_id, consistency_mode, persona, customer_type, tab,
+            window=window,
         )
 
         # cache_only mode: return any cached result regardless of age, never generate
@@ -707,15 +747,11 @@ async def generate_trend_convergence(
         optimal_sample_size = calculate_optimal_sample_size(model, sample_size_mode, custom_limit)
         logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
         
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=timeframe_days)
-
         articles = (DatabaseQueryFacade(db, logger)).get_articles_with_dynamic_limit(
             consistency_mode,
             topic,
-            start_date,
-            end_date,
+            window_start,
+            window_end,
             optimal_sample_size
         )
 
@@ -1431,6 +1467,11 @@ Article {i}:
             'articles_analyzed': len(diverse_articles),
             'total_articles_found': len(articles),
             'timeframe_days': timeframe_days,
+            # The dates the articles were read from, so a reader (the MCP
+            # get_consensus tool, the Consensus tab) can say which period a
+            # run covers rather than only how many days back from its run.
+            'window_start': window_start.date().isoformat(),
+            'window_end': window_end.date().isoformat(),
             'model_used': model,
             'source_quality': source_quality,
             'persona': persona,
@@ -1470,7 +1511,7 @@ Article {i}:
                     analysis_id=analysis_id,
                     user_id=user_id,
                     topic=topic,
-                    timeframe=f"{timeframe_days} days",
+                    timeframe=window or f"{timeframe_days} days",
                     selected_categories=[],
                     raw_output=trend_convergence_data,
                     article_list=article_list,
@@ -2564,7 +2605,8 @@ def generate_comprehensive_cache_key(
     consistency_mode: ConsistencyMode,
     persona: str,
     customer_type: str,
-    tab: Optional[str] = None
+    tab: Optional[str] = None,
+    window: Optional[str] = None,
 ) -> str:
     """
     Generate comprehensive cache key including ALL parameters that affect results.
@@ -2589,6 +2631,11 @@ def generate_comprehensive_cache_key(
         'article_selection_method': 'deterministic_v2'
     }
     
+    # A fixed date range gets its own key. Left out otherwise, so keys for
+    # "N days back" runs stay what they were.
+    if window:
+        cache_params['window'] = window
+
     # Create hash from stable parameter representation
     params_string = json.dumps(cache_params, sort_keys=True, default=str)
     cache_hash = hashlib.sha256(params_string.encode()).hexdigest()[:16]
