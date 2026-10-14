@@ -182,13 +182,13 @@ STEP 1: DATA. Call `get_consensus` with {clause}. Use only what it returns; do n
 STEP 2: BUILD THE ARTIFACT (React, or plain HTML), to this spec:
 - Header "Consensus Analysis" with the topic name, subtitle "Where coverage converges, where it diverges, and what it points to." If written_for is set, say who the analysis was written for. If age_days is over 14, say how old it is.
 - A stat row: Themes tracked (number of categories), Source articles (articles_analyzed), Peak window (the most common consensus_window end year).
-- One card per category: the name; a horizontal stacked sentiment bar, positive green #16a34a, neutral slate #94a3b8, critical red #dc2626, summing to 100; majority_agreement as a percent beside consensus_strength; the consensus_window label; an outliers row with a green up-triangle per optimistic outlier and a red down-triangle per pessimistic outlier, each with its scenario and year.
+- One card per category: the name; a horizontal stacked sentiment bar, positive green #16a34a, neutral slate #94a3b8, critical red #dc2626, summing to 100; majority_agreement as a percent beside consensus_strength; the consensus_window label; a timeline track (a year axis from 2025 to 2050+ with ticks 2025, 2030, 2040, 2050+, extended if any year is later; a bar labelled Consensus from consensus_window.start_year to end_year; under it a thin line with a dot at each outlier's year, red #ef4444 pessimistic, green #10b981 optimistic, its scenario and year on hover or in a label); an outliers row with a green up-triangle per optimistic outlier and a red down-triangle per pessimistic outlier, each with its scenario and year.
 - Below the cards, a "Key insights" list from key_insights.
 - Styling: Inter font, pink accent #d6409f, text #211f26, cards bg #faf9fb with border #dbd8e0. Responsive.
 
 OUTPUT FORMAT: a standalone HTML file must be self-contained: inline all CSS, no ES-module imports, no <script type="module">, no fetch (all are blocked when the file is opened from disk). Plain HTML, inline CSS and inline SVG bars need no JS; if you need a chart library, load it as a UMD <script src>.
 
-RULES: the outliers are the point of this view; always include them. Present the analysis's own text and numbers; do not add advice of your own. Lead with the cards. Citations [n] in the text refer to the id in article_list; render them as links to that article's url."""
+RULES: the outliers are the point of this view; always include them, in the timeline track and the outliers row. Present the analysis's own text and numbers; do not add advice of your own. Lead with the cards. Citations [n] in the text refer to the id in article_list; render them as links to that article's url."""
     return [_user_message(text)]
 
 

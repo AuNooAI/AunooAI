@@ -790,7 +790,21 @@ class DatabaseQueryFacade:
         if topic and topic != "__all__":
             conditions.append(articles.c.topic == topic)
 
-        statement = select(
+        # Spread the pick over the whole window. Newest-first with a limit
+        # filled the sample from the last day or two on a busy topic, so a
+        # "30-day" consensus run read one day (SOC Automation, 8 Oct 2026:
+        # 90 of 90 articles from 7 Oct). Each day's articles are ranked by
+        # topic alignment, then every day's best is taken, then every day's
+        # second best, and so on up to the limit.
+        tie_break = [articles.c.title.asc()] if consistency_mode in [
+            ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else []
+        day_rank = func.row_number().over(
+            partition_by=func.substr(articles.c.publication_date, 1, 10),
+            order_by=[articles.c.topic_alignment_score.desc().nullslast(),
+                      articles.c.publication_date.desc(), *tie_break],
+        ).label('day_rank')
+
+        ranked = select(
             articles.c.title,
             articles.c.summary,
             articles.c.uri,
@@ -800,7 +814,8 @@ class DatabaseQueryFacade:
             articles.c.future_signal,
             articles.c.driver_type,
             articles.c.time_to_impact,
-            raw_articles_table.c.raw_markdown.label('raw_markdown')  # Add raw content
+            raw_articles_table.c.raw_markdown.label('raw_markdown'),  # Add raw content
+            day_rank,
         ).select_from(
             articles.outerjoin(
                 raw_articles_table,
@@ -809,15 +824,15 @@ class DatabaseQueryFacade:
         ).where(and_(*conditions, story_clause(articles),
                      # The consensus and horizons reports read from here; they
                      # must not be written from what quality control rejected.
-                     readable_clause(articles)))
-        if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
-            statement = statement.order_by(articles.c.publication_date.desc().nullslast(), articles.c.title.asc())
-        else:
-            statement = statement.order_by(articles.c.publication_date.desc().nullslast())
+                     readable_clause(articles))).subquery()
 
-        statement = statement.limit(optimal_sample_size * fetch_multiplier)
+        statement = select(*[c for c in ranked.c if c.name != 'day_rank']).order_by(
+            ranked.c.day_rank,
+            ranked.c.publication_date.desc().nullslast(),
+            *([ranked.c.title.asc()] if tie_break else []),
+        ).limit(optimal_sample_size * fetch_multiplier)
 
-        return self._fetchall_with_rollback(statement, mappings=True) 
+        return self._fetchall_with_rollback(statement, mappings=True)
 
     def get_organisational_profile(self, profile_id):
         statement = select(

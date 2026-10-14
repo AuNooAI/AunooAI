@@ -393,8 +393,9 @@ async def list_capabilities(ctx=None) -> dict[str, Any]:
             "get_timeline and what_changed (the site's own dated memory, with "
             "the articles each event was computed from) over a fresh search. "
             "To show a topic's consensus or Future Horizons, follow the "
-            "`display` field in get_consensus / get_horizons (prompts "
-            "consensus_outliers and future_horizons hold the full layout)."
+            "`display` field in get_consensus / get_horizons. It is the "
+            "complete layout, so follow all of it; you do not need the "
+            "consensus_outliers or future_horizons prompts."
         ),
     }
     # The brand and market names, so a model can go straight to the brand

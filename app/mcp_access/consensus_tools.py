@@ -34,15 +34,23 @@ STALE_DAYS = 14
 _RESPONSE_BYTES = 192 * 1024
 
 #: How to lay the answer out, returned with the data because many clients
-#: never show the consensus_outliers prompt to the assistant.
+#: (claude.ai among them) never show the consensus_outliers prompt to the
+#: assistant. This is the complete layout; keep the recipe in step with it.
+#: The timeline track copies ui/src/components/TimelineVisualization.tsx.
 DISPLAY = (
     "To SHOW consensus (not just describe it): one card per category, leading with the "
     "cards. Each card: the name; a horizontal stacked bar from consensus_type.distribution "
     "(positive #16a34a, neutral #94a3b8, critical #dc2626, summing to 100); "
     "confidence.majority_agreement as a percent with confidence.consensus_strength; "
-    "timeline.consensus_window.label; and an outliers row, a green up-triangle per "
-    "optimistic_outliers item and a red down-triangle per pessimistic_outliers item, each "
-    "with its scenario and year. Then a Key insights list. Above the cards a stat row: "
+    "timeline.consensus_window.label; a timeline track; and an outliers row, a green "
+    "up-triangle per optimistic_outliers item and a red down-triangle per "
+    "pessimistic_outliers item, each with its scenario and year. The timeline track is the "
+    "site's chart and must not be left out: a horizontal year axis from 2025 to 2050+ "
+    "(ticks 2025, 2030, 2040, 2050+; extend it if any year is later), a bar labelled "
+    "Consensus spanning consensus_window.start_year to end_year, and under it a thin line "
+    "with a dot at each outlier's year, red #ef4444 for pessimistic and green #10b981 for "
+    "optimistic, each dot showing its scenario and year on hover or in a label. Then a Key "
+    "insights list. Above the cards a stat row: "
     "themes (number of categories), articles_analyzed, and the most common consensus_window "
     "end year. Inter font, light cards (bg #faf9fb, border #dbd8e0), pink #d6409f accents, "
     "text #211f26. Use the categories and numbers as given; never add, rename or re-round "
