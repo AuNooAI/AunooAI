@@ -323,3 +323,34 @@ Where the build differs from the design above:
   base nobody recorded. Adding the card means finding that base first, as in the 2 Oct recovery
   (see the UI-build-from-HEAD note), so a rebuild doesn't roll Oviva's pages back. The alert
   rules run with their default thresholds until the settings rows ship with the card.
+
+## Competitors and MCP (14 Oct 2026)
+
+- **Competitor apps on oviva.** The developer of each Android app was checked by fetching its
+  Google Play page. The App Store IDs come from search results showing the brand's own app title.
+  | Brand | Google Play | App Store |
+  |---|---|---|
+  | Second Nature | `uk.co.ourpath.android` (Second Nature) | `885435960` |
+  | Numan | `com.numan.healthcare` (Numan Mobile) | `1624465181` |
+  | Voy | `co.manual.voy` (Menwell Limited) | `6471655955` |
+  | Juniper | `vc.eucalyptus.juniper` (Eucalyptus) | `1661064221` |
+  | Noom | `com.wsl.noom` (Noom, Inc.) | left out, see below |
+  | WeightWatchers | `com.weightwatchers.mobile` (WW International) | left out, see below |
+  | Zanadio | `de.aidhere.zanadio` (Sidekick Health), German store | `1499824614` (de) |
+  | HelloBetter | `de.hellobetter.companion`, German store | not found |
+- **First run, by hand at 17:50:** 974 records this month in all, about $2.40, of which the
+  competitors' run was 883.
+- **Big apps return up to 500 App Store reviews per call.** Noom returned 500, of which 2 fell in
+  the last 30 days. WeightWatchers' scrape didn't finish inside the sync call. Weekly, those two
+  would cost about 2,150 records a month each and break the 4,000-record monthly cap, so their App
+  Store targets are removed (`config.app_store_note` says why). Their Google Play reviews,
+  about 40 a month each, cover them.
+- **Unfinished scrapes.** Bright Data hands back a progress note with a snapshot ID when it
+  can't finish inside the sync call. That note was counted as one record and the cursor moved on.
+  Since `ed6b6efc` the code waits up to 5 minutes for the snapshot, or logs the call as failed.
+  Two WeightWatchers App Store snapshots were started on 14 Oct (`sd_mv8akg…` and the first run's)
+  and will be billed when they finish, though nothing reads them.
+- **The App Store is polled weekly** (`BW_APP_STORE_POLL_DAYS`, default 7). Google Play stays daily.
+- **MCP:** `get_app_ratings` (no brand means every brand with apps, for comparison) and
+  `get_app_reviews` (text, newest first, filter by `store` and `max_stars`). `brand_briefing`
+  step 6 uses them. Checked over `/mcp` on oviva with a one-day key (#9, revoked afterwards).
