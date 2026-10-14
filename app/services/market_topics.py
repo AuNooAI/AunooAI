@@ -152,12 +152,37 @@ def _grouping_prompt(result: Dict[str, Any], market_name: str) -> str:
             "headlines out.\n"
             f"- Every subject is about {market_name}, so a name that restates the market "
             "tells the reader nothing. Name the specific event, company, product, report "
-            "or question, in 3-8 words. No two names alike.\n"
+            "or question, in 3-8 words. No two names alike. Say what happened, not how it "
+            "is trending: no \"momentum\", \"traction\", \"rapidly evolving\" or \"landscape\".\n"
             "- One plain sentence per subject saying what is being reported, from the "
             "headlines only. Do not invent a company, product or event.\n"
             "Reply with JSON only, in this shape and nothing else:\n"
             '{"subjects": [{"name": "...", "summary": "...", "members": [12, 40, 41]}]}\n\n'
             + "\n".join(lines))
+
+
+# Trend words that say nothing a reader can check. The model added them to
+# subject names: "Prophet Security funding and momentum" (bugfixing, 14 Oct
+# 2026), where the headlines said Prophet raised money from Amex Ventures and
+# Citi Ventures. The report's copy rules ban the same words
+# (tests/test_market_report_copy.py); "momentum" there meant Crunchbase's own
+# scores, which are not market momentum.
+# "Momentum" followed by a capitalised word is a name (Momentum Cyber, the
+# M&A advisory firm), so it stays.
+_VAGUE_NAME = re.compile(
+    r"(?:\s*(?:,|\b(?i:and)\b|&)\s*)?\b(?i:(?:gaining |strong |growing )?)"
+    r"(?:(?i:momentum)(?!\s+[A-Z])|(?i:traction))\b"
+    r"|(?:\s*(?:,|\b(?i:and)\b|&)\s*)?\b(?i:rapidly evolving|dynamic landscape|dynamic market"
+    r"|increasingly competitive)\b")
+
+
+def tidy_name(name: str) -> str:
+    """A subject name without vague trend words, or the name as it was when
+    taking them out would leave less than two words."""
+    cleaned = _VAGUE_NAME.sub("", name or "")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,&-–—:")
+    cleaned = re.sub(r"\s+(?:and|&)$", "", cleaned, flags=re.I).strip()
+    return cleaned if len(cleaned.split()) >= 2 else (name or "").strip()
 
 
 def _parse_subjects(raw: str, n_items: int) -> List[Dict[str, Any]]:
@@ -173,7 +198,7 @@ def _parse_subjects(raw: str, n_items: int) -> List[Dict[str, Any]]:
     for item in parsed:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name") or "").strip()[:60]
+        name = tidy_name(str(item.get("name") or "").strip())[:60]
         members: List[int] = []
         for m in item.get("members") or []:
             try:
@@ -343,6 +368,10 @@ def latest(conn, market_id: int) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     result = dict(row["result"] or {})
+    # Runs stored before tidy_name existed carry the model's names as written.
+    for c in result.get("clusters") or []:
+        if isinstance(c, dict) and c.get("name"):
+            c["name"] = tidy_name(c["name"])
     result["id"] = row["id"]
     result["computed_at"] = (row["computed_at"].isoformat()
                              if hasattr(row["computed_at"], "isoformat")
