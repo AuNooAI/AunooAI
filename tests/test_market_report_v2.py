@@ -160,7 +160,7 @@ def test_lead_skips_a_hiring_count():
     assert parts["buckets"]["hiring"] == [devs[0]]
 
 
-def test_named_customer_is_a_customer_and_unnamed_is_a_case_study():
+def test_every_customer_story_is_a_case_study_tagged_by_whether_named():
     # The only fresh item, so it leads whatever day the test runs.
     from datetime import datetime, timezone
     lead = _dev(0, "acquisition", date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
@@ -168,8 +168,8 @@ def test_named_customer_is_a_customer_and_unnamed_is_a_case_study():
     unnamed = _dev(2, "customer", attributes={"customer": {"named": False}})
     bare = _dev(3, "customer")
     parts = html._v2_sections([lead, named, unnamed, bare], [], [], [])
-    assert parts["buckets"]["moves"] == [named]
-    assert parts["buckets"]["cases"] == [unnamed, bare]
+    assert parts["buckets"]["moves"] == []
+    assert parts["buckets"]["cases"] == [named, unnamed, bare]
     assert html._v2_tag(named) == "Customer"
     assert html._v2_tag(unnamed) == "Case study"
     assert html._v2_tag(bare) == "Case study"

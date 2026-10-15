@@ -3828,7 +3828,8 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
                           "headcount changes of 10% or more."},
     "cases": {"heading": "Case studies", "colour": "var(--n-orange)",
               "thing": "case study",
-              "subline": "Customer stories where the customer is not named."},
+              "subline": "Customer stories and deployments, whether or not "
+                         "the vendor names the customer."},
     "voices": {"heading": "Thought leadership", "colour": "var(--n-accent)",
                "thing": "opinion or research",
                "subline": "Opinion and research from vendors and researchers that "
@@ -3988,7 +3989,10 @@ def _v2_bucket_of(dev: Dict[str, Any]) -> str:
         return "launches"
     if kind in _V2_HIRING_TYPES:
         return "hiring"
-    if kind == "customer" and not _customer_named(dev) and not _is_contract(dev):
+    # Every customer story, named or not (user, 15 Oct 2026: on 30 days the
+    # section showed only Nebulock's while eight named stories sat in moves).
+    # A contract award is not a customer story and stays a move.
+    if kind == "customer" and not _is_contract(dev):
         return "cases"
     return "moves"
 
@@ -4002,7 +4006,7 @@ def _v2_sections(developments: List[Dict[str, Any]],
 
     The lead is the highest-ranked development that is not a hiring count.
     Launches and expansions are one section, hiring and headcount another,
-    unnamed customer stories a third; everything else is a market move.
+    customer stories a third; everything else is a market move.
     Thought leadership is the vendor opinion and research posts and the
     research papers; Social is the practitioner posts; both minus anything
     already cited as evidence, and the most-shared posts go with Social.
