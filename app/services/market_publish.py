@@ -898,7 +898,10 @@ def headcount_market(conn, market: Dict[str, Any]) -> Dict[str, Any]:
 
     rows = [dict(r) for r in conn.execute(text(f"""
         WITH readings AS (
-            SELECT s.brand_id, s.observed_at,
+            -- observed_at here is when we last saw the reading: an unchanged
+            -- re-read bumps last_seen_at and adds no row.
+            SELECT s.brand_id,
+                   COALESCE(s.last_seen_at, s.observed_at) AS observed_at,
                    (s.data->>'employee_count')::numeric AS headcount
               FROM bw_vendor_snapshots s
               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id

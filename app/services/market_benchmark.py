@@ -173,6 +173,8 @@ def _headcount_values(conn, market_id: int, days: int, pct: bool
     rows = conn.execute(text(f"""
         WITH readings AS (
             SELECT s.brand_id, s.observed_at,
+                   -- An unchanged re-read bumps last_seen_at, not observed_at.
+                   COALESCE(s.last_seen_at, s.observed_at) AS seen_at,
                    (s.data->>'employee_count')::numeric AS headcount
               FROM bw_vendor_snapshots s
               JOIN bw_market_brands mb ON mb.brand_id = s.brand_id
@@ -184,8 +186,8 @@ def _headcount_values(conn, market_id: int, days: int, pct: bool
                 if pct else ""}
         )
         SELECT brand_id,
-               (ARRAY_AGG(headcount ORDER BY observed_at DESC))[1] AS latest,
-               MAX(observed_at) AS latest_at,
+               (ARRAY_AGG(headcount ORDER BY seen_at DESC))[1] AS latest,
+               MAX(seen_at) AS latest_at,
                (ARRAY_AGG(headcount ORDER BY observed_at))[1] AS earliest,
                MIN(observed_at) AS earliest_at,
                COUNT(*) AS readings

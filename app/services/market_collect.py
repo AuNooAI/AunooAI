@@ -195,21 +195,29 @@ def store_snapshot(conn, *, market_id: int, brand_id: int, source: str,
     """Insert a snapshot unless an identical one already exists.
 
     Identity is (source, item, content hash), so re-reading an unchanged
-    profile is free and leaves no trace. A changed value produces a new row,
-    and the pair is what a metric delta is computed from later.
+    profile adds no row. A changed value produces a new row, and the pair is
+    what a metric delta is computed from later.
+
+    A re-read does bump ``last_seen_at`` on the existing row. Without it a
+    vendor whose profile never changes looks stale to every freshness check,
+    because ``observed_at`` stays at the day we first stored it.
+    Returns True only when a new row was inserted.
     """
-    result = conn.execute(text("""
+    row = conn.execute(text("""
         INSERT INTO bw_vendor_snapshots
             (market_id, brand_id, source, snapshot_type, provider_item_id,
-             observed_at, published_at, data, content_hash, collection_run_id)
+             observed_at, published_at, data, content_hash, collection_run_id,
+             last_seen_at)
         VALUES (:m, :b, :src, :st, :pid, COALESCE(:obs, NOW()), :pub,
-                CAST(:d AS JSONB), :h, :run)
-        ON CONFLICT (source, provider_item_id, content_hash) DO NOTHING
+                CAST(:d AS JSONB), :h, :run, NOW())
+        ON CONFLICT (source, provider_item_id, content_hash)
+            DO UPDATE SET last_seen_at = NOW()
+        RETURNING (xmax = 0) AS inserted
     """), {"m": market_id, "b": brand_id, "src": source, "st": snapshot_type,
            "pid": provider_item_id, "obs": observed_at, "pub": published_at,
            "d": json.dumps(data, default=str), "h": content_hash(data),
-           "run": run_id})
-    return bool(result.rowcount)
+           "run": run_id}).first()
+    return bool(row and row[0])
 
 
 # ---------------------------------------------------------------------------
