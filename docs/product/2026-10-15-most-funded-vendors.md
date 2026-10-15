@@ -16,10 +16,13 @@ _15 October 2026 · Market Monitor Analysis view, and the market tools on the Cl
 
 **Claude gives the same answer.** A Claude session asked for the top 10 by funding got the ranking right. But it said Torq and Arctic Wolf were "missing" and would probably rank near the top. That was wrong: both totals were on file, and both are incumbents. The data Claude reads now marks each vendor's status and names the funding figure to use, and the funding analysis it can call carries the same ranking as the card.
 
+**The full funding list agrees with the card.** The vendor funding list in Market Monitor, and its CSV export, read an old copy of each total taken when the market was first imported. Nobody updates that copy, so the list showed 36 AI in the SOC vendors with a total when we have 53, and it called most of the others "unavailable". It now reads the same totals as the card. The vendors without a figure show as undisclosed or bootstrapped, which is what they told us. The same fix is on every market site; AI Security gained the most, with 41 of its 56 vendors' figures corrected.
+
 ## Release notes (copy-ready)
 - New "Most funded vendors" card in Market Monitor → Analysis → Funding: the top 10 by disclosed total, with the market median.
 - Large incumbents and acquired vendors are left out of the ranking, and the card says how many.
 - Claude on a market site now sees each vendor's market status (active, incumbent, acquired) and its current funding total.
+- The vendor funding list and its CSV export now show the current totals, and say "undisclosed" rather than "unavailable" for vendors that have not disclosed.
 
 ## Demo / walkthrough
 1. Open Explore → Market Monitor on the new interface (/explore/next) and pick "AI in the SOC".
@@ -34,4 +37,4 @@ Funding league tables are what most market maps lead with, and most of them mix 
 - A round with no amount, such as Prophet Security's 8 October strategic investment from Amex Ventures and Citi Ventures, cannot change a total.
 - The card is on bugfixing (aisocnews.com's site) only. Other market sites get it if they ask for it.
 - The old interface (/explore) does not show the card; only the new one does.
-- The vendor funding list elsewhere in Market Monitor still reads the older workbook figure, which is missing for 17 vendors in this market. It should read the same total the card does.
+- The funding list fix was live on five market sites by 16:03. On aisocnews.com's own site it goes live at the next restart, which was waiting for a quiet moment at the time of writing.

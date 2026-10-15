@@ -182,6 +182,47 @@ None of these is a bug:
 - **After:** of that window's articles, 300 are approved, 1,458 filtered as off-topic and 1 marked
   `enrichment_failed`. None is left unprocessed.
 
+### Fix · The vendor funding list read the stale workbook total (`1d013766`)
+- **Cause:** `funding_vendors` in **`app/services/market_lists.py`** (the Funding drill-down list
+  and its CSV export) read `baseline.metrics.total_funding_musd` and `metrics.funding_status`, the
+  original workbook import. Nobody updates those; corrections go into `funding_baseline`. On AI in
+  the SOC the list showed 36 of 117 vendors with a total and called most of the rest
+  "unavailable".
+- **Fix:** the list reads `funding_baseline.total_musd` and `funding_baseline.status`. The source
+  label on the total now says "funding baseline, kept by hand from announcements". On market 2 it
+  shows 53 disclosed (BlinkOps $90M, Anvilogic $85M and Intezer $60M were among the missing) and
+  64 undisclosed or bootstrapped, with none unavailable.
+- **Safe to switch everywhere:** on every market site no vendor had a workbook total without a
+  `funding_baseline` total, so nothing is lost. Vendors whose two figures differ: aisecurity 41 of
+  56, oviva 7 of 9, abm 3 of 9, panaya 2 of 7, bugfixing 17 of 117, sunstar 0 of 6 (no figures).
+- **Test:** `test_the_total_is_the_hand_kept_funding_baseline` in
+  **`tests/test_market_lists.py`** pins each row's total to `funding_baseline`.
+
+### Ops · The restart script no longer restarts over a running ingest (`6805058e`)
+- **`scripts/restart_when_quiet.sh`** waited 45 minutes for ingest log lines to stop, then
+  restarted anyway, on the stated belief that "the ingest is periodic and resumes after a
+  restart". The afternoon's incident showed it does not. Ingest is now a hard signal like users
+  and jobs; `--soft MIN` is an explicit opt-in. With the default `--max 60`, a site whose ingest
+  never goes quiet is reported "NOT restarted".
+- The new file was swapped in with a rename, so the two copies of the script already waiting
+  kept reading the old one.
+
+### Feature · Case studies takes every customer story, named or not (`caba19c3`, `1036a1ca`)
+- Oliver asked whether Nebulock was the only case study on aisocnews.com. On the 30-day page it
+  was. The report counted 9 customer announcements, but `_v2_bucket_of` in
+  **`app/services/market_report_html.py`** sent the 8 that name their customer (Solarig with
+  CrowdStrike, Cole, Scott & Kissane with 7AI, Oldcastle APG with Palo Alto Networks, EQUANS with
+  Torq and others) to Market moves. Only Nebulock's "global software company" story was left
+  for Case studies. The 7-day page had none; the 90-day page had three (Nebulock and two from
+  Backline AI).
+- Now every `customer` development goes to Case studies. Contract awards, which `_is_contract`
+  spots from the headline, stay in Market moves. Each item keeps its tag, "Customer" when
+  named and "Case study" when not, and the section caption now reads "Customer stories and
+  deployments, whether or not the vendor names the customer." The Market moves caption said
+  it held "named customers"; it now says "contract awards" instead (`1036a1ca`).
+- **`tests/test_market_report_v2.py`**: the test that expected named customers in Market moves
+  now expects all three customer stories in Case studies.
+
 ### Decisions
 - Variance now sells fraud and compliance investigation agents, not an AI SOC product. Oliver
   decided to keep it in the AI SOC market for now.
@@ -225,6 +266,12 @@ None of these is a bug:
   `get_market_vendors` marks 99 active, 17 incumbent, 3 acquired, 1 pivoted; Torq and Arctic Wolf
   show `incumbent` with 332 and 900. MCP and market analysis tests: 52 passed. `ui-next`
   typecheck clean; `deploy.sh` built `explore-BZqlG_wV.js`, which contains the panel.
+- Funding list: `tests/test_market_lists.py` 34 passed on bugfixing and on aisecurity. panaya:
+  5 failed, 28 passed; the same 5 (jobs drill-down, posts and listing tests) fail on panaya's
+  original files, 27 passed there, so they predate this change. `restart_when_quiet.sh`:
+  `bash -n` clean, and `--check bugfixing sunstar` printed both sites' signals.
+- Case studies: `tests/test_market_report_v2.py` 35 passed. Before the change, the live
+  aisocnews.com page listed one case study at 30 days and three at 90 days.
 
 ### Other sites checked for renamed pages
 We replayed all 31 profile batches from the last 30 days on abm, oviva, panaya and sunstar.
@@ -267,6 +314,15 @@ inside a rolled-back transaction. Each replaced file has a `.bak-vendorfix-20261
   then ran a market pass with no errors. panaya logged one at 12:14. oviva (12:13) and sunstar
   (12:15) ran passes that did no work, which their market loop doesn't log; we confirmed them
   through `bw_entity_source_policies.updated_at`.
+- The funding list fix was copied to abm, aisecurity, oviva, panaya and sunstar by
+  `patch -p1 -F0` (line offsets only), with the test where the site has the test file. Backups:
+  `*.bak-fundlist-20261015`. Restarted through `restart_when_quiet.sh` with ingest as a hard wait:
+  abm 15:57, aisecurity 15:59, oviva 16:00, panaya 16:01, sunstar 16:03, all quiet, http 307,
+  no tracebacks. bugfixing was still waiting at 16:08 (users 5, ingest 646 log lines), so the fix
+  was not yet live there; its wait gives up at about 17:45.
+- The Case studies change is a presentation change asked for on aisocnews.com, so it is on
+  bugfixing only. It goes live at the same queued restart as the funding list fix; at 17:08 the
+  restart was still waiting (users 0, ingest 261 log lines).
 - The funding card and the MCP change are a new feature, so they are on bugfixing only
   (restarted 14:13). The AquilaI correction is data on bugfixing's `test` database, which serves
   aisocnews.com.
