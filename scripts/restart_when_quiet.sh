@@ -18,9 +18,15 @@
 #     due       observer agents past their next_run_at (a restart fires them
 #               all at once; see reference_observer_agent_email_spam)
 #     long      database queries active for more than 20 s
-#   soft (waited out for --soft minutes, default 45, then ignored):
 #     ingest    automated ingest / emerging topics / compose log lines in the
-#               last 2 min. The ingest is periodic and resumes after a restart.
+#               last 3 min. A restart does NOT resume an interrupted ingest: the
+#               collector has already moved its checkpoint past the articles, so
+#               the unprocessed ones are never picked up again. On 15 Oct 2026 a
+#               restart cut bugfixing's run at batch 3 of 879 and 1,750 articles
+#               had to be put through by hand.
+#   --soft MIN  opt in to restarting over a running ingest once everything
+#               else has been quiet for MIN minutes. Off by default; use it only
+#               when you will finish the cut-off run yourself.
 #
 # Why not count model-call log lines: the ingest pipeline logs 'Starting
 # response generation' and 'app.research' set_topic lines per article, so a
@@ -29,7 +35,7 @@
 #
 # --check prints the signals for each site and exits without restarting.
 set -u
-CHECK=0; SOFT=45; MAX=60
+CHECK=0; SOFT=""; MAX=60
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) CHECK=1; shift;;
@@ -74,7 +80,7 @@ for t in "$@"; do
     read users chat jobs due long ingest <<<"$(signals $t)"
     if [ "$users" = 0 ] && [ "$chat" = 0 ] && [ "$jobs" = 0 ] && [ "$due" = 0 ] && [ "$long" = 0 ]; then
       if [ "$ingest" = 0 ]; then mode="quiet"; break; fi
-      if [ $waited -ge $((SOFT*60)) ]; then mode="ingest running, nothing else"; break; fi
+      if [ -n "$SOFT" ] && [ $waited -ge $((SOFT*60)) ]; then mode="ingest running, nothing else (--soft)"; break; fi
     fi
     sleep 30; waited=$((waited+30))
   done
