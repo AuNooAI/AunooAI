@@ -209,7 +209,7 @@ def add(spec: dict, apply: bool) -> int:
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
-        market = conn.execute(text("SELECT id, name FROM bw_markets WHERE id = :m"),
+        market = conn.execute(text("SELECT id, name, config FROM bw_markets WHERE id = :m"),
                               {"m": market_id}).mappings().first()
         if not market:
             raise SystemExit(f"no market {market_id}")
@@ -323,6 +323,9 @@ def add(spec: dict, apply: bool) -> int:
         synced = resync_market_keywords(conn, db, market_id, market["name"])
         conn.commit()
         print(f"keywords added to the market group: {(synced or {}).get('keywords_added')}")
+        social = add_to_social_groups(conn, market, brand_id)
+        conn.commit()
+        print(f"social search terms added: {social or 'none (already there, or no social groups)'}")
         summary = seed_policies(conn)
         conn.commit()
         print(f"policies: created {summary.get('created')}, updated {summary.get('updated')}")
@@ -345,6 +348,68 @@ def add(spec: dict, apply: bool) -> int:
 
 
 # ---------------------------------------------------------------- audit
+def _social_group_ids(market) -> list:
+    """The market's social search groups (Bluesky, X and Reddit), from
+    bw_markets.config.collection.social_group_ids. The market's news group is
+    re-synced from the registry; these are not, so an add writes to them."""
+    cfg = market.get("config") or {}
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg)
+    return [int(g) for g in ((cfg.get("collection") or {}).get("social_group_ids") or [])]
+
+
+def _vendor_names(conn, brand_id: int) -> list:
+    """The names a vendor is searched by: its search names, else its display name."""
+    names = [r[0] for r in conn.execute(text("""
+        SELECT display_value FROM bw_vendor_identifiers
+         WHERE brand_id = :b AND kind = 'search_name' AND valid_to IS NULL
+    """), {"b": brand_id}).fetchall()]
+    if not names:
+        names = [conn.execute(text("SELECT display_name FROM bw_brands WHERE id = :b"),
+                              {"b": brand_id}).scalar()]
+    return [n for n in names if n]
+
+
+def _term(name: str) -> str:
+    # Peers' multi-word terms are stored quoted ("DTS HawkEye"), one-word bare.
+    return f'"{name}"' if " " in name.strip() else name.strip()
+
+
+def add_to_social_groups(conn, market, brand_id: int) -> list:
+    added = []
+    for gid in _social_group_ids(market):
+        for name in _vendor_names(conn, brand_id):
+            n = conn.execute(text("""
+                INSERT INTO monitored_keywords (group_id, keyword)
+                SELECT :g, :k WHERE NOT EXISTS (
+                    SELECT 1 FROM monitored_keywords
+                     WHERE group_id = :g AND lower(trim(both '"' from keyword)) = lower(:n))
+            """), {"g": gid, "k": _term(name), "n": name.strip()}).rowcount
+            if n:
+                added.append(f"{gid}:{_term(name)}")
+    return added
+
+
+def _missing_social(conn, market_id: int, brand_id: int, display_name: str,
+                    keywords) -> list:
+    """Social groups that hold none of the vendor's names. A term and a name
+    match when one starts the other: '"Alpha Level" security' covers Alpha
+    Level, and "Mandiant" covers Mandiant (Google)."""
+    market = conn.execute(text("SELECT config FROM bw_markets WHERE id = :m"),
+                          {"m": market_id}).mappings().first() or {}
+    names = {n.replace('"', '').lower().strip()
+             for n in _vendor_names(conn, brand_id) + [display_name] + list(keywords or [])
+             if n}
+    missing = []
+    for gid in _social_group_ids(dict(market)):
+        terms = [r[0].replace('"', '').lower().strip() for r in conn.execute(text(
+            "SELECT keyword FROM monitored_keywords WHERE group_id = :g"), {"g": gid})]
+        if not any(t == n or t.startswith(n + " ") or n.startswith(t + " ")
+                   for t in terms for n in names):
+            missing.append(gid)
+    return missing
+
+
 def _gaps(conn, market_id: int, brand_id=None):
     rows = conn.execute(text("""
         SELECT b.id, b.display_name, b.brand_keywords, b.color, b.logo_data IS NOT NULL AS logo,
@@ -382,6 +447,10 @@ def _gaps(conn, market_id: int, brand_id=None):
             gaps.append("colour")
         if not r["social_collection_enabled"]:
             gaps.append("social collection off")
+        missing_social = _missing_social(conn, market_id, r["id"], r["display_name"],
+                                         r["brand_keywords"])
+        if missing_social:
+            gaps.append("not in social search group " + ", ".join(map(str, missing_social)))
         if r["policies"] < 8:
             gaps.append(f"policies {r['policies']}/8 (run seed_policies)")
         if r["headcount"] is None:

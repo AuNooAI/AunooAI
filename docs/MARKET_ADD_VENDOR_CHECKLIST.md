@@ -105,7 +105,11 @@ On `--apply` the script:
    backgrounds;
 5. writes the map status and analyst note, when there are any; an incumbent is also switched
    off for Brand Watcher, whose name checks would match a giant's name in every article;
-6. re-syncs the market's search terms, so the vendor is searched for from the next cycle;
+6. re-syncs the market's search terms, so the vendor is searched for from the next cycle,
+   and adds its name to the market's social search groups
+   (`bw_markets.config.collection.social_group_ids`; 32 Bluesky and 440 X/Reddit for
+   market 2). Before 15 Oct 2026 the script missed these, so UnderDefense was not searched
+   on social until it was added by hand;
 7. creates the collection schedule (8 sources; 7 are eligible at first, because job listings
    wait for the careers-page discovery);
 8. queues the first paid reads (LinkedIn profile, LinkedIn posts, Crunchbase, about 4 cents),
