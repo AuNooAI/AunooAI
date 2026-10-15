@@ -1,6 +1,6 @@
 # Changes
 
-## 2026-10-15 — Vendors no longer drop off the Maturity Map when their LinkedIn page stays the same or gets renamed; small vendors placed by size range; added vendors told
+## 2026-10-15 — Vendors no longer drop off the Maturity Map when their LinkedIn page stays the same or gets renamed; small vendors placed by size range; added vendors told; a most-funded vendors card
 
 ### Goal
 Oliver reported vendors missing from aisocnews.com. Nine of the 116 AI SOC vendors were absent
@@ -133,6 +133,55 @@ None of these is a bug:
   satellite radio-signal company. Its LinkedIn and Crunchbase rows point at DTS Solution, and
   none of its matched articles mention HawkEye 360.
 
+### Data · AquilaI's analyst note corrected
+- Srinivas Prasad of AquilaI (brand 150) wrote that our note about the company was wrong. The note
+  said Egress had acquired it and placed it in Cheltenham; that story belongs to a different
+  company. AquilaI has been bootstrapped since it was incorporated in October 2020.
+- We set `bw_market_vendor_controls.note` to NULL for AquilaI on market 2, set its funding status
+  to Bootstrapped, stored its logo (a white wordmark on a #181D20 64px tile, from the file he sent)
+  and set its colour to #00D2FF.
+- A map recompute (run 107, 12:47) and the 5-minute page cache later, neither aisocnews.com page
+  mentions Egress or Cheltenham.
+- A reply to him is drafted in Oliver's Gmail (thread `1a13eeb8d7ba5bb4`). It says what we
+  changed, and that placement comes from public data only, so a briefing is welcome but doesn't
+  move a vendor. Not sent at the time of writing.
+
+### Feature · Most funded vendors card, incumbents left out (`1fdaa2c3`)
+- **Why:** Oliver pasted a top-10 funding ranking that a claude.ai session built from the AI SOC
+  MCP tools. Its ranking was right, but it called Torq and Arctic Wolf "missing" totals that
+  would rank near the top. Both have totals on file ($332M, about $900M); both are marked large
+  incumbents, which every ranking leaves out.
+- **Backend:** `most_raised()` in **`app/services/market_analysis.py`** ranks vendors by
+  `baseline.funding_baseline.total_musd`, the total we keep by hand. It leaves out incumbents
+  (`not_incumbent`) and acquired vendors (`is_acquired`), and returns the top 10, the median,
+  and how many vendors have no amount because they declared none versus because we never found
+  one. `funding()` returns it as `raised`, so the Analysis view, the export and the MCP
+  `get_market_analysis name=funding` all get it.
+- **Frontend:** a "Most funded vendors" panel at the top of the Funding section in
+  **`ui-next/src/explore/mm/views/analysis/panels/Funding.tsx`**, with the type in
+  **`ui/src/services/marketMonitorApi.ts`** (optional, so older backends still typecheck).
+  `ui-next/` is not tracked in git; the panel is built and live on bugfixing but is in no commit.
+- **MCP:** `get_market_vendors` in **`app/mcp_access/brand_tools.py`** now gives each vendor
+  `market_status` (active, incumbent, acquired, pivoted) and `funding_total_musd` /
+  `funding_status`, with a note that `baseline.metrics.total_funding_musd` is the stale workbook
+  copy (36 vendors filled against 53 in `funding_baseline`). The tool description in
+  **`app/mcp_access/tools.py`** says the same.
+
+### Incident · A restart cut off a news ingest run, which we then finished by hand
+- **What happened:** the 14:13 restart to deploy the funding card stopped the keyword monitor's
+  auto-ingest for group 9 ("AI and Machine Learning") at batch 3 of 879. We checked
+  `bw_collection_runs` for running market jobs before restarting, but not the news ingest.
+- **Why it would not recover alone:** the collector had already moved its checkpoint past the
+  14:00–14:08 collection, so the next scheduled check would not pick those articles up. The
+  `/auto-ingest/trigger` route is a placeholder that processes nothing.
+- **Recovery:** a one-off script (session scratchpad, `resume_ingest.py`) took the group 9 matches
+  detected 14:00–14:08:16 whose article had no `ingest_status`, 1,750 of them, and made the same
+  `auto_ingest_pipeline` call the scheduler makes, with group 9's threshold and each article's
+  matched search term. It ran 14:23–15:32: 1,750 processed, 299 saved and indexed, 0 errors. The
+  other 2,643 articles in the interrupted run had been processed in earlier runs.
+- **After:** of that window's articles, 300 are approved, 1,458 filtered as off-topic and 1 marked
+  `enrichment_failed`. None is left unprocessed.
+
 ### Decisions
 - Variance now sells fraud and compliance investigation agents, not an AI SOC product. Oliver
   decided to keep it in the AI SOC market for now.
@@ -169,6 +218,13 @@ None of these is a bug:
   HTCD, NextSOC and Vinci Logic once run 106 was stored.
 - Add script: the audit for brand 89570 shows only the pending headcount, and adding
   UnderDefense to the groups returned `['32:UnderDefense', '440:UnderDefense']`.
+- Funding card: `get_market_analysis(market_id=2, name='funding')['raised']` gave 7AI $202M,
+  Exaforce $201M, BlinkOps $90M, Anvilogic $85M, Artemis Security $70M, Intezer $60M, Dropzone AI
+  $57.4M, Mate Security $50.5M, Stellar Cyber $45.5M, Command Zero $45.27M; median $12M; 50 of 98
+  eligible vendors disclosed, 48 undisclosed or bootstrapped, 0 not found, 17 incumbents left out.
+  `get_market_vendors` marks 99 active, 17 incumbent, 3 acquired, 1 pivoted; Torq and Arctic Wolf
+  show `incumbent` with 332 and 900. MCP and market analysis tests: 52 passed. `ui-next`
+  typecheck clean; `deploy.sh` built `explore-BZqlG_wV.js`, which contains the panel.
 
 ### Other sites checked for renamed pages
 We replayed all 31 profile batches from the last 30 days on abm, oviva, panaya and sunstar.
@@ -208,8 +264,12 @@ inside a rolled-back transaction. Each replaced file has a `.bak-vendorfix-20261
 | sunstar | market_collect, brightdata_linkedin, market_publish, routes | none for markets | 12:05 |
 
 - `restart_when_quiet.sh` reported http 307 and no tracebacks for each. abm and aisecurity
-  then ran a market pass with no errors. oviva, panaya and sunstar had not run one by the
-  time of the check.
+  then ran a market pass with no errors. panaya logged one at 12:14. oviva (12:13) and sunstar
+  (12:15) ran passes that did no work, which their market loop doesn't log; we confirmed them
+  through `bw_entity_source_policies.updated_at`.
+- The funding card and the MCP change are a new feature, so they are on bugfixing only
+  (restarted 14:13). The AquilaI correction is data on bugfixing's `test` database, which serves
+  aisocnews.com.
 - panaya's 7 failures are in code these changes don't touch (the market tick, the webhook
   route, Bright Data triggers and vendor-scoped website runs). Its versions of those files
   are older than its test file. Auto mode blocked the run of panaya's original test file, so
@@ -231,6 +291,12 @@ inside a rolled-back transaction. Each replaced file has a `.bak-vendorfix-20261
 - A plain-text Gmail draft with a bare URL at the end of a sentence reached Oliver as a
   `google.com/url?q=...&sa=E.` redirect. Pass `htmlBody` with a real `<a href>`, and in the
   plain-text body put the URL on its own line.
+- Before restarting a site, check the journal for an auto-ingest run in progress
+  (`Processing batch N/M` without a later `All batches completed`), not only
+  `bw_collection_runs`. An interrupted run's articles are past the collector's checkpoint and
+  will not be retried.
+- `metrics.total_funding_musd` in a vendor's baseline is the original workbook import. Read
+  `funding_baseline.total_musd` for funding.
 - Tell a vendor it was added only once it shows on the page, with the map link and its stage.
   Seculyze wrote back in September that it could not find itself after an early notice.
 

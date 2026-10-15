@@ -20,6 +20,8 @@ _15 October 2026 · aisocnews.com and the other Market Monitor sites (Maturity M
 
 **Vendors that asked were told.** Five vendors that asked to be listed, and were added weeks ago, had never heard back. Each has now had an email saying where it sits on the map, with a working link.
 
+**A vendor's correction was made the same day.** AquilaI told us our note about it described a different company's acquisition. We removed the note, recorded the company as bootstrapped and added its logo. The corrected entry is now on aisocnews.com.
+
 ## Release notes (copy-ready)
 - The Maturity Map now places the smallest vendors, using the size range LinkedIn gives them.
 - Vendors no longer drop off the map when their LinkedIn page is unchanged or renamed.
