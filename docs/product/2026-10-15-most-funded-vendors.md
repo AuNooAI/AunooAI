@@ -37,4 +37,4 @@ Funding league tables are what most market maps lead with, and most of them mix 
 - A round with no amount, such as Prophet Security's 8 October strategic investment from Amex Ventures and Citi Ventures, cannot change a total.
 - The card is on bugfixing (aisocnews.com's site) only. Other market sites get it if they ask for it.
 - The old interface (/explore) does not show the card; only the new one does.
-- The funding list fix was live on five market sites by 16:03. On aisocnews.com's own site it goes live at the next restart, which was waiting for a quiet moment at the time of writing.
+- The funding list fix was live on five market sites by 16:03, and on aisocnews.com's own site from 18:04.

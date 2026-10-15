@@ -27,4 +27,4 @@ Customer evidence is what buyers trust most in a crowded market, and it is the h
 - Government contract awards, such as Method Security's Space Force award, stay in Market moves. They are contracts, not customer stories.
 - Market moves no longer shows customer stories, so it carries deals, funding, partnerships, leadership changes and incidents.
 - The change is on aisocnews.com only. The other market sites still file named customers under Market moves.
-- It goes live at the site's next restart. At the time of writing, that restart was waiting for a news collection run to finish.
+- Live on aisocnews.com since 18:04 on 15 October.

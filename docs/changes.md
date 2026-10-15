@@ -366,11 +366,21 @@ inside a rolled-back transaction. Each replaced file has a `.bak-vendorfix-20261
   `patch -p1 -F0` (line offsets only), with the test where the site has the test file. Backups:
   `*.bak-fundlist-20261015`. Restarted through `restart_when_quiet.sh` with ingest as a hard wait:
   abm 15:57, aisecurity 15:59, oviva 16:00, panaya 16:01, sunstar 16:03, all quiet, http 307,
-  no tracebacks. bugfixing was still waiting at 16:08 (users 5, ingest 646 log lines), so the fix
-  was not yet live there; its wait gives up at about 17:45.
+  no tracebacks.
+- bugfixing's queued restart gave up at 17:58 after two hours, "NOT restarted": nobody was on
+  the site, but ingest never went quiet (1,126 log lines in the last 3 minutes). A second wait
+  was queued, and at 18:04 Oliver said to restart anyway. We restarted bugfixing at 18:04:31; it
+  came back with no tracebacks, and the funding list fix and the Case studies change went live
+  together. The live 30-day page then showed Cole, Scott & Kissane, Oldcastle APG and EQUANS
+  under Case studies, tagged "Customer", and the new Market moves caption.
+- The restart cut off two ingest runs: "AI and Machine Learning" (group 9, 2,559 articles, at
+  batch 279 of 512) and "Geopolitical Hotspots" (group 10, 595 articles, at batch 12 of 119).
+  As in the afternoon's incident, nothing retries them, so we finished both by hand with the
+  same `auto_ingest_pipeline` call, taking the matches detected 17:00 to 18:04:31 that were
+  never processed. Group 9: 216 processed, 18 saved. Group 10: 201 processed, 111 saved. No
+  errors, and no unprocessed matches left in that window.
 - The Case studies change is a presentation change asked for on aisocnews.com, so it is on
-  bugfixing only. It goes live at the same queued restart as the funding list fix; at 17:08 the
-  restart was still waiting (users 0, ingest 261 log lines).
+  bugfixing only.
 - The funding card and the MCP change are a new feature, so they are on bugfixing only
   (restarted 14:13). The AquilaI correction is data on bugfixing's `test` database, which serves
   aisocnews.com.
