@@ -4917,6 +4917,7 @@ async def run_signal_instructions(
 
             # Log total matches for this instruction
             logger.info(f"Signal '{instruction['name']}' completed: {len(instruction_matches)} total matches across {len(article_batches)} batch(es)")
+            _record_manual_run(instruction['id'], 'success')
         
         # Generate report if requested (from request or from agent settings) and matches found
         report_data = None
@@ -5493,6 +5494,31 @@ Format as a concise markdown report.
         raise HTTPException(status_code=500, detail="Signal runner error")
 
 
+def _record_manual_run(instruction_id: int, status: str, error: Optional[str] = None) -> None:
+    """Record a run started by hand (Run / Run all) on the agent: last run time, status, error and
+    run count, as the scheduler does for scheduled runs (app/tasks/observer_agent_monitor.py). The
+    next scheduled time is left alone. Never raises: a bookkeeping failure must not fail the run."""
+    try:
+        from sqlalchemy import text as _text
+        from app.database import get_database_instance
+        conn = get_database_instance()._temp_get_connection()
+        try:
+            conn.execute(_text("""
+                UPDATE signal_instructions
+                SET last_run_at = NOW(),
+                    last_run_status = :status,
+                    last_run_error = :error,
+                    run_count = COALESCE(run_count, 0) + CASE WHEN :status = 'success' THEN 1 ELSE 0 END,
+                    updated_at = NOW()
+                WHERE id = :id
+            """), {"id": instruction_id, "status": status, "error": (error or None) and str(error)[:1000]})
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"Could not record the manual run of agent {instruction_id}: {exc}")
+
+
 async def _run_signals_background(
     run_id: str,
     req: _RunSignalRequest,
@@ -5593,6 +5619,8 @@ async def _run_signals_background(
                 )
                 if result.get('success'):
                     total_matches += result.get('alerts_created', 0)
+                _record_manual_run(instruction['id'], 'success' if result.get('success') else 'error',
+                                   None if result.get('success') else result.get('error'))
 
                 processed_count += 1
                 with _signal_runs_lock:
@@ -5601,6 +5629,7 @@ async def _run_signals_background(
 
             except Exception as inst_error:
                 logger.error(f"[{run_id}] Error processing instruction {instruction['name']}: {inst_error}")
+                _record_manual_run(instruction['id'], 'error', str(inst_error))
 
         # Mark as completed
         with _signal_runs_lock:
