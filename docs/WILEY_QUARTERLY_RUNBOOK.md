@@ -116,6 +116,15 @@ emails each topic's configured recipients (`forecast_topic_delivery`) and stamps
 `last_delivered_at`; the scheduler sends on the 1st of January, April, July and October to
 any topic not yet delivered that quarter.
 
+Regenerating a single stage from the editor does not clear the bundle's rendered deck.
+`regenerate_single_stage` rewrites the stage in `forecast_bundle_synthesis`, and the editor's
+own preview renders from that fresh state, but the Deliverables download
+(`/api/forecast/deliverables/bundle.pptx`) is served from a PPTX cache keyed only on cadence
+and period label, so it keeps handing out the old deck. Only "request revision" clears that
+cache. After re-running stages by hand, call `invalidate_render_cache("quarterly", "Q4
+2026")` from `app/services/wiley_delivery_service.py` (or re-run the full bundle, which
+rebuilds it) before anyone downloads.
+
 ### 5. Topic report deck
 
 Topic Reports panel → tick the topics, period label such as `Q4 2026` → generate, with the
@@ -189,6 +198,11 @@ regenerate only the `exec_summary` stage from the editor.
 Symptom: `event-extraction: no assessment for Open Science Transition`, the editor's
 per-topic tab empty, a topic missing from the deck. The bundle stores display names, the
 assessments are filed under source topics. Fixed in the facade by `7c668dcb`.
+
+### The download is the old deck after a stage was regenerated
+
+Symptom: a stage was re-run from the editor, the preview shows the new text, the download
+from the Deliverables panel does not. The render cache was not cleared; see the end of step 4.
 
 ### A restart assesses everything
 
