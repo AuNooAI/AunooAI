@@ -1,5 +1,239 @@
 # Changes
 
+## 2026-10-15 — Vendors no longer drop off the Maturity Map when their LinkedIn page stays the same or gets renamed; small vendors placed by size range; added vendors told
+
+### Goal
+Oliver reported vendors missing from aisocnews.com. Nine of the 116 AI SOC vendors were absent
+from the front page. Two of them, HTCD and Intezer, had dropped off the Maturity Map in the
+14 Oct run (map run 104: 91 vendors rated, down from 93). Each was lost through a different bug,
+and both bugs were on every site that runs the Market Monitor.
+
+### Fix · An unchanged LinkedIn profile counted as stale (`d2f23ceb`)
+- **Cause:** `store_snapshot` in **`app/services/market_collect.py`** ends with `ON CONFLICT
+  DO NOTHING`, so when a LinkedIn profile came back identical, we wrote nothing. The vendor's
+  latest row kept the date we first stored it. The headcount check in
+  **`app/services/market_benchmark.py`** (`_headcount_values`) treats a reading older than two
+  collection cycles (14 days for the weekly profile poll) as unmeasured. A small vendor whose
+  headcount doesn't move therefore fell off the map. HTCD (11 staff) last changed on 30 Sep.
+- **Change:** migration `mm_035` adds `bw_vendor_snapshots.last_seen_at`. `store_snapshot` now
+  bumps it on conflict (`DO UPDATE SET last_seen_at = NOW()`), and still returns True only for
+  a new row (`RETURNING xmax = 0`). The benchmark and the public headcount list in
+  **`app/services/market_publish.py`** judge freshness on `COALESCE(last_seen_at, observed_at)`.
+  Rows written before the migration keep NULL and fall back to `observed_at`.
+- The assessment check in `market_assessment.py` uses the collector's `last_success_at`, so it
+  was not affected and is unchanged.
+
+### Fix · A renamed LinkedIn page threw the profile away (`9dd1e690`)
+- **Cause:** LinkedIn redirects a renamed company page, and Bright Data returns the profile
+  under the new URL. `ingest_profiles` matched only on that returned URL, so it counted the
+  record as unmatched and dropped it. Intezer's page moved from `intezer-labs` to `intezer`.
+  Its last stored reading was 30 Sep.
+- **Change:** when the returned URL is unknown, `ingest_profiles` now falls back to the record's
+  `input.url`, the address we requested, and logs the rename.
+- **Misleading run counts:** the webhook in `market_monitor_routes.py` folds unmatched records
+  into `records_skipped` and leaves `records_unmatched` at 0. A run with dropped profiles
+  therefore looks like a run of unchanged ones. Not changed today.
+
+### Data · LinkedIn links corrected
+We found these by downloading each batch's records from Bright Data (`fetch_snapshot`, free)
+and comparing each returned URL with `linkedin_url_map`. We tested candidate addresses with
+`scrape_sync` on the profile dataset. Each old link was closed with a `closed_reason`, and each
+new link was added with the evidence in `provenance`.
+
+| Site | Vendor | Old page | New page | Evidence |
+|---|---|---|---|---|
+| bugfixing | Intezer (173) | `intezer-labs` | `intezer` (row 81140) | profile returned under the new URL |
+| bugfixing | Arctic Wolf (66880) | `arctic-wolf-networks` | `arcticwolf` (row 81141) | same |
+| bugfixing | Variance (89) | `intrinsicsafety` (dead) | `variancesafety` (row 81139) | added by another session; we added Y Combinator's listing as a second source and marked it verified after the read (variance.com, 20 staff) |
+| aisecurity | Quilr (24) | `quilrai` (dead) | `quilr` (row 311) | "QuilrAI", quilr.ai, 91 staff; quilr.ai still links the dead page |
+| aisecurity | Oasis Security (28) | `non-human-identity-management-oasis` (dead) | `oasissecurity` (row 312) | oasis.security, 144 staff; `/company/oasis-security` is a different company |
+
+On aisecurity, five more vendors (MintMCP, now Mintive; Pillar Security; LiteLLM; Maxim AI,
+whose page returns "Bifrost (by Maxim AI)"; and Lunar) had been dropped in run 302 because of
+renamed pages. The fallback now matches them, so their links were left as they are.
+
+### The other seven vendors missing from aisocnews.com
+None of these is a bug:
+- Fortinet and Mandiant are listed as large incumbents.
+- Radiant Security is listed as acquired by Cribl.
+- SOCAI has no LinkedIn page, by Oliver's decision on 8 Oct.
+- NextSOC and Vinci Logic have LinkedIn pages that show no employee count, only the band
+  "2-10 employees". They are now placed by that band; see the band feature below.
+- Variance had a dead LinkedIn link, fixed above.
+
+### Fix · Closed wrong-company Crunchbase links came back (`df4a8346`)
+- **Cause:** `seed_crunchbase_urls` in **`app/services/market_collect.py`** guesses a
+  Crunchbase URL from the vendor's name for every vendor that has no open `crunchbase_url`.
+  On 9 Oct we closed four guesses that pointed at other companies: Variance (a charting tool),
+  Redblock (a blockchain firm), Nua (a hygiene brand) and Cantina (a housing community). The
+  next pass guessed the same four URLs again (identifiers 62879 to 62882, created 9 Oct). The
+  11 Oct funding read then stored those companies' data as `funding` snapshots again.
+- **Change:** the insert now skips a URL that this vendor already has a row for, open or
+  closed. The `seeded` count is the rows actually inserted, so `seed_policies` no longer runs
+  for a guess that was skipped.
+- **Data, by hand on DB `test`:** we closed 62879 to 62882 again, each `closed_reason` reusing
+  the 9 Oct reason. We re-typed the four 11 Oct snapshots to `funding_wrong_company` and
+  rejected the 12 observations taken from them, the same treatment the 9 Oct cleanup used.
+- Variance's `funding_baseline` said $3.6M. It raised a $21.5M Series A on 31 Mar 2026 and
+  $26M in total (Business Wire release and VCA Online). We set `total_musd` to 26.0 with both
+  sources in `notes`.
+
+### Feature · Small vendors placed by their LinkedIn size band (`b8be1a5e`)
+- **Situation:** for the smallest companies LinkedIn gives only a band ("2-10 employees") and
+  no count. The map needs a count, so Vinci Logic and NextSOC could never be rated. Across all
+  profile snapshots on `test`, "2-10" was the only band ever seen without a count.
+- **Change:** `map_company_profile` in **`app/services/brightdata_linkedin.py`** stores the
+  middle of a closed band that tops out at 50 (`band_midpoint`: 2-10 gives 6, 11-50 gives 30)
+  when there is no count, and sets `employee_count_from_band: true`. Wider and open bands
+  stay unmeasured, because the middle of "1,001-5,000" could be thousands out and LinkedIn
+  gives larger companies an exact count anyway. Oliver asked for this on 15 Oct.
+- The published vendor row in **`app/services/market_publish.py`** shows the band, not the
+  estimate. The vendor page (**`app/services/market_vendor_html.py`**, fed by
+  `profile_series` in **`app/routes/market_monitor_routes.py`**) leaves the estimate off its
+  headcount chart.
+- **Data:** the 10 earlier "2-10" readings on `test` (Vinci Logic 7, NextSOC 3) got
+  `employee_count: 6` and the flag.
+
+### Fix · Adding a vendor skipped the social searches (`d32ad4d4`)
+- **Cause:** **`scripts/market_add_vendor.py`** re-synced the market's news search group but
+  never the social ones (group 32 for Bluesky, 440 for X and Reddit on market 2). UnderDefense
+  went in without being searched on social.
+- **Change:** the groups are listed in `bw_markets.config.collection.social_group_ids` (set to
+  `[32, 440]` on market 2). The add writes the vendor's search names into each group. The
+  audit flags a vendor that no term in a group covers; a term and a name match when one starts
+  the other, so `"Alpha Level" security` covers Alpha Level.
+- The audit now flags 11 other market 2 vendors. Joon, guarddog, WiseBee, Spectrum and
+  Variance were taken out of group 440 on purpose because they pulled in noise. 7AI and
+  Dropzone are missing from 32, and IBM, Wraithwatch and SOCAI from 440; we left those as
+  they were. SOC Jedi.ai is a false flag ("SOC Jedi" is in both groups).
+- **`docs/MARKET_ADD_VENDOR_CHECKLIST.md`** step 6 now says so.
+
+### Data · Vendor requests checked and UnderDefense added
+- All 16 form rows in `market_vendor_requests` were matched against the registry. Two were
+  open: UnderDefense (request 48, today) and eSentire (request 36, note "Hi," from an agency
+  address). eSentire is an MDR provider, which the checklist keeps out unless Oliver decides
+  otherwise, so it was not added.
+- UnderDefense was added with `market_add_vendor.py` as brand 89570: underdefense.com,
+  LinkedIn `/company/underdefense` and X `@underdefense` from the site footer, Crunchbase slug
+  guess, HQ United States, founded 2017, funding Undisclosed (no round found), colour #FF7102.
+  Its first profile read returned 134 staff.
+- The extra "submission" emails Oliver saw are the daily "Untracked vendors seen in Top
+  voices" digests, which cover three markets (AI in the SOC, AI Security, Enterprise Test
+  Automation).
+
+### Ops · Vendors told they were added
+- Of the 13 form submitters we added, five had never had a reply: Bricklayer AI, AquilaI,
+  Eventus Security, D3 Security and HawkEye. Securaa and NextSOC had been told "expect it
+  tomorrow" in September, with no follow-up once placed. Simbian's second contact (request
+  35) had no reply.
+- We drafted ten emails in Oliver's Gmail and he sent them: those eight, UnderDefense, and a
+  request to SOCAI (info@socai.eu) for its LinkedIn page. BlinkOps came in through LinkedIn
+  (Filip Stojkovski), with no email on file; Oliver got message text to paste.
+- HawkEye in the registry is DTS Solution's AI SOC product (hawk-eye.io), not HawkEye 360, the
+  satellite radio-signal company. Its LinkedIn and Crunchbase rows point at DTS Solution, and
+  none of its matched articles mention HawkEye 360.
+
+### Decisions
+- Variance now sells fraud and compliance investigation agents, not an AI SOC product. Oliver
+  decided to keep it in the AI SOC market for now.
+- The Oasis LinkedIn page is named "Cyera Identity (Oasis)", and Cyera has signed a letter of
+  intent to buy Oasis for about $1B. Oliver decided to keep Oasis as an independent vendor until
+  the deal closes.
+
+### Verification
+- Market tests (`test_market_benchmark`, `test_entity_wiring`, `test_market_metrics`,
+  `test_market_lists`): 201 passed after `d2f23ceb`, and 222 passed (with the Bright Data tests
+  added) after `9dd1e690`.
+- On the live `test` database, inside a transaction we rolled back: the first
+  `store_snapshot` returned True and an identical second call returned False. That left one
+  row with `last_seen_at` set.
+- Replaying Intezer's delivery (run 8689) through `ingest_for_source` returned
+  `unmatched: 1`, which confirmed the rename cause. A synthetic renamed-page record returned
+  `stored: 1` with the fallback.
+- Replaying the 14 Oct batch (run 8287: 115 received, 106 new, 9 skipped) showed that 6 of the
+  skipped records were unchanged profiles and 3 were unmatched (Variance dead page, Intezer,
+  Arctic Wolf).
+- Headcount freshness on market 2 went from 109 fresh vendors (HTCD and Intezer stale) to 114
+  (only Intezer stale) after the 11:30 reads.
+- The aisecurity "Fetch now" runs 557–563 all succeeded, one profile each.
+- Pending: bugfixing runs 8718 (Intezer) and 8719 (Arctic Wolf) were queued at 11:59 and were
+  still waiting for the next market check at 12:03.
+- Seeder: inside a rolled-back transaction on `test`, closing 62879 to 62882 and running
+  `seed_crunchbase_urls(conn, 2)` gave `{'seeded': 0, 'candidates': 4}` and no open link for
+  the four vendors. After the 11:18 restart the four stayed closed through the next pass.
+- Band: `tests/test_market_collection.py` and `tests/test_market_metrics.py`, 127 passed and
+  1 skipped, including a new test. The old guard against "51-200" becoming 51200 still passes.
+- Map: run 106 at 11:34 rated 96 vendors, up from 91 in run 104. UnderDefense, Variance and
+  HTCD are rated Scaling; NextSOC and Vinci Logic Emerging. Not rated: Intezer (renamed page,
+  re-read pending) and SOCAI (no LinkedIn page). aisocnews.com showed UnderDefense, Variance,
+  HTCD, NextSOC and Vinci Logic once run 106 was stored.
+- Add script: the audit for brand 89570 shows only the pending headcount, and adding
+  UnderDefense to the groups returned `['32:UnderDefense', '440:UnderDefense']`.
+
+### Other sites checked for renamed pages
+We replayed all 31 profile batches from the last 30 days on abm, oviva, panaya and sunstar.
+None had a renamed page. On panaya, five records (Opkey, Avo Automation, ACCELQ, Leapwork,
+Applitools) didn't match because those vendors are no longer in any market. On oviva, Zanadio's
+link was deliberately closed on 7 Oct.
+
+### Propagation
+Both fixes are on all six Market Monitor sites. Each site has its own `mm_035`, chained to that
+site's head:
+
+| Site | `mm_035` revises | Code | Restarted |
+|---|---|---|---|
+| bugfixing | `bw_app_001` | commits `d2f23ceb`, `9dd1e690` | 11:29 and 11:53 |
+| aisecurity | `mm_034` | patch, no fuzz | 10:59 and 11:35 |
+| abm | `subd_001` | patch, no fuzz | 11:51 |
+| oviva | `bw_app_001` | patch; `market_publish.py` edited by hand (incumbent filter written inline) | 11:52 |
+| panaya | `subd_001` | patch, no fuzz | 11:54 |
+| sunstar | `subd_001` | patch, no fuzz | 11:55 |
+
+The sites without git hold backups of the changed files as `*.pre_lastseen` and
+`*.pre_redirect`. Each restart showed no tracebacks or failed queries in the journal. wiley,
+wileytest and wbm don't collect LinkedIn profiles and were not changed.
+
+### Propagation of the seeder, band and add-script changes
+Copied at about 11:58 to the five other Market Monitor sites by `patch -p1 -F0` (no fuzz, no
+rejects). Each was first tested in a full copy of the site's `app/`, with its own `.env`, venv
+and database: the imports, `band_midpoint`, `map_company_profile` and `seed_crunchbase_urls`
+inside a rolled-back transaction. Each replaced file has a `.bak-vendorfix-20261015` beside it.
+
+| Site | Files | Tests | Restarted |
+|---|---|---|---|
+| abm | market_collect, brightdata_linkedin, market_publish, routes, market_add_vendor | none for markets | 12:00 |
+| aisecurity | same plus market_vendor_html, the test file and the checklist | 98 passed | 12:01 |
+| oviva | market_collect, brightdata_linkedin, market_publish, routes | none for markets | 12:03 |
+| panaya | same plus the test file | 81 passed, 7 failed (below) | 12:04 |
+| sunstar | market_collect, brightdata_linkedin, market_publish, routes | none for markets | 12:05 |
+
+- `restart_when_quiet.sh` reported http 307 and no tracebacks for each. abm and aisecurity
+  then ran a market pass with no errors. oviva, panaya and sunstar had not run one by the
+  time of the check.
+- panaya's 7 failures are in code these changes don't touch (the market tick, the webhook
+  route, Bright Data triggers and vendor-scoped website runs). Its versions of those files
+  are older than its test file. Auto mode blocked the run of panaya's original test file, so
+  it is unverified that they failed before.
+- No site needed a data fix: none had a re-opened Crunchbase link or a band-only reading.
+- aisecurity and abm have no vendor-name social group, so `social_group_ids` was left unset
+  and the add script skips that step there.
+
+### Lessons
+- Setting `next_due_at` on a vendor's `linkedin_company_profile` policy does not start a read.
+  The market check gates profile collection to once a week market-wide. A one-off read needs a
+  queued "Fetch now" row in `bw_collection_runs` (status `queued`, `job_id` NULL, `brand_id`
+  set).
+- When a profile run reports skipped records, don't assume they were unchanged. Download the
+  batch and check the returned URLs.
+- Committing one hunk of a file that holds another session's uncommitted edits: build the patch
+  with `git diff | awk`, then `git apply --cached`. The `git reset` used along the way also
+  unstaged anything else that was staged in the tree.
+- A plain-text Gmail draft with a bare URL at the end of a sentence reached Oliver as a
+  `google.com/url?q=...&sa=E.` redirect. Pass `htmlBody` with a real `<a href>`, and in the
+  plain-text body put the URL on its own line.
+- Tell a vendor it was added only once it shows on the page, with the map link and its stage.
+  Seculyze wrote back in September that it could not find itself after an early notice.
+
 ## 2026-10-14 — App store reviews for Oviva and its competitors, health side-effect alerts, Bright Data web search for deep research, voice profiling restored on six sites
 
 ### Goal
