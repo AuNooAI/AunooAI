@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -367,6 +368,13 @@ _GLASSDOOR_API = "https://api.openwebninja.com/realtime-glassdoor-data"
 # via /company-search and cached here.
 _GLASSDOOR_IDS: Dict[str, str] = {}
 
+#: display_name -> when /company-search last found no acceptable match. Without
+#: it every Workforce tab open searched again for each unmatched brand: on
+#: 15 Oct 2026 that was 34 of 38 brands, about 40 seconds and 34 paid calls per
+#: open. A miss is retried after the same 24 hours the overview cache uses.
+_GLASSDOOR_MISSES: Dict[str, float] = {}
+GLASSDOOR_MISS_TTL_SECONDS = 24 * 3600
+
 #: Headcount we have measured, by display name, primed at the poll site so the
 #: review fetcher can verify what it resolved to. Threaded this way rather than
 #: through the signature because ``_FETCHERS`` calls every source with the same
@@ -632,6 +640,9 @@ async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
                                 ) -> Optional[str]:
     if term in _GLASSDOOR_IDS:
         return _GLASSDOOR_IDS[term]
+    missed_at = _GLASSDOOR_MISSES.get(term)
+    if missed_at is not None and time.monotonic() - missed_at < GLASSDOOR_MISS_TTL_SECONDS:
+        return None
     resp = await client.get(f"{_GLASSDOOR_API}/company-search",
                             params={"query": term, "limit": 5}, headers=headers)
     resp.raise_for_status()
@@ -642,7 +653,9 @@ async def _glassdoor_company_id(client: httpx.AsyncClient, term: str,
     if best:
         cid = str(best.get("company_id") or best.get("id"))
         _GLASSDOOR_IDS[term] = cid
+        _GLASSDOOR_MISSES.pop(term, None)
         return cid
+    _GLASSDOOR_MISSES[term] = time.monotonic()
     logger.warning(f"glassdoor: no company match for {term!r} — set "
                    f"config.glassdoor_company_id on the brand to override")
     return None
