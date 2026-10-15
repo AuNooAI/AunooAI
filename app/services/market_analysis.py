@@ -297,18 +297,17 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
             if row[key] is not None:
                 row[key] = float(row[key])
 
-    investors = [dict(r) for r in conn.execute(text(f"""
-        WITH latest AS ({latest})
-        SELECT inv AS investor,
-               COUNT(DISTINCT brand_id) AS vendors,
-               ARRAY_AGG(DISTINCT display_name ORDER BY display_name) AS backing
-        FROM latest, JSONB_ARRAY_ELEMENTS_TEXT(
-            CASE WHEN JSONB_TYPEOF(data->'investors') = 'array'
-                 THEN data->'investors' ELSE '[]'::jsonb END) AS inv
-        GROUP BY 1 HAVING COUNT(DISTINCT brand_id) > 1
-        ORDER BY vendors DESC, investor
-        LIMIT 25
-    """), {"m": market_id}).mappings().all()]
+    # The same calculation as the full investors list (market_lists.investors), so the panel and the
+    # list agree: spellings of one investor are merged, and the true total is reported beside the
+    # top 25 shown. (This used to group exact strings and stop at LIMIT 25, so "25" read as a count.)
+    from app.services.market_lists import investors as _shared_investors
+    shared = _shared_investors(conn, market_id, min_vendors=2, page=1, page_size=500)
+    investors_total = shared.get("meta", {}).get("pagination", {}).get("total", len(shared["data"]))
+    investors = [
+        {"investor": e["investor"], "vendors": e["vendor_count"],
+         "backing": [v["vendor"] for v in e["vendors"]]}
+        for e in shared["data"][:25]
+    ]
 
     read, with_url = conn.execute(text("""
         SELECT (SELECT COUNT(DISTINCT s.brand_id)
@@ -332,6 +331,7 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
         "stages": stages,
         "momentum": momentum,
         "shared_investors": investors,
+        "shared_investors_total": investors_total,
         "by_month": mom["by_month"],
         "momentum_events": mom["momentum_events"],
         "coverage": _coverage(read or 0, with_url or 0,

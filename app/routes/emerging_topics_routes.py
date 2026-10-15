@@ -1373,17 +1373,7 @@ async def get_tracked_topics(
     try:
         conn = db._temp_get_connection()
 
-        # Ensure tracking table exists
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS tracked_emerging_topics (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                topic_id INTEGER NOT NULL REFERENCES emerging_topics(id) ON DELETE CASCADE,
-                tracked_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(user_id, topic_id)
-            )
-        """))
-        conn.commit()
+        # tracked_emerging_topics comes from migration rt_001_runtime_tables
 
         # Get user identifier from session
         user_id = session.get("user", {}).get("email", "anonymous")
@@ -1438,17 +1428,7 @@ async def track_topic(
     try:
         conn = db._temp_get_connection()
 
-        # Ensure tracking table exists
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS tracked_emerging_topics (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(255) NOT NULL,
-                topic_id INTEGER NOT NULL REFERENCES emerging_topics(id) ON DELETE CASCADE,
-                tracked_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(user_id, topic_id)
-            )
-        """))
-        conn.commit()
+        # tracked_emerging_topics comes from migration rt_001_runtime_tables
 
         # Get user identifier from session
         user_id = session.get("user", {}).get("email", "anonymous")

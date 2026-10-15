@@ -1532,8 +1532,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 @router.get("/settings")
 async def get_settings(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        # Create keyword_monitor_status table if it doesn't exist
-        db.facade.create_keyword_monitor_table_if_not_exists_and_insert_default_value()
+        # The keyword_monitor_status default row comes from migration rt_001_runtime_tables
 
         # Debug: Check both tables
         (status_data, settings_data) = db.facade.check_keyword_monitor_status_and_settings_tables()
