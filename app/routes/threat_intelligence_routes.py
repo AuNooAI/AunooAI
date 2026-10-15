@@ -121,7 +121,7 @@ class ArticleWithThreats(BaseModel):
 # Overview & Stats Endpoints
 # ============================================================================
 
-@router.get("/overview")
+@router.get("/overview", dependencies=[Depends(verify_session_api)])
 async def get_overview(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     days_back: int = Query(30, description="Days to look back")
@@ -136,25 +136,25 @@ async def get_overview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/threat-categories")
+@router.get("/threat-categories", dependencies=[Depends(verify_session_api)])
 async def get_threat_categories():
     """Get list of available threat categories."""
     return {"categories": THREAT_CATEGORIES}
 
 
-@router.get("/severity-levels")
+@router.get("/severity-levels", dependencies=[Depends(verify_session_api)])
 async def get_severity_levels():
     """Get list of available severity levels."""
     return {"severity_levels": SEVERITY_LEVELS}
 
 
-@router.get("/actor-types")
+@router.get("/actor-types", dependencies=[Depends(verify_session_api)])
 async def get_actor_types():
     """Get list of available threat actor types."""
     return {"actor_types": ACTOR_TYPES}
 
 
-@router.get("/target-industries")
+@router.get("/target-industries", dependencies=[Depends(verify_session_api)])
 async def get_target_industries():
     """Get list of target industries."""
     return {"industries": TARGET_INDUSTRIES}
@@ -164,7 +164,7 @@ async def get_target_industries():
 # Threats Endpoints
 # ============================================================================
 
-@router.get("/map-data")
+@router.get("/map-data", dependencies=[Depends(verify_session_api)])
 async def get_map_data(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     threat_types: Optional[str] = Query(None, description="Comma-separated threat types"),
@@ -190,7 +190,7 @@ async def get_map_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/threats")
+@router.get("/threats", dependencies=[Depends(verify_session_api)])
 async def list_threats(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     threat_types: Optional[str] = Query(None, description="Comma-separated threat types"),
@@ -235,7 +235,7 @@ async def list_threats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/threat/{threat_id}")
+@router.get("/threat/{threat_id}", dependencies=[Depends(verify_session_api)])
 async def get_threat(threat_id: int):
     """Get single threat by ID with full details."""
     try:
@@ -253,7 +253,7 @@ async def get_threat(threat_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/threat/{threat_id}/articles")
+@router.get("/threat/{threat_id}/articles", dependencies=[Depends(verify_session_api)])
 async def get_threat_articles(
     threat_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -286,7 +286,7 @@ async def get_threat_articles(
 # Threat Actors Endpoints
 # ============================================================================
 
-@router.get("/actors")
+@router.get("/actors", dependencies=[Depends(verify_session_api)])
 async def list_actors(
     actor_type: Optional[str] = Query(None, description="Filter by actor type"),
     page: int = Query(1, ge=1, description="Page number"),
@@ -319,7 +319,7 @@ async def list_actors(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/actor/{actor_id}")
+@router.get("/actor/{actor_id}", dependencies=[Depends(verify_session_api)])
 async def get_actor(actor_id: int):
     """Get single threat actor by ID with full details."""
     try:
@@ -337,7 +337,7 @@ async def get_actor(actor_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/actor/{actor_id}/threats")
+@router.get("/actor/{actor_id}/threats", dependencies=[Depends(verify_session_api)])
 async def get_actor_threats(
     actor_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -409,7 +409,7 @@ async def generate_actor_description(
 # Timeline & Analysis Endpoints
 # ============================================================================
 
-@router.get("/timeline")
+@router.get("/timeline", dependencies=[Depends(verify_session_api)])
 async def get_timeline(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     days_back: int = Query(30, description="Days to look back")
@@ -424,7 +424,7 @@ async def get_timeline(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/daily-counts")
+@router.get("/daily-counts", dependencies=[Depends(verify_session_api)])
 async def get_daily_counts(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     days_back: int = Query(30, description="Days to look back")
@@ -439,7 +439,7 @@ async def get_daily_counts(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/categories")
+@router.get("/categories", dependencies=[Depends(verify_session_api)])
 async def get_categories_data(
     topic: Optional[str] = Query(None, description="Filter by topic")
 ):
@@ -453,7 +453,7 @@ async def get_categories_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/category-trends")
+@router.get("/category-trends", dependencies=[Depends(verify_session_api)])
 async def get_category_trends(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     days_back: int = Query(90, description="Days to look back"),
@@ -488,7 +488,7 @@ async def get_ttp_analysis(
 # IOCs Endpoints
 # ============================================================================
 
-@router.get("/iocs")
+@router.get("/iocs", dependencies=[Depends(verify_session_api)])
 async def list_iocs(
     indicator_type: Optional[str] = Query(None, description="Filter by IOC type"),
     threat_id: Optional[int] = Query(None, description="Filter by threat ID"),
@@ -523,7 +523,7 @@ async def list_iocs(
 # Campaigns Endpoints
 # ============================================================================
 
-@router.get("/campaigns")
+@router.get("/campaigns", dependencies=[Depends(verify_session_api)])
 async def list_campaigns(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     page: int = Query(1, ge=1, description="Page number"),
@@ -556,7 +556,7 @@ async def list_campaigns(
 # Articles Endpoints
 # ============================================================================
 
-@router.get("/articles")
+@router.get("/articles", dependencies=[Depends(verify_session_api)])
 async def get_all_articles(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -1003,7 +1003,7 @@ class GenerateNarrativeRequest(BaseModel):
     topic: Optional[str] = Field(None, description="Optional topic filter")
 
 
-@router.get("/narratives")
+@router.get("/narratives", dependencies=[Depends(verify_session_api)])
 async def get_narratives(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -1032,7 +1032,7 @@ async def get_narratives(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/narrative")
+@router.get("/narrative", dependencies=[Depends(verify_session_api)])
 async def get_latest_narrative(
     topic: Optional[str] = Query(None, description="Filter by topic")
 ):
