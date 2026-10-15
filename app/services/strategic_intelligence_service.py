@@ -18,7 +18,7 @@ from collections import defaultdict
 import litellm
 import numpy as np
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, extract_json_response, salvage_json_array
 from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
@@ -32,6 +32,23 @@ from app.services.article_intelligence_analyzer import (
 from app.services.tool_loader import get_tool_loader
 from app.models.media_bias import MediaBias
 from app.vector_store import search_articles as vector_search_articles
+from app.services.article_visibility import readable_sql
+
+
+def _local_naive(value) -> Optional[datetime]:
+    """A stored article date (ISO, "YYYY-MM-DD HH:MM", or an RFC 2822 feed date) as naive local time,
+    to compare with a cutoff built from datetime.now(). None when it can't be read."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            from dateutil import parser as date_parser
+            dt = date_parser.parse(str(value))
+        except (ValueError, OverflowError, TypeError):
+            return None
+    return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
 
 logger = logging.getLogger(__name__)
 
@@ -417,6 +434,17 @@ class StrategicIntelligenceService:
         end_date = datetime.now()
         start_date = end_date - timedelta(hours=config.hours_back)
 
+        # Start from what the topic actually collected in the window. The searches below rank by
+        # similarity over all time and are only filtered by date afterwards, so on their own they
+        # mostly return older articles and the window comes out empty.
+        if state.topic:
+            for article in await self._recent_topic_articles(state.topic, start_date, config.max_discovery_articles):
+                url = article.get("uri", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_articles.append(article)
+            logger.info(f"Discovery: {len(all_articles)} readable articles collected for '{state.topic}' since {start_date:%Y-%m-%d %H:%M}")
+
         # Generate search queries
         queries = await self._generate_discovery_queries(state.topic, config)
 
@@ -523,6 +551,30 @@ class StrategicIntelligenceService:
                 base_queries.insert(0, {"query": topic, "priority": "critical", "source_preference": "both"})
             return base_queries
 
+    async def _recent_topic_articles(self, topic: str, start_date: datetime, limit: int) -> List[Dict]:
+        """The topic's readable articles collected since start_date, newest first. A collected article
+        whose publication date is readable and older than the window is left out."""
+        query = (
+            "SELECT uri, title, summary, news_source, publication_date, submission_date, category, "
+            "sentiment, future_signal, driver_type, time_to_impact, topic "
+            f"FROM articles WHERE topic = ? AND submission_date::timestamptz >= ? AND {readable_sql()} "
+            "ORDER BY submission_date::timestamptz DESC LIMIT ?"
+        )
+        try:
+            rows = await asyncio.to_thread(self.db.fetch_all, query, (topic, start_date.astimezone(), limit))
+        except Exception as e:
+            logger.warning(f"Recent-article read failed for '{topic}': {e}")
+            return []
+        out = []
+        for row in rows or []:
+            article = dict(row)
+            published = _local_naive(article.get("publication_date"))
+            if published is not None and published < start_date:
+                continue
+            article["url"] = article.get("uri")
+            out.append(article)
+        return out
+
     async def _execute_search(
         self,
         query: str,
@@ -548,22 +600,13 @@ class StrategicIntelligenceService:
             filtered = []
             for article in articles:
                 pub_date = article.get("publication_date", "")
-                if pub_date:
-                    try:
-                        # Parse date and check if within range
-                        if isinstance(pub_date, str):
-                            date_part = pub_date.split(" ")[0] if " " in pub_date else pub_date[:10]
-                            article_date = datetime.strptime(date_part, "%Y-%m-%d")
-                            if article_date >= start_date:
-                                filtered.append(article)
-                            else:
-                                logger.debug(f"Date filter: excluding article from {date_part} (before {start_date.strftime('%Y-%m-%d')})")
-                        else:
-                            filtered.append(article)
-                    except:
-                        filtered.append(article)  # Include if can't parse
+                # Compare the full timestamp: cutting it to the date made anything from the day the
+                # window opens look older than the cutoff (12:15 became midnight, before 16:49)
+                article_date = _local_naive(pub_date)
+                if article_date is None or article_date >= start_date:
+                    filtered.append(article)  # Kept when there is no readable date
                 else:
-                    filtered.append(article)  # Include if no date
+                    logger.debug(f"Date filter: excluding article from {pub_date} (before {start_date:%Y-%m-%d %H:%M})")
 
             logger.info(f"After date filter (>= {start_date.strftime('%Y-%m-%d %H:%M')}): {len(filtered)}/{len(articles)} articles")
             return filtered
@@ -673,21 +716,32 @@ You MUST create at least one event cluster for every few articles."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.2,
-                max_tokens=4000,
+                # 200 articles grouped with a title and summary per event run past 4,000 tokens
+                max_tokens=16000,
                 response_format={"type": "json_object"}
             )
 
-            raw_response = response.choices[0].message.content
-            logger.info(f"Clustering LLM raw response (first 500 chars): {raw_response[:500]}")
+            raw_response = response.choices[0].message.content or ""
+            finish = getattr(response.choices[0], "finish_reason", None)
+            logger.info(f"Clustering LLM raw response ({len(raw_response)} chars, finish={finish}, first 500): {raw_response[:500]}")
 
-            result = extract_json_response(raw_response)
-            raw_clusters = result.get("event_clusters", [])
-
-            # Check alternative keys the LLM might use
+            # A reply cut off mid-list parses to its first complete inner object, a single cluster,
+            # which has none of the list keys; then the scan went on with zero events. Salvage the
+            # complete clusters from the cut list instead.
+            try:
+                result = extract_json_response(raw_response)
+            except json.JSONDecodeError:
+                result = {}
+            if not isinstance(result, dict):
+                result = {}
+            raw_clusters = []
+            for key in ("event_clusters", "clusters", "events"):
+                raw_clusters = result.get(key) or salvage_json_array(raw_response, key)
+                if raw_clusters:
+                    break
             if not raw_clusters:
-                raw_clusters = result.get("clusters", [])
-            if not raw_clusters:
-                raw_clusters = result.get("events", [])
+                logger.warning(f"Clustering reply held no clusters (finish={finish}); grouping by title instead")
+                return self._fallback_clustering(articles, config)
 
             logger.info(f"Clustering LLM returned {len(raw_clusters)} raw clusters")
             if raw_clusters:

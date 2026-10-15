@@ -470,9 +470,10 @@ class ExtremeOutlierService:
         temperature = agent_config.get('temperature', config.weak_signals_temp)
         # Output cap. 8000 is the floor this stage needs on the Bedrock
         # models (Kimi K2.5 writes ~10 lines per item; at 3000 the reply
-        # was cut and the run continued on nothing). The agent file can
+        # was cut and the run continued on nothing; at 8000, on 15 Oct 2026,
+        # it kept 6 of the 8-12 signals asked for). The agent file can
         # raise it, not lower it.
-        max_tokens = max(int(agent_config.get('max_tokens') or 0), 8000)
+        max_tokens = max(int(agent_config.get('max_tokens') or 0), 16000)
 
         article_excerpts = self._format_article_excerpts(state.raw_articles, limit=25)
 
