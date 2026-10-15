@@ -465,17 +465,33 @@ def test_each_funding_field_says_where_it_came_from(conn, market):
     """The total and the stage have different origins and different dates.
 
     Presented together without labels, a reader attributes the whole row to
-    Crunchbase, and the total is the workbook's.
+    Crunchbase, and the total is our hand-kept funding baseline.
     """
     got = ml.funding_vendors(conn, market, page_size=5)
     if not got['data']:
         pytest.skip('no vendors')
     sources = got['data'][0]['sources']
-    assert 'workbook' in sources['disclosed_total_musd']
+    assert 'funding baseline' in sources['disclosed_total_musd']
+    assert 'Crunchbase' not in sources['disclosed_total_musd']
     assert 'Crunchbase' in sources['stage']
     assert any('largest raise' in l or 'round-level' in l
                for l in got['meta']['metric']['limitations']), (
         'without a round amount and date we cannot claim a largest raise')
+
+
+def test_the_total_is_the_hand_kept_funding_baseline(conn, market):
+    """Not the workbook copy in metrics, which is never updated after import."""
+    from sqlalchemy import text
+    got = ml.funding_vendors(conn, market, page_size=ml.MAX_PAGE_SIZE)
+    want = {int(r[0]): (float(r[1]) if r[1] not in (None, '') else None)
+            for r in conn.execute(text(
+                "SELECT brand_id, baseline->'funding_baseline'->>'total_musd'"
+                " FROM bw_market_brands WHERE market_id = :m AND role <> 'excluded'"),
+                {'m': market}).fetchall()}
+    if not got['data']:
+        pytest.skip('no vendors')
+    for row in got['data']:
+        assert row['disclosed_total_musd'] == want[row['brand_id']], row['vendor']
 
 
 def test_debt_and_grants_are_not_equity_stages(conn, market):

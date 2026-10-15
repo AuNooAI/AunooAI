@@ -877,9 +877,14 @@ def funding_vendors(conn, market_id: int, *, stage: Optional[str] = None,
     """Per vendor funding, each field labelled with where it came from.
 
     The two figures come from different places and used to be presented as one
-    Crunchbase record: the disclosed total is the imported workbook's, while the
+    Crunchbase record: the disclosed total is our funding baseline, while the
     stage, investors and scores are the Crunchbase snapshot's. A reader who
     attributes the total to Crunchbase is being misled by the layout.
+
+    The total is ``funding_baseline.total_musd``, which we correct by hand.
+    ``metrics.total_funding_musd`` is the original workbook import and was
+    never updated: until 15 Oct 2026 this list read it and showed BlinkOps,
+    Anvilogic, Intezer and 14 other AI SOC vendors as having no total.
     """
     size, offset = _page(page, page_size)
 
@@ -893,8 +898,8 @@ def funding_vendors(conn, market_id: int, *, stage: Optional[str] = None,
              ORDER BY s.brand_id, s.observed_at DESC
         )
         SELECT b.id AS brand_id, b.display_name AS vendor,
-               mb.baseline->'metrics'->>'total_funding_musd' AS disclosed_raw,
-               mb.baseline->'metrics'->>'funding_status' AS funding_status,
+               mb.baseline->'funding_baseline'->>'total_musd' AS disclosed_raw,
+               mb.baseline->'funding_baseline'->>'status' AS funding_status,
                l.data->>'last_funding_type' AS stage_raw,
                l.data->>'num_funding_rounds' AS rounds,
                l.data->>'growth_score' AS growth_score,
@@ -937,7 +942,7 @@ def funding_vendors(conn, market_id: int, *, stage: Optional[str] = None,
         # Field-level provenance, because the two halves of this row have
         # different origins and different dates.
         row["sources"] = {
-            "disclosed_total_musd": "imported workbook baseline",
+            "disclosed_total_musd": "funding baseline, kept by hand from announcements",
             "stage": "Crunchbase (via Bright Data)",
             "investors": "Crunchbase (via Bright Data)",
             "growth_score": "Crunchbase (via Bright Data)",
@@ -968,8 +973,9 @@ def funding_vendors(conn, market_id: int, *, stage: Optional[str] = None,
         "vendor_funding",
         label="Vendor funding",
         definition=("Disclosed cumulative funding per vendor with its stage and "
-                    "investors. The total comes from the imported workbook; the "
-                    "stage, investors and scores come from Crunchbase."),
+                    "investors. The total is the funding baseline we keep by hand "
+                    "from announcements; the stage, investors and scores come "
+                    "from Crunchbase."),
         numerator="vendors", denominator="vendors in the market",
         collection=collection, value=len(out),
         limitations=[
