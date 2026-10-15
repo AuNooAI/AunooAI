@@ -469,6 +469,15 @@ def ingest_profiles(conn, *, run: Dict[str, Any], records: List[dict],
         mapped = map_company_profile(raw)
         key = normalize_linkedin_key(mapped.get("url"))
         brand_id = url_to_brand.get(key or "")
+        if not brand_id and isinstance(raw.get("input"), dict):
+            # LinkedIn redirects a renamed page (intezer-labs -> intezer), and
+            # the record carries the new URL. The URL we asked for still names
+            # the vendor; without this fallback the profile is thrown away.
+            input_key = normalize_linkedin_key(raw["input"].get("url"))
+            if url_to_brand.get(input_key or ""):
+                key, brand_id = input_key, url_to_brand[input_key]
+                logger.info("linkedin profile %s now resolves to %s; matched "
+                            "by the requested URL", input_key, mapped.get("url"))
         if not brand_id:
             unmatched += 1
             continue
