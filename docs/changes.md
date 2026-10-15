@@ -1,3 +1,34 @@
+## 2026-10-15 (evening) — Q4 bundle reviewer warnings fixed on wileytest
+
+**Reviewer: the mandated "The bottom line" label is no longer read as the opening sentence (07361ef6).**
+The executive letter must open with the bold label `**The bottom line.**`. The reviewer treated
+that label as the first sentence and raised a "meta-commentary opener" warning every quarter,
+even when the sentence after it names an actor and an action. `_sanitize_review_findings` in
+`app/services/wiley_bundle_supervisor.py` now strips the label, checks the real opening
+sentence against the meta-commentary phrases, and drops the finding when the sentence is about
+the world. The reviewer prompt says the same. Live on bugfixing, wileytest and wiley.
+
+**Q4 2026 bundle content corrected through the editor's own edit path, and locked.** Of the 11
+reviewer warnings on the 18:24 bundle, the concrete ones were: two ledes citing articles that
+never became events (OpenShell in Open Science, from an article the relevance gate had
+rejected; OlmoCore 3 in Scientific Publishing), three ledes with date slips (IonQ 23 Sep, the
+NIH order drafted 20 Sep and withdrawn 23 Sep, Bioepis/Teva 1 Oct), and one cross-cutting
+theme naming a single topic. Fixes: the OpenShell clause replaced with the Apache Ossie event;
+four manual events added with source URLs (Bioepis/Teva, Sun Pharma/LIB, Regeneron/Sanofi,
+AI2 OlmoCore 3) so the ledes' claims have provenance; dates corrected; each theme body given
+at least one more topic grounded in the bundle's own events; the letter's opening sentence
+tightened. All edited paths are in `locked_keys` / `summary_locked_keys`, so a regeneration
+cannot overwrite them.
+
+**What the reviewer does on repeat passes.** Three reviewer passes on the same corrected
+content returned 2, then 1, then 6 warnings, all of the "could more clearly articulate" kind,
+and the last pass claimed the 7 Oct OpenAI event was missing from `named_events` when it is
+there three times. Fix the concrete findings, lock them, and stop; the stylistic ones change
+every run and are not worth another $0.30 each.
+
+**Runbook.** `docs/WILEY_QUARTERLY_RUNBOOK.md` now says that regenerating a single stage from
+the editor leaves the cached PPTX in place (56bc69d3).
+
 # Changes
 
 ## 2026-10-15 — Wiley Q4 topic reports: forecast re-run failed on a missing model, bundle stopped at the letter, a renamed topic had "no assessment"; a quarterly runbook
