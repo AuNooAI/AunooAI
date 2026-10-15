@@ -1,5 +1,40 @@
 # Changes
 
+## 2026-10-15 — Wiley Q4 topic reports: forecast re-run failed on a missing model, bundle stopped at the letter, a renamed topic had "no assessment"; a quarterly runbook
+
+### Goal
+Oliver was generating this quarter's topic reports on wileytest and saw stale data. The deck
+had fallen back to the 21 September forecasts because every fresh Three Horizons run failed.
+
+### Fix · Model the UI asks for is not on the site (`d8074f8d`)
+- **Cause:** the report screen asks for `claude-sonnet-5-5`, which wileytest's
+  `litellm_config.yaml` lacks. `resolve_litellm_call_params` passed the bare name through,
+  litellm sent it to Anthropic's own API with no key, and all seven reruns failed with
+  "x-api-key header is required". The 13 Oct fallback in `get_ai_model` did not cover this
+  direct-call path.
+- **Fix:** a bare Claude name the site lacks now runs on the standard tier, with a WARNING.
+- **Sites:** bugfixing, wileytest, wiley (backups `ai_models.py.bak-resolvefallback-20261015`).
+
+### Fix · Bundle letter retry never named the banned word (`d8074f8d`)
+- **Cause:** the executive letter restated an EOS scenario title containing "Collapse" in all
+  three drafts. The retry message only said "structurally incomplete".
+- **Fix:** the retry lists the banned words and says to put any title that contains one in
+  double quotes. The rule itself (Wiley, 12 Aug 2026) is unchanged.
+
+### Fix · "No assessment" for a topic saved under its display name (`7c668dcb`)
+- **Cause:** the bundle saves topics as the overlay's `display_name`; assessments are filed
+  under the source topic. Event extraction skipped Open Science Transition on wileytest.
+- **Fix:** `get_latest_forecast_assessment_by_topic` resolves the display name and retries,
+  which covers all eight callers. Backups `database_query_facade.py.bak-displayname-20261015`.
+
+### Rolled back · Seven forecasts made mid-quarter
+The topic report re-run made new forecast runs for all seven topics. The tracker auto-run
+assessed them within the hour with no evidence, the overlays matched none of the new titles,
+and the topic report and the approved Q4 bundle no longer shared a forecast. Deleted the
+seven runs and their 12 assessments (dump in the session scratchpad) and rebuilt the Q4
+deck pinned to the 21 September runs. `docs/WILEY_QUARTERLY_RUNBOOK.md` records the order
+of operations and this undo.
+
 ## 2026-10-15 — Vendors no longer drop off the Maturity Map when their LinkedIn page stays the same or gets renamed; small vendors placed by size range; added vendors told; a most-funded vendors card
 
 ### Goal
