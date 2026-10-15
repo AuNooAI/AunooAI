@@ -8840,6 +8840,18 @@ class DatabaseQueryFacade:
                 """)
                 row = self._fetchone_with_rollback(fallback, {"topic": topic})
                 if not row:
+                    # The bundle saves its topics under the deck overlay's
+                    # display_name ("Scientific Publishing"), but assessments
+                    # are filed under the source topic. Resolve the name and
+                    # retry once, so event extraction, the exports and the
+                    # brief editor stop reporting "no assessment" for a
+                    # renamed topic (wileytest, 15 Oct 2026).
+                    from app.services.forecast_assessment_service import (
+                        source_topic_for_display_name,
+                    )
+                    source = source_topic_for_display_name(topic)
+                    if source and source != topic:
+                        return self.get_latest_forecast_assessment_by_topic(source)
                     return {}
             run_id = row[0] if not hasattr(row, "_mapping") else row._mapping["run_id"]
             return self.get_latest_forecast_assessment(run_id)
