@@ -1489,6 +1489,19 @@ export interface SignalNoiseAnalysis {
 }
 
 export interface FundingAnalysis {
+  /** Vendors ranked by disclosed total funding ($M). Large incumbents and
+   * acquired vendors are left out; `incumbents_left_out` counts them. Absent
+   * on sites whose backend predates it. */
+  raised?: {
+    top: { brand_id: number; vendor: string; total_musd: number }[];
+    median_musd: number | null;
+    eligible: number;
+    disclosed: number;
+    declared_no_amount: number;
+    not_found: number;
+    incumbents_left_out: number;
+    coverage: Coverage;
+  };
   stages: { stage: string; vendors: number }[];
   momentum: {
     brand_id: number; vendor: string;

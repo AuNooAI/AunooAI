@@ -295,7 +295,7 @@ TOOLS: dict[str, ToolSpec] = {
     ),
     "get_market_vendors": ToolSpec(
         name="get_market_vendors",
-        description="The vendors in one market with their profile fields (headcount, funding, founded, identifiers) and collection state.",
+        description="The vendors in one market with their profile fields (headcount, funding, founded, identifiers) and collection state. Each vendor carries market_status (active, incumbent, acquired, pivoted) and funding_total_musd; rankings and comparisons cover active vendors only.",
         properties={
             "market": {"type": "string", "description": "Market name from list_markets (default: the first enabled market)"},
             "market_id": {"type": "integer"},

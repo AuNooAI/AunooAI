@@ -242,7 +242,40 @@ async def get_market_vendors(ctx=None, market: str | None = None, market_id: int
     if role not in (None, "vendor", "watch", "excluded"):
         raise ToolError("role must be vendor, watch or excluded")
     res = await list_vendors(market_id=mid, role=role, collecting_only=bool(collecting_only), session=None)
-    return {"market_id": mid, "vendors": _plain(res)}
+    vendors = _plain(res)
+    # A client ranking vendors by funding read Torq and Arctic Wolf as missing
+    # totals: it read the stale workbook field, and nothing said both are large
+    # incumbents that every ranking leaves out. Say both things per vendor.
+    conn = _conn()
+    try:
+        controls = {int(r[0]): (r[1], r[2]) for r in conn.execute(text(
+            "SELECT brand_id, status, acquired_by FROM bw_market_vendor_controls"
+            " WHERE market_id = :m"), {"m": mid}).fetchall()}
+    finally:
+        conn.close()
+    for v in vendors if isinstance(vendors, list) else []:
+        status, acquired_by = controls.get(int(v.get("brand_id") or 0), ("active", None))
+        v["market_status"] = status or "active"
+        if acquired_by:
+            v["acquired_by"] = acquired_by
+        fb = ((v.get("baseline") or {}).get("funding_baseline") or {})
+        v["funding_total_musd"] = fb.get("total_musd")
+        v["funding_status"] = fb.get("status")
+    return {
+        "market_id": mid,
+        "vendors": vendors,
+        "note": ("Funding: use `funding_total_musd` and `funding_status` (copied from "
+                 "baseline.funding_baseline, kept up to date by hand). "
+                 "baseline.metrics.total_funding_musd is the original workbook import "
+                 "and is missing for vendors added or corrected since; do not use it. "
+                 "Undisclosed and Bootstrapped are answers, not gaps. "
+                 "`market_status`: active vendors are the ones ranked and compared. "
+                 "'incumbent' marks a large company (CrowdStrike, Arctic Wolf, Torq) "
+                 "that is in the market but left out of every ranking, size and funding "
+                 "comparison and the Maturity Map; 'acquired' vendors are no longer "
+                 "independent and are left out of vendor counts. The funding analysis "
+                 "(get_market_analysis name=funding, `raised`) already applies this."),
+    }
 
 
 async def get_market_analysis(ctx=None, market: str | None = None, market_id: int | None = None,

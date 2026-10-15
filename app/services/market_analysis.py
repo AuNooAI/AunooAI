@@ -328,6 +328,7 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
     mom = funding_momentum(conn, market_id)
 
     return {
+        "raised": most_raised(conn, market_id),
         "stages": stages,
         "momentum": momentum,
         "shared_investors": investors,
@@ -335,6 +336,57 @@ def funding(conn, market_id: int) -> Dict[str, Any]:
         "momentum_events": mom["momentum_events"],
         "coverage": _coverage(read or 0, with_url or 0,
                               "vendors with a Crunchbase page have been read"),
+    }
+
+
+def most_raised(conn, market_id: int, *, limit: int = 10) -> Dict[str, Any]:
+    """Vendors ranked by disclosed total funding, large incumbents left out.
+
+    The total is ``funding_baseline.total_musd``, the figure we keep up to date
+    by hand. ``metrics.total_funding_musd`` is the original workbook import and
+    is missing for vendors added or corrected since. An incumbent's total
+    (Arctic Wolf's $900M, Torq's $332M) is a different kind of company's, so it
+    is counted under ``incumbents_left_out`` instead of topping the ranking.
+    Acquired vendors are left out too, as in every other vendor count.
+    """
+    from app.services.market_publish import is_acquired, not_incumbent
+
+    rows = [dict(r) for r in conn.execute(text(f"""
+        SELECT b.id AS brand_id, b.display_name AS vendor,
+               NULLIF(mb.baseline->'funding_baseline'->>'total_musd', '')::numeric
+                   AS total_musd,
+               mb.baseline->'funding_baseline'->>'status' AS status,
+               {not_incumbent("mb")} AS eligible_size
+        FROM bw_market_brands mb
+        JOIN bw_brands b ON b.id = mb.brand_id
+        WHERE mb.market_id = :m AND mb.role <> 'excluded'
+          AND NOT {is_acquired("mb")}
+    """), {"m": market_id}).mappings().all()]
+
+    eligible = [r for r in rows if r["eligible_size"]]
+    disclosed = sorted(
+        ({"brand_id": r["brand_id"], "vendor": r["vendor"],
+          "total_musd": float(r["total_musd"])}
+         for r in eligible if r["total_musd"] is not None),
+        key=lambda r: (-r["total_musd"], r["vendor"]))
+    amounts = sorted(r["total_musd"] for r in disclosed)
+    median = None
+    if amounts:
+        mid = len(amounts) // 2
+        median = (amounts[mid] if len(amounts) % 2
+                  else (amounts[mid - 1] + amounts[mid]) / 2)
+    no_amount = [r for r in eligible if r["total_musd"] is None]
+    return {
+        "top": disclosed[:limit],
+        "median_musd": median,
+        "eligible": len(eligible),
+        "disclosed": len(disclosed),
+        # Undisclosed and bootstrapped are answers; no status is a gap in our data.
+        "declared_no_amount": sum(1 for r in no_amount if (r["status"] or "").strip()),
+        "not_found": sum(1 for r in no_amount if not (r["status"] or "").strip()),
+        "incumbents_left_out": len(rows) - len(eligible),
+        "coverage": _coverage(len(disclosed), len(eligible),
+                              "vendors have a disclosed total"),
     }
 
 
