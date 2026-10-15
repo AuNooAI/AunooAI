@@ -3812,7 +3812,7 @@ V2_SECTIONS: Dict[str, Dict[str, str]] = {
     "moves": {"heading": "Market moves", "colour": "var(--n-purple)",
               "thing": "market move",
               "subline": "Deals, funding, partnerships, leadership changes, "
-                         "named customers, and incidents such as breaches "
+                         "contract awards, and incidents such as breaches "
                          "or lawsuits."},
     "wider": {"heading": "Wider market", "colour": "var(--n-purple)",
               "thing": "move outside the vendor list",
