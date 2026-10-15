@@ -145,6 +145,23 @@ def resolve_litellm_call_params(model_name: str) -> Dict[str, Any]:
         cfg = load_model_config().get(model_name)
     except Exception:
         cfg = None
+    if not cfg and "/" not in model_name and model_name.startswith("claude-"):
+        # A bare Claude name this site's yaml lacks would go to Anthropic's own
+        # API, where no site has a key ("x-api-key header is required"). The
+        # shared React build asks for claude-sonnet-5-5 on sites without it:
+        # every Three Horizons rerun for wileytest's quarterly topic reports
+        # failed on 15 Oct 2026 and the decks fell back to 21 Sep forecasts.
+        # Run on the site's standard model instead, as get_ai_model does.
+        from app.model_tiers import default_model
+        fallback = default_model("standard")
+        try:
+            cfg = load_model_config().get(fallback) if fallback != model_name else None
+        except Exception:
+            cfg = None
+        if cfg:
+            logger.warning(
+                "Model %s not found in config; using standard model %s", model_name, fallback
+            )
     if not cfg:
         return params
     params["model"] = cfg.get("model", model_name)

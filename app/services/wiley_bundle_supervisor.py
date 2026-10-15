@@ -1313,13 +1313,30 @@ async def run_pipeline(
             logger.warning("exec letter structurally incomplete (%s) — retrying",
                            "; ".join(defects))
             retry_payload = dict(exec_payload)
-            retry_payload["structure_defects"] = (
-                "Your previous draft was structurally incomplete: "
-                + "; ".join(defects)
-                + ". Produce the COMPLETE letter with all five bold sections "
-                  "at full length. The installment framing changes what the "
-                  "sections SAY, never which sections exist."
-            )
+            # The severity defects need their own instruction. Folded into the
+            # structure message, the writer kept the word: on wileytest (15 Oct
+            # 2026) it restated an EOS scenario title ("Global Payment System
+            # Collapse...") in all three drafts and the bundle failed.
+            words = [d.split('"')[1] for d in defects
+                     if d.startswith("severity language")]
+            structural = [d for d in defects if not d.startswith("severity language")]
+            parts = []
+            if structural:
+                parts.append(
+                    "Your previous draft was structurally incomplete: "
+                    + "; ".join(structural)
+                    + ". Produce the COMPLETE letter with all five bold sections "
+                      "at full length. The installment framing changes what the "
+                      "sections SAY, never which sections exist.")
+            if words:
+                parts.append(
+                    "Your previous draft used banned severity words in your own "
+                    "voice: " + ", ".join(words) + ". Remove every one. State the "
+                    "facts and figures instead. These words are allowed only "
+                    "inside double quotes, so if you name a scenario or article "
+                    "whose title contains one, put the whole title in double "
+                    "quotes. Keep all five bold sections.")
+            retry_payload["structure_defects"] = " ".join(parts)
             exec_summary = await _call_agent("wiley_exec_summary_agent", retry_payload)
         defects = _letter_defects((exec_summary or {}).get("letter") or "")
         if defects:
