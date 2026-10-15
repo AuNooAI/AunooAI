@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import os
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -266,6 +267,27 @@ async def _call_agent(agent_name: str, payload: dict, *, reasoning_effort: str =
 
 # ── Per-stage payload builders ──────────────────────────────────────
 
+# The letter format mandates "**The bottom line.**" as its first bold label.
+# The reviewer reads that label as the opening sentence and flags a
+# meta-commentary opener every quarter (Q3 and Q4 2026 both). Judge the
+# sentence after the label instead, and only keep the finding when that
+# sentence really is about the analysis rather than the world.
+_META_OPENER_RE = re.compile(
+    r"^\s*(the (most )?(decision-relevant|key|main|central) "
+    r"(read|takeaway|point|message)|at a high level|"
+    r"this quarter'?s? (analysis|read|assessment)|the analysis|the read)\b",
+    re.I,
+)
+
+
+def _letter_opening_sentence(letter: str) -> str:
+    """First sentence of the letter after the mandated bold section label."""
+    text = (letter or "").strip()
+    text = re.sub(r"^\s*\*\*[^*]{1,60}\*\*\s*", "", text)
+    m = re.match(r"(.+?[.!?])(\s|$)", text, re.S)
+    return (m.group(1) if m else text).strip()
+
+
 def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> list:
     """Post-process the raw reviewer output before persistence + gating.
 
@@ -331,6 +353,15 @@ def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> lis
                 "deterministically and is not present here]"
             )
             severity = "warning"
+
+        # Drop the "meta-commentary opener" finding when it is only the
+        # mandated "**The bottom line.**" label being read as a sentence.
+        finding_text = (f.get("finding") or "").lower()
+        if ("exec_summary" in artefact and exec_letter
+                and "meta-commentary" in finding_text
+                and "bottom line" in finding_text
+                and not _META_OPENER_RE.match(_letter_opening_sentence(exec_letter))):
+            continue
 
         # Dedup by (artefact_key, severity). Same artefact emitted at the
         # same severity twice is almost always the model repeating itself.

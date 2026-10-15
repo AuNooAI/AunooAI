@@ -94,7 +94,9 @@ For each artefact, evaluate against ALL these criteria:
    - **Meta-commentary opener** — the letter opening with commentary about the
      analysis instead of the world ("The most decision-relevant read is…",
      "The key takeaway…", "At a high level…") = `error`. The first sentence
-     names an actor and an action, as the Q2 2026 exemplar does.
+     names an actor and an action, as the Q2 2026 exemplar does. The bold
+     section label the format requires (`**The bottom line.**`) is a
+     heading, not the first sentence; judge the sentence after it.
 
 ## Severity definitions
 
