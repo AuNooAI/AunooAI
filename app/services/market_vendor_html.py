@@ -543,7 +543,8 @@ def _headcount_panel(v: Dict[str, Any], color: str) -> str:
     baseline = (base.get("metrics") or {}).get("employee_count")
     series = []
     for p in v.get("profile_series") or []:
-        if p.get("employee_count") is not None:
+        # A band estimate ranks the vendor on the map; it is not a count to chart.
+        if p.get("employee_count") is not None and not p.get("employee_count_from_band"):
             try:
                 series.append((_iso10(p.get("observed_at")), int(float(p["employee_count"]))))
             except (TypeError, ValueError):

@@ -3952,6 +3952,8 @@ async def vendor_detail(market_id: int, brand_id: int,
             vendor["profile_series"] = [dict(r) for r in conn.execute(text("""
                 SELECT observed_at,
                        (data->>'employee_count')::numeric AS employee_count,
+                       COALESCE((data->>'employee_count_from_band')::boolean, false)
+                           AS employee_count_from_band,
                        (data->>'followers')::numeric AS followers
                 FROM bw_vendor_snapshots
                 WHERE brand_id = :b AND snapshot_type = 'profile'

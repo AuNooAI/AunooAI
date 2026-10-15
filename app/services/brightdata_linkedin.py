@@ -653,6 +653,26 @@ def normalize_linkedin_key(url: Any) -> Optional[str]:
     return canonical
 
 
+def band_midpoint(band: Any) -> Optional[int]:
+    """The middle of a small closed size band ("2-10 employees" -> 6), or None.
+
+    Only bands topping out at 50: there the guess is out by a handful of
+    people. The middle of "1,001-5,000" could be out by thousands, and
+    LinkedIn gives larger companies an exact count anyway. Open bands
+    ("10,001+") and anything that is not two numbers return None.
+    """
+    if not isinstance(band, str):
+        return None
+    m = re.fullmatch(r"\s*([\d,]+)\s*[-\u2013]\s*([\d,]+)\s*(employees?)?\s*",
+                     band, flags=re.I)
+    if not m:
+        return None
+    lo, hi = (int(x.replace(",", "")) for x in m.group(1, 2))
+    if lo <= 0 or hi < lo or hi > 50:
+        return None
+    return round((lo + hi) / 2)
+
+
 def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
     """Provider record → the snapshot payload we store.
 
@@ -668,6 +688,15 @@ def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
     employees = _as_headcount(_first(
         raw, "employees_in_linkedin", "employees", "employee_count",
     ))
+    band = _first(raw, "company_size")
+    # LinkedIn gives the smallest companies ("2-10 employees") a band and no
+    # count, which kept them off the Maturity Map for good (Vinci Logic,
+    # NextSOC). The middle of a small band stands in, flagged so a reader
+    # can tell it from a count. Wider and open bands stay unmeasured.
+    from_band = False
+    if employees is None:
+        employees = band_midpoint(band)
+        from_band = employees is not None
     return {
         "company_id": _first(raw, "company_id", "id", "linkedin_id"),
         "url": _first(raw, "url", "input_url", "company_url"),
@@ -681,7 +710,8 @@ def map_company_profile(raw: dict[str, Any]) -> dict[str, Any]:
         "website": _first(raw, "website", "company_website"),
         "employee_count": employees,
         # A band ("51-200"), not a count — do not compare it to a headcount.
-        "employee_band": _first(raw, "company_size"),
+        "employee_band": band,
+        "employee_count_from_band": from_band,
         "followers": followers,
         "employees_sample": _first(raw, "employees"),
         "affiliated": _first(raw, "affiliated", "affiliated_companies"),

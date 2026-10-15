@@ -607,6 +607,22 @@ def test_company_size_is_kept_as_a_band_not_promoted_to_a_count():
     assert exact['employee_count'] == 145
 
 
+def test_a_small_band_without_a_count_stands_in_as_its_middle_flagged():
+    """LinkedIn gives "2-10 employees" and no count for the smallest
+    companies, which kept them off the map for good. The middle stands in,
+    flagged; a wider band and an open band still store no count."""
+    small = bd.map_company_profile({'name': 'Tiny', 'company_size': '2-10 employees'})
+    assert small['employee_count'] == 6
+    assert small['employee_count_from_band'] is True
+
+    wide = bd.map_company_profile({'name': 'Acme', 'company_size': '51-200 employees'})
+    assert wide['employee_count'] is None
+    assert wide['employee_count_from_band'] is False
+
+    assert bd.band_midpoint('10,001+ employees') is None
+    assert bd.band_midpoint('11-50 employees') == 30
+
+
 def test_the_pass_seeds_policies_before_it_dispatches():
     """Dispatch claims vendors from bw_entity_source_policies, so whatever
     creates those rows has to run first, on every pass.

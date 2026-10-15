@@ -219,7 +219,11 @@ def build_dataset(conn, market_id: int) -> List[Dict[str, Any]]:
             "country": base.get("hq_country"),
             "founded_year": base.get("founded_year"),
             "headcount_workbook": metrics.get("employee_count"),
-            "headcount_linkedin": prof.get("employee_count"),
+            # A small-band estimate is published as the band LinkedIn gave
+            # ("2-10 employees"), never as a count it did not give.
+            "headcount_linkedin": (prof.get("employee_band")
+                                   if prof.get("employee_count_from_band")
+                                   else prof.get("employee_count")),
             "followers_linkedin": prof.get("followers"),
             "funding_status": fund.get("status"),
             # Empty for Undisclosed and Bootstrapped, and that is the data.
