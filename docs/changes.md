@@ -217,6 +217,19 @@ None of these is a bug:
 - **After:** of that window's articles, 300 are approved, 1,458 filtered as off-topic and 1 marked
   `enrichment_failed`. None is left unprocessed.
 
+### Incident · A second restart cut off a news ingest run, finished by hand
+- **What happened:** at 18:04:30 a `systemctl restart bugfixing.aunoo.ai.service` run outside
+  `restart_when_quiet` stopped the "AI and Machine Learning" auto-ingest (2,559 articles) at batch
+  263 of 512, and a Geopolitical Hotspots run that had just started. `restart_when_quiet` itself
+  had given up at 18:04 with the ingest still running and did not restart.
+- **Recovery:** a one-off script (session scratchpad, `resume_ingest2.py`) took each group's
+  matches detected today before the restart whose article had no `ingest_status` and made the
+  same `auto_ingest_pipeline` call the scheduler makes, with the group's threshold and each
+  article's matched keywords. Group 9: 495 processed, 133 saved and indexed, 2 errors
+  (`enrichment_failed`), 18:21–18:44. Some of the 495 were first matched at 13:14 and had never
+  been processed. Group 10's 126 were cleared by the site's own runs first.
+- **After:** no group 9 or group 10 match detected today before the restart is left unprocessed.
+
 ### Fix · The vendor funding list read the stale workbook total (`1d013766`)
 - **Cause:** `funding_vendors` in **`app/services/market_lists.py`** (the Funding drill-down list
   and its CSV export) read `baseline.metrics.total_funding_musd` and `metrics.funding_status`, the
