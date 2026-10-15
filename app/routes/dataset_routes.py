@@ -265,9 +265,9 @@ async def get_media_bias_filters(media_bias: MediaBias = Depends(get_media_bias)
         logger.error(f"Error getting media bias filters: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/media_bias/by-id/{source_id}")
+@router.get("/media_bias/by-id/{source_id:path}")
 async def get_media_bias_by_id(
-    source_id: int,
+    source_id: str,
     media_bias: MediaBias = Depends(get_media_bias),
     session=Depends(verify_session)
 ):
@@ -306,9 +306,9 @@ async def add_media_bias_source(
         logger.error(f"Error adding media bias source: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/media_bias/{source_id}")
+@router.put("/media_bias/{source_id:path}")
 async def update_media_bias_source(
-    source_id: int,
+    source_id: str,
     source_data: Dict[str, Any],
     media_bias: MediaBias = Depends(get_media_bias),
     session=Depends(verify_session)
@@ -326,9 +326,9 @@ async def update_media_bias_source(
         logger.error(f"Error updating media bias source: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/media_bias/{source_id}")
+@router.delete("/media_bias/{source_id:path}")
 async def delete_media_bias_source(
-    source_id: int,
+    source_id: str,
     media_bias: MediaBias = Depends(get_media_bias),
     session=Depends(verify_session)
 ):

@@ -430,7 +430,7 @@ class MediaBias:
         sources = []
         for row in rows:
             sources.append({
-                'id': row['id'],
+                'id': row['source'],  # the source name is the key; the table has no id column
                 'source': row['source'],
                 'country': row['country'],
                 'bias': row['bias'],
@@ -562,7 +562,7 @@ class MediaBias:
                 return None
 
             return {
-                'id': row['id'],
+                'id': row['source'],  # the source name is the key; the table has no id column
                 'source': row['source'],
                 'country': row['country'],
                 'bias': row['bias'],

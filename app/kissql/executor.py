@@ -454,48 +454,72 @@ def _passes_advanced_constraints(
         if field_value is None:
             continue
         
-        # Handle comparison operators
+        # Handle comparison operators. Values are compared as numbers when both sides are numbers,
+        # otherwise as dates (publication_date is stored as ISO text, and the query language allows
+        # words like last_week); anything else fails the constraint, as before.
         if constraint.operator == '!=':
             if field_value == constraint.value:
                 return False
-        elif constraint.operator == '>':
-            try:
-                if not float(field_value) > float(constraint.value):
-                    return False
-            except (ValueError, TypeError):
-                return False
-        elif constraint.operator == '>=':
-            try:
-                if not float(field_value) >= float(constraint.value):
-                    return False
-            except (ValueError, TypeError):
-                return False
-        elif constraint.operator == '<':
-            try:
-                if not float(field_value) < float(constraint.value):
-                    return False
-            except (ValueError, TypeError):
-                return False
-        elif constraint.operator == '<=':
-            try:
-                if not float(field_value) <= float(constraint.value):
-                    return False
-            except (ValueError, TypeError):
+        elif constraint.operator in ('>', '>=', '<', '<='):
+            if not _compare(field_value, constraint.operator, constraint.value):
                 return False
         elif constraint.operator == 'range':
-            try:
-                value = float(field_value)
-                min_val = float(constraint.value.get("min", 0))
-                max_val = float(constraint.value.get("max", float('inf')))
-                if not (min_val <= value <= max_val):
-                    return False
-            except (ValueError, TypeError, AttributeError):
+            bounds = constraint.value if isinstance(constraint.value, dict) else {}
+            lo, hi = bounds.get("min"), bounds.get("max")
+            if lo is not None and not _compare(field_value, '>=', lo):
+                return False
+            if hi is not None and not _compare(field_value, '<=', hi):
+                return False
+            if not isinstance(constraint.value, dict):
                 return False
         elif constraint.operator == 'in':
             if field_value not in constraint.value:
                 return False
     
     return True
+
+
+_RELATIVE_DAYS = {"today": 0, "yesterday": 1, "last_week": 7, "last_month": 30, "last_year": 365,
+                  "week": 7, "month": 30, "year": 365}
+
+
+def _as_date(value: Any):
+    """A date from an ISO date or date-time, or a relative word (today, yesterday, last_week,
+    last_month, last_year) or an "Nd" span such as 7d. None when it isn't a date."""
+    from datetime import date, datetime, timedelta
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip().strip('"\'').lower()
+    if text in _RELATIVE_DAYS:
+        return date.today() - timedelta(days=_RELATIVE_DAYS[text])
+    if len(text) > 1 and text[-1] == 'd' and text[:-1].isdigit():
+        return date.today() - timedelta(days=int(text[:-1]))
+    try:
+        return datetime.fromisoformat(text.replace('z', '+00:00')).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _compare(field_value: Any, operator: str, target: Any) -> bool:
+    """field_value <operator> target, as numbers when both are numbers, else as dates."""
+    import operator as op
+    fn = {'>': op.gt, '>=': op.ge, '<': op.lt, '<=': op.le}[operator]
+    try:
+        return fn(float(field_value), float(target))
+    except (ValueError, TypeError):
+        pass
+    left, right = _as_date(field_value), _as_date(target)
+    if left is None or right is None:
+        return False
+    return fn(left, right)
 
 
 def _compute_facets(

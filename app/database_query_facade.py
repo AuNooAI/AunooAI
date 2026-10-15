@@ -5468,7 +5468,7 @@ class DatabaseQueryFacade:
             return result.inserted_primary_key[0]
 
     def update_media_bias_source(self, params):
-        statement = update(mediabias).where(mediabias.c.id == params[9]).values(
+        statement = update(mediabias).where(mediabias.c.source == params[9]).values(
             source = params[0],
             country = params[1],
             bias = params[2],
@@ -5521,14 +5521,15 @@ class DatabaseQueryFacade:
         return self._fetchone_with_rollback(statement)
 
     def get_media_bias_source(self, source_id):
+        # Sources are keyed by their name: `source` is the table's primary key, there is no id column
         statement = select(
-            mediabias.c.id
-        ).where(mediabias.c.id == source_id)
+            mediabias.c.source
+        ).where(mediabias.c.source == source_id)
 
         return self._fetchone_with_rollback(statement)
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+        statement = delete(mediabias).where(mediabias.c.source == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
@@ -5607,13 +5608,12 @@ class DatabaseQueryFacade:
         return total_count, self._fetchall_with_rollback(paginated_stmt, mappings=True)
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+        statement = delete(mediabias).where(mediabias.c.source == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_media_bias_source_by_id(self, source_id):
         statement = select(
-            mediabias.c.id,
             mediabias.c.source,
             mediabias.c.country,
             mediabias.c.bias,
@@ -5622,7 +5622,7 @@ class DatabaseQueryFacade:
             mediabias.c.media_type,
             mediabias.c.popularity,
             mediabias.c.mbfc_credibility_rating
-        ).where(mediabias.c.id == source_id)
+        ).where(mediabias.c.source == source_id)
 
         return self._fetchone_with_rollback(statement, mappings=True)
 
