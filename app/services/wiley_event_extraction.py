@@ -199,12 +199,29 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
     # topic_alignment_score so off-topic feed noise (alignment 0.0) never
     # reaches the extractor. (The unfiltered get_articles_for_topic was the
     # source of the "fighter jets / arms deals" events in the first pass.)
-    rows = db.facade.get_relevant_articles_for_topic(
-        topic, days_back=days_back, min_alignment=_MIN_ALIGNMENT, limit=_ARTICLE_CAP,
-    ) or []
+    # ``topic`` is the bundle's display name ("Scientific Publishing"), and a
+    # tracked topic ("Quantum Advantage") tags no articles at all: its corpus
+    # is in forecast_topic_metadata.source_topics. Pull from the assessment's
+    # own topic and the source topics behind it, as the report corpus does.
+    # Looking up the display name found nothing for three of the six Q4
+    # topics on wileytest (15 Oct 2026).
+    from app.services.report_corpus import _source_topics_for
+    article_topics = [assessment.get("topic") or topic]
+    article_topics = _source_topics_for(db, article_topics[0]) or article_topics
+    rows, seen = [], set()
+    for at in article_topics:
+        for a in db.facade.get_relevant_articles_for_topic(
+            at, days_back=days_back, min_alignment=_MIN_ALIGNMENT, limit=_ARTICLE_CAP,
+        ) or []:
+            key = a.get("uri") or a.get("url") or a.get("title")
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(a)
+    rows = rows[:_ARTICLE_CAP]
     if not rows:
-        logger.info("event-extraction: no on-topic articles for %s "
-                    "(alignment > %.2f)", topic, _MIN_ALIGNMENT)
+        logger.info("event-extraction: no on-topic articles for %s via %s "
+                    "(alignment > %.2f)", topic, article_topics, _MIN_ALIGNMENT)
         return 0
 
     scenarios = _scenario_names(assessment)
