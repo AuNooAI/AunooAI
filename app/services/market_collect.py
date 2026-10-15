@@ -1528,7 +1528,10 @@ def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:
     added = 0
     for brand_id, slug in rows:
         url = crunchbase_url_for(slug)
-        conn.execute(text("""
+        # A guess we closed for this vendor (wrong company) stays closed.
+        # Without the brand check the next run re-opened the same URL, and
+        # four vendors read a stranger's funding again from 9 Oct 2026.
+        added += conn.execute(text("""
             INSERT INTO bw_vendor_identifiers
                 (brand_id, kind, normalized_value, display_value, provenance)
             SELECT :b, 'crunchbase_url', CAST(:u AS TEXT), :u,
@@ -1537,9 +1540,12 @@ def seed_crunchbase_urls(conn, market_id: int) -> Dict[str, int]:
                 SELECT 1 FROM bw_vendor_identifiers
                 WHERE kind = 'crunchbase_url'
                   AND normalized_value = CAST(:u AS TEXT) AND valid_to IS NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM bw_vendor_identifiers
+                WHERE kind = 'crunchbase_url' AND brand_id = :b
+                  AND normalized_value = CAST(:u AS TEXT))
         """), {"b": brand_id, "u": url,
-               "p": json.dumps({"source": "slug_guess", "verified": False})})
-        added += 1
+               "p": json.dumps({"source": "slug_guess", "verified": False})}).rowcount
     return {"seeded": added, "candidates": len(rows)}
 
 
