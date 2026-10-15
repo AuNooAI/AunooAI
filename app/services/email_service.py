@@ -496,6 +496,38 @@ class SMTPProvider(EmailProvider):
             return False
 
 
+def _zip_html_attachments(attachments):
+    """Wrap any HTML attachment in a zip file.
+
+    A bare .html attachment is stripped on the way to the recipient (seen on
+    15 Oct 2026: the Wiley bundle HTML sent through Resend never reached a
+    Gmail inbox while the .docx in the same message did). Zipping it gets
+    through every mail filter we have met, and the file opens in a browser
+    once unpacked. Returns a new list; the caller's list is not changed.
+    """
+    if not attachments:
+        return attachments
+    import io
+    import zipfile
+    out = []
+    for a in attachments:
+        name = str(a.get("filename") or "")
+        mime = str(a.get("mime_type") or "").lower()
+        is_html = mime.startswith("text/html") or name.lower().endswith((".html", ".htm"))
+        if not is_html:
+            out.append(a)
+            continue
+        content = a.get("content") or b""
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(name or "report.html", content)
+        out.append({**a, "filename": f"{name or 'report.html'}.zip",
+                    "content": buf.getvalue(), "mime_type": "application/zip"})
+    return out
+
+
 class EmailService:
     """Service for sending email notifications with multiple provider support."""
 
@@ -551,7 +583,7 @@ class EmailService:
             body_html=body_html,
             body_text=body_text,
             from_email=from_email,
-            attachments=attachments,
+            attachments=_zip_html_attachments(attachments),
             extra_headers=headers or None,
         )
 

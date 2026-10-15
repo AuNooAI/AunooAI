@@ -7377,13 +7377,13 @@ async def email_account_report(account_id: int, req: AccountEmailReportRequest,
     body = f"""
     <h2>Account report — @{handle}</h2>
     <p>The full interactive report for <strong>@{handle}</strong> ({platform}) is attached
-    as a self-contained HTML file — open it in any browser.</p>
+    as a zipped HTML file. Unzip it and open the page in any browser.</p>
     <p style="color:#888;font-size:12px">{prof.get('display_name') or ''} ·
     {prof.get('followers_count') or 0:,} followers · profiled {str(prof.get('last_profiled_at') or '')[:16]}</p>
     """
     ok = email_svc.send_email(
         to_addresses=[to], subject=subject, body_html=body,
-        body_text=f"Account report for @{handle} ({platform}) attached as HTML.",
+        body_text=f"Account report for @{handle} ({platform}) attached as a zipped HTML file.",
         attachments=[{"filename": f"{fname}_report.html",
                       "content": req.html.encode("utf-8"),
                       "mime_type": "text/html"}],
