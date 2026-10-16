@@ -1158,17 +1158,20 @@ def _quote_titles_with_banned_words(letter: str, titles: list) -> str:
     def _quote_outside(text: str, span: str) -> str:
         # Quote each occurrence that is not already inside a quoted span:
         # an even number of quote marks before it means it is outside.
-        pat = re.compile(re.escape(span))
+        # Case-insensitive: the writer lowercases a title it uses as a
+        # phrase ("the credibility crisis scenario"); the matched text is
+        # kept as written.
+        pat = re.compile(re.escape(span), re.IGNORECASE)
         pos, pieces = 0, []
         for m in pat.finditer(text):
             inside = text.count('"', 0, m.start()) % 2 == 1
             pieces.append(text[pos:m.start()])
-            pieces.append(span if inside else '"' + span + '"')
+            pieces.append(m.group(0) if inside else '"' + m.group(0) + '"')
             pos = m.end()
         pieces.append(text[pos:])
         return "".join(pieces)
     for span in sorted(spans, key=len, reverse=True):
-        if span in out:
+        if span.lower() in out.lower():
             out = _quote_outside(out, span)
     return out
 

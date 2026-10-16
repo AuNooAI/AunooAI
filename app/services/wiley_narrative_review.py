@@ -179,7 +179,43 @@ def _facts(ledger_topics: List[dict], extra_numbers: List = ()) -> Tuple[set, se
     return _dates_in(corpus), nums, corpus.lower()
 
 
-# ── Deterministic preflight: dates and figures ────────────────────────
+# ── Deterministic preflight: dates, figures, and sweeping status claims ──
+
+_SWEEP = re.compile(r"\b(all|every|each|none of the|no)\s+(five|four|six|three|two|\d+)?\s*(of the\s+)?scenarios?\b[^.]{0,80}?"
+                    r"\b(too early|unconfirmed|holding|in doubt|leaning|contested|not bearing out|no (confirming|countering|supporting) events)",
+                    re.I)
+_STATUS_WORDS = {"too early": "Too early", "unconfirmed": "Unconfirmed", "holding": "Holding", "in doubt": "In doubt",
+                 "leaning": "Leaning", "contested": "Contested", "not bearing out": "Not bearing out"}
+
+
+def _sweep_findings(seg: dict, scen: list) -> List[dict]:
+    """'All five scenarios remain too early' when two ledgers say Holding
+    (16 Oct 2026 round-four review, F02). A sweep over a topic's scenarios
+    must match every scenario's status; the judge let these through."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    statuses = [str(sc.get("status") or "") for sc in scen]
+    if not statuses:
+        return out
+    for sent in _sentences(seg["text"]):
+        m = _SWEEP.search(sent)
+        if not m:
+            continue
+        word = m.group(4).lower()
+        claimed = _STATUS_WORDS.get(word)
+        if word.startswith("no "):
+            claimed = "Too early"
+        if not claimed:
+            continue
+        negated = m.group(1).lower().startswith("no")
+        mismatch = [st for st in statuses if (st == claimed) if negated] if negated else [st for st in statuses if st != claimed]
+        if mismatch:
+            out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
+                        "finding": f"The sentence sweeps every scenario as '{claimed}' but the ledger statuses are {statuses}.",
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": "State the count that holds for each status, from the ledger."})
+    return out
+
 
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
@@ -189,6 +225,8 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
     facts_by_topic = {t: _facts([lt], extra_numbers) for t, lt in ledger.items()}
     findings: List[dict] = []
     for seg in segments:
+        if seg.get("kind") == "topic" and seg.get("topic") in ledger:
+            findings.extend(_sweep_findings(seg, ledger[seg["topic"]].get("scenarios") or []))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all
