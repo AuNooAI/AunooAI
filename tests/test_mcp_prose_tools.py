@@ -88,10 +88,13 @@ def test_missing_detector_is_reported_not_raised(prose, monkeypatch):
 
 def test_tool_is_registered_and_kept_out_of_suggestions(monkeypatch):
     monkeypatch.setenv("NORN_SECRET_KEY", "test-secret-not-for-prod")
-    from app.mcp_access import tools, tool_suggestion
+    from app.mcp_access import tools
     spec, fn = tools.resolve("check_ai_tells")
     assert spec.required == ("text",)
     assert fn.__name__ == "check_ai_tells"
+    assert "check_ai_tells" in {t.name for t in tools.available_tools()}
+    # Older tenant trees have no suggestion pre-pass; the exclusion only applies where it exists.
+    tool_suggestion = pytest.importorskip("app.mcp_access.tool_suggestion")
     assert "check_ai_tells" not in {c["name"] for c in tool_suggestion._catalogue()}
 
 
