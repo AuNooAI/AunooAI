@@ -698,7 +698,10 @@ def _record_ok(rec: dict, group_rows: list) -> Optional[str]:
         values = [float(r["magnitude_value"]) for r in group_rows
                   if isinstance(r.get("magnitude_value"), (int, float))]
         try:
-            if not any(abs(float(mv) - v) < 1e-9 for v in values):
+            # The writer may restate 40000000 USD as 40 million USD; the
+            # figure is the same, so compare across unit scales.
+            scales = (1.0, 1e3, 1e6, 1e9, 1e-3, 1e-6, 1e-9)
+            if not any(abs(float(mv) * k - v) <= 1e-6 * max(1.0, abs(v)) for v in values for k in scales):
                 return f"magnitude {mv} appears in no source row"
         except (TypeError, ValueError):
             return "magnitude is not a number"
