@@ -502,8 +502,8 @@ def _type_count_findings(seg: dict, scen: list) -> List[dict]:
 _PROGRESS = re.compile(r"\b(emerging|emerges|emerged|accelerat\w*|materialis\w*|materializ\w*|gaining|gains|taking hold|"
                        r"under ?way|is forming|are forming|routing around|substitut\w*|bearing out|confirm(?:ed|ing|s)|"
                        r"advancing|advances|strengthening|momentum|is building|are building|now fill|filling)\b", re.I)
-_HEDGE = re.compile(r"\b(too early|no events?|not yet|watch|would|could|may|might|if|hypothes\w*|remains? to be seen|"
-                    r"no evidence|absent|unconfirmed|has not|have not)\b", re.I)
+_HEDGE = re.compile(r"\b(too early|no (?:\w+ )?events?|not yet|watch|would|could|may|might|if|hypothes\w*|"
+                    r"remains? to be seen|no evidence|absent|unconfirmed|has not|have not|despite having no)\b", re.I)
 
 
 def _progress_findings(seg: dict, scen: list) -> List[dict]:
