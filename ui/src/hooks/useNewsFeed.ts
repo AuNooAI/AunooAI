@@ -145,7 +145,15 @@ export function useNewsFeed(feedEnabled: boolean = true): UseNewsFeedReturn {
     try {
       const stored = localStorage.getItem(STORAGE_KEYS.CONFIG);
       if (stored) {
-        const merged = { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+        const saved = JSON.parse(stored);
+        // The date range is not restored: every load starts at the default
+        // (Last 7 days). A "Last 30 days" pick lived on in localStorage for
+        // weeks and showed old articles at the top, which read as a date bug
+        // (wileytest, 2026-10-16). Topic, model, persona and profile still carry over.
+        delete saved.dateRange;
+        delete saved.customDateStart;
+        delete saved.customDateEnd;
+        const merged = { ...DEFAULT_CONFIG, ...saved };
         if (LEGACY_AUTO_PICK_MODELS.has(merged.model)) {
           merged.model = DEFAULT_CONFIG.model;
         }
