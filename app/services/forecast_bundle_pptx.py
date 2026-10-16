@@ -889,7 +889,10 @@ def _add_topic_divider(prs, assessment: dict, forecast_run: dict, *, topic_idx: 
     # Assessments are re-run on their own cadence, so the tracking layer can
     # be months behind the analysis. Say how far behind rather than leaving
     # the reader to subtract two dates.
-    assessed_label = f"Latest assessment {_short_date(assessed_at)}"
+    # The tracker assessment scores article shares on its own date; the event
+    # ledger runs to the export date. Name it so the two dates do not look
+    # like a contradiction (16 Oct 2026 round-four review, F07).
+    assessed_label = f"Article-share assessment {_short_date(assessed_at)}"
     age_days = _days_between(assessed_at, analysed_at)
     if age_days is not None and age_days >= 30:
         assessed_label += f" ({age_days}d earlier)"

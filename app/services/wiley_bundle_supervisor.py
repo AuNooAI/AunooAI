@@ -535,7 +535,10 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
     # Ground-truth events the extraction stage tagged for this topic.
     # Briefing/recs/next-steps agents anchor their tensions and rationales
     # to these so empty-scenarios topics don't default to "DATA ABSENCE".
-    events = [e for e in (named_events or []) if isinstance(e, dict)]
+    # Newest first, forty at most, so a late-quarter correction (a withdrawal
+    # of a release cited elsewhere) reaches the writers.
+    events = sorted([e for e in (named_events or []) if isinstance(e, dict)],
+                    key=lambda e: str(e.get("event_date") or ""), reverse=True)
 
     return {
         "topic": assessment.get("topic"),
@@ -549,7 +552,7 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
              "sample_articles": (s.get("sample_articles") or [])[:3]}
             for s in (assessment.get("surprises") or [])[:5]
         ],
-        "named_events": events[:30],
+        "named_events": events[:40],
         "organisation": _organisation_context(),
         "metric_definitions": _METRIC_DEFINITIONS,
     }

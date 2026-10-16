@@ -94,8 +94,11 @@ that genuinely move the topic, not every dated action in the batch.
    no number, leave both null. **Never invent a magnitude.**
 3. **`event_date`** is the date the development itself happened or was
    announced, ISO `YYYY-MM-DD`, with **`date_basis`** saying where it came
-   from: `stated` when the article names the date ("on 16 September NIST
-   finalised…", "Monday's filing"); `inferred` when you derive it from the
+   from: `stated` only when the article names the calendar date on which the
+   development itself happened ("on 16 September NIST finalised…", "Monday's
+   filing"). A retrospective account of earlier developments ("terminations
+   resumed over the summer") is `article` unless it names their date; the
+   publication date is then the date of the report, not of the development; `inferred` when you derive it from the
    publication date plus "yesterday" / "last week"; `article` when the text
    gives no date at all, in which case use the article's publication date
    and the briefing will say "reported on". An article published on 7
