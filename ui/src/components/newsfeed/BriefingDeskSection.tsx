@@ -63,6 +63,7 @@ import {
   type BriefingReview,
   type BriefingReviewFinding,
 } from '../../services/briefingDeskApi';
+import { getDaysFromRange, type DateRange } from '../../hooks/useNarrativeExplorer';
 import { Skeleton } from '../ui/skeleton';
 import { ShareModal, ShareDeskBriefingData } from '../ShareModal';
 import { getDeployedModelNames } from '../../services/aiDisclosureModels';
@@ -70,6 +71,9 @@ import { getDeployedModelNames } from '../../services/aiDisclosureModels';
 interface BriefingDeskSectionProps {
   isFullTab?: boolean;
   model?: string;
+  /** The page's date range selector. Compose reads articles and emerging
+   *  topics from this many days back (server default 7 when absent). */
+  dateRange?: DateRange;
   organizationalProfile?: string;
   persona?: string;
   onRefreshNeeded?: () => void;
@@ -90,7 +94,7 @@ function formatDate(dateStr?: string): string {
   }
 }
 
-export function BriefingDeskSection({ isFullTab = false, model, organizationalProfile, persona, onRefreshNeeded }: BriefingDeskSectionProps) {
+export function BriefingDeskSection({ isFullTab = false, model, organizationalProfile, persona, onRefreshNeeded, dateRange,}: BriefingDeskSectionProps) {
   const [briefings, setBriefings] = useState<BriefingSummary[]>([]);
   const [selectedBriefing, setSelectedBriefing] = useState<DeskBriefing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -207,6 +211,14 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
     }
   };
 
+  // The compose window follows the page's date range selector. The backend
+  // accepts 1..30 days, so the 3-month view composes from the last 30.
+  const COMPOSE_MAX_DAYS = 30;
+  const composeDays = dateRange ? Math.min(getDaysFromRange(dateRange), COMPOSE_MAX_DAYS) : undefined;
+  const composeWindowLabel = composeDays
+    ? `the last ${composeDays} day${composeDays === 1 ? '' : 's'}`
+    : 'the last 7 days';
+
   // Auto-compose today's briefing — streams staged progress (detect + curate + stage)
   const handleComposeBriefing = async () => {
     setComposing(true);
@@ -223,8 +235,12 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
       const final = await streamComposeDailyBriefing(
         selectedTopics.length ? selectedTopics : undefined,
         // The page's model selector applies to compose too; when nothing is
-        // selected the server uses the tenant's pinned briefing model.
-        model ? { model } : undefined,
+        // selected the server uses the tenant's pinned briefing model. The
+        // page's date range sets the look-back window.
+        {
+          ...(model ? { model } : {}),
+          ...(composeDays ? { days_back: composeDays } : {}),
+        },
         (evt) => {
           // Keep one line per stage; replace the stage's line as it progresses
           setComposeLog((prev) => {
@@ -512,7 +528,7 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
           <button
             onClick={openComposeForm}
             disabled={composing}
-            title="Auto-compose today's briefing from emerging topics + relevant news"
+            title={`Auto-compose today's briefing from emerging topics + relevant news in ${composeWindowLabel}`}
             className="px-3 py-2 text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-900/20 rounded-lg hover:bg-pink-100 disabled:opacity-50 flex items-center gap-2 text-sm font-medium"
           >
             {composing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -540,6 +556,11 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
             <p className="text-sm text-gray-500 dark:text-gray-300 mb-4">
               Creates a draft, runs Emerging Topics detection, and stages the strongest topics plus the
               most relevant news for you to curate. This can take a minute or two per topic.
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+              Window: articles and emerging topics from {composeWindowLabel}, set by the date range at the
+              top of the page{dateRange === '3m' ? ' (3 months is capped at 30 days for composing)' : ''}.
+              Incidents always cover at least the last 14 days.
             </p>
             {composing ? (
               <div className="py-2">

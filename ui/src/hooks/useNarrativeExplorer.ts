@@ -105,7 +105,7 @@ function generateCacheKey(config: NarrativeExplorerConfig): string {
   return `${config.selectedTopics.sort().join(',')}_${config.dateRange}_${config.model}_${config.profileId || ''}`;
 }
 
-function getDaysFromRange(dateRange: DateRange): number {
+export function getDaysFromRange(dateRange: DateRange): number {
   switch (dateRange) {
     case '24h': return 1;
     case '7d': return 7;

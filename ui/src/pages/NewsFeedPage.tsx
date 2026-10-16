@@ -1453,6 +1453,7 @@ export function NewsFeedPage() {
                 <BriefingDeskSection
                   isFullTab={true}
                   model={config.model}
+                  dateRange={config.dateRange as any}
                   organizationalProfile={profiles.find(p => p.id === config.profileId)?.name}
                   persona={config.persona}
                   onRefreshNeeded={() => {
