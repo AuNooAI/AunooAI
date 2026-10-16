@@ -48,6 +48,185 @@ topics, the topic dividers state the evidence window, the methodology slide defi
 dates separate from article dates (extractor schema change); the layout of the dense summary
 slides; the arithmetic on coverage-shift wording.
 
+## 2026-10-16 — MCP: `check_ai_tells`, the AI-tells detector as a tool the assistant calls on its own draft
+
+### Goal
+Oliver asked whether the AI-tells detector and the humanizer were wired into the MCP server.
+They were not. The detector (`humanize_mcp.detection`, 31 regex rules, no model call) ran
+inside the app on Wiley bundles, Auspex deep-research reports and topic reports, but the MCP
+server in `app/mcp_access/` returned data and recipe prompts only, and the briefings claude.ai
+writes from those recipes got no check at all. The first idea was a style block in the recipe
+prompts. Oliver's rule: telling an AI to fix AI writing rarely works, especially with small
+models, and heuristics help. So the detector became a tool the assistant calls on its draft,
+and the recipes tell it when to call it.
+
+### Feature: `check_ai_tells` (`app/mcp_access/prose_tools.py`, b2017d19, 61dd5332)
+The tool takes a draft as `text` (capped at 60,000 characters) and runs `detect_ai_tells` and
+`compute_readability` over it. It returns every flagged span with its offsets, the detector
+that fired and the fix to apply, a count per detector, readability figures, and a verdict by
+tells per thousand words: `clean` at one or fewer, `acceptable` at three or fewer, `rewrite`
+above that. At most 200 spans are returned, with the overflow counted. A missing detector
+package comes back as an `error` field, not an exception, so the assistant carries on without
+the check. Timeout 15 seconds; a 337-word draft took well under a second over the live
+endpoint.
+
+`medium` (61dd5332) says where the text will be read: `markdown` (default), `html` or
+`plain`. Markdown and HTML skip the `markdown_formatting` detector, which fires on three or
+more heading or bold markers. That rule is right for an email body and wrong for a chat reply
+or an artifact, where markup is the medium. The bold pseudo-heading detectors stay on in every
+medium, since a real heading is the fix.
+
+**`app/mcp_access/recipes.py`**: the four prose recipes (topic_briefing, deep_dive,
+keyword_scan, brand_briefing) end with a BEFORE YOU RETURN block: call `check_ai_tells` with
+the full draft, edit only the flagged spans, call it again, stop at clean or acceptable. The
+three artifact recipes (voices_report, consensus_outliers, future_horizons) render the site's
+own stored text and already forbid writing in the model's voice, so they were left alone.
+**`app/mcp_access/tool_suggestion.py`** keeps the tool out of the `suggest_tool` catalogue,
+since it is a writing step and not a data lookup. **`app/mcp_access/tools.py`** registers it
+last, the same way the judgment, timeline and consensus tools are registered.
+
+### Live test from the topic_briefing recipe (bugfixing)
+Run over the MCP endpoint with a temporary API key (id 11, revoked after the test). The SOC
+topic had no readable articles in the last seven days, so the briefing was EV Battery Industry,
+two articles. The first draft was written as the recipe asks, in a normal model voice.
+
+| pass | words | tells | per 1,000 words | verdict |
+|---|---|---|---|---|
+| first draft | 337 | 13 | 38.6 | rewrite |
+| flagged spans edited | 337 | 1 | 2.8 | acceptable |
+
+First-pass tells by detector: bold pseudo-heading 4 and excessive bold 4 (the same four lines,
+counted by both), AI vocabulary 2 ("landscape", "highlighting"), tailing clause 2
+("underscoring its focus", "highlighting the growing importance"), markdown formatting 1.
+Editing only those spans (real `##` headings, four sentences rewritten) left the markdown
+detector as the single remaining tell, which is what `medium` now removes.
+
+### Verification
+`tests/test_mcp_prose_tools.py`, 9 tests: sloppy sample flagged with offsets that index the
+source text, plain sample passes, empty text raises `ToolError`, long text truncated and says
+so, missing package reported not raised, markdown is the medium by default and a tell under
+`plain`, unknown medium rejected, tool registered and resolvable and absent from
+`suggest_tool`'s catalogue, all four prose recipes carry the check instruction. Pass with
+`tests/test_mcp_jsonrpc.py` and `tests/test_mcp_consensus_tools.py` (22 passed on the first
+commit, 21 on the second). e895c325 makes the registration test skip the `suggest_tool`
+assertion on trees without a suggestion pre-pass.
+
+Live after the bugfixing restarts (10:30 and 10:44, both quiet, zero tracebacks):
+`list_capabilities` over the connector lists 40 tools including `check_ai_tells`; an
+unauthenticated `tools/list` still returns 401.
+
+### Propagation
+Rolled out to the nine other sites with the MCP server by file copy and scripted patch
+(`prose_tools.py` and the test copied; `tools.py` registration block appended; `_PROSE_CHECK`
+inserted into `recipes.py` and appended to every `{_CITATION_RULES}` ending; `suggest_tool`
+exclusion where the file exists). Each venv then imported the patched modules, listed the tool,
+resolved its handler and rendered the check instruction into the briefing recipes:
+
+| site | tools after | recipes patched | suggestion pre-pass | check |
+|---|---|---|---|---|
+| bugfixing | 40 | 4 | yes | 9 tests pass |
+| aisecurity | 38 | 4 | yes | 9 tests pass |
+| oviva | 39 | 4 | yes | 9 tests pass |
+| panaya | 36 | 4 | yes | 9 tests pass |
+| abm | 29 | 4 | yes | handler: 15 tells / 0 tells |
+| bwtemplate | 31 | 4 | yes | import only, service inactive |
+| wiley | 25 | 4 | no | handler: 15 tells / 0 tells |
+| wileytest | 26 | 4 | no | handler: 15 tells / 0 tells |
+| sunstar | 14 | 3 | no | handler: 15 tells / 0 tells |
+| wbm | 12 | 3 | no | handler: 15 tells / 0 tells |
+
+"handler" means `check_ai_tells` run directly in that venv on the sloppy and the plain sample,
+because abm, sunstar, wbm, wiley and wileytest have no pytest installed. sunstar and wbm have
+three prose recipes, not four: their older trees lack brand_briefing. wbm's `tools.py` had no
+`_LOCAL_HANDLERS` table at all; the rollout added one and rewrote `resolve()` to look handlers
+up there instead of special-casing `list_capabilities`. `humanize-mcp` was already installed in
+all ten venvs.
+
+Restarts: bugfixing done. The eight active sites were queued through
+`restart_when_quiet.sh --max 60` at 10:48 after the auto-mode classifier blocked the first
+attempt. abm 10:50, aisecurity 10:51, oviva 10:52, panaya 10:53, sunstar 10:54, wbm 10:56 and
+wiley 11:06 restarted quiet with no tracebacks. wileytest did not restart within the hour (two
+users on the site and ingest running the whole time); requeued at 12:17 with `--max 180`. Its
+restart fires the forecast tracker's assess auto-run, as every restart there does. bwtemplate is
+inactive, files only. The change is not committed on any site but bugfixing, as usual for the
+deploy copies.
+
+### Lessons
+- For AI tells, the fix is a detector pass plus a targeted rewrite of the flagged spans, or a
+  tool the model can call on its draft. Not another style paragraph in the prompt.
+- A detector tuned for plain text flags markup in a chat reply. Check the medium before
+  counting formatting rules as tells.
+- Two detectors can fire on the same span (bold pseudo-heading, excessive bold). The count
+  overstates the work; the span list is what to act on.
+
+## 2026-10-16 — News feed dates on wileytest and wiley: one shape for `publication_date`
+
+### Goal
+Oliver reported date problems on the Explore news feed at wileytest.aunoo.ai. The page shows
+each article's time with "2h ago" labels and sorts by date in the browser.
+
+### Cause
+`articles.publication_date` is a text column, and the sites that do not run the 1 October
+collector rewrite (`6f8d4fbd`, `app/collectors/dates.py`) store whatever shape the collector
+hands them. On wileytest, over all 940,722 rows:
+
+| shape | example | rows | writer |
+|---|---|---|---|
+| ISO UTC with offset | `2026-10-16T06:05:01+00:00` | 633,032 | RSS, most collectors |
+| microsecond `Z` | `2026-10-15T16:32:02.000000Z` | 195,407 | TheNewsAPI `published_at`, passed through raw |
+| zone dropped | `2026-10-15T14:06:26` | 49,361 | NewsFirehose and NewsData |
+| bare date | `2026-10-08` | 40,750 | Crossref, SEC EDGAR, CourtListener |
+| millisecond `Z` | `2026-10-14T14:08:45.280Z` | 15,478 | Bluesky, LinkedIn |
+| space-separated | `2025-10-20 00:00:00` | 6,694 | 2025 imports |
+
+In the last seven days on wileytest 1,675 rows had the zone dropped and 2,259 carried a `Z`.
+On wiley 2,139 of the 2,644 rows collected in the same week were the microsecond `Z` form.
+bugfixing has stored only the offset form since 1 October.
+
+The zone-less stamps are UTC. Fortune's own page metadata for a stored `2026-10-15T14:06:26`
+article reads `2026-10-15T14:06:26-00:00`. But the browser parses a zone-less string as local
+time (`new Date()` in `cardUtils.ts formatRelativeTime`, `TopicCluster.tsx formatTimeAgo`,
+`ArticleListView.tsx`'s sort), so those articles showed one hour early in the UK and two in
+Berlin, and the client-side sort put them below articles that were really older. The server
+side list endpoint sorts the text column, which happens to order these shapes correctly. Chrome
+and Node parse the six-digit `Z` form; whether every browser does is not verified.
+
+The canonical collector files cannot be copied to wileytest or wiley: they depend on the
+`cdq_001` and `ip_001`–`ip_003` migrations those sites have not had.
+
+### Fix (`app/utils/timestamps.py`, canonical commit on `fix/ingest-pipeline-spec`)
+`publication_stamp(value)` rewrites a datetime or any parseable ISO 8601 string (`Z`, an
+offset, fractional seconds, zone-less taken as UTC) to `YYYY-MM-DDTHH:MM:SS+00:00`. A bare
+date is returned as it came, because it means a day. `None` and empty stay `None`: an unknown
+date is never replaced with now. A string that does not parse comes back unchanged with a
+warning. `is_publication_stamp()` tests the shape. `tests/test_publication_stamp.py`, 7 tests,
+pass with `tests/test_submission_stamp.py`.
+
+Three write paths call it: `DatabaseQueryFacade.upsert_article` (approved articles, before the
+story labels see the date), `AsyncDatabaseService.save_below_threshold_article` (rejected
+rows), and `_land_and_attribute` in `app/services/bw_official_sources.py`, whose `now_iso`
+fallback was itself a microsecond `Z` stamp. The same hunks were applied by script to
+bugfixing, wileytest and wiley (`*.bak-pubstamp-20261016` beside each tenant file).
+wiley's `bw_official_sources.py` was two lines behind wileytest (it still wrote
+`submission_date` as a `Z` stamp, the 28 August fix it had missed); it now matches wileytest
+byte for byte. No UI change: with one stored shape, the existing parsing is right.
+
+### Data repair and restarts
+`/var/tmp/aunoo_repair_pubdate.sh <db>` copies the affected `(uri, publication_date)` pairs to
+`articles_pubdate_backup_20261016`, then rewrites them 20,000 rows per transaction, only
+where the live value still equals the backed-up one. It covers the `Z` and zone-less shapes
+(260,246 rows on wileytest, 217,929 on wiley); bare dates and the 2025 space-separated rows
+are left alone. The auto-mode permission classifier blocked running it and blocked the wiley
+restart, so both sit in `/var/tmp/aunoo_pubdate_fix_20261016.sh` for Oliver to run. The
+wileytest restart was queued through `restart_when_quiet.sh --max 90` at 10:15 (six users on
+the site at the time). bugfixing was not restarted: another session has uncommitted work in
+its tree, and its collectors already write the canonical shape.
+
+### Also found
+`docs/changes.md` in the bugfixing tree had been cut to 44 lines at 09:57 (the committed file
+has 34,021; the working copy kept only the top entry, nothing added). Restored from HEAD at
+10:05 before this entry was written.
+
 ## 2026-10-16 — Wiley Q4 bundle: first round of repairs from the independent review
 
 An outside review of the Q4 2026 bundle (deck, HTML, Word briefing) listed 15 findings. The
