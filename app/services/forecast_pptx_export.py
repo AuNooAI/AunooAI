@@ -1617,7 +1617,7 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
         _text(slide, x=0.7, y=ty, w=4.2, h=0.25,
               text=_truncate(name, 60), font_size=10, bold=True, color=WILEY_TEAL)
         _text(slide, x=0.7, y=ty+0.26, w=4.2, h=0.78,
-              text=_truncate(body, 240), font_size=9, color=WILEY_BODY, line_spacing=1.25,
+              text=_truncate(body, 200), font_size=8.5, color=WILEY_BODY, line_spacing=1.2,
               shrink_to_fit=True)
         ty += 1.08
 
@@ -1640,11 +1640,12 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
     if iv:
         paragraphs.append(iv)
     full_text = "\n\n".join(paragraphs)
-    _text(slide, x=5.3, y=1.95, w=4.0, h=3.2, text=_truncate(full_text, 1100),
-          font_size=9.5, color=WILEY_BODY, line_spacing=1.3, shrink_to_fit=True)
+    _text(slide, x=5.3, y=1.95, w=4.0, h=3.2, text=_truncate(full_text, 900),
+          font_size=9, color=WILEY_BODY, line_spacing=1.25, shrink_to_fit=True)
 
 
-def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None):
+def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None,
+                            events: Optional[list] = None):
     """Per-topic Key Insights slide — data-driven (no LLM call).
 
     Distils 4-5 bullet observations from the assessment + (if available) the
@@ -1677,17 +1678,22 @@ def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None)
                     f"newly clustered this cycle, outside the scenarios as written."
         })
 
-    # 5. Stable overhang — scenarios stuck at the pre-forecast baseline
-    n_inc = sum(
-        1 for v in verdicts
-        if v.get("verdict_label") == "Inconclusive"
-        and (bc_per.get(str(v.get("scenario_idx"))) or {}).get("label") in (None, "At baseline")
-    )
+    # 5. Scenarios with no event bearing on them yet — the same count the
+    # evidence slides show as "Too early" (the old article-based count
+    # disagreed with them, 16 Oct 2026 round-four review).
+    n_inc = 0
+    if events is not None:
+        from app.services.wiley_event_extraction import events_for_scenario
+        for v in verdicts:
+            nm = ((v.get("top_articles") or {}).get("deck_info") or {}).get("deck_scenario_name") or v.get("scenario_title") or ""
+            c, k = events_for_scenario(events, nm)
+            if not c and not k:
+                n_inc += 1
     if n_inc >= 2:
         insights.append({
             "kind": "INSUFFICIENT EVIDENCE",
-            "body": f"{n_inc} scenarios remain in 'stable / pre-existing trend' territory — "
-                    f"fresh coverage isn't yet producing enough confident matches to call a direction."
+            "body": f"{n_inc} of {len(verdicts)} scenarios have no event bearing on them yet this cycle — "
+                    f"too early to call a direction, as their evidence slides say."
         })
 
     if not insights:
