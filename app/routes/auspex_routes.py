@@ -9,6 +9,7 @@ from datetime import datetime
 from app.services.auspex_service import get_auspex_service
 from app.model_tiers import default_model
 from app.services.deep_research_service import get_deep_research_service, ResearchConfig
+from app.services import auspex_research_jobs as research_jobs
 from app.security.session import verify_session
 
 logger = logging.getLogger(__name__)
@@ -1436,7 +1437,11 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
     # Build config from request if provided
     config = None
     if req.config:
-        config = ResearchConfig()
+        # Start from the deep-research workflow settings, as a request without a
+        # config does; overrides apply on top. ResearchConfig() alone threw the
+        # workflow's models, sampling and features away whenever a UI sent options.
+        workflow = research_service.tool_loader.get_workflow("deep_research_workflow")
+        config = ResearchConfig.from_workflow(workflow.to_dict()) if workflow else ResearchConfig()
         if "max_articles" in req.config:
             config.max_articles = req.config["max_articles"]
         if "credibility_threshold" in req.config:
@@ -1460,24 +1465,38 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
             config.include_charts = req.config["include_charts"]
             logger.info(f"Research config from request: include_charts={config.include_charts}")
 
+    # The run is a server-side job (docs/AUSPEX_RESEARCH_JOBS_SPEC.md). This
+    # response only follows it: when the browser goes away the job carries on,
+    # saves its report to the chat and can be followed again from
+    # /research/jobs/{id}/events or read from /research/jobs/{id}.
+    auspex_db = get_auspex_service().db if req.chat_id else None
+
+    def _save(role: str, content: str, metadata: dict | None = None):
+        if not auspex_db or not content:
+            return None
+        return auspex_db.add_auspex_message(req.chat_id, role, content, metadata=metadata)
+
+    job = research_jobs.start(
+        user=username,
+        query=req.query,
+        topic=req.topic,
+        chat_id=req.chat_id,
+        run=lambda: research_service.conduct_research(
+            query=req.query,
+            topic=req.topic,
+            username=username,
+            chat_id=req.chat_id,
+            config=config,
+        ),
+        save_message=_save if auspex_db else None,
+    )
+    return _research_stream(research_jobs.events(job))
+
+
+def _research_stream(agen) -> StreamingResponse:
     async def generate_sse():
-        """Generate SSE events for research progress."""
-        try:
-            async for update in research_service.conduct_research(
-                query=req.query,
-                topic=req.topic,
-                username=username,
-                chat_id=req.chat_id,
-                config=config
-            ):
-                yield f"data: {json.dumps(update)}\n\n"
-
-            # Send completion signal
-            yield f"data: {json.dumps({'done': True})}\n\n"
-
-        except Exception as e:
-            logger.error(f"Deep research error: {e}", exc_info=True)
-            yield f"data: {json.dumps({'error': str(e), 'stage': 'error'})}\n\n"
+        async for update in agen:
+            yield f"data: {json.dumps(update, default=str)}\n\n"
 
     return StreamingResponse(
         generate_sse(),
@@ -1488,6 +1507,66 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
             "X-Accel-Buffering": "no"
         }
     )
+
+
+def _session_can_read_job(session, owner: str) -> bool:
+    user = session.get("user")
+    name = research_jobs.user_name(user)
+    role = (user.get("role") if isinstance(user, dict) else None) or session.get("role")
+    return bool(name) and (name == owner or role == "admin")
+
+
+def _job_or_404(job_id: str, session) -> research_jobs.ResearchJob:
+    job = research_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such research job")
+    if not _session_can_read_job(session, job.username):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your research job")
+    return job
+
+
+@router.get("/research/jobs", status_code=status.HTTP_200_OK)
+async def list_research_jobs(chat_id: int | None = None, active: bool = False,
+                             session=Depends(verify_session)):
+    """The caller's research jobs in this process, newest last. ``active=1``
+    keeps only running ones; a page opening a chat uses it to reattach."""
+    name = research_jobs.user_name(session.get("user"))
+    if not name:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User authentication required")
+    found = research_jobs.list_for(name, chat_id=chat_id, active_only=active)
+    return {"jobs": [j.status_dict(with_report=False) for j in found]}
+
+
+@router.get("/research/jobs/{job_id}", status_code=status.HTTP_200_OK)
+async def get_research_job(job_id: str, session=Depends(verify_session)):
+    """Status of one research job; the report rides along once completed.
+    A job this process no longer holds (after a restart) is read from its
+    background_tasks row, where the startup reconciliation has closed it."""
+    job = research_jobs.get(job_id)
+    if job is not None:
+        if not _session_can_read_job(session, job.username):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your research job")
+        return job.status_dict()
+    row = None
+    try:
+        from app.database import get_database_instance
+        row = get_database_instance().facade.get_background_task(job_id)
+    except Exception as exc:
+        logger.warning(f"research job {job_id}: could not read background_tasks: {exc}")
+    d = research_jobs.status_from_row(row)
+    if d is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such research job")
+    if not _session_can_read_job(session, d.get("username") or ""):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your research job")
+    return d
+
+
+@router.get("/research/jobs/{job_id}/events", status_code=status.HTTP_200_OK)
+async def follow_research_job(job_id: str, session=Depends(verify_session)):
+    """Reattach to a job: the stage events so far, the report text so far,
+    then live until it ends. Same event shapes as POST /research."""
+    job = _job_or_404(job_id, session)
+    return _research_stream(research_jobs.events(job))
 
 
 @router.get("/research/config", status_code=status.HTTP_200_OK)

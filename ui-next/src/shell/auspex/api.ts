@@ -130,13 +130,25 @@ export async function* streamResearch(
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify({ query: q.message, topic: q.topic, chat_id: q.chatId, config: { search_source: q.mode, research_mode: q.mode, include_charts: q.includeCharts } }),
   });
-  for await (const e of events(res)) {
-    if (typeof e.error === 'string') throw new Error(e.error);
-    const stage = typeof e.stage === 'string' ? e.stage : undefined;
-    if (stage === 'complete' && typeof e.report === 'string') {
-      yield { stage, report: e.report };
-      continue;
-    }
+  // The run is a server-side job (docs/AUSPEX_RESEARCH_JOBS_SPEC.md). If the
+  // stream drops before it ends, the job is followed by polling its status.
+  let jobId: string | null = null;
+  let finished = false;
+  try {
+    for await (const e of events(res)) {
+      if (typeof e.error === 'string') {
+        finished = true;
+        throw new Error(e.error);
+      }
+      const stage = typeof e.stage === 'string' ? e.stage : undefined;
+      if (stage === 'job' && typeof e.job_id === 'string') {
+        jobId = e.job_id;
+        continue;
+      }
+      if (stage === 'complete' && typeof e.report === 'string') {
+        yield { stage, report: e.report };
+        continue;
+      }
     if (typeof e.chunk === 'string') yield { stage, text: e.chunk };
     if (stage && STAGE_WORD[stage]) {
       const extra = [
@@ -147,6 +159,39 @@ export async function* streamResearch(
       ].filter(Boolean).join(', ');
       yield { stage, status: String(e.status ?? ''), detail: `${STAGE_WORD[stage]}${e.status === 'completed' ? ': done' : '…'}${extra ? ` (${extra})` : ''}` };
     }
-    if (e.done) return;
+      if (e.done) {
+        finished = true;
+        return;
+      }
+    }
+  } catch (err) {
+    // The job's own error, a stop by the user, or no job id yet: give up. A
+    // dropped connection with a job id falls through to polling.
+    if (finished || signal.aborted || !jobId) throw err;
   }
+  if (finished || !jobId || signal.aborted) return;
+  yield { stage: 'searching', status: 'reconnecting', detail: 'Connection dropped; following the run on the server…' };
+  const started = Date.now();
+  while (!signal.aborted && Date.now() - started < 45 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 3000));
+    let job: Record<string, unknown>;
+    try {
+      const r = await fetch(`/api/auspex/research/jobs/${encodeURIComponent(jobId)}`, { credentials: 'same-origin', signal });
+      if (r.status === 404) throw new Error('The research run is gone; the site may have restarted. Run it again.');
+      if (!r.ok) continue;
+      job = (await r.json()) as Record<string, unknown>;
+    } catch (e) {
+      if (signal.aborted) throw e;
+      if (e instanceof Error && /gone/.test(e.message)) throw e;
+      continue;
+    }
+    if (job.status === 'completed') {
+      yield { stage: 'complete', report: String(job.report ?? '') };
+      return;
+    }
+    if (job.status === 'failed' || job.status === 'cancelled') throw new Error(String(job.error ?? `Research ${job.status}`));
+    const stage = typeof job.stage === 'string' ? job.stage : 'searching';
+    yield { stage, status: String(job.status ?? ''), detail: `${STAGE_WORD[stage] ?? 'Working'}… (following the run on the server)` };
+  }
+  throw new Error('Gave up waiting for the research run after 45 minutes');
 }

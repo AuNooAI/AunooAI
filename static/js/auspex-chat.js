@@ -692,6 +692,7 @@ class FloatingChat {
             });
             
             console.log(`Loaded ${data.messages.length} messages for chat ${chatId}`);
+            this.resumeResearchForChat(chatId);
         } catch (error) {
             console.error('Error loading chat history:', error);
             this.clearChatDisplay();
@@ -2217,6 +2218,7 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         console.log(`Starting deep research: query="${query}", topic="${topic}", mode="${this.researchMode}"`);
 
         this.researchInProgress = true;
+        this.currentResearchJobId = null;
         this.addMessage(query, true);
 
         // Create research progress element
@@ -2272,122 +2274,22 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
                 throw new Error(errorDetail);
             }
 
-            // Handle SSE streaming with buffering for partial chunks
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let finalReport = '';
-            let buffer = '';  // Buffer to handle partial SSE data
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                // Append decoded chunk to buffer
-                buffer += decoder.decode(value, { stream: true });
-
-                // SSE events are separated by double newlines
-                // Each event starts with "data: " and contains JSON
-                const events = buffer.split('\n\n');
-                // Keep the last potentially incomplete event in the buffer
-                buffer = events.pop() || '';
-
-                for (const event of events) {
-                    // Skip empty events
-                    if (!event.trim()) continue;
-
-                    // Extract data from event (handle multi-line data)
-                    const dataMatch = event.match(/^data:\s*([\s\S]*)$/m);
-                    if (!dataMatch) continue;
-
-                    try {
-                        const jsonStr = dataMatch[1].trim();
-                        if (!jsonStr) continue;
-                        const data = JSON.parse(jsonStr);
-
-                        if (data.error) {
-                            this.updateResearchProgress(progressElement, 'error', data.error, 0);
-                            throw new Error(data.error);
-                        }
-
-                        if (data.done) {
-                            console.log('Research completed');
-                            this.researchInProgress = false;
-                            // Remove progress element and show final report
-                            progressElement.remove();
-                            if (finalReport) {
-                                this.addMessage(finalReport, false);
-                            }
-                            return;
-                        }
-
-                        // Update progress UI based on stage
-                        if (data.stage) {
-                            const progress = data.progress || 0;
-                            let statusText = '';
-
-                            switch (data.stage) {
-                                case 'planning':
-                                    statusText = data.status === 'started'
-                                        ? 'Planning research objectives...'
-                                        : `Planning complete: ${data.objectives?.length || 0} objectives identified`;
-                                    break;
-                                case 'searching':
-                                    statusText = data.status === 'started'
-                                        ? 'Searching for relevant sources...'
-                                        : `Found ${data.results_count || 0} relevant articles`;
-                                    break;
-                                case 'synthesis':
-                                    statusText = data.status === 'started'
-                                        ? 'Synthesizing findings...'
-                                        : 'Synthesis complete';
-                                    break;
-                                case 'writing':
-                                    statusText = data.status === 'started'
-                                        ? 'Writing research report...'
-                                        : 'Report generation complete';
-                                    break;
-                            }
-
-                            this.updateResearchProgress(progressElement, data.stage, statusText, progress);
-                        }
-
-                        // Capture streaming report content (from chunk field)
-                        if (data.chunk) {
-                            finalReport += data.chunk;
-                        }
-
-                        // Also handle report_chunk for backwards compat
-                        if (data.report_chunk) {
-                            finalReport += data.report_chunk;
-                        }
-
-                        // Handle final report
-                        if (data.final_report) {
-                            finalReport = data.final_report;
-                        }
-
-                    } catch (e) {
-                        // Only log if it's not an empty string parse error
-                        if (jsonStr && jsonStr.length > 0) {
-                            console.warn('Error parsing SSE data:', e, 'Data:', jsonStr.substring(0, 100));
-                        }
-                    }
+            // The run is a server-side job (docs/AUSPEX_RESEARCH_JOBS_SPEC.md).
+            // A dropped connection is followed up on the job, not shown as a failure.
+            let streamed;
+            try {
+                streamed = await this.consumeResearchStream(response, progressElement);
+            } catch (streamErr) {
+                if (this.currentResearchJobId && !(streamErr && streamErr.isResearchError)) {
+                    console.warn('Research stream dropped, following the job on the server:', streamErr);
+                    streamed = { finalReport: '', finished: false, jobId: this.currentResearchJobId };
+                } else {
+                    throw streamErr;
                 }
             }
-
-            // Process any remaining buffer content after stream ends
-            if (buffer.trim() && buffer.startsWith('data: ')) {
-                try {
-                    const jsonStr = buffer.slice(6).trim();
-                    if (jsonStr) {
-                        const data = JSON.parse(jsonStr);
-                        if (data.final_report) {
-                            finalReport = data.final_report;
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Error parsing final buffer:', e);
-                }
+            let { finalReport, finished, jobId } = streamed;
+            if (!finished && jobId) {
+                finalReport = await this.finishResearchFromJob(jobId, progressElement, finalReport);
             }
 
             // If we have a report but didn't get a done signal, show it anyway
@@ -2409,7 +2311,229 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             this.showNotification(`Research failed: ${error.message}`, 'error');
         } finally {
             this.researchInProgress = false;
+            this.currentResearchJobId = null;
         }
+    }
+
+    // The stream is gone but the job is not: poll its status until it ends.
+    async finishResearchFromJob(jobId, progressElement, reportSoFar) {
+        const started = Date.now();
+        const wait = () => new Promise(resolve => setTimeout(resolve, 3000));
+        let lastStage = null;
+        while (Date.now() - started < 45 * 60 * 1000) {
+            let job;
+            try {
+                const r = await fetch(`/api/auspex/research/jobs/${encodeURIComponent(jobId)}`, { credentials: 'same-origin' });
+                if (r.status === 404) {
+                    throw Object.assign(new Error('The research run is gone; the site may have restarted. Run it again.'), { isResearchError: true });
+                }
+                if (!r.ok) throw new Error(`Server error: ${r.status}`);
+                job = await r.json();
+            } catch (e) {
+                if (e && e.isResearchError) throw e;
+                await wait();
+                continue;
+            }
+            if (job.status === 'completed') {
+                return job.report || reportSoFar;
+            }
+            if (job.status === 'failed' || job.status === 'cancelled') {
+                throw Object.assign(new Error(job.error || `Research ${job.status}`), { isResearchError: true });
+            }
+            const text = `Connection to the run dropped; following it on the server (${job.stage || job.status}${job.message ? ': ' + job.message : ''})`;
+            if (job.stage && job.stage !== lastStage) {
+                this.updateResearchProgress(progressElement, job.stage, text, job.progress || 0);
+                lastStage = job.stage;
+            } else {
+                const el = progressElement && progressElement.querySelector('.status-text');
+                if (el) el.textContent = text;
+            }
+            await wait();
+        }
+        throw Object.assign(new Error('Gave up waiting for the research run after 45 minutes'), { isResearchError: true });
+    }
+
+    // A chat opened while one of its research runs is still going: show the
+    // progress panel again and follow the run from where it is.
+    async resumeResearchForChat(chatId) {
+        if (this.researchInProgress || !chatId) return;
+        let jobs;
+        try {
+            const r = await fetch(`/api/auspex/research/jobs?chat_id=${encodeURIComponent(chatId)}&active=1`, { credentials: 'same-origin' });
+            if (!r.ok) return;
+            jobs = (await r.json()).jobs || [];
+        } catch (e) {
+            return;
+        }
+        if (!jobs.length) return;
+        const job = jobs[jobs.length - 1];
+        this.researchInProgress = true;
+        this.currentResearchJobId = job.job_id;
+        const progressElement = this.createResearchProgressElement();
+        this.elements.messages.appendChild(progressElement);
+        this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+        try {
+            const response = await fetch(`/api/auspex/research/jobs/${encodeURIComponent(job.job_id)}/events`, { credentials: 'same-origin' });
+            if (!response.ok) throw new Error(`Server error: ${response.status}`);
+            let streamed;
+            try {
+                streamed = await this.consumeResearchStream(response, progressElement);
+            } catch (streamErr) {
+                if (streamErr && streamErr.isResearchError) throw streamErr;
+                streamed = { finalReport: '', finished: false, jobId: job.job_id };
+            }
+            let { finalReport, finished } = streamed;
+            if (!finished) {
+                finalReport = await this.finishResearchFromJob(job.job_id, progressElement, finalReport);
+            }
+            if (finalReport && progressElement.parentNode) {
+                progressElement.remove();
+                this.addMessage(finalReport, false);
+            }
+            if (finalReport) {
+                this.previousResearch = finalReport;
+                localStorage.setItem(this.storageKeys.previousResearch, finalReport);
+            }
+        } catch (error) {
+            console.error('Could not follow the research run:', error);
+            this.updateResearchProgress(progressElement, 'error', error.message, 0);
+        } finally {
+            this.researchInProgress = false;
+            this.currentResearchJobId = null;
+        }
+    }
+
+    // Reads a research stream (POST /research or GET /research/jobs/{id}/events)
+    // into {finalReport, finished, jobId}. Throws the job's own error; a
+    // dropped connection surfaces as finished=false with the job id set.
+    async consumeResearchStream(response, progressElement) {
+        // Handle SSE streaming with buffering for partial chunks
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let finalReport = '';
+        let buffer = '';  // Buffer to handle partial SSE data
+        let finished = false;
+        let jobId = null;
+        let streamError = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            // Append decoded chunk to buffer
+            buffer += decoder.decode(value, { stream: true });
+
+            // SSE events are separated by double newlines
+            // Each event starts with "data: " and contains JSON
+            const events = buffer.split('\n\n');
+            // Keep the last potentially incomplete event in the buffer
+            buffer = events.pop() || '';
+
+            for (const event of events) {
+                // Skip empty events
+                if (!event.trim()) continue;
+
+                // Extract data from event (handle multi-line data)
+                const dataMatch = event.match(/^data:\s*([\s\S]*)$/m);
+                if (!dataMatch) continue;
+
+                try {
+                    const jsonStr = dataMatch[1].trim();
+                    if (!jsonStr) continue;
+                    const data = JSON.parse(jsonStr);
+
+                    if (data.stage === 'job' && data.job_id) {
+                        jobId = data.job_id;
+                        this.currentResearchJobId = jobId;
+                        continue;
+                    }
+
+                    if (data.error) {
+                        this.updateResearchProgress(progressElement, 'error', data.error, 0);
+                        streamError = Object.assign(new Error(data.error), { isResearchError: true });
+                        finished = true;
+                        break;
+                    }
+
+                    if (data.done) {
+                        console.log('Research completed');
+                        finished = true;
+                        break;
+                    }
+
+                    // Update progress UI based on stage
+                    if (data.stage) {
+                        const progress = data.progress || 0;
+                        let statusText = '';
+
+                        switch (data.stage) {
+                            case 'planning':
+                                statusText = data.status === 'started'
+                                    ? 'Planning research objectives...'
+                                    : `Planning complete: ${data.objectives?.length || 0} objectives identified`;
+                                break;
+                            case 'searching':
+                                statusText = data.status === 'started'
+                                    ? 'Searching for relevant sources...'
+                                    : `Found ${data.results_count || 0} relevant articles`;
+                                break;
+                            case 'synthesis':
+                                statusText = data.status === 'started'
+                                    ? 'Synthesizing findings...'
+                                    : 'Synthesis complete';
+                                break;
+                            case 'writing':
+                                statusText = data.status === 'started'
+                                    ? 'Writing research report...'
+                                    : 'Report generation complete';
+                                break;
+                        }
+
+                        this.updateResearchProgress(progressElement, data.stage, statusText, progress);
+                    }
+
+                    // Capture streaming report content (from chunk field)
+                    if (data.chunk) {
+                        finalReport += data.chunk;
+                    }
+
+                    // Also handle report_chunk for backwards compat
+                    if (data.report_chunk) {
+                        finalReport += data.report_chunk;
+                    }
+
+                    // Handle final report
+                    if (data.final_report) {
+                        finalReport = data.final_report;
+                    }
+
+                } catch (e) {
+                    // Only log if it's not an empty string parse error
+                    if (jsonStr && jsonStr.length > 0) {
+                        console.warn('Error parsing SSE data:', e, 'Data:', jsonStr.substring(0, 100));
+                    }
+                }
+            }
+            if (finished) break;
+        }
+
+        // Process any remaining buffer content after stream ends
+        if (buffer.trim() && buffer.startsWith('data: ')) {
+            try {
+                const jsonStr = buffer.slice(6).trim();
+                if (jsonStr) {
+                    const data = JSON.parse(jsonStr);
+                    if (data.final_report) {
+                        finalReport = data.final_report;
+                    }
+                }
+            } catch (e) {
+                console.warn('Error parsing final buffer:', e);
+            }
+        }
+
+        if (streamError) throw streamError;
+        return { finalReport, finished, jobId };
     }
 
     createResearchProgressElement() {
