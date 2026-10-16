@@ -288,6 +288,11 @@ def _letter_opening_sentence(letter: str) -> str:
     return (m.group(1) if m else text).strip()
 
 
+_SELF_CONTRADICTING_FINDING = re.compile(
+    r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
+    r"which matches|exactly as stated)\b", re.I)
+
+
 def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> list:
     """Post-process the raw reviewer output before persistence + gating.
 
@@ -365,6 +370,14 @@ def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> lis
                 and "meta-commentary" in finding_text
                 and not _META_OPENER_RE.match(_letter_opening_sentence(exec_letter))):
             continue
+
+        # A finding that says the sentence is correct and still rates it an
+        # error cannot block ("The sentence correctly reports the value and
+        # unit", severity error, 16 Oct 2026).
+        if severity == "error" and _SELF_CONTRADICTING_FINDING.search(f.get("finding") or ""):
+            f["severity"] = "warning"
+            f["finding"] = (f.get("finding") or "") + "  [auto-demoted: the finding itself says the sentence is correct]"
+            severity = "warning"
 
         # Dedup by (artefact_key, severity). Same artefact emitted at the
         # same severity twice is almost always the model repeating itself.

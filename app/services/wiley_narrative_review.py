@@ -227,7 +227,30 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
     return _quote_gate((out or {}).get("findings") or [], segments)
 
 
+_PREFLIGHT_OWNED = {"metric", "date", "figure"}
+_SELF_CONTRADICTING = re.compile(
+    r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
+    r"which matches|exactly as stated)\b", re.I)
+
+
 def _merge(preflight_f: List[dict], judge_f: List[dict]) -> List[dict]:
+    # Dates and figures belong to the deterministic preflight. A judge
+    # "error" on a sentence the preflight passed is advisory (the judge
+    # called "2.18 percentage points" wrong while saying it was right,
+    # 16 Oct 2026). A finding that itself says the sentence is correct
+    # cannot block either.
+    pre_keys = {(f.get("target"), (f.get("claim_text") or "")[:80]) for f in preflight_f}
+    adjusted = []
+    for f in judge_f:
+        f = dict(f)
+        if f.get("severity") == "error":
+            key = (f.get("target"), (f.get("claim_text") or "")[:80])
+            if (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
+                    or _SELF_CONTRADICTING.search(f.get("finding") or ""):
+                f["severity"] = "warning"
+                f["finding"] = (f.get("finding") or "") + " [advisory: preflight passed this sentence]"
+        adjusted.append(f)
+    judge_f = adjusted
     seen = set()
     out = []
     for f in preflight_f + judge_f:
