@@ -1,3 +1,46 @@
+## 2026-10-16 (late) — Wiley Q4 bundle after the round-four review
+
+The fourth independent review found the narrative still out of step with the ledger in three
+ways: a synthesis naming "supporting articles" the evidence slides never show, sweeping status
+claims ("all five scenarios too early") that two ledgers contradicted, and event-to-scenario
+links that accepted adjacent evidence (a novel-drug deal under a biosimilar scenario, an
+error-correction milestone as a practical application). Commits f2166eda through 79eaf5b3,
+live on bugfixing, wileytest and wiley.
+
+**Writers and judge read events only.** The per-scenario `top_supports` / `top_contras` article
+titles are no longer in the writers' input and the narrative judge's ledger, so a lede cannot
+name "two supporting articles" that differ from its slide's two events.
+
+**Wider review coverage.** The executive decision framework and every scenario's key signals and
+strategic imperative (the text on the strategic-domain and scenario slides) are now review
+segments, written back to `forecast_scenario_verdicts.synthesis` on repair.
+
+**Two more deterministic checks.** A sweep over a topic's scenarios ("all five", "none of the")
+must match every scenario's ledger status, or it is an error the judge cannot miss. A judge
+error about a sentence that restates a ledger event almost word for word ("2,800 viruses" vs
+"over 2,800 viruses") is wording, demoted in both the narrative review and the bundle reviewer.
+
+**Links: Jev proposes, the judge decides.** Jev answers relevance only at 0.6; a second judge
+(gpt-5.4, `wiley_link_judge_agent`) keeps or drops each proposed link with a one-line rationale
+stored on the link, applying the rules about adjacent sectors, enabling milestones, single
+instances and public funding. On Q4 it dropped 214 of Jev's proposals and kept 69. A first
+attempt with those rules inside Jev's question left Quantum Advantage with no links at all;
+that nuance belongs with the judge that reads the whole claim.
+
+**Letter gate, again.** Titles carrying a banned word are quoted in three forms: the full title,
+the shortest prefix that holds the word ("Credibility Crisis"), and any Title Case run of three
+or more words (last quarter's tail risk, restated by the installment letter), case-insensitive.
+The humanizer, the grounding check and the golden gate rewrite the letter after its gate; the
+pipeline now re-quotes after them and keeps the gated letter if a rewrite reintroduces a word.
+
+**Bundle reviewer sees the judged events.** Its per-topic data was built without events, so
+every scenario read "Too early" and the reviewer called every correct lede an error.
+
+**Extractor.** A retrospective account of earlier developments is `article`-dated, not
+`stated`; the deck says "reported on" for those rows. The key-insights slide counts scenarios
+without judged events, the same count the evidence slides show. Topic dividers label the
+tracker date "Article-share assessment" next to the evidence window.
+
 ## 2026-10-16 — Auspex deep research on wileytest: synthesis batches thrown away at the 3,000-token cap, reports cut at 12,000
 
 ### Goal
