@@ -1,3 +1,47 @@
+## 2026-10-16 — Wiley Q4 bundle: first round of repairs from the independent review
+
+An outside review of the Q4 2026 bundle (deck, HTML, Word briefing) listed 15 findings. The
+mechanical ones are fixed in 2964b0aa and e843e031, live on bugfixing, wileytest and wiley,
+and the Q4 bundle on wileytest was rebuilt from them. Cost of the rebuild: $1.52.
+
+**Evidence now starts at the forecast.** The event extractor pulled articles 110 days back from
+today and kept whatever date the article reported, so 307 of the 463 Q4 events predated the
+21 September forecast and 180 predated the Q3 report. It now pulls from each topic's forecast
+date and drops events dated before it. After re-extraction: 284 events, none before 21
+September. The previous table is in the session scratchpad as a CSV.
+
+**HTML export shows evidence for every topic.** It looked events up under the database topic
+name while events are stored under the overlay display name, so Open Science Transition and
+Scientific Publishing had empty ledgers and "too early" on all ten trends. The HTML path now
+relabels its items the way the deck does. Both topics now show their evidence (27 and 23
+confirming events).
+
+**Duplicates collapsed everywhere.** The near-duplicate collapse that only the deck's
+what-changed list used now runs in `_events_by_topic`, so every ledger and export sees one
+event per real event, and an acronym (NIRF, NBA) matches its expansion.
+
+**Deck.** Markdown bold markers are rendered instead of printed (slides 8 and 9 had literal
+`**TRAJECTORY**`). Every scenario slide carries its confirming and countering events with
+source links in the speaker notes; the deck had no links at all. The HTML events explorer no
+longer offers a direction filter that was never wired.
+
+**Text corrections, locked in the editor.** "Within 48 hours" became "within days" (the order
+was drafted on 20 September and shelved on 23 September); "Russel Vought" is spelled
+correctly; the Quantum lede's invented "80% to 40% consensus" now reads as what the data says
+(1 point below the placebo baseline, 20 supporting articles against 23); the Scientific
+Publishing lede's "85-point confirmation jump" was the +0.85 net rate misread, now "0.85
+points above its placebo baseline"; theme bodies give net rates in points, not per cent.
+
+**Reviewer.** The meta-commentary filter now judges the letter's real opening sentence
+regardless of what the finding cites. Three reviewer passes on the corrected content gave 9,
+then 3 warnings, all stylistic. Verdict: approved with warnings. The bundle's approval was
+cleared by the rebuild and needs re-approval in the editor.
+
+**Not done in this round (design changes):** the Q3-to-Q4 scenario mapping and baseline
+statement in every export, metric definitions (consensus share vs confirmation score vs net
+rate), org-profile enforcement on per-topic recommendations, and the keyword matching that
+links events to scenarios.
+
 ## 2026-10-15 (evening) — Q4 bundle reviewer warnings fixed on wileytest
 
 **Reviewer: the mandated "The bottom line" label is no longer read as the opening sentence (07361ef6).**
