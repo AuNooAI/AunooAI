@@ -110,6 +110,19 @@ Gates that stop the whole bundle, not just a stage:
   allowed. The writer gets two retries; since `d8074f8d` the retry names the words and tells
   it to quote any title that contains one.
 
+Two stages run inside the bundle since 16 Oct 2026 and have no button of their own:
+
+- **Event reconciliation** runs after every extraction (`reconcile_events_for_bundle` in
+  `wiley_event_extraction.py`): one record per real-world event, with a state (proposed,
+  agreed, completed, withdrawn ...). Merged rows stay in the table with `include_in_deck`
+  off and `merged_into` set, so the editor's Events tab still shows them. Re-running it only
+  touches live rows.
+- **Narrative review** (`review_and_repair` in `wiley_narrative_review.py`): preflight on
+  every date and figure, a quoting judge, up to two targeted repairs. Run it after any
+  regeneration and before the reviewer; its result sits on the payload as `narrative_review`.
+  An error there means a sentence the ledger contradicts or does not contain; warnings are
+  wording. Locks block repair, so unlock before a regeneration and lock after reading.
+
 Then the Quarterly Brief Editor (`#brief` on the page) to correct and lock fields, re-run
 single stages, preview, and approve. Approval unlocks the download. "Send to recipients"
 emails each topic's configured recipients (`forecast_topic_delivery`) and stamps
@@ -142,7 +155,7 @@ block.
 2. Every bundle topic has an assessment: the log must not say `event-extraction: no assessment
    for <topic>` or `Wiley delivery: skipping <topic>`.
 3. No `maps 0 of this run's N scenario titles` lines for the runs in play.
-4. The reviewer verdict and lint findings have been read, not just counted.
+4. The reviewer verdict, the `narrative_review` result and the lint findings have been read, not just counted.
 5. The deck opened, every topic present, scenario count per topic is the overlay's 4 to 5.
 
 ## Traps and how to get out of them

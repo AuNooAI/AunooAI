@@ -1,3 +1,53 @@
+## 2026-10-16 (afternoon) — Wiley Q4 bundle, round two: reconciled events and a reviewed narrative
+
+Round one fixed the evidence window and the exports but left the narrative written against the
+old ledger, and the re-extracted events still arrived one row per article (four Sanofi rows with
+three amounts, a Taylor & Francis review of options recorded as a completed separation). Round
+two adds two stages, built on the patterns in `docs/AI_DESIGN_PATTERNS.md` (4.8, 5.5, 6.9).
+Commits 0a88f4e5, 69b33d18, 6a8ed6c2, ea7f6ee1, 397f132a, c39e9257, 1063ad8f; live on bugfixing,
+wileytest and wiley; migration `ev_001_event_state` applied on all three.
+
+**Event reconciliation (`reconcile_events_for_bundle`, runs after every extraction).** Four
+steps, cheap first: deterministic candidate pairs (date within 7 days, shared actor or subject
+tokens, acronym matches its expansion); Jev answers "same development?" per pair and the groups
+are the connected components it accepts (a deterministic strong rule stands in when Jev is
+down); a writer (Sonnet 4.5) turns each group into one record with the agreed wording, figure,
+date and state; deterministic checks (figure must come from a row, date inside the rows' span,
+state from a fixed list) and a judge (gpt-5.4) accept, correct or reject the record. Rejected
+groups stay as they were. Kept rows get the record, merged rows leave the deck and point at the
+kept row (`merged_into`); nothing is deleted. On Q4 2026: 49 rows merged into records, Sanofi is
+one record ("1 billion USD upfront, up to 8 billion USD total potential", agreed) and Taylor &
+Francis is one ("plans to separate", proposed). The writer invented four figures on Patent Cliffs
+and the checks threw all four out.
+
+**Narrative review (`app/services/wiley_narrative_review.py`).** Every narrative field (ledes,
+headlines, intelligence views, tensions, recommendation headlines and rationales, next steps,
+themes, overview, letter) is read against the ledger it was written from: a deterministic
+preflight on every date and figure (the ledger is the reconciled events, the scenario numbers,
+the tail-risk titles and the supporting-article titles the writers were given); a judge
+(gpt-5.4) for contradictions, states, metric misuse, audience and unsupported claims, whose
+findings must quote the sentence verbatim; a repair agent that may change only the quoted
+sentences, at most twice, with a revert when a repair makes a segment worse and the letter's own
+gate applied to any letter repair. The verdict is computed in code: only a claim the ledger
+contradicts or lacks blocks, a judge error on a date or figure the preflight passed is advisory,
+and a finding that itself says the sentence is correct cannot block. Result on Q4 2026: 28
+errors on the regenerated narrative down to 0, over two repair rounds; 15 warnings left, all
+wording. The result is stored on the bundle payload under `narrative_review`.
+
+**Writers.** Every per-topic agent now receives the organisation profile and the metric
+definitions (forecast basis vs confirmation delta in points vs support counts), with audience
+and metric rules in the prompts. The letter's headline tail risk uses the same ranking as the
+tail-risk slide. Scenario and tail-risk titles that carry a banned severity word are put in
+double quotes before the letter gate, in the pipeline and in repair, so the writer restating
+"Peer Review System Collapse..." no longer fails the bundle.
+
+**Deck.** Evidence rows are budgeted to the space above the footer, the contents slide fits six
+topics, the topic dividers state the evidence window, the methodology slide defines the numbers.
+
+**Still open from the review:** the Q3-to-Q4 scenario mapping as a printed table; announcement
+dates separate from article dates (extractor schema change); the layout of the dense summary
+slides; the arithmetic on coverage-shift wording.
+
 ## 2026-10-16 — Wiley Q4 bundle: first round of repairs from the independent review
 
 An outside review of the Q4 2026 bundle (deck, HTML, Word briefing) listed 15 findings. The
