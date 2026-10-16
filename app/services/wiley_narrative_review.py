@@ -528,7 +528,12 @@ def _progress_findings(seg: dict, scen: list) -> List[dict]:
         return out
     for sent in _sentences(seg["text"]):
         low = sent.lower()
-        if not _PROGRESS.search(sent) or _HEDGE.search(sent):
+        stripped = low
+        for sc in scen:
+            nm = str(sc.get("name") or "").lower()
+            if len(nm) > 3:
+                stripped = stripped.replace(nm, " ")
+        if not _PROGRESS.search(stripped) or _HEDGE.search(sent):
             continue
         for sc in early:
             name = str(sc.get("name")).lower()
@@ -651,7 +656,29 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # and demoted the judge's correct "10 points vs a delta of 2.18" to advisory
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
-_PREFLIGHT_OWNED = {"date", "figure"}
+_PREFLIGHT_OWNED = {"date", "figure", "date type"}
+_IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
+                         r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
+                         r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
+                         r"Brief|Convene|Draft|Identify|Introduce|Offer|Open|Pursue|Reserve|Retain|Start|Stop|Target|Tie|"
+                         r"Train|Update|Allocate|Appoint|Assign|Benchmark|Budget|Clarify|Extend|Equip|Formalise|Formalize|"
+                         r"Prioritise|Prioritize|Protect|Publish|Quantify|Rebalance|Recruit|Resist|Safeguard|Stage)\b")
+_HYPOTHESIS = re.compile(r"^(If|Should|Were|Whether|Unless)\b|\bif\b.{0,160}\bthen\b|\b(would|could|may|might)\b", re.I)
+
+
+def _status_matches(claim: str, scen_all: list) -> bool:
+    """True when every scenario the sentence names is given its ledger
+    status word; the judge called 'remains unconfirmed with one countering
+    event' a contradiction of a ledger that said Unconfirmed, 0/1."""
+    low = (claim or "").lower()
+    named = [sc for sc in scen_all if len(str(sc.get("name") or "")) > 3 and str(sc.get("name")).lower() in low]
+    if not named:
+        return False
+    for sc in named:
+        st = str(sc.get("status") or "").lower()
+        if not st or st not in low.replace(str(sc.get("name")).lower(), ""):
+            return False
+    return True
 _SELF_CONTRADICTING = re.compile(
     r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
     r"which matches|exactly as stated|is appropriate|which is appropriate|verb|singular|plural|grammatical)\b", re.I)
@@ -676,7 +703,8 @@ def _paraphrases_event(claim: str, events: list) -> bool:
             return True
     return False
 
-def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] = None) -> List[dict]:
+def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] = None,
+           scen_all: Optional[list] = None) -> List[dict]:
     # Dates and figures belong to the deterministic preflight. A judge
     # "error" on a sentence the preflight passed is advisory (the judge
     # called "2.18 percentage points" wrong while saying it was right,
@@ -693,7 +721,18 @@ def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] 
             # 0.83 and called it wrong (16 Oct 2026, round 8).
             points_owned = (f.get("check") == "metric" and _POINTS.search(f.get("claim_text") or "")
                             and key not in pre_keys)
-            if points_owned or (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
+            claim = f.get("claim_text") or ""
+            # A sentence that gives each named scenario its ledger status is
+            # not a contradiction; an action written as an imperative with
+            # no figure is not a claim; a sentence marked as a hypothesis
+            # ("If … then", "could") is not asserting the outcome.
+            # (Round nine, 16 Oct 2026: the judge rated all three as errors.)
+            soft = ((f.get("check") == "contradiction" and _status_matches(claim, scen_all or []))
+                    or (f.get("check") in ("unsupported", "absent") and _IMPERATIVE.match(claim.strip())
+                        and not re.search(r"\d", claim))
+                    or (f.get("check") in ("state", "unsupported", "absent", "hypothesis as fact")
+                        and _HYPOTHESIS.search(claim.strip()) and not re.search(r"\d{4}", claim)))
+            if soft or points_owned or (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
                     or _SELF_CONTRADICTING.search(f.get("finding") or "") \
                     or (f.get("check") in ("unsupported", "absent")
                         and _paraphrases_event(f.get("claim_text") or "", events)):
@@ -764,7 +803,8 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         n_tail = sum(len(v.get("tail_risks") or []) for v in ledger.values())
         pre = preflight(segments, ledger, extra_numbers=[n_scen, n_tail, len(ledger)])
         jud = await judge(segments, ledger, organisation)
-        findings = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])])
+        findings = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])],
+                          scen_all=[sc for lt in ledger.values() for sc in (lt.get("scenarios") or [])])
         # A repair that made a segment worse is undone: the previous text
         # comes back and its old findings stand (round 1 of the 16 Oct run
         # went from 13 errors to 24 before this guard).
