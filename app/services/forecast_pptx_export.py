@@ -3016,9 +3016,18 @@ def _fit_sentences(s: Optional[str], max_chars: int) -> str:
         if out and len(out) + 1 + len(sent) > max_chars:
             break
         if not out and len(sent) > max_chars:
-            return _truncate(sent, max_chars // 4)
+            # One sentence longer than the cap (the writers' tension bodies
+            # are often a single 300-character sentence): cut at the last
+            # clause boundary before the cap, never at a word. _truncate's
+            # 600-character floor let whole sentences through and the
+            # panels overflowed (sixth review, 16 Oct 2026, F06).
+            head = sent[:max_chars]
+            cut = max(head.rfind(", "), head.rfind("; "), head.rfind(" — "), head.rfind(" – "), head.rfind(": "))
+            if cut < max_chars // 2:
+                cut = head.rfind(" ")
+            return head[:cut].rstrip(" ,;:—–") + "…"
         out = (out + " " + sent).strip()
-    return out or _truncate(s, max_chars // 4)
+    return out or (s[:max_chars].rsplit(" ", 1)[0] + "…")
 
 
 def _truncate(s: Optional[str], n: int) -> str:
