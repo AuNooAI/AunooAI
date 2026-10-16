@@ -45,3 +45,23 @@ links behind every ledger row; and a methodology slide that says what the number
 
 Announcement dates kept apart from article dates, a printed map from one quarter's scenarios
 to the next, and the dense summary slides.
+
+## Evening update: each scenario owns its evidence
+
+The fifth outside review found the same deck still naming different events in its summaries
+than on its evidence slides, counting scenario statuses that matched no slide, and quoting a
+ten-event count as "10 points". All three had one cause: the writers and the judge saw a
+topic's events as one pool.
+
+Now every scenario hands the writers and the judge its own judged events, the rows its slide
+lists, together with a written-out tally of statuses. The checks run in code: a count of
+statuses in prose must equal the tally, "no events" must be true of the scenario named, a
+figure in points must be the article-share delta and nothing else, and a key signal must
+name an event or be marked as something to watch. The summary slides keep whole sentences
+at a readable size and put the rest in the notes. A hand-set evidence link now survives the
+next automatic pass, and a plan reported as "will be given veto power" three weeks before it
+was dropped can no longer reach a recommendation, because the forecast-time headlines are
+out of the writers' input.
+
+On Q4 the first pass of the review found ten contradicted sentences instead of fifty-three,
+and the repair cleared them.
