@@ -28,7 +28,7 @@ from enum import Enum
 
 import litellm
 
-from app.ai_models import resolve_litellm_call_params, extract_json_response
+from app.ai_models import resolve_litellm_call_params, extract_json_response, parse_stage_reply
 from app.model_tiers import default_model
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
@@ -48,6 +48,13 @@ from app.services.sampling import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Output caps for the two Sonnet stages. On wileytest every synthesis batch
+# (50 articles) stopped at exactly 3,000 tokens and every report at exactly
+# 12,000 (llm_usage_log, 15-16 Oct 2026): the batches were thrown away and the
+# reports lost their last sections. Natural batch length was 2,900-3,000.
+SYNTHESIS_MAX_TOKENS = 6000
+WRITING_MAX_TOKENS = 20000
 
 
 class ResearchStage(str, Enum):
@@ -169,7 +176,7 @@ class ResearchConfig:
     planning_timeout: int = 30
     searching_timeout: int = 180  # Increased from 120 for more comprehensive search
     synthesis_timeout: int = 300  # Increased for batched synthesis (5 min total)
-    synthesis_batch_timeout: int = 60  # Timeout per batch
+    synthesis_batch_timeout: int = 150  # per batch; Sonnet 4.5 writes ~55 tokens/s, cap is 6000
     writing_timeout: int = 120  # Increased from 90 for comprehensive reports
 
     # Batch processing
@@ -1565,14 +1572,20 @@ Respond with valid JSON:
                             {"role": "user", "content": batch_prompt}
                         ],
                         temperature=config.synthesis_temperature,
-                        max_tokens=3000,  # Increased for richer findings with citations
+                        max_tokens=SYNTHESIS_MAX_TOKENS,
                         response_format={"type": "json_object"}
                     ),
                     timeout=config.synthesis_batch_timeout
                 )
 
-                result_text = response.choices[0].message.content
-                batch_result = extract_json_response(result_text)
+                # A reply cut at max_tokens used to be discarded whole: the
+                # generic parser returned a fragment, '.get' failed on it and
+                # the batch logged "failed". Keep the complete findings instead.
+                batch_result = parse_stage_reply(
+                    response, "batch_findings",
+                    stage=f"synthesis batch {batch_num}",
+                    max_tokens=SYNTHESIS_MAX_TOKENS,
+                )
                 batch_results.append(batch_result)
 
                 # Collect findings with full data
@@ -2027,11 +2040,16 @@ Format inline citations as: [Article Title](URL)
                 {"role": "user", "content": user_prompt}
             ],
             temperature=config.writing_temperature,
-            max_tokens=12000,  # Increased for comprehensive 9-section reports
+            max_tokens=WRITING_MAX_TOKENS,
             stream=True
         )
+        finish_reason = None
         async for chunk in response:
-            content = chunk.choices[0].delta.content or ""
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+            content = (choice.delta.content if choice.delta else None) or ""
             report_chunks.append(content)
 
             # Estimate progress based on content length
@@ -2046,6 +2064,16 @@ Format inline citations as: [Article Title](URL)
             }
 
         raw_report = "".join(report_chunks)
+        if finish_reason == "length":
+            logger.warning(
+                f"Writer: report cut at max_tokens={WRITING_MAX_TOKENS} "
+                f"({len(raw_report)} chars); the last sections are missing"
+            )
+            yield {
+                "status": "writing",
+                "progress": 0.95,
+                "message": f"The report hit the {WRITING_MAX_TOKENS}-token output limit; the last sections may be cut off",
+            }
 
         # Post-process to add source attribution if not already present
         state.final_report = self._add_source_attribution(raw_report, article_refs, state)
