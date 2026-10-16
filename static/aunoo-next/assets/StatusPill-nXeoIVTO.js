@@ -1,1 +1,0 @@
-import{rn as e}from"./shell-C1IcjQw7.js";import{t}from"./jsx-runtime-BNakU3Ej.js";var n=t();function r({variant:t=`live`,tone:r=`live`,className:i,children:a}){return(0,n.jsxs)(`span`,{className:[`status-pill`,`status-pill--${t}`,i].filter(Boolean).join(` `),children:[(0,n.jsx)(e,{tone:r}),a]})}export{r as t};

@@ -1,14 +1,10 @@
 {
-  "_ArticleCard-BZpHzNdl.css": {
-    "file": "assets/ArticleCard-BZpHzNdl.css",
-    "src": "_ArticleCard-BZpHzNdl.css"
-  },
-  "_ArticleCard-CsSlu2Ig.js": {
-    "file": "assets/ArticleCard-CsSlu2Ig.js",
+  "_ArticleCard-BYCvlUq5.js": {
+    "file": "assets/ArticleCard-BYCvlUq5.js",
     "name": "ArticleCard",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js"
     ],
@@ -16,26 +12,30 @@
       "assets/ArticleCard-BZpHzNdl.css"
     ]
   },
-  "_Disclosure-C277Iv5n.js": {
-    "file": "assets/Disclosure-C277Iv5n.js",
+  "_ArticleCard-BZpHzNdl.css": {
+    "file": "assets/ArticleCard-BZpHzNdl.css",
+    "src": "_ArticleCard-BZpHzNdl.css"
+  },
+  "_Disclosure-B8CcN7ly.js": {
+    "file": "assets/Disclosure-B8CcN7ly.js",
     "name": "Disclosure",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js"
     ]
   },
-  "_GroupSettingsDialog-CHx8v4ju.js": {
-    "file": "assets/GroupSettingsDialog-CHx8v4ju.js",
+  "_GroupSettingsDialog-DCuUfUL2.js": {
+    "file": "assets/GroupSettingsDialog-DCuUfUL2.js",
     "name": "GroupSettingsDialog",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Slider-a9J3Lrj6.js",
-      "_Switch-BLJsibMc.js"
+      "_Slider-LmjdsI9q.js",
+      "_Switch-6XoGJ6ai.js"
     ],
     "css": [
       "assets/GroupSettingsDialog-V-WsMpij.css"
@@ -45,16 +45,12 @@
     "file": "assets/GroupSettingsDialog-V-WsMpij.css",
     "src": "_GroupSettingsDialog-V-WsMpij.css"
   },
-  "_Markdown-CC0f2wmS.css": {
-    "file": "assets/Markdown-CC0f2wmS.css",
-    "src": "_Markdown-CC0f2wmS.css"
-  },
-  "_Markdown-ClRqH7gg.js": {
-    "file": "assets/Markdown-ClRqH7gg.js",
+  "_Markdown-C9HTcHvM.js": {
+    "file": "assets/Markdown-C9HTcHvM.js",
     "name": "Markdown",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
       "_Table-CazrWoXg.js"
@@ -63,17 +59,21 @@
       "assets/Markdown-CC0f2wmS.css"
     ]
   },
-  "_MarkdownEditor-DVj-_rjd.js": {
-    "file": "assets/MarkdownEditor-DVj-_rjd.js",
+  "_Markdown-CC0f2wmS.css": {
+    "file": "assets/Markdown-CC0f2wmS.css",
+    "src": "_Markdown-CC0f2wmS.css"
+  },
+  "_MarkdownEditor-CrtFAwYe.js": {
+    "file": "assets/MarkdownEditor-CrtFAwYe.js",
     "name": "MarkdownEditor",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
       "_SettingRow-BQzo0NTX.js",
-      "_Markdown-ClRqH7gg.js",
-      "_SegmentedControl-C9dlXhRB.js"
+      "_Markdown-C9HTcHvM.js",
+      "_SegmentedControl-ByN3DHjP.js"
     ],
     "css": [
       "assets/MarkdownEditor-IX_dwtkc.css"
@@ -83,11 +83,11 @@
     "file": "assets/MarkdownEditor-IX_dwtkc.css",
     "src": "_MarkdownEditor-IX_dwtkc.css"
   },
-  "_Pagination-BlakVwBM.js": {
-    "file": "assets/Pagination-BlakVwBM.js",
+  "_Pagination-DXXSl0v9.js": {
+    "file": "assets/Pagination-DXXSl0v9.js",
     "name": "Pagination",
     "imports": [
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js"
     ],
@@ -119,12 +119,12 @@
     "file": "assets/SegmentedControl-9n7EaB1O.css",
     "src": "_SegmentedControl-9n7EaB1O.css"
   },
-  "_SegmentedControl-C9dlXhRB.js": {
-    "file": "assets/SegmentedControl-C9dlXhRB.js",
+  "_SegmentedControl-ByN3DHjP.js": {
+    "file": "assets/SegmentedControl-ByN3DHjP.js",
     "name": "SegmentedControl",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js"
     ],
@@ -147,12 +147,12 @@
     "file": "assets/SettingRow-CTABeWeP.css",
     "src": "_SettingRow-CTABeWeP.css"
   },
-  "_Sheet-DcOanhDL.js": {
-    "file": "assets/Sheet-DcOanhDL.js",
+  "_Sheet-DeNtXIRJ.js": {
+    "file": "assets/Sheet-DeNtXIRJ.js",
     "name": "Sheet",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js"
     ],
@@ -168,12 +168,12 @@
     "file": "assets/Slider-BPTb2ToN.css",
     "src": "_Slider-BPTb2ToN.css"
   },
-  "_Slider-a9J3Lrj6.js": {
-    "file": "assets/Slider-a9J3Lrj6.js",
+  "_Slider-LmjdsI9q.js": {
+    "file": "assets/Slider-LmjdsI9q.js",
     "name": "Slider",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js"
     ],
     "css": [
@@ -184,15 +184,15 @@
     "file": "assets/StackedBarChart-CNK3HC4j.css",
     "src": "_StackedBarChart-CNK3HC4j.css"
   },
-  "_StackedBarChart-Cw_Lsp_3.js": {
-    "file": "assets/StackedBarChart-Cw_Lsp_3.js",
+  "_StackedBarChart-Cfywd3-I.js": {
+    "file": "assets/StackedBarChart-Cfywd3-I.js",
     "name": "StackedBarChart",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Markdown-ClRqH7gg.js",
+      "_Markdown-C9HTcHvM.js",
       "_Table-CazrWoXg.js"
     ],
     "css": [
@@ -213,27 +213,27 @@
     "file": "assets/Stat-DwqNCixt.css",
     "src": "_Stat-DwqNCixt.css"
   },
-  "_StatusPill-PZ7NRD_h.css": {
-    "file": "assets/StatusPill-PZ7NRD_h.css",
-    "src": "_StatusPill-PZ7NRD_h.css"
-  },
-  "_StatusPill-nXeoIVTO.js": {
-    "file": "assets/StatusPill-nXeoIVTO.js",
+  "_StatusPill-Dv2jdJdm.js": {
+    "file": "assets/StatusPill-Dv2jdJdm.js",
     "name": "StatusPill",
     "imports": [
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js"
     ],
     "css": [
       "assets/StatusPill-PZ7NRD_h.css"
     ]
   },
-  "_Switch-BLJsibMc.js": {
-    "file": "assets/Switch-BLJsibMc.js",
+  "_StatusPill-PZ7NRD_h.css": {
+    "file": "assets/StatusPill-PZ7NRD_h.css",
+    "src": "_StatusPill-PZ7NRD_h.css"
+  },
+  "_Switch-6XoGJ6ai.js": {
+    "file": "assets/Switch-6XoGJ6ai.js",
     "name": "Switch",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js"
     ],
     "css": [
@@ -275,18 +275,14 @@
       "assets/Text-DsnS-lcA.css"
     ]
   },
-  "_exports-CsuiW951.css": {
-    "file": "assets/exports-CsuiW951.css",
-    "src": "_exports-CsuiW951.css"
-  },
-  "_exports-ummSXJBK.js": {
-    "file": "assets/exports-ummSXJBK.js",
+  "_exports-CBAT-xpH.js": {
+    "file": "assets/exports-CBAT-xpH.js",
     "name": "exports",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
-      "_Markdown-ClRqH7gg.js"
+      "_Markdown-C9HTcHvM.js"
     ],
     "dynamicImports": [
       "node_modules/jspdf/dist/jspdf.es.min.js",
@@ -295,6 +291,10 @@
     "css": [
       "assets/exports-CsuiW951.css"
     ]
+  },
+  "_exports-CsuiW951.css": {
+    "file": "assets/exports-CsuiW951.css",
+    "src": "_exports-CsuiW951.css"
   },
   "_jsx-runtime-BNakU3Ej.js": {
     "file": "assets/jsx-runtime-BNakU3Ej.js",
@@ -311,8 +311,8 @@
     "file": "assets/shell-BQ1AB2To.css",
     "src": "_shell-BQ1AB2To.css"
   },
-  "_shell-C1IcjQw7.js": {
-    "file": "assets/shell-C1IcjQw7.js",
+  "_shell-DNJhFIOl.js": {
+    "file": "assets/shell-DNJhFIOl.js",
     "name": "shell",
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
@@ -327,25 +327,25 @@
     ]
   },
   "anticipate.html": {
-    "file": "assets/anticipate-CZEKbZ2t.js",
+    "file": "assets/anticipate-lPztbMWr.js",
     "name": "anticipate",
     "src": "anticipate.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Slider-a9J3Lrj6.js",
+      "_Slider-LmjdsI9q.js",
       "_SettingRow-BQzo0NTX.js",
-      "_ArticleCard-CsSlu2Ig.js",
-      "_Markdown-ClRqH7gg.js",
+      "_ArticleCard-BYCvlUq5.js",
+      "_Markdown-C9HTcHvM.js",
       "_Table-CazrWoXg.js",
       "_Stat-CaLJNu-o.js",
-      "_MarkdownEditor-DVj-_rjd.js",
+      "_MarkdownEditor-CrtFAwYe.js",
       "_ReorderList-DsfBijg3.js",
-      "_SegmentedControl-C9dlXhRB.js",
-      "_Disclosure-C277Iv5n.js"
+      "_SegmentedControl-ByN3DHjP.js",
+      "_Disclosure-B8CcN7ly.js"
     ],
     "dynamicImports": [
       "node_modules/html2canvas/dist/html2canvas.js"
@@ -355,31 +355,31 @@
     ]
   },
   "explore.html": {
-    "file": "assets/explore-BFzbSum5.js",
+    "file": "assets/explore-CwIfVhc1.js",
     "name": "explore",
     "src": "explore.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Slider-a9J3Lrj6.js",
+      "_Slider-LmjdsI9q.js",
       "_SettingRow-BQzo0NTX.js",
-      "_ArticleCard-CsSlu2Ig.js",
-      "_Markdown-ClRqH7gg.js",
-      "_exports-ummSXJBK.js",
+      "_ArticleCard-BYCvlUq5.js",
+      "_Markdown-C9HTcHvM.js",
+      "_exports-CBAT-xpH.js",
       "_Table-CazrWoXg.js",
-      "_StackedBarChart-Cw_Lsp_3.js",
+      "_StackedBarChart-Cfywd3-I.js",
       "_Stat-CaLJNu-o.js",
-      "_StatusPill-nXeoIVTO.js",
-      "_Pagination-BlakVwBM.js",
-      "_MarkdownEditor-DVj-_rjd.js",
+      "_StatusPill-Dv2jdJdm.js",
+      "_Pagination-DXXSl0v9.js",
+      "_MarkdownEditor-CrtFAwYe.js",
       "_ReorderList-DsfBijg3.js",
-      "_SegmentedControl-C9dlXhRB.js",
-      "_Sheet-DcOanhDL.js",
-      "_GroupSettingsDialog-CHx8v4ju.js",
-      "_Switch-BLJsibMc.js"
+      "_SegmentedControl-ByN3DHjP.js",
+      "_Sheet-DeNtXIRJ.js",
+      "_GroupSettingsDialog-DCuUfUL2.js",
+      "_Switch-6XoGJ6ai.js"
     ],
     "dynamicImports": [
       "src/explore/shared/StreetMap.tsx",
@@ -390,31 +390,31 @@
     ]
   },
   "gather.html": {
-    "file": "assets/gather-CJCwh0Ny.js",
+    "file": "assets/gather-giPCcFta.js",
     "name": "gather",
     "src": "gather.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Slider-a9J3Lrj6.js",
+      "_Slider-LmjdsI9q.js",
       "_SettingRow-BQzo0NTX.js",
       "_Table-CazrWoXg.js",
       "_Stat-CaLJNu-o.js",
-      "_Pagination-BlakVwBM.js",
-      "_SegmentedControl-C9dlXhRB.js",
-      "_Sheet-DcOanhDL.js",
-      "_GroupSettingsDialog-CHx8v4ju.js",
-      "_Switch-BLJsibMc.js"
+      "_Pagination-DXXSl0v9.js",
+      "_SegmentedControl-ByN3DHjP.js",
+      "_Sheet-DeNtXIRJ.js",
+      "_GroupSettingsDialog-DCuUfUL2.js",
+      "_Switch-6XoGJ6ai.js"
     ],
     "css": [
       "assets/gather-Bj-aPjhq.css"
     ]
   },
   "node_modules/canvg/lib/index.es.js": {
-    "file": "assets/index.es-5UNWCQw0.js",
+    "file": "assets/index.es-D2L-M2gi.js",
     "name": "index.es",
     "src": "node_modules/canvg/lib/index.es.js",
     "isDynamicEntry": true,
@@ -439,13 +439,13 @@
     ]
   },
   "node_modules/jspdf/dist/jspdf.es.min.js": {
-    "file": "assets/jspdf.es.min-yhEEN9AY.js",
+    "file": "assets/jspdf.es.min-CqH6NuYU.js",
     "name": "jspdf.es.min",
     "src": "node_modules/jspdf/dist/jspdf.es.min.js",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js"
+      "_shell-DNJhFIOl.js"
     ],
     "dynamicImports": [
       "node_modules/html2canvas/dist/html2canvas.js",
@@ -454,52 +454,52 @@
     ]
   },
   "operations.html": {
-    "file": "assets/operations-D0KnKiMb.js",
+    "file": "assets/operations-Whkjs5q7.js",
     "name": "operations",
     "src": "operations.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
       "_Stat-CaLJNu-o.js",
-      "_StatusPill-nXeoIVTO.js",
+      "_StatusPill-Dv2jdJdm.js",
       "_ReorderList-DsfBijg3.js",
-      "_Switch-BLJsibMc.js"
+      "_Switch-6XoGJ6ai.js"
     ],
     "css": [
       "assets/operations-DNc4PrDB.css"
     ]
   },
   "settings.html": {
-    "file": "assets/settings-CNGn8CNg.js",
+    "file": "assets/settings-HHSzh29P.js",
     "name": "settings",
     "src": "settings.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
       "_SettingRow-BQzo0NTX.js",
-      "_ArticleCard-CsSlu2Ig.js",
-      "_Markdown-ClRqH7gg.js",
-      "_exports-ummSXJBK.js",
+      "_ArticleCard-BYCvlUq5.js",
+      "_Markdown-C9HTcHvM.js",
+      "_exports-CBAT-xpH.js",
       "_Table-CazrWoXg.js",
-      "_StackedBarChart-Cw_Lsp_3.js",
+      "_StackedBarChart-Cfywd3-I.js",
       "_Stat-CaLJNu-o.js",
-      "_Pagination-BlakVwBM.js",
-      "_SegmentedControl-C9dlXhRB.js",
-      "_Sheet-DcOanhDL.js",
-      "_Switch-BLJsibMc.js"
+      "_Pagination-DXXSl0v9.js",
+      "_SegmentedControl-ByN3DHjP.js",
+      "_Sheet-DeNtXIRJ.js",
+      "_Switch-6XoGJ6ai.js"
     ],
     "css": [
       "assets/settings-CheA6v4l.css"
     ]
   },
   "src/explore/modules/geo/GeoGlobe.tsx": {
-    "file": "assets/GeoGlobe-DuEWD6Ka.js",
+    "file": "assets/GeoGlobe-C2IDOhC-.js",
     "name": "GeoGlobe",
     "src": "src/explore/modules/geo/GeoGlobe.tsx",
     "isDynamicEntry": true,
@@ -524,35 +524,35 @@
     ]
   },
   "src/shell/auspex/AuspexPanel.tsx": {
-    "file": "assets/AuspexPanel-rUC_nBk4.js",
+    "file": "assets/AuspexPanel-Dtq2GSZP.js",
     "name": "AuspexPanel",
     "src": "src/shell/auspex/AuspexPanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
-      "_Markdown-ClRqH7gg.js",
+      "_Markdown-C9HTcHvM.js",
       "_Table-CazrWoXg.js",
-      "_StackedBarChart-Cw_Lsp_3.js",
-      "_Sheet-DcOanhDL.js",
-      "_Switch-BLJsibMc.js",
-      "_Disclosure-C277Iv5n.js"
+      "_StackedBarChart-Cfywd3-I.js",
+      "_Sheet-DeNtXIRJ.js",
+      "_Switch-6XoGJ6ai.js",
+      "_Disclosure-B8CcN7ly.js"
     ]
   },
   "submit.html": {
-    "file": "assets/submit-B4Q7Epqn.js",
+    "file": "assets/submit--oIOhBc7.js",
     "name": "submit",
     "src": "submit.html",
     "isEntry": true,
     "imports": [
       "_rolldown-runtime-hePW80VL.js",
-      "_shell-C1IcjQw7.js",
+      "_shell-DNJhFIOl.js",
       "_jsx-runtime-BNakU3Ej.js",
       "_Text-DyRJs8lI.js",
       "_SettingRow-BQzo0NTX.js",
-      "_ArticleCard-CsSlu2Ig.js"
+      "_ArticleCard-BYCvlUq5.js"
     ]
   }
 }
