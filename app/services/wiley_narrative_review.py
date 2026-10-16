@@ -447,6 +447,19 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
             matches = [e for key, evs in by_date.items() if _date_matches(d, [key]) for e in evs]
             if not matches:
                 continue
+            # Several events can share a date; keep the ones the sentence is
+            # about (actor or subject words in the sentence), or an unrelated
+            # launch on the same day lets "agents accessed Medicare on 29
+            # September" through (round nine, 16 Oct 2026).
+            if len(matches) > 1:
+                swords = set(_WORD.findall(sent.lower()))
+                def _about(e):
+                    a = {w for w in _WORD.findall(str(e.get("actor") or "").lower()) if len(w) > 3}
+                    s_ = {w for w in _WORD.findall(str(e.get("subject") or "").lower()) if len(w) > 3}
+                    return bool(a & swords) or len(s_ & swords) >= 2
+                narrowed = [e for e in matches if _about(e)]
+                if narrowed:
+                    matches = narrowed
             label = f"{d[1]} {['','January','February','March','April','May','June','July','August','September','October','November','December'][d[0]]}"
             if all(str(e.get("date_basis") or "") == "article" for e in matches):
                 out.append({"target": seg["target"], "severity": "error", "check": "date",
