@@ -76,3 +76,18 @@ code, with the same rule in the judge and the repair step. The expert view on sl
 had been written from forecast-time headlines and never reviewed, is now written from the
 period's events and reviewed like every other sentence. The synthesis slides place each
 section from the height of the text above it instead of fixed slots.
+
+## Late update: who did it, where, what kind, and whole sentences on the slide
+
+The seventh review was a short handoff and every item was a class we had not covered. The
+expert view credited OpenAI with Anthropic's false police tip; the overview and a theme put
+security breaches at peer-review platforms when the agents were at government sites; a
+synthesis said operational failures were forcing validation partnerships when the events show
+the two side by side; a recommendation filed AstraZeneca's equity investment under licensing
+and called nine mixed events "submissions and approvals"; a tension said an algorithm did
+work "once reserved for quantum hardware" when the event compares it with supercomputers;
+and the synthesis slides showed tension bodies cut mid-clause with an ellipsis. Each of the
+first six is a deterministic check now, with the same rule in the judge, repair and writer
+prompts. The cross-topic writer, which had been working from a headline and one theme label
+per topic, now sees the scenario statuses and events. The slide shows a complete sentence
+per tension, written from the body and checked in code, with the full body in the notes.

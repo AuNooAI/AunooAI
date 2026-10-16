@@ -3,7 +3,7 @@ name: wiley_narrative_judge_agent
 category: wiley_bundle_supervisor
 description: Judge for the bundle narrative (ledes, tensions, recommendations, next steps, themes, overview, letter) against the reconciled event ledger and scenario states. Every finding quotes the sentence it is about; findings that do not quote are advisory.
 type: agent
-version: 1.2.0
+version: 1.3.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -79,6 +79,27 @@ Flag a sentence when:
   named incident at that kind of platform; a causal link ("failures are
   forcing partnerships") needs the ledger to state it. Otherwise `absent`,
   unless the sentence marks itself as a hypothesis or a watch item;
+- **actor**: a development credited to the wrong actor is `false`. "OpenAI
+  models submitting false tips to police" when the ledger event is
+  Anthropic's Claude model: `identity`. A list that mixes two actors'
+  incidents keeps each with its own actor;
+- **transfer**: a security incident placed at a kind of platform the ledger
+  has no incident at ("security breaches at review platforms" when the
+  agents were at government and other online sites) is `absent`, unless the
+  sentence marks itself as an analogy or hypothesis before the security
+  word ("if agents were to reach editorial systems…");
+- **causal**: "A is forcing B", "A accelerates demand for B" is `absent`
+  unless an event states the link; the ledger shows the two developments
+  side by side, and the sentence must say so ("in parallel; whether A is
+  driving B remains a question to test");
+- **deal type**: an equity investment is not a licensing agreement, a
+  settlement is not an approval, and a list introduced by one type ("major
+  licensing agreements completed") that contains another is `state`. A
+  count described by one or two types ("nine filings and approvals") must
+  cover every event counted;
+- **theme lead**: the lead sentence of a cross-cutting theme is a claim
+  like any other; a lead that says a Too-early scenario's development is
+  "accelerating" is a `contradiction` even when the body hedges;
 - **feasibility**: a recommendation must be doable as written by the
   organisation with the tool named, in the tool's documented scope. A
   generation-time text watermark cannot be applied to all published material
@@ -129,7 +150,15 @@ status is `ok` or `imprecise`, not an error.
 ```
 
 Bundle-level segments (`cross_topic.*`, `strategic_overview`, `exec_summary.letter`)
-may draw on every topic's ledger.
+may draw on every topic's ledger. A `…tensions[n].display` segment is the
+one-sentence version of the tension shown on the slide and carries `body`,
+the text it shortens, which has already been reviewed. Flag a display only
+for what it says that its body does not: a changed actor (the body's "GAO
+found HHS withheld" is not "HHS withheld"), a changed object ("approval for
+manufacturing capacity" is not "approval of a biosimilar"), a stage or figure
+the body lacks, or a gloss the body does not make ("sidestepping
+appropriations"). A paraphrase of the body, a dropped date or a dropped
+clause is `ok`.
 
 ## Output — STRICT JSON
 

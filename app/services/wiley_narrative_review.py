@@ -41,6 +41,12 @@ def _segments(items: list, payload: dict) -> List[dict]:
             if isinstance(t, dict) and isinstance(t.get("body"), str) and t["body"].strip():
                 segs.append({"target": f"{topic}.briefing.tensions[{i}]", "topic": topic, "kind": "topic",
                              "assessment_id": aid, "path": f"topic_briefing.tensions[{i}].body", "text": t["body"]})
+            # The short sentence the slide shows in place of a long body
+            # (seventh review, 16 Oct 2026, F04): reviewed like the body.
+            if isinstance(t, dict) and isinstance(t.get("display"), str) and t["display"].strip():
+                segs.append({"target": f"{topic}.briefing.tensions[{i}].display", "topic": topic, "kind": "topic",
+                             "assessment_id": aid, "path": f"topic_briefing.tensions[{i}].display", "text": t["display"],
+                             "body": t.get("body") or "", "tension_idx": i})
         for i, r in enumerate(summ.get("strategic_recommendations") or []):
             if not isinstance(r, dict):
                 continue
@@ -477,10 +483,15 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
     return out
 
 
+_TYPE_NOUN = (r"(agreements?|deals?|approvals?|submissions?|partnerships?|launches|releases?|acquisitions?|"
+              r"contracts?|filings?|retractions?|terminations?|licen[cs]es?|licensing agreements?|investments?|"
+              r"settlements?|lawsuits?)")
+# Up to three words may sit between the number and the type noun ("nine
+# generic/biosimilar submissions"); a second type may follow ("submissions
+# and approvals"). Seventh review, 16 Oct 2026, F03.
 _TYPE_COUNT = re.compile(r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
-                         r"sixteen|seventeen|eighteen|nineteen|twenty)\s+(?:(?:confirming|completed|signed|new|formal|"
-                         r"separate|distinct|successful)\s+)*(agreements?|deals?|approvals?|submissions?|partnerships?|"
-                         r"launches|releases?|acquisitions?|contracts?|filings?|retractions?|terminations?)\b", re.I)
+                         r"sixteen|seventeen|eighteen|nineteen|twenty)\s+(?:(?!scenarios?\b)[\w/&-]+\s+){0,3}?" + _TYPE_NOUN
+                         + r"(?:\s*(?:,|and|or|/)\s*" + _TYPE_NOUN + r")?\b", re.I)
 _TYPE_STEMS = {"agreement": ("agree", "partner", "deal", "contract", "sign", "mou", "alliance"),
                "deal": ("agree", "partner", "deal", "contract", "sign", "acqui"),
                "approval": ("approv", "clear", "authoris", "authoriz", "granted"),
@@ -488,7 +499,9 @@ _TYPE_STEMS = {"agreement": ("agree", "partner", "deal", "contract", "sign", "mo
                "partnership": ("partner", "agree", "alliance", "collaborat", "deal"),
                "launch": ("launch", "open", "unveil"), "release": ("releas", "publish", "open"),
                "acquisition": ("acqui", "bought", "purchas", "takeover"), "contract": ("contract", "award", "agree"),
-               "retraction": ("retract",), "termination": ("terminat", "cancel", "withh")}
+               "retraction": ("retract",), "termination": ("terminat", "cancel", "withh"),
+               "licen": ("licens",), "investment": ("invest", "equity", "stake", "convertible"),
+               "settlement": ("settl",), "lawsuit": ("sued", "lawsuit", "litigat")}
 
 
 def _type_count_findings(seg: dict, scen: list) -> List[dict]:
@@ -505,7 +518,13 @@ def _type_count_findings(seg: dict, scen: list) -> List[dict]:
             stem_key = next((k for k in _TYPE_STEMS if word.startswith(k[:5])), None)
             if not n or not stem_key:
                 continue
-            stems = _TYPE_STEMS[stem_key]
+            stems = tuple(_TYPE_STEMS[stem_key])
+            word2 = (m.group(3) or "").lower()
+            key2 = next((k for k in _TYPE_STEMS if word2 and word2.startswith(k[:5])), None)
+            if key2:
+                stems = stems + tuple(_TYPE_STEMS[key2])
+                word = f"{word} and {word2}"
+                stem_key = f"{stem_key} or {key2}"
             for sc in scen:
                 evs = sc.get("events") or []
                 if not evs or n not in ((sc.get("n_confirm") or 0), (sc.get("n_confirm") or 0) + (sc.get("n_counter") or 0)):
@@ -524,11 +543,48 @@ def _type_count_findings(seg: dict, scen: list) -> List[dict]:
     return out
 
 
-_PROGRESS = re.compile(r"\b(emerging|emerges|emerged|accelerat\w*|materialis\w*|materializ\w*|gaining|gains|taking hold|"
+_PROGRESS = re.compile(r"\b(emerging|emerges|emerged|emergence|emergent|accelerat\w*|materialis\w*|materializ\w*|gaining|gains|taking hold|"
                        r"under ?way|is forming|are forming|routing around|substitut\w*|bearing out|confirm(?:ed|ing|s)|"
                        r"advancing|advances|strengthening|momentum|is building|are building|now fill|filling)\b", re.I)
-_HEDGE = re.compile(r"\b(too early|no (?:\w+ )?events?|not yet|watch|would|could|may|might|if|hypothes\w*|"
-                    r"remains? to be seen|no evidence|absent|unconfirmed|has not|have not|despite having no)\b", re.I)
+_HEDGE = re.compile(r"\b(too early|no (?:[\w-]+ ){0,3}events?|not yet|watch|would|could|may|might|if|hypothes\w*|"
+                    r"remains? to be seen|no evidence|absent|unconfirmed|has not|have not|despite having no|"
+                    r"question to test|remains a question|whether)\b", re.I)
+_NAME_GENERIC = {"models", "model", "systems", "system", "networks", "network", "research", "traditional",
+                 "practical", "applications", "transition", "transformation", "markets", "market", "drives",
+                 "emerges", "emerging", "persists", "mandates", "replace", "challenge", "unlocks", "disrupt",
+                 "disrupting", "reshapes", "reaching", "limits", "fragmenting", "control", "authority",
+                 "leadership", "innovation", "bodies", "clusters", "fill", "void", "governance"}
+
+
+def _name_tokens(name: str) -> list:
+    """The first two distinctive words of a scenario name, spelling
+    normalised (decentralised = decentralized)."""
+    toks = [_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z-]+", str(name or ""))]
+    toks = [t for t in toks if len(t) >= 5 and t not in _NAME_GENERIC]
+    return toks[:2]
+
+
+def _norm_tok(w: str) -> str:
+    w = w.lower().replace("’", "'")
+    w = re.sub(r"'s$", "", w)
+    w = w.replace("isation", "ization").replace("ised", "ized").replace("ise", "ize").replace("ising", "izing")
+    return w
+
+
+def _names_scenario(sent_low: str, sc: dict) -> bool:
+    name = str(sc.get("name") or "").lower()
+    if len(name) > 3 and name in sent_low:
+        return True
+    shorts = [" ".join(name.split()[:k]) for k in (3, 2)]
+    if any(len(s) > 10 and s in sent_low for s in shorts):
+        return True
+    toks = _name_tokens(sc.get("name"))
+    if len(toks) == 2:
+        norm = " ".join(_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’-]+", sent_low))
+        p1, p2 = norm.find(toks[0]), norm.find(toks[1])
+        if p1 >= 0 and p2 >= 0 and abs(p1 - p2) <= 50:
+            return True
+    return False
 
 
 def _progress_findings(seg: dict, scen: list) -> List[dict]:
@@ -549,14 +605,357 @@ def _progress_findings(seg: dict, scen: list) -> List[dict]:
         if not _PROGRESS.search(stripped) or _HEDGE.search(sent):
             continue
         for sc in early:
-            name = str(sc.get("name")).lower()
-            shorts = [" ".join(name.split()[:k]) for k in (3, 2)]
-            if name in low or any(len(s) > 10 and s in low for s in shorts):
+            if _names_scenario(low, sc):
                 out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
                             "finding": f"The sentence describes '{sc.get('name')}' as developing; its ledger has no judged events (Too early).",
                             "claim_text": sent, "source": "preflight",
                             "suggested_fix": "Present it as a watch item or a hypothesis, not as something observed this cycle."})
                 break
+    return out
+
+
+# ── Seventh review (16 Oct 2026): who did it, where, and what kind ─────
+
+_TOK_STOP = {"the", "and", "for", "with", "its", "from", "that", "this", "into", "their", "through", "than",
+             "model", "models", "agent", "agents", "system", "systems", "government", "website", "websites",
+             "online", "data", "research", "report", "reported", "disclosed", "announced", "said", "about",
+             "after", "over", "under", "while", "which", "where", "when", "have", "been", "were", "will",
+             "also", "more", "most", "other", "such", "these", "those", "between", "across", "against",
+             "including", "within", "quarter", "period", "event", "events", "company", "companies", "platform",
+             "platforms", "service", "services", "national", "federal", "state", "public", "global", "new",
+             "first", "united", "states", "university", "institute", "group", "based", "using", "used", "use",
+             "would", "could", "should", "scenario", "scenarios", "topic", "activity", "development",
+             "developments", "signals", "signal", "million", "billion", "fund", "funding", "funds", "funded",
+             "percent", "total", "programme", "program", "initiative", "project", "projects"}
+_GENERIC_ACTOR = {"administration", "government", "researchers", "university", "foundation", "agencies",
+                  "agency", "office", "house", "white", "department", "national", "medicine", "group", "company",
+                  "consortium", "publishers", "publisher", "unnamed", "coalition", "officials", "ministry",
+                  "council", "institute", "committee", "authority", "court", "state", "federal", "trump"}
+
+
+def _stem(w: str) -> str:
+    w = _norm_tok(w)
+    for suf in ("ing", "ed", "es", "s"):
+        if len(w) > 4 and w.endswith(suf):
+            w = w[: -len(suf)]
+            break
+    if len(w) > 3 and w[-1] == w[-2]:
+        w = w[:-1]
+    return w
+
+
+def _content_tokens(text: str) -> set:
+    return {_stem(w) for w in re.findall(r"[A-Za-z][A-Za-z'’-]+", str(text or ""))
+            if len(w) >= 4 and w.lower() not in _TOK_STOP}
+
+
+def _event_text(e: dict) -> str:
+    return " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject", "magnitude"))
+
+
+def _actor_tokens(e: dict) -> set:
+    """Words that name the actor: four letters or more, or an acronym of
+    three ("NIH"), minus generic words."""
+    actor = str(e.get("actor") or "")
+    toks = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", actor)
+            if (len(w) >= 4 or (len(w) == 3 and w.isupper())) and w.lower() not in _GENERIC_ACTOR}
+    # Initials of the capitalised words ("National Science Foundation" is
+    # written NSF in the narrative).
+    caps = [w for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", actor.split("(")[0]) if w[0].isupper()]
+    if len(caps) >= 3:
+        toks.add("".join(w[0].lower() for w in caps))
+    return toks
+
+
+def _proper_words(sent: str) -> set:
+    """Capitalised words of a sentence (not the first word), normalised."""
+    words = re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)
+    # The first word is capitalised whatever it is; it counts only when it
+    # is an actor name the caller filters for ("OpenAI models submitting…"
+    # opens a clause with the actor).
+    return {_norm_tok(w) for w in words if w[0].isupper()}
+
+
+_CLAUSE_SPLIT = re.compile(r"[,;:]\s+|\s+(?:yet|while|but|whereas|and)\s+")
+
+
+# A colon introduces a list and commas separate its items ("licensing
+# agreements completed: Sanofi–Regeneron (…), AstraZeneca–Summit (…)");
+# the deal-type check keeps the list in one clause.
+_DEAL_SPLIT = re.compile(r";\s+|\s+(?:yet|while|but|whereas)\s+")
+
+
+def _clause_of(sent: str, pos: int, splitter=None) -> str:
+    """The clause of ``sent`` that contains character ``pos``."""
+    start = 0
+    for m in (splitter or _CLAUSE_SPLIT).finditer(sent):
+        if m.start() > pos:
+            return sent[start:m.start()]
+        start = m.end()
+    return sent[start:]
+
+
+def _actor_findings(seg: dict, events: list) -> List[dict]:
+    """A development credited to the wrong company: "OpenAI models submitting
+    false tips to police" for Anthropic's Claude event (seventh review,
+    16 Oct 2026, F01). A clause that shares three distinctive words with an
+    event, one of them rare, and names another ledger actor but not the
+    event's, is flagged. Clauses, not sentences: "Samsung expanded its Teva
+    deal, while nine filings and approvals completed across … Afinitor"
+    credits Samsung with nothing but its own deal."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    evs = [e for e in (events or []) if _actor_tokens(e)]
+    if not evs:
+        return out
+    df: Dict[str, int] = {}
+    ev_toks = []
+    for e in evs:
+        toks = _content_tokens(_event_text(e)) - _actor_tokens(e) - {_stem(w) for w in _actor_tokens(e)}
+        ev_toks.append(toks)
+        for t in toks:
+            df[t] = df.get(t, 0) + 1
+    # An actor word names an actor when few actors carry it ("Quantum" is
+    # in Google Quantum AI, Zapata Quantum and IBM Quantum; it names none).
+    actor_df: Dict[str, int] = {}
+    for actor in {str(e.get("actor") or "") for e in evs}:
+        for t in _actor_tokens({"actor": actor}):
+            actor_df[t] = actor_df.get(t, 0) + 1
+    all_actor_toks = {t for t, n in actor_df.items() if n <= 2}
+    for sent in _sentences(seg["text"]):
+        sent_words = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+        flagged = False
+        for clause in _CLAUSE_SPLIT.split(sent):
+            if flagged or not clause or not clause.strip():
+                continue
+            ctoks = _content_tokens(clause)
+            named = _proper_words(clause) & all_actor_toks
+            if not named:
+                continue
+            def _named_in_sentence(mine: set) -> bool:
+                if mine & sent_words:
+                    return True
+                return any(len(m) >= 5 and (w.startswith(m[:5]) or m.startswith(w[:5]))
+                           for m in mine for w in sent_words if len(w) >= 5)
+            # Events whose actor the sentence names explain the clause's
+            # words; a match on another event that uses the same words is
+            # not a misattribution.
+            explained = set()
+            for e, toks in zip(evs, ev_toks):
+                if _named_in_sentence(_actor_tokens(e)):
+                    explained |= ctoks & toks
+            for e, toks in zip(evs, ev_toks):
+                shared = ctoks & toks
+                if len(shared) < 3 or not any(df.get(t, 0) <= 2 for t in shared):
+                    continue
+                mine = _actor_tokens(e)
+                if _named_in_sentence(mine) or shared <= explained:
+                    continue
+                etext_words = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", _event_text(e))}
+                others = named - mine - etext_words
+                if not others:
+                    continue
+                out.append({"target": seg["target"], "severity": "error", "check": "identity",
+                            "finding": (f"The sentence names {', '.join(sorted(others))} alongside '{' '.join(sorted(shared))}'; "
+                                        f"the ledger event with those words is {e.get('actor')}'s ({str(e.get('action') or '')} "
+                                        f"{str(e.get('subject') or '')[:90]})."),
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": f"Credit the development to {e.get('actor')} and keep the other actor's events separate."})
+                flagged = True
+                break
+    return out
+
+
+_SECURITY = re.compile(r"\b(breach\w*|hack\w*|intrusion\w*|security incidents?|security breach\w*|cyberattack\w*|"
+                       r"infiltrat\w*|compromis\w*|attacks? on)\b", re.I)
+_EDITORIAL = re.compile(r"\b(peer[- ]review(?:ed)?\s+(?:platform|system|process|infrastructure|credibility|integrity)s?|review platforms?|"
+                        r"editorial (?:system|platform|workflow)s?|manuscript (?:system|platform)s?|"
+                        r"journal (?:platform|system)s?|submission systems?)\b", re.I)
+_ANALOGY = re.compile(r"\b(if|were|would|could|may|might|analog\w*|similar|equivalent|comparable|hypothes\w*|"
+                      r"whether|worth watching|risk of|exposure)\b", re.I)
+
+
+def _transfer_findings(seg: dict, events: list, scen: Optional[list] = None,
+                       topics: Optional[list] = None) -> List[dict]:
+    """A security incident moved to a kind of platform the ledger has no
+    incident at: "security breaches at review platforms" when the agents
+    were at government and other online systems (seventh review, F02).
+    Hedged as a hypothesis or analogy before the security word, it passes."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    evtexts = [_event_text(e) for e in (events or [])]
+    if any(_SECURITY.search(t) and _EDITORIAL.search(t) for t in evtexts):
+        return out
+    names = [str(sc.get("name") or "") for sc in (scen or []) if len(str(sc.get("name") or "")) > 3]
+    names += [str(t) for t in (topics or []) if len(str(t or "")) > 3]
+    for sent in _sentences(seg["text"]):
+        probe = sent
+        for nm in names:
+            probe = re.sub(re.escape(nm), " ", probe, flags=re.I)
+        ms = _SECURITY.search(probe)
+        me = _EDITORIAL.search(probe)
+        if not ms or not me:
+            continue
+        if _ANALOGY.search(probe[: ms.start()]):
+            continue
+        out.append({"target": seg["target"], "severity": "error", "check": "absent",
+                    "finding": (f"The sentence places a security incident ('{ms.group(0)}') at '{me.group(0)}'; "
+                                "no ledger event records an incident at a peer-review or editorial platform "
+                                "(the agent incidents were at government and other online systems)."),
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "Name the government/online incidents the ledger has, then put the risk to editorial systems as an analogy or hypothesis ('if … were to')."})
+    return out
+
+
+_CAUSAL = re.compile(r"\b((?:is|are|was|were)\s+(?:forcing|driving|prompting|compelling|pushing|triggering|fuell?ing|causing)|"
+                     r"forc(?:e|es|ed|ing)\s+(?:the\s+)?(?:adoption|uptake|shift)|accelerat(?:ing|es|e)\s+(?:demand|adoption|uptake)"
+                     r"\s+(?:for|of)|(?:leads?|leading|led)\s+to\s+(?:the\s+)?(?:adoption|formation|rise)|"
+                     r"(?:as a result of|because of|in response to)\b)", re.I)
+
+
+def _causal_findings(seg: dict) -> List[dict]:
+    """"Operational failures are forcing the adoption of hybrid validation
+    partnerships": the ledger has both developments, not that one drives
+    the other (seventh review, F02). A causal link needs a hedge or an
+    event that states it."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    for sent in _sentences(seg["text"]):
+        m = _CAUSAL.search(sent)
+        if not m or _HEDGE.search(sent):
+            continue
+        out.append({"target": seg["target"], "severity": "error", "check": "absent",
+                    "finding": f"The sentence asserts a causal link ('{m.group(0)}'); the ledger records the developments, not that one caused the other.",
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "Write the developments as appearing in parallel and pose the link as a question to test ('whether X is driving Y remains a question to test')."})
+    return out
+
+
+_DEAL_LABEL = re.compile(r"\b(licensing|licen[cs]es?|equity investments?|investments?|acquisitions?|mergers?|"
+                         r"partnerships?|alliances?|collaborations?|approvals?|lawsuits?|litigation|settlements?|"
+                         r"submissions?|filings?)\b", re.I)
+_DEAL_TYPES = {"licensing": ("licens",), "licence": ("licens",), "license": ("licens",),
+               "investment": ("invest", "equity", "stake", "convertible"), "equity investment": ("invest", "equity", "stake", "convertible"),
+               "acquisition": ("acqui", "bought", "purchas", "takeover"), "merger": ("merg",),
+               "partnership": ("partner", "alliance", "collaborat", "joined", "agree", "deal"),
+               "alliance": ("partner", "alliance", "collaborat", "joined", "agree", "deal"),
+               "collaboration": ("partner", "alliance", "collaborat", "joined", "agree", "deal"),
+               "approval": ("approv", "clear", "authori", "positive"), "lawsuit": ("sued", "lawsuit", "litigat", " suit"),
+               "litigation": ("sued", "lawsuit", "litigat", " suit"), "settlement": ("settl",),
+               "submission": ("submit", "filed", "applic", "certification"), "filing": ("submit", "filed", "applic", "certification")}
+
+
+def _deal_key(word: str) -> Optional[str]:
+    w = word.lower().rstrip("s")
+    if w.endswith("ie"):
+        w = w[:-2] + "y"
+    for k in _DEAL_TYPES:
+        if w == k or w.rstrip("s") == k or w.startswith(k[:6]):
+            return k
+    return None
+
+
+def _event_deal_types(e: dict) -> set:
+    text = " " + _event_text(e).lower()
+    return {k for k, stems in _DEAL_TYPES.items() if any(s in text for s in stems)}
+
+
+def _deal_type_findings(seg: dict, events: list, scen: list) -> List[dict]:
+    """A named event listed under the wrong transaction type: AstraZeneca's
+    equity investment in Summit under "licensing agreements" (seventh
+    review, F03). The labels in the sentence must include the event's kind."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    names = [str(sc.get("name") or "").lower() for sc in (scen or []) if len(str(sc.get("name") or "")) > 3]
+    for sent in _sentences(seg["text"]):
+        low = sent.lower()
+        for nm in names:
+            low = low.replace(nm, " ")
+        label_hits = [(m.start(), _deal_key(m.group(1))) for m in _DEAL_LABEL.finditer(low)]
+        label_hits = [(p, k) for p, k in label_hits if k]
+        if not label_hits:
+            continue
+        for e in events or []:
+            mine = _actor_tokens(e)
+            if not mine:
+                continue
+            # Where the sentence names the actor; the label must introduce
+            # it (within 120 characters before, in the same clause) or
+            # follow it closely (40 characters after).
+            apos = [m.start() for m in re.finditer(r"[A-Za-z][A-Za-z'’&-]+", sent)
+                    if _norm_tok(m.group(0)) in mine]
+            if not apos:
+                continue
+            words = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+            subj = {_norm_tok(w) for w in re.findall(r"[A-Z][A-Za-z'’&-]{3,}", str(e.get("subject") or ""))} - mine
+            if not (subj & words):
+                continue
+            labels = set()
+            for p, k in label_hits:
+                for a in apos:
+                    if (p < a and a - p <= 120 and _clause_of(sent, p, _DEAL_SPLIT) == _clause_of(sent, a, _DEAL_SPLIT)) \
+                            or (0 <= p - a <= 40):
+                        labels.add(k)
+            if not labels:
+                continue
+            label_stems = set().union(*[set(_DEAL_TYPES[k]) for k in labels])
+            etypes = _event_deal_types(e)
+            if not etypes:
+                continue
+            etext = " " + _event_text(e).lower()
+            if any(s in etext for s in label_stems):
+                continue
+            out.append({"target": seg["target"], "severity": "error", "check": "state",
+                        "finding": (f"The sentence files {e.get('actor')}'s event under '{', '.join(sorted(labels))}'; the ledger "
+                                    f"event is '{str(e.get('action') or '')} {str(e.get('subject') or '')[:80]}' ({', '.join(sorted(etypes))})."),
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": f"Label it as the ledger does ({', '.join(sorted(etypes))}), or introduce the list with every type it contains."})
+            break
+    return out
+
+
+_BASELINE = re.compile(r"\b(?:once|previously|formerly|traditionally|historically)\s+(?:reserved for|requir\w+|need\w+|"
+                       r"limited to|confined to|the (?:domain|preserve) of|exclusive to|only possible on|handled by)\s+"
+                       r"((?:(?!\b(?:and|which|that|counters?|but|while|yet|raises?|now|is|are)\b)[\w'’-]+\s+){0,3}"
+                       r"(?!\b(?:and|which|that|counters?|but|while|yet|raises?|now|is|are)\b)[\w'’-]+)", re.I)
+
+
+def _baseline_findings(seg: dict, events: list) -> List[dict]:
+    """A comparison that swaps the event's baseline: "tasks once reserved for
+    quantum hardware" for an algorithm the ledger compares with classical
+    supercomputers (seventh review, F03)."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    evs = [(e, _content_tokens(_event_text(e))) for e in (events or [])]
+    for sent in _sentences(seg["text"]):
+        m = _BASELINE.search(sent)
+        if not m:
+            continue
+        # The event is the one the clause around the comparison restates,
+        # not the sentence's other event (a DoE roadmap and an Edinburgh
+        # algorithm share one sentence on the quantum synthesis slide).
+        clause = _clause_of(sent, m.start())
+        stoks = _content_tokens(clause)
+        if len(stoks) < 3:
+            stoks = _content_tokens(sent)
+        best = max(evs, key=lambda et: len(stoks & et[1]), default=None)
+        if not best or len(stoks & best[1]) < 3:
+            continue
+        base_words = [w for w in re.findall(r"[A-Za-z]+", m.group(1)) if len(w) >= 5 and w.lower() not in _TOK_STOP]
+        base_toks = [_stem(w) for w in base_words]
+        if not base_toks:
+            continue
+        present = [t for t in base_toks if t in best[1]]
+        # "world-class supercomputers" for "world's most powerful
+        # supercomputers" keeps its head noun; "quantum hardware" for
+        # "supercomputers" does not.
+        if base_toks[-1] in best[1] and len(present) * 2 >= len(base_toks):
+            continue
+        out.append({"target": seg["target"], "severity": "error", "check": "state",
+                    "finding": (f"The sentence sets the comparison baseline as '{m.group(1).strip()}'; the ledger event reads "
+                                f"'{str(best[0].get('action') or '')} {str(best[0].get('subject') or '')[:100]}'."),
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "Keep the event's own comparison baseline."})
     return out
 
 
@@ -580,6 +979,11 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_date_basis_findings(seg, evs))
             findings.extend(_type_count_findings(seg, scen))
             findings.extend(_progress_findings(seg, scen))
+            findings.extend(_actor_findings(seg, evs))
+            findings.extend(_transfer_findings(seg, evs, scen, topics=list(ledger)))
+            findings.extend(_causal_findings(seg))
+            findings.extend(_deal_type_findings(seg, evs, scen))
+            findings.extend(_baseline_findings(seg, evs))
         elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
             findings.extend(_points_findings(seg, scen))
@@ -592,6 +996,11 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_date_basis_findings(seg, events_all))
             findings.extend(_type_count_findings(seg, scen_all))
             findings.extend(_progress_findings(seg, scen_all))
+            findings.extend(_actor_findings(seg, events_all))
+            findings.extend(_transfer_findings(seg, events_all, scen_all, topics=list(ledger)))
+            findings.extend(_causal_findings(seg))
+            findings.extend(_deal_type_findings(seg, events_all, scen_all))
+            findings.extend(_baseline_findings(seg, events_all))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all
@@ -656,7 +1065,9 @@ def _quote_gate(findings: List[dict], segments: List[dict]) -> List[dict]:
 async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dict) -> List[dict]:
     from app.services.wiley_bundle_supervisor import _call_agent
     payload = {"organisation": organisation or {}, "ledger": ledger,
-               "segments": [{"target": s["target"], "topic": s.get("topic"), "text": s["text"]} for s in segments]}
+               "segments": [({"target": s["target"], "topic": s.get("topic"), "text": s["text"], "body": s["body"]}
+                             if s.get("body") else {"target": s["target"], "topic": s.get("topic"), "text": s["text"]})
+                            for s in segments]}
     out = await _call_agent("wiley_narrative_judge_agent", payload)
     if not out:
         return [{"target": "*", "severity": "warning", "check": "review_failed", "source": "judge",
@@ -669,7 +1080,7 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # and demoted the judge's correct "10 points vs a delta of 2.18" to advisory
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
-_PREFLIGHT_OWNED = {"date", "figure", "date type"}
+_PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline"}
 _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
                          r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
                          r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
@@ -860,6 +1271,11 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
             break
         pending_revert = (before, errs_before)
         continue
+    try:
+        findings += await finish_displays(db, cadence, period_label, payload, ledger, organisation,
+                                          extra_numbers=[n_scen, n_tail, len(ledger)])
+    except Exception as e:
+        logger.warning("narrative review: display sentences failed: %s", e)
     errors = [f for f in findings if f.get("severity") == "error"]
     result = {"verdict": "blocked" if errors else "clear", "rounds": rounds_run,
               "errors": len(errors), "warnings": len(findings) - len(errors),
@@ -871,6 +1287,48 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
     except Exception as e:
         logger.warning("narrative review: could not persist result: %s", e)
     return result
+
+
+async def finish_displays(db, cadence: str, period_label: str, payload: dict, ledger: Dict[str, dict],
+                          organisation: dict, *, extra_numbers: List = (), passes: int = 3) -> List[dict]:
+    """Write the display sentence of every long tension body, then check
+    each one against the ledger (preflight) and against its own body (the
+    judge, which sees the body and flags only what the display adds). A
+    display with an error is rewritten with the finding as feedback; after
+    ``passes`` it is dropped and the slide cuts the body at a clause
+    boundary. Returns the dropped displays' findings as warnings."""
+    from app.services.wiley_bundle_supervisor import _load_items_for_period, ensure_tension_displays
+    problems: Dict[str, str] = {}
+    advisory: List[dict] = []
+    bad_segs: List[dict] = []
+    for rnd in range(passes):
+        items = await _load_items_for_period(cadence, period_label)
+        n = await ensure_tension_displays(db, items, problems=problems)
+        items = await _load_items_for_period(cadence, period_label)
+        segs = [s for s in _segments(items, payload) if s["path"].endswith(".display")]
+        if not segs:
+            return advisory
+        for s in segs:
+            s["_period"] = period_label
+        pre = preflight(segs, ledger, extra_numbers=extra_numbers)
+        jud = await judge(segs, ledger, organisation)
+        f = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])],
+                   scen_all=[sc for lt in ledger.values() for sc in (lt.get("scenarios") or [])])
+        errors = [x for x in f if x.get("severity") == "error"]
+        bad_segs = [s for s in segs if any(x.get("target") == s["target"] for x in errors)]
+        logger.info("narrative review: displays pass %d: %d written, %d with errors", rnd, n, len(bad_segs))
+        if not bad_segs:
+            return advisory
+        problems = {}
+        for s in bad_segs:
+            msgs = [x.get("finding") or "" for x in errors if x.get("target") == s["target"]]
+            problems[f"{s['topic']}|{s['tension_idx']}"] = " ".join(msgs)[:600]
+        advisory = [dict(x, severity="warning", finding=(x.get("finding") or "") + " [display]") for x in errors]
+    for s in bad_segs:
+        db.facade.patch_topic_summary_field(topic=s["topic"], assessment_id=s["assessment_id"],
+                                            path=s["path"], value="", edited_by="narrative-review", lock=False)
+    logger.info("narrative review: %d display sentences dropped after %d passes", len(bad_segs), passes)
+    return [dict(x, finding=x.get("finding", "") + " [dropped]") for x in advisory]
 
 
 async def _repair_with_cadence(db, cadence, period_label, segments, findings, ledger, organisation) -> int:
@@ -909,6 +1367,10 @@ async def _repair_with_cadence(db, cadence, period_label, segments, findings, le
             if seg["kind"] == "topic":
                 db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
                                                     path=seg["path"], value=new, edited_by="narrative-repair", lock=False)
+                if re.match(r"^topic_briefing\.tensions\[\d+\]\.body$", seg["path"]):
+                    db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
+                                                        path=seg["path"][:-4] + "display", value="",
+                                                        edited_by="narrative-repair", lock=False)
             elif seg["kind"] == "verdict":
                 _write_verdict_field(db, seg["assessment_id"], seg["scenario_idx"], seg["path"], new)
             else:

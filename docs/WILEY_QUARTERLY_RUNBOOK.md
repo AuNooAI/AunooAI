@@ -131,6 +131,18 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   may be quoted in points) and every key signal (names an event of its scenario, or starts
   with "Watch:"). The writers and the judge get each scenario's judged events as its own
   list; a synthesis may only credit a scenario with events from that list.
+  Since the seventh review (16 Oct 2026, late) it also checks who did it (a clause that
+  restates an event must name that event's actor, not another), where (a breach at a
+  peer-review platform needs an event at one, or an analogy marker), causal links ("is
+  forcing" needs a hedge), deal types (an investment is not a licensing agreement; a label
+  must cover the events it introduces) and comparison baselines ("once reserved for quantum
+  hardware" for an event that says supercomputers).
+- **Tension display sentences** (`ensure_tension_displays` in `wiley_bundle_supervisor.py`):
+  a tension body longer than the synthesis panel shows is rendered as its `display`, one
+  complete sentence of at most 170 characters the briefing writer or `wiley_display_agent`
+  writes from the body; `display_ok` checks it in code and the slide falls back to a clause
+  cut when there is none. Displays are review segments; `review_and_repair` rebuilds them
+  for repaired bodies at the end of the run. Full bodies stay in the slide notes.
 
 Three things to know when running any of this by hand:
 

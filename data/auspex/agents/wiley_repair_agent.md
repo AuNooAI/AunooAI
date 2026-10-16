@@ -3,7 +3,7 @@ name: wiley_repair_agent
 category: wiley_bundle_supervisor
 description: Targeted repair of narrative segments after review. Rewrites only the sentences the findings quote, using only the facts in the ledger, and returns each segment in full.
 type: agent
-version: 1.2.0
+version: 1.3.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.2
@@ -51,6 +51,32 @@ Rules:
 - In an overview, a theme, the decision framework or the expert view, a
   development with no event behind it becomes a watch item or a hypothesis in
   so many words ("worth watching whether…", "if … then …"), or is dropped.
+- A development keeps its actor: the ledger event's `actor`, never another
+  company named nearby. Two actors' incidents are listed separately
+  ("Anthropic's Claude submitting a false police tip and OpenAI models
+  interacting unexpectedly with government and other online systems").
+- A security incident stays at the kind of platform the ledger puts it at.
+  A risk to peer-review or editorial systems is written as an analogy or
+  hypothesis after naming the real incidents ("if such agents reached
+  editorial systems…"), never as an incident that happened there.
+- No causal link between two developments unless an event states it. Write
+  them as appearing in parallel and pose the link as a question: "A and B
+  are appearing in parallel; whether A is driving B remains a question to
+  test."
+- A transaction keeps its type from the ledger: an equity investment is not
+  a licensing agreement. A list that mixes types is introduced with every
+  type it holds ("partnership, licensing and investment activity"), and a
+  count of mixed events names the mix ("nine confirming developments span
+  regulatory filings and approvals, patent litigation, settlement and
+  partnership activity"). "Up to" and contingent sums stay qualified.
+- A comparison keeps the ledger's baseline ("tasks previously requiring the
+  most powerful classical supercomputers", not "quantum hardware").
+- A theme lead (target `…cross_cutting_themes[n].lead`) about a scenario
+  with no judged events becomes conditional in the lead itself ("may be",
+  "Watch whether…"), not only in the body.
+- A `…tensions[n].display` segment is one complete sentence of at most 170
+  characters drawn from its tension body, with the body's actors, stages
+  and date types, no ellipsis, ending with a full stop.
 - A key signal (target `...key_signals[n]`) is a short phrase. Repair it by
   naming an event from the scenario's `events` (actor and what it did), or,
   when the scenario has none, by starting it with "Watch:" so it reads as

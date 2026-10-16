@@ -729,10 +729,19 @@ def _stage_in_plan(plan: dict, stage_name: str) -> bool:
 
 # ── Cross-topic + exec summary helpers ───────────────────────────────
 
-def _cross_topic_payload(items: list, period_label: str, briefings: dict) -> dict:
+def _cross_topic_payload(items: list, period_label: str, briefings: dict,
+                         events_by_topic: Optional[dict] = None) -> dict:
+    """What the cross-topic writer sees. Until the seventh review (16 Oct
+    2026) it had a headline, a status distribution and one theme label per
+    topic, and no events: the overview invented "security incidents at
+    peer review platforms" and a theme called a scenario with no judged
+    events "emerging". Now each topic carries its scenario statuses with
+    their judged events, the reconciled events, and the briefing lede."""
     topics = []
+    events_by_topic = events_by_topic or {}
     for assessment, _run, _prior in items:
         topic = assessment.get("topic") or "—"
+        data = _topic_data_payload(assessment, named_events=events_by_topic.get(topic))
         verdicts = [v for v in (assessment.get("scenario_verdicts") or [])
                     if v.get("verdict_label") != "Done"]
         bc_per = ((assessment.get("summary") or {}).get("baseline_correction") or {}).get("per_scenario") or {}
@@ -759,11 +768,22 @@ def _cross_topic_payload(items: list, period_label: str, briefings: dict) -> dic
         topics.append({
             "topic": topic,
             "briefing_headline": briefing.get("headline") or "",
+            "briefing_lede": briefing.get("lede") or "",
+            "status_sentence": data.get("status_sentence") or "",
+            "scenarios": [{
+                "name": s.get("name"), "status": s.get("status"),
+                "n_confirm": s.get("n_confirm"), "n_counter": s.get("n_counter"),
+                "events": [{k: e.get(k) for k in ("actor", "action", "subject", "date", "date_basis", "state", "direction")}
+                           for e in (s.get("events") or [])[:8]],
+            } for s in (data.get("scenarios") or [])],
+            "named_events": [{k: e.get(k) for k in ("actor", "action", "subject", "date", "date_basis", "state")}
+                             for e in (data.get("named_events") or [])[:20]],
             "status_distribution": dist,
             "biggest_mover": {"name": best[1], "delta_pct": round((best[0] or 0)*100, 2)} if best else None,
             "top_emerging_theme": top_emerging,
         })
-    return {"period_label": period_label, "topics": topics}
+    return {"period_label": period_label, "topics": topics,
+            "organisation": _organisation_context(), "metric_definitions": _METRIC_DEFINITIONS}
 
 
 def _compute_calibration(items: list, cadence: str = None,
@@ -1418,6 +1438,10 @@ async def run_pipeline(
         for topic, payload in briefings.items():
             if payload:
                 _persist_topic_briefing(db, items, topic, payload)
+        try:
+            await ensure_tension_displays(db, items)
+        except Exception as e:
+            logger.warning("tension displays failed: %s", e)
         yield {"stage": "briefing", "status": "completed", "progress": 0.35,
                "payload": {"topics": list(briefings.keys())}}
 
@@ -1486,7 +1510,7 @@ async def run_pipeline(
     if _stage_in_plan(plan, "cross_topic") or not cross_cached:
         yield {"stage": "cross_topic", "status": "started", "progress": 0.75}
         cross_topic = await _call_agent("wiley_cross_topic_agent",
-                                         _cross_topic_payload(items, period_label, briefings))
+                                         _cross_topic_payload(items, period_label, briefings, events_by_topic))
         # Restore locked subtrees scoped to cross_topic's outputs
         # (strategic_overview / cross_cutting_themes /
         # executive_decision_framework).
@@ -1509,7 +1533,7 @@ async def run_pipeline(
             overview = (cross_topic or {}).get("strategic_overview")
             if isinstance(overview, str) and overview.strip() \
                     and "strategic_overview" not in (locked_keys or []):
-                ct_sources = [json.dumps(_cross_topic_payload(items, period_label, briefings),
+                ct_sources = [json.dumps(_cross_topic_payload(items, period_label, briefings, events_by_topic),
                                          default=str)]
                 ct_sources += [json.dumps(a.get("summary") or {}, default=str)
                                for (a, _r, _p) in items]
@@ -1895,6 +1919,119 @@ async def run_pipeline(
 
 # ── Per-assessment persistence helpers ───────────────────────────────
 
+# ── Tension display sentences ────────────────────────────────────────
+#
+# The synthesis slide shows each tension in about three lines. A long
+# body used to be cut at a clause boundary with an ellipsis; the reviewer
+# wanted complete sentences on the slide (seventh review, 16 Oct 2026,
+# F04). The writer supplies ``display``, one complete sentence of at most
+# DISPLAY_MAX characters drawn from the body; a missing or failing one is
+# written by wiley_display_agent and checked here: every figure and every
+# capitalised word must come from the body, no ellipsis, a full stop at
+# the end. The full body stays in the slide notes.
+
+DISPLAY_MAX = 170
+_MONTHS = {"january", "february", "march", "april", "may", "june", "july", "august", "september",
+           "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
+           "oct", "nov", "dec"}
+
+
+def _display_numbers(text: str) -> set:
+    nums = set()
+    for m in re.finditer(r"\d[\d,]*(?:\.\d+)?", text or ""):
+        tok = m.group(0).replace(",", "")
+        nums.add(tok)
+        nums.add(tok.lstrip("0") or "0")
+    for m in re.finditer(r"\b(\d{4})-(\d{2})-(\d{2})\b", text or ""):
+        nums.add(str(int(m.group(2))))
+        nums.add(str(int(m.group(3))))
+    return nums
+
+
+def display_ok(display: Optional[str], body: str, name: str = "") -> bool:
+    d = (display or "").strip()
+    if not d or len(d) > DISPLAY_MAX or "…" in d or "..." in d or d[-1] not in ".!?":
+        return False
+    body_nums = _display_numbers(body)
+    for n in _display_numbers(d):
+        if n not in body_nums:
+            return False
+    ref = (body + " " + (name or "")).lower()
+    ref = ref.replace("’", "'")
+    for i, w in enumerate(d.replace("’", "'").split()):
+        core = re.sub(r"^[^\w$]+|[^\w%]+$", "", w)
+        core = re.sub(r"'s$", "", core)
+        if not core or i == 0 or not core[0].isupper():
+            continue
+        low = core.lower()
+        if low in _MONTHS:
+            continue
+        if low not in ref and low.rstrip("s") not in ref:
+            return False
+    return True
+
+
+async def ensure_tension_displays(db, items: list, topics: Optional[list] = None,
+                                  cap: int = DISPLAY_MAX, problems: Optional[dict] = None) -> int:
+    """Write ``display`` for every tension whose body is longer than the
+    slide shows and whose display is missing or fails :func:`display_ok`.
+    ``problems`` maps "topic|idx" to the review finding on the current
+    display; those are rewritten with the finding as feedback.
+    Returns the number of displays written."""
+    todo = []
+    problems = problems or {}
+    for a, _r, _p in items:
+        topic = a.get("topic") or "—"
+        if topics and topic not in topics:
+            continue
+        tb = (a.get("summary") or {}).get("topic_briefing") or {}
+        for i, t in enumerate(tb.get("tensions") or []):
+            if not isinstance(t, dict):
+                continue
+            body = (t.get("body") or "").strip()
+            key = f"{topic}|{i}"
+            if len(body) <= cap or (key not in problems and display_ok(t.get("display"), body, t.get("name") or "")):
+                continue
+            item = {"id": key, "name": t.get("name") or "", "body": body, "max_chars": cap - 20, "max_words": 22}
+            if key in problems:
+                item["previous_attempt"] = (t.get("display") or "").strip()
+                item["problem"] = problems[key]
+            todo.append(item)
+    if not todo:
+        return 0
+    written = 0
+    pending = todo
+    for attempt in range(2):
+        out = await _call_agent("wiley_display_agent", {"items": pending})
+        got = {x.get("id"): x.get("display") for x in ((out or {}).get("items") or []) if isinstance(x, dict)}
+        still = []
+        for item in pending:
+            disp = (got.get(item["id"]) or "").strip()
+            if display_ok(disp, item["body"], item["name"]):
+                topic, idx = item["id"].rsplit("|", 1)
+                a = _find_assessment(items, topic)
+                tb = (a.get("summary") or {}).get("topic_briefing") or {}
+                tb["tensions"][int(idx)]["display"] = disp
+                _persist_topic_briefing(db, items, topic, tb)
+                written += 1
+            else:
+                if len(disp) > item["max_chars"]:
+                    problem = (f"{len(disp)} characters, {len(disp) - item['max_chars']} over the limit of "
+                               f"{item['max_chars']}: write a new, shorter sentence of at most {item['max_words']} words, "
+                               "not the body's first sentence")
+                else:
+                    problem = "an ellipsis, no full stop, or a figure or capitalised name that is not in the body"
+                item = dict(item, previous_attempt=disp, problem=problem)
+                still.append(item)
+        pending = still
+        if not pending:
+            break
+    if pending:
+        logger.info("tension displays: %d bodies kept the clause cut (%s)", len(pending),
+                    ", ".join(p["id"] for p in pending))
+    return written
+
+
 def _find_assessment(items: list, topic: str) -> Optional[dict]:
     for assessment, _run, _prior in items:
         if (assessment.get("topic") or "") == topic:
@@ -2069,6 +2206,10 @@ async def regenerate_single_stage(
 
             if stage == "briefing":
                 _persist_topic_briefing(db, items, tname, new_payload)
+                try:
+                    await ensure_tension_displays(db, items, topics=[tname])
+                except Exception as e:
+                    logger.warning("tension displays failed for %s: %s", tname, e)
             elif stage == "recommendations":
                 _persist_recommendations(db, items, tname, new_payload)
             elif stage == "next_steps":
@@ -2084,7 +2225,8 @@ async def regenerate_single_stage(
         await _emit(0.3, "Calling cross_topic agent")
         new_payload = await _call_agent(
             "wiley_cross_topic_agent",
-            _cross_topic_payload(items, period_label, briefings={}),
+            _cross_topic_payload(items, period_label, briefings={},
+                                 events_by_topic=_events_by_topic(db, cadence, period_label)),
         )
         ct_locks = [
             p for p in locked_keys

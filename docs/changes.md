@@ -1,3 +1,57 @@
+## 2026-10-16 (late) — Wiley Q4 bundle after the seventh review
+
+The seventh review was a targeted handoff: a wrong company on the expert view, breaches
+placed at review platforms the ledger has no incident at, a causal link the events do not
+state, an equity investment filed under licensing, a count of nine filings that included a
+lawsuit, a swapped comparison baseline, and tension bodies cut mid-clause with an ellipsis
+on the synthesis slides. Each is now a check in code, mirrored in the judge, repair and
+writer prompts, and the slide shows a complete sentence. Commit below, same hunks on
+wileytest and wiley.
+
+**Who did it, where, and what kind** (`wiley_narrative_review.py`). Five deterministic
+checks were added to the preflight. Actor attribution: a clause that shares three
+distinctive words with a ledger event, one of them rare, and names another actor but not the
+event's, is an identity error ("OpenAI models submitting false tips to police" for
+Anthropic's Claude). Actor names include initials (NSF, GAO) and three-letter acronyms;
+words shared by three or more actors (Quantum) name none; the check runs per clause so a
+list of nine filings beside Samsung's deal does not become Samsung's. Transfer: a security
+word and a peer-review or editorial-platform phrase in one sentence, with no ledger event at
+such a platform and no analogy or hypothesis marker before the security word. Causal: "is
+forcing", "accelerating demand for", "is prompting" between developments, unhedged. Deal
+type: a transaction label (licensing, investment, acquisition, approval, settlement…) that
+introduces a named event within 120 characters, or follows it within 40, must cover the
+event's own kind; a colon list stays one clause. Comparison baseline: "once reserved for X"
+keeps the event's X by head noun. The type-count check now allows adjectives between the
+number and the type ("nine generic/biosimilar submissions") and compound types ("submissions
+and approvals"); the Too-early progress check matches a scenario by its first two
+distinctive words ("private research capital" for Private Capital Drives AI Innovation
+Leadership) and counts "emergence" as a progress word. Judge errors in these categories on
+a sentence the preflight passed are advisory.
+
+**Display sentences** (`wiley_bundle_supervisor.py`, `forecast_pptx_export.py`,
+`wiley_display_agent.md`). A tension body longer than the synthesis panel shows is
+rendered as `display`: one complete sentence of at most 170 characters that the briefing
+writer supplies, or that the new display agent writes from the body. `display_ok` checks it
+in code (length, no ellipsis, a full stop, every figure and capitalised word from the
+body; month names allowed). `finish_displays` then runs the preflight and the judge on the
+displays, the judge seeing each display's body and flagging only what the display adds (a
+changed actor or object, a gloss); a failing display is rewritten with the finding as
+feedback, up to three passes, then dropped, and the slide falls back to the clause cut.
+Sonnet 4.5 copied the body's first sentence until the agent was given a word budget (22)
+and told not to copy. A repaired body drops its display; `review_and_repair` calls
+`finish_displays` at the end. On the Q4 2026 bundle 17 of 18 displays passed; one was set
+by hand after the judge rejected it on a scenario claim the sentence does not make. The
+full body stays in the notes.
+
+**Cross-topic writer sees the ledger.** `_cross_topic_payload` carried a headline, a
+Strengthening/Stable/Cooling distribution and one theme label per topic, and no events;
+that is where the review-platform breaches and the "emerging" reputation economy came from.
+It now carries each topic's status sentence, scenarios with their judged events, the
+reconciled events and the briefing lede, with the organisation and metric definitions.
+
+Prompts: judge 1.3.0, repair 1.3.0, briefing 1.4.0 (`display`), cross-topic 1.2.0, recs
+1.3.0, expert view 1.3.0, display agent 1.0.0.
+
 ## 2026-10-16 (night) — Wiley Q4 bundle after the sixth review
 
 The sixth review confirmed the count, metric and transaction-state fixes and left findings

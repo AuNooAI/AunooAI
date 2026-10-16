@@ -1621,7 +1621,20 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
         return 0.1 + lines * 0.165
 
     def _shown_bodies(cap: int) -> list:
-        return [_fit_sentences(t.get("body") or "", cap) for t in tensions[:3]]
+        # A long body is shown as its ``display`` sentence, one complete
+        # sentence the writer (or wiley_display_agent) drew from it and
+        # the narrative review checked; the clause cut with an ellipsis is
+        # the fallback when there is none (seventh review, 16 Oct 2026, F04).
+        from app.services.wiley_bundle_supervisor import display_ok
+        out = []
+        for t in tensions[:3]:
+            body = t.get("body") or ""
+            disp = (t.get("display") or "").strip()
+            if len(body) > cap and display_ok(disp, body, t.get("name") or ""):
+                out.append(disp)
+            else:
+                out.append(_fit_sentences(body, cap))
+        return out
 
     shown_list = _shown_bodies(180)
     if sum(0.26 + _est_h(b) + 0.1 for b in shown_list) > panel_bottom - ty:

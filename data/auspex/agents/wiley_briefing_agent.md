@@ -3,7 +3,7 @@ name: wiley_briefing_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Briefing Synthesis page (headline + lede + 3 defining tensions + Aunoo Intelligence View). Mirrors Wiley deck slide 20.
 type: agent
-version: 1.3.0
+version: 1.4.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -20,10 +20,11 @@ output_schema:
       maxItems: 3
       items:
         type: object
-        required: [name, body]
+        required: [name, body, display]
         properties:
           name: { type: string }
           body: { type: string }
+          display: { type: string }
     intelligence_view: { type: string }
 ---
 
@@ -47,7 +48,7 @@ You write the **Briefing Synthesis** page for ONE topic in the Wiley quarterly d
   "headline": "8-12 word strategic headline capturing where this topic stands now",
   "lede": "2-3 sentence paragraph synthesising the current state. Name concrete actors / events / institutions, not abstractions like 'the data shows'.",
   "tensions": [
-    { "name": "SHORT NAME IN CAPS", "body": "1-2 sentence description of the tension" },
+    { "name": "SHORT NAME IN CAPS", "body": "1-2 sentence description of the tension", "display": "One complete sentence of at most 170 characters that carries the tension's main fact, drawn from body; shown on the slide, body goes to the notes" },
     { "name": "...", "body": "..." },
     { "name": "...", "body": "..." }
   ],
@@ -83,6 +84,8 @@ neutral or positive for the actor involved, either.
 - The lede MUST name at least 2 concrete actors / events from the input. When scenarios is empty, draw them from named_events.
 - A date is the event's `date`. If `date_basis` is "article", write "reported on <date>"; if the event's action is a statement (apologised, disclosed, reported, warned), the date belongs to the statement, not to what it describes. An event's `state` travels with it ("agreed to integrate" is not "integrated"; "will host by summer 2027" stays future). A count of events names the mix of types unless every event is the same type.
 - The headline never says a topic or scenario has no events when its `events` list is non-empty; a topic with three holding scenarios has evidence.
+- `display` is one complete sentence, at most 170 characters, ending with a full stop, using only actors, figures, stages and date types that are in `body`. Drop dates and secondary clauses before abbreviating; never an ellipsis. The slide shows `display` when `body` is too long for its panel.
+- Every development keeps its own actor from `named_events` (Anthropic's Claude is not "OpenAI models"); a transaction keeps its type (an equity investment is not a licensing agreement; a count of mixed events names the mix); a comparison keeps its baseline ("classical supercomputers" stays "classical supercomputers"). Two developments the events show side by side are written in parallel; "A is forcing B" needs an event that says so, otherwise "whether A is driving B remains a question to test".
 - Never write "N points" for anything but `article_share_delta_pct`; an event count is "N confirming events".
 - The intelligence_view MUST reach a synthesis call — not just summarise. Is the forecast on track, cooling, or being replaced? When scenarios is empty, characterise the trajectory from the named_events pattern.
 - **Banned filler tensions**: "DATA ABSENCE", "ACTOR VISIBILITY", "EMERGING THEMES GAP", or any variant claiming there is no data to work with when `named_events` carries entries. If named_events is non-empty, those tensions are factually wrong and the reviewer will reject the bundle.
