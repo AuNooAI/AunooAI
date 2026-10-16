@@ -23,6 +23,17 @@ from .tools import ToolSpec
 MAX_TEXT_CHARS = 60_000
 MAX_TELLS_RETURNED = 200
 
+# Detectors that only make sense when the target medium is plain text. A
+# chat reply or an artifact is written in markdown or HTML, so markup there
+# is the medium, not a tell. Bold pseudo-headings stay flagged in every
+# medium: a real heading is the fix.
+_MEDIA = ("markdown", "html", "plain")
+_SKIP_BY_MEDIUM = {
+    "markdown": {"markdown_formatting"},
+    "html": {"markdown_formatting"},
+    "plain": set(),
+}
+
 # Tells per 1,000 words. The deep-research humanizer's practical floor is
 # about two per thousand after a rewrite pass; a fresh draft from a frontier
 # model lands anywhere from three to ten.
@@ -46,9 +57,12 @@ def _detect(text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return detect_ai_tells(text), compute_readability(text)
 
 
-async def check_ai_tells(ctx=None, text: str | None = None) -> dict[str, Any]:
+async def check_ai_tells(ctx=None, text: str | None = None, medium: str | None = None) -> dict[str, Any]:
     if not isinstance(text, str) or not text.strip():
         raise ToolError("text is required: the draft to check")
+    medium = (medium or "markdown").lower()
+    if medium not in _MEDIA:
+        raise ToolError("medium must be one of markdown, html, plain")
     truncated = len(text) > MAX_TEXT_CHARS
     if truncated:
         text = text[:MAX_TEXT_CHARS]
@@ -56,6 +70,8 @@ async def check_ai_tells(ctx=None, text: str | None = None) -> dict[str, Any]:
         tells, readability = _detect(text)
     except ImportError:
         return {"error": "the AI-tells detector is not installed on this site"}
+    skip = _SKIP_BY_MEDIUM[medium]
+    tells = [t for t in tells if (t.get("tell_type") or "") not in skip]
 
     by_type = Counter(t.get("tell_type") or "unknown" for t in tells)
     words = int(readability.get("word_count") or 0)
@@ -73,6 +89,7 @@ async def check_ai_tells(ctx=None, text: str | None = None) -> dict[str, Any]:
         for t in sorted(tells, key=lambda t: (t.get("start") or 0, t.get("end") or 0))
     ]
     out: dict[str, Any] = {
+        "medium": medium,
         "verdict": verdict,
         "tell_count": len(tells),
         "tells_per_1000_words": density,
@@ -103,10 +120,13 @@ SPECS: dict[str, ToolSpec] = {
             "significance clauses, summary flourishes, weasel phrases, em-dash and bold overuse. Each flagged "
             "span comes with the fix to apply. Returns a verdict (clean, acceptable, rewrite), the count per "
             "detector, the spans with offsets, and readability figures. Call it on any briefing, report or "
-            "summary longer than a paragraph, edit only the flagged spans, and call it again."
+            "summary longer than a paragraph, edit only the flagged spans, and call it again. Pass medium "
+            "as 'plain' for text that will be read without markup (an email body, a caption), so markdown "
+            "markers are flagged too; the default 'markdown' treats them as the medium."
         ),
         properties={
             "text": {"type": "string", "description": "The draft to check, up to 60,000 characters."},
+            "medium": {"type": "string", "enum": list(_MEDIA), "description": "Where the text will be read: markdown (default), html or plain."},
         },
         required=("text",),
         timeout=15.0,

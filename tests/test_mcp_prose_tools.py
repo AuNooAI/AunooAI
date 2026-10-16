@@ -46,6 +46,27 @@ def test_plain_draft_passes(prose):
     assert out["next_step"] == "No action needed." or out["verdict"] == "acceptable"
 
 
+MARKED_UP = (
+    "## What happened\n\n- Vectra closed a round on Monday, see [the filing](https://example.com/a).\n"
+    "- Two of the three rounds were led by existing investors.\n\n## The tone\n\nFlat.\n\n## What to watch\n\nThe Q3 numbers land on Friday.\n"
+)
+
+
+def test_markdown_is_the_medium_by_default_but_a_tell_in_plain_text(prose):
+    md = asyncio.run(prose.check_ai_tells(text=MARKED_UP))
+    assert md["medium"] == "markdown"
+    assert "markdown_formatting" not in md["by_type"]
+    plain = asyncio.run(prose.check_ai_tells(text=MARKED_UP, medium="plain"))
+    assert "markdown_formatting" in plain["by_type"]
+    assert plain["tell_count"] == md["tell_count"] + plain["by_type"]["markdown_formatting"]
+
+
+def test_unknown_medium_is_a_tool_error(prose):
+    from app.mcp_access.errors import ToolError
+    with pytest.raises(ToolError):
+        asyncio.run(prose.check_ai_tells(text=MARKED_UP, medium="pdf"))
+
+
 def test_empty_text_is_a_tool_error(prose):
     from app.mcp_access.errors import ToolError
     with pytest.raises(ToolError):
