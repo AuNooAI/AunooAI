@@ -268,7 +268,26 @@ _SELF_CONTRADICTING = re.compile(
     r"which matches|exactly as stated)\b", re.I)
 
 
-def _merge(preflight_f: List[dict], judge_f: List[dict]) -> List[dict]:
+
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _paraphrases_event(claim: str, events: list) -> bool:
+    """True when the claim sentence restates one ledger event: most of its
+    content words appear in that event's text. A judge called "2,800
+    viruses" unsupported because the event said "over 2,800 viruses"
+    (16 Oct 2026); that is wording, not an absent development."""
+    words = {w for w in _WORD.findall((claim or "").lower()) if len(w) > 3}
+    if len(words) < 4:
+        return False
+    for e in events or []:
+        text = " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject", "magnitude", "date")).lower()
+        etoks = set(_WORD.findall(text))
+        if len(words & etoks) / len(words) >= 0.6:
+            return True
+    return False
+
+def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] = None) -> List[dict]:
     # Dates and figures belong to the deterministic preflight. A judge
     # "error" on a sentence the preflight passed is advisory (the judge
     # called "2.18 percentage points" wrong while saying it was right,
@@ -281,7 +300,9 @@ def _merge(preflight_f: List[dict], judge_f: List[dict]) -> List[dict]:
         if f.get("severity") == "error":
             key = (f.get("target"), (f.get("claim_text") or "")[:80])
             if (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
-                    or _SELF_CONTRADICTING.search(f.get("finding") or ""):
+                    or _SELF_CONTRADICTING.search(f.get("finding") or "") \
+                    or (f.get("check") in ("unsupported", "absent")
+                        and _paraphrases_event(f.get("claim_text") or "", events)):
                 f["severity"] = "warning"
                 f["finding"] = (f.get("finding") or "") + " [advisory: preflight passed this sentence]"
         adjusted.append(f)
@@ -349,7 +370,7 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         n_tail = sum(len(v.get("tail_risks") or []) for v in ledger.values())
         pre = preflight(segments, ledger, extra_numbers=[n_scen, n_tail, len(ledger)])
         jud = await judge(segments, ledger, organisation)
-        findings = _merge(pre, jud)
+        findings = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])])
         # A repair that made a segment worse is undone: the previous text
         # comes back and its old findings stand (round 1 of the 16 Oct run
         # went from 13 errors to 24 before this guard).

@@ -293,7 +293,29 @@ _SELF_CONTRADICTING_FINDING = re.compile(
     r"which matches|exactly as stated)\b", re.I)
 
 
-def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> list:
+_CLAIM_QUOTE = re.compile(r"'([^']{25,}?)'")
+_CLAIM_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _paraphrases_named_event(finding_text: str, named_events: list) -> bool:
+    """The reviewer quotes the sentence it objects to in single quotes; when
+    that sentence restates a named event almost word for word, the finding
+    is about wording ("2,800" vs "over 2,800"), not a missing development."""
+    spans = _CLAIM_QUOTE.findall(finding_text or "")
+    if not spans:
+        return False
+    claim = max(spans, key=len)
+    words = {w for w in _CLAIM_WORD.findall(claim.lower()) if len(w) > 3}
+    if len(words) < 4:
+        return False
+    for e in named_events or []:
+        text = " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject", "date")).lower()
+        if len(words & set(_CLAIM_WORD.findall(text))) / len(words) >= 0.6:
+            return True
+    return False
+
+
+def _sanitize_review_findings(findings: list, *, exec_letter: str = None, named_events: list = None) -> list:
     """Post-process the raw reviewer output before persistence + gating.
 
     Protections, all observed misbehaviours on real bundles:
@@ -374,7 +396,8 @@ def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> lis
         # A finding that says the sentence is correct and still rates it an
         # error cannot block ("The sentence correctly reports the value and
         # unit", severity error, 16 Oct 2026).
-        if severity == "error" and _SELF_CONTRADICTING_FINDING.search(f.get("finding") or ""):
+        if severity == "error" and (_SELF_CONTRADICTING_FINDING.search(f.get("finding") or "")
+                                    or _paraphrases_named_event(f.get("finding") or "", named_events)):
             f["severity"] = "warning"
             f["finding"] = (f.get("finding") or "") + "  [auto-demoted: the finding itself says the sentence is correct]"
             severity = "warning"
@@ -1749,6 +1772,7 @@ async def run_pipeline(
         findings = _sanitize_review_findings(
             findings,
             exec_letter=(exec_summary or {}).get("letter") if isinstance(exec_summary, dict) else None,
+            named_events=review_payload.get("named_events"),
         )
         summary = (review_result or {}).get("summary") or {}
         # Recount severities post-sanitisation so the verdict reflects the
