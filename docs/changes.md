@@ -236,10 +236,47 @@ Restarts: bugfixing done. The eight active sites were queued through
 `restart_when_quiet.sh --max 60` at 10:48 after the auto-mode classifier blocked the first
 attempt. abm 10:50, aisecurity 10:51, oviva 10:52, panaya 10:53, sunstar 10:54, wbm 10:56 and
 wiley 11:06 restarted quiet with no tracebacks. wileytest did not restart within the hour (two
-users on the site and ingest running the whole time); requeued at 12:17 with `--max 180`. Its
-restart fires the forecast tracker's assess auto-run, as every restart there does. bwtemplate is
-inactive, files only. The change is not committed on any site but bugfixing, as usual for the
+users on the site and ingest running the whole time); requeued at 12:17 with `--max 180`, it
+restarted quiet at 14:49 with no tracebacks, 26 tools listed and `check_ai_tells` resolving in
+that venv. Its restart fires the forecast tracker's assess auto-run, as every restart there does.
+bwtemplate is inactive, files only. The change is not committed on any site but bugfixing, as usual for the
 deploy copies.
+
+### Incident: `docs/changes.md` emptied four times in one day by a prepend one-liner
+At 09:57, 12:15, 13:55 and 14:49 CEST the working copy of `docs/changes.md` in the bugfixing
+tree was cut to a single entry (44, 50 and 33 lines on the three occasions we measured; the
+third was not inspected before the fourth overwrote it). HEAD was never damaged: 34,021 lines at
+a0e6ee96, 34,370 at 86f03307. Nothing else was lost on disk.
+
+The cause is one line in another Claude session's documentation step (transcript
+`0baf2df9`), run from a Python heredoc each time it prepended its entry:
+
+```python
+open(live, "w").write(entry + open(live).read())
+```
+
+Python evaluates `open(live, "w")` first, which truncates the file, and only then evaluates
+the argument, so the inner read returns an empty string and the file ends up holding only the
+new entry. Reproduced on a scratch file. That session's commits were intact because it staged
+the file from `git show HEAD:docs/changes.md` through `git apply --cached`, so the damage was
+confined to the working copy and to whatever other sessions had written there but not yet
+committed. No script, cron job or hook was involved; `git log --diff-filter` and the systemd
+journals were checked for other writers and showed none.
+
+Recovery, each time: `git show HEAD:docs/changes.md` to a scratch file, copy it over the
+working copy, re-apply the uncommitted entries (this entry and the news-feed dates entry were
+both recovered that way before a0e6ee96; the wileytest sentence above was re-applied after the
+14:49 run). The emptied copies are kept in this session's scratchpad as
+`changes_truncated_backup.md` and `changes_truncated_backup_1449.md`.
+
+Guards: the `session-docs` skill (`/root/.claude/skills/session-docs/SKILL.md`, outside this
+repo, not propagated to any tenant) now carries a "How to prepend safely" block at its prepend
+step with the `cat entry docs/changes.md > new && cp new docs/changes.md` pattern, the
+dangerous line called out by name, and a `wc -l` must-grow check after every prepend. A memory
+note (`reference_changes_md_truncation_open_w.md`) covers sessions that write the changelog
+without the skill. The fourth run came after the skill patch: a session that already holds the
+one-liner in its context keeps using it, so the patch protects only sessions that load the
+skill fresh.
 
 ### Lessons
 - For AI tells, the fix is a detector pass plus a targeted rewrite of the flagged spans, or a
@@ -248,6 +285,9 @@ deploy copies.
   counting formatting rules as tells.
 - Two detectors can fire on the same span (bold pseudo-heading, excessive bold). The count
   overstates the work; the span list is what to act on.
+- NEVER prepend to a file with `open(p, "w").write(x + open(p).read())`. Build the new file in
+  a scratch path and copy it over, then check `wc -l` grew. A clean commit does not prove the
+  working copy is intact when the commit was staged from HEAD.
 
 ## 2026-10-16 — News feed dates on wileytest and wiley: one shape for `publication_date`
 
