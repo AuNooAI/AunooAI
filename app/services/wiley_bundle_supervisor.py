@@ -357,9 +357,12 @@ def _sanitize_review_findings(findings: list, *, exec_letter: str = None) -> lis
         # Drop the "meta-commentary opener" finding when it is only the
         # mandated "**The bottom line.**" label being read as a sentence.
         finding_text = (f.get("finding") or "").lower()
+        # The same judge also called a sentence that names an actor and an
+        # action ("OpenAI published 722 manuscripts on GitHub on 7 October")
+        # meta-commentary on 16 Oct 2026, so the check is on the sentence
+        # itself, not on whether the finding mentions the label.
         if ("exec_summary" in artefact and exec_letter
                 and "meta-commentary" in finding_text
-                and "bottom line" in finding_text
                 and not _META_OPENER_RE.match(_letter_opening_sentence(exec_letter))):
             continue
 
