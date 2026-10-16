@@ -41,7 +41,15 @@ Flag a sentence when:
   topic is about rather than for the organisation receiving the briefing;
 - **unsupported**: a named development, figure or date that no event in the
   ledger states (dates and figures are also checked deterministically; your
-  job is the claims around them).
+  job is the claims around them). A sentence that transfers an event to a
+  different target or sector is `absent`: agents that accessed government
+  websites are not "intrusions into peer review systems". A figure must keep
+  the meaning the ledger gives it: a market size is not a deal value, "up to"
+  is not "paid". A duration ("within two days") must follow from the ledger's
+  dates. A count or sweep about scenarios ("all five too early", "four of
+  five stable") must match the ledger `status` of each scenario; the words
+  Strengthening, Stable and Cooling are not statuses and a sentence using them
+  as the assessment is a `metric` error.
 
 Severity: `error` when a reader would take away a false fact or a wrong
 status; `warning` for emphasis, phrasing and anything debatable. Do not

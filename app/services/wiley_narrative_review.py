@@ -59,6 +59,38 @@ def _segments(items: list, payload: dict) -> List[dict]:
             if isinstance(th.get(key), str) and th[key].strip():
                 segs.append({"target": f"cross_topic.cross_cutting_themes[{i}].{key}", "topic": None,
                              "kind": "bundle", "path": f"cross_cutting_themes[{i}].{key}", "text": th[key]})
+    for i, dfw in enumerate(payload.get("executive_decision_framework") or []):
+        if not isinstance(dfw, dict):
+            continue
+        for key in ("headline", "body"):
+            if isinstance(dfw.get(key), str) and dfw[key].strip():
+                segs.append({"target": f"decision_framework[{i}].{key}", "topic": None, "kind": "bundle",
+                             "path": f"executive_decision_framework[{i}].{key}", "text": dfw[key]})
+    # Per-scenario key signals and strategic imperatives are narrative too;
+    # they print on the strategic-domain and scenario slides and had never
+    # been reviewed (a market size called a "deal", 16 Oct 2026).
+    for a, _r, _p in items:
+        topic = a.get("topic") or "—"
+        aid = a.get("id")
+        for v in (a.get("scenario_verdicts") or []):
+            syn = v.get("synthesis")
+            if isinstance(syn, str):
+                try:
+                    syn = json.loads(syn)
+                except Exception:
+                    syn = None
+            if not isinstance(syn, dict) or v.get("scenario_idx") is None:
+                continue
+            name = ((v.get("top_articles") or {}).get("deck_info") or {}).get("deck_scenario_name") or v.get("scenario_title") or "?"
+            base = {"topic": topic, "kind": "verdict", "assessment_id": aid, "scenario_idx": v.get("scenario_idx")}
+            for j, sig in enumerate(syn.get("key_signals") or []):
+                if isinstance(sig, str) and sig.strip():
+                    segs.append({**base, "target": f"{topic}.scenario[{name}].key_signals[{j}]",
+                                 "path": f"key_signals[{j}]", "text": sig})
+            imp = syn.get("strategic_imperative")
+            if isinstance(imp, str) and imp.strip():
+                segs.append({**base, "target": f"{topic}.scenario[{name}].imperative",
+                             "path": "strategic_imperative", "text": imp})
     if isinstance(payload.get("strategic_overview"), str) and payload["strategic_overview"].strip():
         segs.append({"target": "strategic_overview", "topic": None, "kind": "bundle",
                      "path": "strategic_overview", "text": payload["strategic_overview"]})
@@ -103,7 +135,9 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
                     t = art.get("title") or art.get("headline") if isinstance(art, dict) else str(art)
                     if t and t not in arts:
                         arts.append(str(t))
-        out[topic] = {"scenarios": scen, "events": events, "articles": arts[:60],
+        # Events only. Article titles were allowed for a while and let the
+        # writers cite "supporting articles" the slides never show.
+        out[topic] = {"scenarios": scen, "events": events,
                       "tail_risks": [s.get("title") for s in eos if isinstance(s, dict) and s.get("title")]}
     return out
 
@@ -138,7 +172,6 @@ def _facts(ledger_topics: List[dict], extra_numbers: List = ()) -> Tuple[set, se
                       "supports", "contradicts"):
                 nums.update(_fmt_num(s.get(k)))
         parts.extend(str(t) for t in (lt.get("tail_risks") or []))
-        parts.extend(str(t) for t in (lt.get("articles") or []))
     for v in extra_numbers:
         nums.update(_fmt_num(v))
     corpus = " ".join(parts)
@@ -264,6 +297,19 @@ def _merge(preflight_f: List[dict], judge_f: List[dict]) -> List[dict]:
     return out
 
 
+def _write_verdict_field(db, assessment_id, scenario_idx, path: str, value: str) -> None:
+    """Write one field of a scenario's synthesis (key_signals[j] or
+    strategic_imperative) on forecast_scenario_verdicts."""
+    from sqlalchemy import text as sa_text
+    m = re.match(r"^(key_signals)\[(\d+)\]$", path)
+    jpath = "{%s,%s}" % (m.group(1), m.group(2)) if m else "{%s}" % path
+    db.facade._execute_with_rollback(sa_text(
+        "UPDATE forecast_scenario_verdicts SET synthesis = jsonb_set("
+        "CASE WHEN jsonb_typeof(synthesis)='string' THEN (synthesis #>> '{}')::jsonb ELSE synthesis END, "
+        ":p, to_jsonb(CAST(:v AS text)), true) WHERE assessment_id=:a AND scenario_idx=:i"),
+        {"p": jpath, "v": value, "a": assessment_id, "i": scenario_idx})
+
+
 # ── Orchestration ──────────────────────────────────────────────────────
 
 async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int = MAX_ROUNDS,
@@ -318,6 +364,8 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
                         if seg["kind"] == "topic":
                             db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
                                                                 path=seg["path"], value=seg["text"], edited_by="narrative-repair-revert", lock=False)
+                        elif seg["kind"] == "verdict":
+                            _write_verdict_field(db, seg["assessment_id"], seg["scenario_idx"], seg["path"], seg["text"])
                         else:
                             db.facade.patch_brief_field(cadence, period_label, path=seg["path"], value=seg["text"],
                                                         edited_by="narrative-repair-revert", lock=False)
@@ -393,6 +441,8 @@ async def _repair_with_cadence(db, cadence, period_label, segments, findings, le
             if seg["kind"] == "topic":
                 db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
                                                     path=seg["path"], value=new, edited_by="narrative-repair", lock=False)
+            elif seg["kind"] == "verdict":
+                _write_verdict_field(db, seg["assessment_id"], seg["scenario_idx"], seg["path"], new)
             else:
                 db.facade.patch_brief_field(cadence, period_label, path=seg["path"], value=new,
                                             edited_by="narrative-repair", lock=False)

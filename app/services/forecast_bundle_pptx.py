@@ -223,7 +223,7 @@ def build_bundle_pptx(
                     _add_surprise_cluster_slide(prs, sur)
 
             # Narrative interpretation AFTER the data.
-            _add_key_insights_slide(prs, assessment, prior)
+            _add_key_insights_slide(prs, assessment, prior, events=topic_events)
             _add_strategic_recommendations_slide(prs, assessment)
             _add_next_steps_slide(prs, assessment)
         elif updates_only and not prior:
@@ -252,7 +252,7 @@ def build_bundle_pptx(
                 _add_surprises_divider(prs, surprises)
                 for sur in sorted(surprises, key=lambda s: -(s.get("size") or 0)):
                     _add_surprise_cluster_slide(prs, sur)
-            _add_key_insights_slide(prs, assessment, None)
+            _add_key_insights_slide(prs, assessment, None, events=topic_events)
             _add_strategic_recommendations_slide(prs, assessment)
             _add_next_steps_slide(prs, assessment)
         else:

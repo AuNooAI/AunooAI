@@ -522,8 +522,9 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
             "current_consensus_pct": v.get("current_consensus_pct"),
             "supports": v.get("supports") or 0,
             "contradicts": v.get("contradicts") or 0,
-            "top_supports": (v.get("top_articles") or {}).get("supports") or [],
-            "top_contras": (v.get("top_articles") or {}).get("contradicts") or [],
+            # Events only; the article titles that used to sit here made the
+            # writers name "supporting articles" the evidence slides do not
+            # show (16 Oct 2026 round-four review, slide 74 vs 78).
         })
 
     # Status distribution + biggest mover
