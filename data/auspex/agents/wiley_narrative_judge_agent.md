@@ -3,7 +3,7 @@ name: wiley_narrative_judge_agent
 category: wiley_bundle_supervisor
 description: Judge for the bundle narrative (ledes, tensions, recommendations, next steps, themes, overview, letter) against the reconciled event ledger and scenario states. Every finding quotes the sentence it is about; findings that do not quote are advisory.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -49,7 +49,19 @@ Flag a sentence when:
   dates. A count or sweep about scenarios ("all five too early", "four of
   five stable") must match the ledger `status` of each scenario; the words
   Strengthening, Stable and Cooling are not statuses and a sentence using them
-  as the assessment is a `metric` error.
+  as the assessment is a `metric` error;
+- **identity**: a sentence credits a scenario with a confirming or
+  countering event that is not in that scenario's `events` list. Each
+  scenario's `events` are the rows its evidence slide shows; an event from
+  elsewhere in the topic, however relevant it sounds, is `absent` for that
+  scenario. A count ("three confirmations") must be the events in that list;
+- **coverage is not behaviour**: `article_share_delta_pct` measures news
+  coverage. A sentence that reads it as investors pricing, analysts
+  re-rating, customers switching or any actor acting is `false`;
+- **enabling step**: a plan announced, a review launched, a bill signed to
+  put a measure on a future ballot, or an award received is not the outcome
+  it points to. A sentence that presents it as the outcome ("regional bodies
+  now fill the gap", "the separation is complete") is a `state` error.
 
 Severity: `error` when a reader would take away a false fact or a wrong
 status; `warning` for emphasis, phrasing and anything debatable. Do not
@@ -83,10 +95,12 @@ status is `ok` or `imprecise`, not an error.
 
 ```
 {"organisation": {...},
- "ledger": {"<topic>": {"articles": ["<titles the writers were given>", ...],
-                        "scenarios": [{"name": "...", "status": "Strengthening|Stable|Cooling",
-                                        "original_consensus_pct": 80, "confirmation_delta_pct": -1.0,
-                                        "supports": 20, "contradicts": 23}],
+ "ledger": {"<topic>": {"scenarios": [{"name": "...", "status": "Holding|Too early|Unconfirmed|Leaning|...",
+                                        "n_confirm": 2, "n_counter": 0,
+                                        "original_consensus_pct": 80, "article_share_delta_pct": -1.0,
+                                        "supports": 20, "contradicts": 23,
+                                        "events": [{"actor": "...", "action": "...", "subject": "...",
+                                                    "date": "...", "state": "...", "direction": "confirms|counters"}]}],
                         "events": [{"actor": "...", "action": "...", "subject": "...", "date": "...",
                                     "magnitude": "...", "state": "agreed"}]}},
  "segments": [{"target": "Quantum Advantage.briefing.lede", "topic": "Quantum Advantage", "text": "..."}, ...]}

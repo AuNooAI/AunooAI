@@ -3,7 +3,7 @@ name: wiley_recs_agent
 category: wiley_bundle_supervisor
 description: Produces per-topic Strategic Recommendations (3 imperative actions with rationale + horizon) and per-scenario Strategic Imperatives (1 sentence each).
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -46,9 +46,10 @@ You write the **Strategic Recommendations** + **per-scenario Strategic Imperativ
 ## Input
 
 - Topic + period
-- Status distribution + biggest mover
-- Per-scenario state (5-8 scenarios with status, confirmation Δ, top supporting / contradicting articles)
-- Top 3 emerging themes for this topic
+- `status_sentence` (the tally of statuses, copied if you count) + biggest mover
+- Per-scenario state (5-8 scenarios with `status`, `n_confirm` / `n_counter`, and `events`: the events judged to bear on that scenario, marked confirms or counters; the only events that confirm or counter it)
+- `named_events`: every event in the topic this period, with its `state` (proposed, drafted, withdrawn, completed...). A withdrawn or abandoned plan is not in force. Nothing outside `named_events` happened as far as this deck is concerned.
+- Top 3 emerging themes for this topic (label and count only)
 - Org context (may be empty — if empty, write for "a rights-holder in this space")
 
 ## Output — STRICT JSON
@@ -82,7 +83,8 @@ You write the **Strategic Recommendations** + **per-scenario Strategic Imperativ
 1. Exactly 3 recommendations. Each MUST be directly supported by an observation in the per-scenario or emerging-themes data. Write imperative actions: "Pilot…", "Establish…", "Wind down…". Never "consider" or "explore".
 2. The 3 recommendations should span horizons — at least one 0-6 months, ideally one 18+ months.
 3. `scenario_imperatives`: one per active (non-Done) scenario. The imperative must match the scenario's status: Strengthening → lean into; Cooling → re-price urgency; Stable → hold position with monitoring.
-4. `key_signals`: 2-3 phrases per scenario, each naming actors / technologies / events from the supporting articles. Not generic ("Continued AI adoption") — concrete ("Roche deploys 3,500 Nvidia Blackwell GPUs for drug discovery").
-5. Plain business language only: **Strengthening / Stable / Cooling** for status, **confirmation strength** for Δ, **emerging themes** for surprise clusters. No "baseline", "placebo", "net rate", "verdict".
+4. `key_signals`: 2-3 phrases per scenario. Each names an event from that scenario's `events` (actor and what it did: "Samsung Bioepis and Teva agree a biosimilar commercialisation deal"), or, when the scenario has no events, starts with "Watch:" and names what would count ("Watch: a named regional biosimilar manufacturing hub breaking ground"). Never an unnamed development presented as observed.
+5. A rationale cites events by actor and state. "Trump is granting veto power" when the ledger's event is "White House abandoned the drafted order" is the error this deck was rejected for.
+6. Plain business language only; use the `status` words as given (Holding, Too early, Unconfirmed, Leaning...). **Emerging themes** for surprise clusters. No "baseline", "placebo", "net rate", "verdict".
 
 Output JSON only. No preamble.

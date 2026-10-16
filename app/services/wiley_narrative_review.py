@@ -82,7 +82,8 @@ def _segments(items: list, payload: dict) -> List[dict]:
             if not isinstance(syn, dict) or v.get("scenario_idx") is None:
                 continue
             name = ((v.get("top_articles") or {}).get("deck_info") or {}).get("deck_scenario_name") or v.get("scenario_title") or "?"
-            base = {"topic": topic, "kind": "verdict", "assessment_id": aid, "scenario_idx": v.get("scenario_idx")}
+            base = {"topic": topic, "kind": "verdict", "assessment_id": aid, "scenario_idx": v.get("scenario_idx"),
+                    "scenario_name": name}
             for j, sig in enumerate(syn.get("key_signals") or []):
                 if isinstance(sig, str) and sig.strip():
                     segs.append({**base, "target": f"{topic}.scenario[{name}].key_signals[{j}]",
@@ -110,9 +111,12 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
         topic = a.get("topic") or "—"
         evs = events_by_topic.get(topic) or []
         data = _topic_data_payload(a, named_events=evs)
+        # Each scenario lists the events judged to bear on it, the rows its
+        # evidence slide shows. A synthesis that credits a scenario with any
+        # other event is substituting evidence (fifth review, 16 Oct 2026, F04).
         scen = [{k: s.get(k) for k in ("name", "status", "read", "n_confirm", "n_counter",
                                         "original_consensus_pct", "article_share_delta_pct",
-                                        "supports", "contradicts")}
+                                        "supports", "contradicts", "events")}
                 for s in (data.get("scenarios") or [])]
         events = []
         for e in evs:
@@ -217,6 +221,173 @@ def _sweep_findings(seg: dict, scen: list) -> List[dict]:
     return out
 
 
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+              "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+              "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "a single": 1}
+_STATUS_ALT = "too early|unconfirmed|holding|in doubt|leaning|contested|outlier confirming|not bearing out"
+_COUNT = re.compile(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                    r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|a single)\s+"
+                    r"(?:of\s+(?:the\s+)?(?:\d+|\w+)\s+)?(?:scenarios?\s+|trends?\s+|forecasts?\s+)?"
+                    r"(?:(?:are|is|remain|remains|remaining|now|still|currently|already|rated|read|reading|as|"
+                    r"sit|sits|sitting|stand|stands|standing|that are|which are)\s+)*"
+                    r"(" + _STATUS_ALT + r")\b", re.I)
+_SILENCE = re.compile(r"\b(?:no|zero|without any|absent any)\s+(?:(named|confirming|countering|counter|judged|"
+                      r"supporting|recorded|observed)\s+)?events?\b|\bleft no mark\b|\bevent silence\b|"
+                      r"\bno activity\b|\bno (?:event )?record(?:ed)?\b|\bhas not registered\b|"
+                      r"\bnot registered (?:a single|any) event", re.I)
+_REMAINING = re.compile(r"\b(?:remaining|other|rest of the)\s+(?:\w+\s+)?scenarios\b", re.I)
+_POINTS = re.compile(r"(\d+(?:\.\d+)?)[\s-]*(?:percentage[\s-]*)?points?\b", re.I)
+
+
+def _status_counts(scen: list) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    for sc in scen:
+        st = str(sc.get("status") or "").strip().lower()
+        if st:
+            out[st] = out.get(st, 0) + 1
+    return out
+
+
+def _count_findings(seg: dict, scen: list, per_topic: Optional[List[list]] = None) -> List[dict]:
+    """'Two holding, three too early' must be the ledger's tally. The
+    fifth review (16 Oct 2026, F03) found six topic syntheses whose counts
+    matched no evidence slide; the judge had let every one through.
+    A bundle-level sentence may count one topic's scenarios, so it passes
+    when the figure matches the bundle tally or any one topic's."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    counts = _status_counts(scen)
+    if not counts:
+        return out
+    alt = [_status_counts(s) for s in (per_topic or [])]
+    for sent in _sentences(seg["text"]):
+        for m in _COUNT.finditer(sent):
+            raw = m.group(1).lower()
+            n = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw)
+            st = m.group(2).lower()
+            if n is None or n > 60:
+                continue
+            if any(c.get(st, 0) == n for c in alt):
+                continue
+            if counts.get(st, 0) != n:
+                tally = ", ".join(f"{v} {k}" for k, v in counts.items())
+                out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
+                            "finding": f"The sentence counts {n} scenario(s) as '{st}'; the ledger has {counts.get(st, 0)} ({tally}).",
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": f"Use the ledger tally: {tally}."})
+                break
+    return out
+
+
+def _silence_findings(seg: dict, scen: list) -> List[dict]:
+    """'No events' about a scenario whose ledger lists them, a headline
+    saying the topic has no events when three ledgers carry one each, or
+    'the remaining scenarios left no mark' when only one is Too early
+    (fifth review, F03, slides 74 and 87)."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    if not scen:
+        return out
+    with_events = [sc for sc in scen if (sc.get("n_confirm") or 0) + (sc.get("n_counter") or 0) > 0]
+    without = [sc for sc in scen if sc not in with_events]
+    is_headline = seg["target"].endswith(".headline")
+    for sent in _sentences(seg["text"]):
+        m = _SILENCE.search(sent)
+        if not m:
+            continue
+        # "no countering events" is about one direction: wrong only when the
+        # scenario has countering events; "no confirming events" likewise.
+        qual = (m.group(1) or "").lower()
+        if qual in ("countering", "counter"):
+            def _has(sc): return (sc.get("n_counter") or 0) > 0
+        elif qual in ("confirming", "supporting"):
+            def _has(sc): return (sc.get("n_confirm") or 0) > 0
+        else:
+            def _has(sc): return sc in with_events
+        low = sent.lower()
+        named = [sc for sc in scen if len(str(sc.get("name") or "")) > 3 and str(sc.get("name")).lower() in low]
+        bad = [sc for sc in named if _has(sc)]
+        if qual and not named:
+            continue
+        why = None
+        if bad:
+            why = "; ".join(f"'{sc.get('name')}' has {sc.get('n_confirm')} confirming and {sc.get('n_counter')} countering events" for sc in bad)
+        elif not named and is_headline and with_events:
+            why = f"{len(with_events)} of {len(scen)} scenarios have judged events"
+        elif not named and _REMAINING.search(sent) and len(without) < 2:
+            why = f"only {len(without)} scenario is without events ({', '.join(sc.get('name') or '?' for sc in without) or 'none'})"
+        if why:
+            out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
+                        "finding": f"The sentence says there are no events, but {why}.",
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": "Name the scenarios that are Too early, and only those."})
+    return out
+
+
+def _points_findings(seg: dict, scen_all: list) -> List[dict]:
+    """'N points' is the article-share delta and nothing else. A lede quoted
+    a ten-event count as '10 points above its placebo baseline' while the
+    delta was 2.18, and the figure check passed the 10 because the event
+    count carried it (fifth review, F05)."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    deltas = set()
+    for sc in scen_all:
+        for v in _fmt_num(sc.get("article_share_delta_pct")):
+            deltas.add(v)
+    if not deltas:
+        return out
+    for sent in _sentences(seg["text"]):
+        for m in _POINTS.finditer(sent):
+            before = sent[max(0, m.start() - 12):m.start()].lower()
+            if "basis" in before or "price" in before:
+                continue
+            n = m.group(1)
+            if n in deltas or f"{float(n):g}" in deltas:
+                continue
+            shown = sorted({sc.get("article_share_delta_pct") for sc in scen_all if sc.get("article_share_delta_pct") is not None})
+            out.append({"target": seg["target"], "severity": "error", "check": "metric",
+                        "finding": f"The sentence quotes {n} points; no article-share delta in the ledger is {n} (deltas: {shown[:12]}).",
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": "Quote the scenario's article_share_delta_pct as 'N points above/below its placebo baseline', or drop the points figure. An event count is not points."})
+            break
+    return out
+
+
+_SIGNAL_STOP = {"with", "from", "that", "this", "into", "over", "under", "after", "before", "their", "will",
+                "have", "been", "more", "than", "when", "where", "which", "what", "about", "across", "through",
+                "launch", "launches", "launched", "announce", "announces", "announced", "report", "reports",
+                "reported", "new", "major", "first", "signal", "signals", "watch", "quantum", "research",
+                "funding", "federal", "open", "science", "publishing", "model", "models", "data", "policy"}
+
+
+def _signal_findings(seg: dict, scen: list, topic_events: list) -> List[dict]:
+    """A key signal names an event from the scenario's ledger, or is marked
+    'Watch:' as something to look for. An unnamed 'regional biosimilar
+    manufacturing hub' presented as a signal is a claim with no event behind
+    it (fifth review, F07)."""
+    text = (seg.get("text") or "").strip()
+    if text.lower().startswith("watch"):
+        return []
+    words = {w for w in _WORD.findall(text.lower()) if len(w) > 3 and w not in _SIGNAL_STOP}
+    nums = set(re.findall(r"\d[\d.,]*", text))
+    if not words:
+        return []
+    name = str(seg.get("scenario_name") or "").lower()
+    own = next((sc for sc in scen if str(sc.get("name") or "").lower() == name), None)
+    pools = [("scenario", (own or {}).get("events") or []), ("topic", topic_events or [])]
+    for label, evs in pools:
+        for e in evs:
+            etext = " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject", "magnitude")).lower()
+            etoks = set(_WORD.findall(etext))
+            if len(words & etoks) >= 2 or (nums and nums & set(re.findall(r"\d[\d.,]*", etext)) and words & etoks):
+                return []
+    return [{"target": seg["target"], "severity": "error", "check": "unsupported",
+             "finding": "The key signal names no event in this scenario's ledger (or the topic's), and is not marked as a watch item.",
+             "claim_text": text, "source": "preflight",
+             "suggested_fix": "Name an event from this scenario's `events` (actor and what it did), or start the phrase with 'Watch:' so it reads as something to look for rather than something observed."}]
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -224,9 +395,22 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
     facts_all = _facts(all_topics, extra_numbers)
     facts_by_topic = {t: _facts([lt], extra_numbers) for t, lt in ledger.items()}
     findings: List[dict] = []
+    scen_all = [sc for lt in all_topics for sc in (lt.get("scenarios") or [])]
     for seg in segments:
         if seg.get("kind") == "topic" and seg.get("topic") in ledger:
-            findings.extend(_sweep_findings(seg, ledger[seg["topic"]].get("scenarios") or []))
+            scen = ledger[seg["topic"]].get("scenarios") or []
+            findings.extend(_sweep_findings(seg, scen))
+            findings.extend(_count_findings(seg, scen))
+            findings.extend(_silence_findings(seg, scen))
+            findings.extend(_points_findings(seg, scen))
+        elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
+            scen = ledger[seg["topic"]].get("scenarios") or []
+            findings.extend(_points_findings(seg, scen))
+            if "key_signals[" in seg.get("path", ""):
+                findings.extend(_signal_findings(seg, scen, ledger[seg["topic"]].get("events") or []))
+        else:
+            findings.extend(_count_findings(seg, scen_all, per_topic=[lt.get("scenarios") or [] for lt in all_topics]))
+            findings.extend(_points_findings(seg, scen_all))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all
@@ -300,7 +484,11 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
     return _quote_gate((out or {}).get("findings") or [], segments)
 
 
-_PREFLIGHT_OWNED = {"metric", "date", "figure"}
+# Dates and bare figures belong to the preflight. "metric" was in this set
+# and demoted the judge's correct "10 points vs a delta of 2.18" to advisory
+# because the figure check had matched the 10 to an event count (fifth
+# review, 16 Oct 2026, F05); the points check above now owns that case.
+_PREFLIGHT_OWNED = {"date", "figure"}
 _SELF_CONTRADICTING = re.compile(
     r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
     r"which matches|exactly as stated|is appropriate|which is appropriate|verb|singular|plural|grammatical)\b", re.I)

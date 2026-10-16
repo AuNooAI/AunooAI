@@ -1082,6 +1082,14 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
     for ei, e in enumerate(rows):
         old = _normalize_scenario_relevance(e.get("scenario_relevance"))
         new = by_event.get(ei, [])
+        # A link an analyst set by hand carries "locked": true and survives
+        # re-judging; the judges rebuilt every link from scratch and lost the
+        # restored NIH counter-link (fifth review, 16 Oct 2026, F02).
+        locked = [x for x in (e.get("scenario_relevance") or []) if isinstance(x, dict) and x.get("locked")]
+        if locked:
+            lk = {(str(x.get("scenario") or "").lower()) for x in locked}
+            new = [x for x in new if x["scenario"].lower() not in lk] + locked
+            by_event[ei] = new
         new_keys = {(x["scenario"].lower(), x["direction"]) for x in new}
         for o in old:
             if (o["scenario"].lower(), o["direction"]) in new_keys:

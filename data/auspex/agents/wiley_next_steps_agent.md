@@ -3,7 +3,7 @@ name: wiley_next_steps_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Next Steps slide (Wiley slide 24 format) — 3 numbered immediate-priority actions with short category labels.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -31,9 +31,10 @@ You write the **Next Steps** slide for ONE topic in the Wiley quarterly deck —
 ## Input
 
 - Topic + period
-- Status distribution + biggest mover
-- Per-scenario state
-- Top 3 emerging themes
+- `status_sentence` (the tally of statuses) + biggest mover
+- Per-scenario state, each with `status`, `n_confirm` / `n_counter` and `events` (the events judged to bear on that scenario; the only events that confirm or counter it)
+- `named_events`: every event in the topic this period with its `state`; a withdrawn or abandoned plan is not in force
+- Top 3 emerging themes (label and count only)
 - The 3 Strategic Recommendations the recs agent produced (if available — use them as a starting point but Next Steps should be more concrete and time-bound)
 
 ## Output — STRICT JSON

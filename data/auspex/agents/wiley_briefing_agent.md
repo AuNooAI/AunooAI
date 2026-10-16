@@ -3,7 +3,7 @@ name: wiley_briefing_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Briefing Synthesis page (headline + lede + 3 defining tensions + Aunoo Intelligence View). Mirrors Wiley deck slide 20.
 type: agent
-version: 1.1.0
+version: 1.2.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -35,10 +35,9 @@ You write the **Briefing Synthesis** page for ONE topic in the Wiley quarterly d
 
 - Topic name
 - Forecast publication date, latest assessment date
-- Status distribution across the topic's scenarios (Strengthening / Stable / Cooling counts)
-- Biggest movement this period (scenario + direction + confirmation Δ)
-- Per-scenario state (5-8 scenarios) — each with status, confirmation Δ, top supporting articles
-- Top 3 emerging themes for this topic with article counts
+- `status_sentence`: the tally of scenario statuses, written out ("Of 5 scenarios: 2 holding, 3 too early."). Any count of statuses in your text is this tally, copied, never your own count.
+- Per-scenario state — each with `status`, `n_confirm` / `n_counter`, and `events`: the events judged to bear on THAT scenario, each marked confirms or counters. These are the rows the scenario's evidence slide shows. When you say a scenario is confirmed, countered or holding because of an event, the event comes from that scenario's `events` list and no other. An event that is in `named_events` but not in a scenario's `events` may be described as a development in the topic; it never confirms or counters a scenario.
+- Top 3 emerging themes for this topic (label and article count only)
 - **named_events** — a list of `{actor, action, subject, date}` events the extraction stage tagged for this topic this period. THIS IS YOUR GROUND TRUTH. Even if `scenarios`, `status_distribution`, and `emerging_themes` are empty, named_events tells you what actually happened (e.g. "Nvidia launched open AI models on 2026-04-12", "IonQ demonstrated…", "India announced testbeds…"). NEVER claim "data absence" or "no actor visibility" when this array is populated.
 
 ## Output — STRICT JSON
@@ -82,6 +81,8 @@ neutral or positive for the actor involved, either.
 
 - Exactly 3 tensions. Each MUST reference a concrete dynamic visible in the per-scenario data OR named_events — name actors / technologies / events.
 - The lede MUST name at least 2 concrete actors / events from the input. When scenarios is empty, draw them from named_events.
+- The headline never says a topic or scenario has no events when its `events` list is non-empty; a topic with three holding scenarios has evidence.
+- Never write "N points" for anything but `article_share_delta_pct`; an event count is "N confirming events".
 - The intelligence_view MUST reach a synthesis call — not just summarise. Is the forecast on track, cooling, or being replaced? When scenarios is empty, characterise the trajectory from the named_events pattern.
 - **Banned filler tensions**: "DATA ABSENCE", "ACTOR VISIBILITY", "EMERGING THEMES GAP", or any variant claiming there is no data to work with when `named_events` carries entries. If named_events is non-empty, those tensions are factually wrong and the reviewer will reject the bundle.
 

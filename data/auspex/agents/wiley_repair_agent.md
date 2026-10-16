@@ -3,7 +3,7 @@ name: wiley_repair_agent
 category: wiley_bundle_supervisor
 description: Targeted repair of narrative segments after review. Rewrites only the sentences the findings quote, using only the facts in the ledger, and returns each segment in full.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.2
@@ -37,6 +37,15 @@ Rules:
   A scenario or article title that contains one goes in double quotes.
 - Keep each segment's length within about a fifth of the original. No new
   developments, no new figures, no new dates.
+- A sentence that credits a scenario with an event takes the event from that
+  scenario's `events` list in the ledger, nothing else. A count of
+  confirming or countering events is the length of that list. A tally of
+  statuses ("two holding, three too early") is counted from the ledger's
+  `status` values.
+- A key signal (target `...key_signals[n]`) is a short phrase. Repair it by
+  naming an event from the scenario's `events` (actor and what it did), or,
+  when the scenario has none, by starting it with "Watch:" so it reads as
+  something to look for. Never leave an unnamed development as a signal.
 
 ## Input
 

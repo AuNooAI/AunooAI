@@ -1609,16 +1609,22 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
 
     tensions = briefing.get("tensions") or []
     ty = 1.95
+    notes_parts = []
     for t in tensions[:3]:
         name = (t.get("name") or "").upper()
         body = t.get("body") or ""
-        # Three tensions must share 3.3 inches; a long body ran under the
-        # next heading (16 Oct 2026 review, slides 43 and 56).
+        # Three tensions share 3.3 inches. Whole sentences up to ~300
+        # characters fit four lines at 9.5pt in a 4.2-inch box; the full
+        # body goes to the notes rather than shrinking the type (fifth
+        # review, 16 Oct 2026, F08, slide 28).
+        shown = _fit_sentences(body, 300)
+        if shown != body.strip():
+            notes_parts.append(f"{name}: {body}")
         _text(slide, x=0.7, y=ty, w=4.2, h=0.25,
               text=_truncate(name, 60), font_size=10, bold=True, color=WILEY_TEAL)
         _text(slide, x=0.7, y=ty+0.26, w=4.2, h=0.78,
-              text=_truncate(body, 200), font_size=8.5, color=WILEY_BODY, line_spacing=1.2,
-              shrink_to_fit=True)
+              text=shown, font_size=9.5, color=WILEY_BODY, line_spacing=1.15,
+              shrink_to_fit=False)
         ty += 1.08
 
     # ── Right panel: The Aunoo Intelligence View ─────────────────────
@@ -1639,9 +1645,21 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
         paragraphs.append(lede)
     if iv:
         paragraphs.append(iv)
-    full_text = "\n\n".join(paragraphs)
-    _text(slide, x=5.3, y=1.95, w=4.0, h=3.2, text=_truncate(full_text, 900),
-          font_size=9, color=WILEY_BODY, line_spacing=1.25, shrink_to_fit=True)
+    # Lede and view are fitted separately so the view always keeps its
+    # synthesis call; together they fill 3.2 inches at 9.5pt (about 1,050
+    # characters). Overflow goes to the notes.
+    lede_shown = _fit_sentences(lede, 560)
+    iv_shown = _fit_sentences(iv, 1050 - len(lede_shown))
+    if lede_shown != lede or iv_shown != iv:
+        notes_parts.append("FULL SYNTHESIS: " + "\n\n".join(paragraphs))
+    full_text = "\n\n".join(p for p in (lede_shown, iv_shown) if p)
+    _text(slide, x=5.3, y=1.95, w=4.0, h=3.2, text=full_text,
+          font_size=9.5, color=WILEY_BODY, line_spacing=1.2, shrink_to_fit=True)
+    if notes_parts:
+        try:
+            slide.notes_slide.notes_text_frame.text = "\n\n".join(notes_parts)
+        except Exception:
+            pass
 
 
 def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None,
@@ -1689,11 +1707,12 @@ def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None,
             c, k = events_for_scenario(events, nm)
             if not c and not k:
                 n_inc += 1
-    if n_inc >= 2:
+    if n_inc >= 1:
         insights.append({
             "kind": "INSUFFICIENT EVIDENCE",
-            "body": f"{n_inc} of {len(verdicts)} scenarios have no event bearing on them yet this cycle — "
-                    f"too early to call a direction, as their evidence slides say."
+            "body": f"{n_inc} of {len(verdicts)} scenario{'s have' if n_inc != 1 else ' has'} no event bearing on "
+                    f"{'them' if n_inc != 1 else 'it'} yet this cycle — too early to call a direction, "
+                    f"as the evidence slide says."
         })
 
     if not insights:
@@ -2605,11 +2624,14 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
          "crowd expects, not proof). Named real-world events afterward either "
          "bear the claim out or don't. We report point-in-time basis, never a "
          "moving “accuracy” score."),
-        ("The value is the divergence",
-         "We lead with where consensus and evidence disagree: high-consensus "
-         "claims the evidence isn't bearing out (the crowd may be wrong) and "
-         "low-consensus outliers the evidence is confirming (signals the crowd "
-         "missed)."),
+        ("How a status is assigned",
+         "Forecast basis at or above 60% counts as high consensus, at or below "
+         "40% as low. High basis with confirming events and no countering ones "
+         "is Holding; high basis with no net confirmation is Unconfirmed; low "
+         "basis with net confirmation is Outlier confirming; no events either "
+         "way is Too early; otherwise Leaning, In doubt or Contested by the net "
+         "count. Only judged events count, and only for the scenario they are "
+         "judged against."),
         # Say what the filter actually does. The old wording implied a
         # curated corpus; the score is a coarse machine filter that keeps
         # adjacent material in, and the reference list shows it.
@@ -2625,9 +2647,13 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
          "Forecast basis N% is the share of sources framing a trend as likely at "
          "forecast time. A confirmation delta is in percentage points: the share "
          "of live-window articles supporting the trend minus the same share in "
-         "the pre-forecast (placebo) window, so 0.85 means 0.85 points, not 85. "
-         "The evidence window starts at the forecast date. One record per "
-         "real-world event; repeated coverage adds sources, not events."),
+         "the pre-forecast (placebo) window, so 0.85 means 0.85 points, not 85; "
+         "it measures coverage, never a count of events or anyone's behaviour. "
+         "Two cutoffs: the article-share assessment runs on its own date (the "
+         "topic divider names it); the event window runs from the forecast date "
+         "to the export date. One record per real-world event; repeated coverage "
+         "adds sources, not events. An event dated \"reported\" carries the "
+         "article's date because the development's own date was not stated."),
     ]
     y = 1.35
     for head, body in blocks:
@@ -2951,6 +2977,27 @@ def _split_title(s: str, max_chars: int = 34) -> List[str]:
     if cut <= 0:
         cut = max_chars
     return [s[:cut].strip().upper(), s[cut:].strip().upper()]
+
+
+def _fit_sentences(s: Optional[str], max_chars: int) -> str:
+    """Keep whole sentences up to ``max_chars``; the rest goes to the notes.
+    The briefing synthesis slide shrank an 800-character tension body to
+    8.5 points and still ran into the next heading (fifth review, 16 Oct
+    2026, F08). Shortening at a sentence boundary keeps the type readable."""
+    s = (s or "").strip()
+    if len(s) <= max_chars:
+        return s
+    import re as _re
+    out = ""
+    for sent in _re.split(r"(?<=[.!?])\s+", s):
+        if not sent:
+            continue
+        if out and len(out) + 1 + len(sent) > max_chars:
+            break
+        if not out and len(sent) > max_chars:
+            return _truncate(sent, max_chars // 4)
+        out = (out + " " + sent).strip()
+    return out or _truncate(s, max_chars // 4)
 
 
 def _truncate(s: Optional[str], n: int) -> str:

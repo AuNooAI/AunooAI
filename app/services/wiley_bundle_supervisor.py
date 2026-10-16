@@ -499,6 +499,17 @@ def _organisation_context() -> dict:
     return out
 
 
+def _event_brief_for_writer(e: dict) -> dict:
+    """One event as the writers see it: no ids, no sources, no article titles."""
+    return {
+        "actor": e.get("actor"), "action": e.get("action"), "subject": e.get("subject"),
+        "date": str(e.get("event_date") or e.get("date") or "")[:10] or None,
+        "date_basis": e.get("date_basis"), "state": e.get("event_state"),
+        "magnitude": (f"{e['magnitude_value']:g} {e.get('magnitude_unit') or ''}".strip()
+                      if isinstance(e.get("magnitude_value"), (int, float)) else None),
+    }
+
+
 def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -> dict:
     from app.services.forecast_pptx_export import _calibration_read
     from app.services.wiley_event_extraction import events_for_scenario
@@ -532,7 +543,14 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
         _name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or ""
         _conf, _ctr = events_for_scenario([e for e in (named_events or []) if isinstance(e, dict)], _name)
         _read_text, _category = _calibration_read(deck_info.get("consensus_pct"), len(_conf), len(_ctr))
+        # The events judged to bear on THIS scenario, the same rows its
+        # evidence slide lists. A writer that names a confirming event takes
+        # it from here; the fifth review (16 Oct 2026, F04) found syntheses
+        # crediting a scenario with events its slide never shows.
+        _linked = ([{**_event_brief_for_writer(e), "direction": "confirms"} for e in _conf]
+                   + [{**_event_brief_for_writer(e), "direction": "counters"} for e in _ctr])
         scenarios.append({
+            "events": _linked,
             "scenario_idx": v.get("scenario_idx"),
             "name": deck_info.get("deck_scenario_name") or v.get("scenario_title"),
             "horizon": (v.get("horizon_type") or "h1").upper(),
@@ -556,6 +574,13 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
     # Status distribution + biggest mover
     labels = [s.get("status") for s in scenarios if s.get("status") and s.get("status") != "—"]
     status_dist = {x: labels.count(x) for x in set(labels)}
+    # The counts written out, so a lede says "2 holding, 3 too early" and
+    # not a tally the writer made up (fifth review, F03).
+    _order = ["Holding", "Leaning", "Outlier confirming", "Contested", "In doubt", "Unconfirmed",
+              "Not bearing out", "Too early"]
+    status_sentence = ", ".join(f"{status_dist[k]} {k.lower()}" for k in _order if status_dist.get(k))
+    if status_sentence:
+        status_sentence = f"Of {len(labels)} scenarios: {status_sentence}."
     biggest = max(scenarios, key=lambda s: (s.get("n_confirm") or 0) - (s.get("n_counter") or 0), default=None)
 
     # Ground-truth events the extraction stage tagged for this topic.
@@ -571,11 +596,15 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
         "forecast_published": summary.get("forecast_generated_at"),
         "assessed_at": summary.get("assessed_at"),
         "status_distribution": status_dist,
+        "status_sentence": status_sentence,
         "biggest_mover": biggest,
         "scenarios": scenarios,
+        # Label and size only. The sample article titles that sat here were
+        # forecast-time headlines ("Vought will reportedly be given veto
+        # power"), and a recommendation quoted one as the current state three
+        # weeks after the plan was dropped (fifth review, F02).
         "emerging_themes": [
-            {"label": s.get("label"), "size": s.get("size"),
-             "sample_articles": (s.get("sample_articles") or [])[:3]}
+            {"label": s.get("label"), "size": s.get("size")}
             for s in (assessment.get("surprises") or [])[:5]
         ],
         "named_events": [{
@@ -1997,6 +2026,11 @@ async def regenerate_single_stage(
     if stage in ("briefing", "recommendations", "next_steps"):
         targets = [a for (a, _r, _p) in items if (not topic or a.get("topic") == topic)]
         await _emit(0.2, f"Running {stage} for {len(targets)} topic(s)")
+        # The same judged events the pipeline writers get. Without them every
+        # scenario read "Too early" to a writer regenerated from the editor,
+        # and the round-seven ledes counted statuses that matched no slide
+        # (fifth review, 16 Oct 2026, F03/F04).
+        events_by_topic = _events_by_topic(db, cadence, period_label)
 
         for i, a in enumerate(targets):
             tname = a.get("topic") or "—"
@@ -2005,7 +2039,8 @@ async def regenerate_single_stage(
                 "recommendations": "wiley_recs_agent",
                 "next_steps": "wiley_next_steps_agent",
             }
-            new_payload = await _call_agent(agent_map[stage], _topic_data_payload(a))
+            new_payload = await _call_agent(agent_map[stage],
+                                            _topic_data_payload(a, named_events=events_by_topic.get(tname)))
 
             # Apply per-topic locks
             topic_locks = list(a.get("summary_locked_keys") or [])
