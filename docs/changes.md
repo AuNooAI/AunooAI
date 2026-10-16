@@ -36,8 +36,21 @@ pipeline now re-quotes after them and keeps the gated letter if a rewrite reintr
 **Bundle reviewer sees the judged events.** Its per-topic data was built without events, so
 every scenario read "Too early" and the reviewer called every correct lede an error.
 
+**The loader that fed the writers (e882cc4d).** The pipeline's own event loader trimmed every
+event to actor, action, subject and date, dropping the judged scenario links, so the writers
+and the bundle reviewer saw every scenario as "Too early" while the exports, which use the
+full rows, showed "Holding". That is why the writers kept producing "all five scenarios too
+early" and the narrative review spent its repair rounds undoing it. The loader now returns the
+full collapsed rows and the agents receive a trimmed copy with the links.
+
+**Letter regeneration from the editor (28aa8d10, 7fb455e6).** The single-stage path had no
+length or severity gate, and the humanizer and grounding check shortened a 420-word letter to
+387 after the gate; both paths now gate, retry and keep the gated letter when a rewrite
+breaks it. Grammar-only and self-approving reviewer findings are advisory.
+
 **Extractor.** A retrospective account of earlier developments is `article`-dated, not
-`stated`; the deck says "reported on" for those rows. The key-insights slide counts scenarios
+`stated`; the deck says "reported on" for those rows. A date later than the article is an
+effective date (a licence "from April 2027"), so the article date stands in. The key-insights slide counts scenarios
 without judged events, the same count the evidence slides show. Topic dividers label the
 tracker date "Article-share assessment" next to the evidence window.
 
