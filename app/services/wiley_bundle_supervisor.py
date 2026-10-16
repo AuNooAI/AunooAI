@@ -1173,6 +1173,14 @@ def _quote_titles_with_banned_words(letter: str, titles: list) -> str:
     for span in sorted(spans, key=len, reverse=True):
         if span.lower() in out.lower():
             out = _quote_outside(out, span)
+    # A title the bundle no longer tracks (last quarter's tail risk, restated
+    # by the installment letter) is still a title: a Title Case run of three
+    # or more words that carries a banned word is quoted as one.
+    for m in re.finditer(r"(?:[A-Z][\w&'-]*(?:\s+(?:of|the|and|for|to|in|on|vs\.?|&)\s+)?\s+){2,}[A-Z][\w&'-]*", out):
+        run = m.group(0).strip()
+        if find_severity_language(run) and run not in spans:
+            spans.add(run)
+            out = _quote_outside(out, run)
     return out
 
 
