@@ -466,11 +466,10 @@ class AsyncDatabase:
         Save article that failed relevance threshold with its scores.
         This ensures the article exists in the articles table so it can be visible in the UI.
         """
-        # Convert datetime to string if needed
-        publication_date = article_data.get("publication_date")
-        if publication_date and hasattr(publication_date, 'isoformat'):
-            # It's a datetime object, convert to ISO string
-            publication_date = publication_date.isoformat()
+        # One shape for publication_date (ISO 8601 UTC, "+00:00"): a datetime,
+        # a Z stamp or a zone-less stamp all become that shape.
+        from app.utils.timestamps import publication_stamp as _publication_stamp
+        publication_date = _publication_stamp(article_data.get("publication_date"))
 
         # Work package 22: a configuration fault stores its reason; an article
         # fault counts an attempt so the retry sweep can stop after the cap.

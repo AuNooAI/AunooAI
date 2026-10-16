@@ -5288,6 +5288,12 @@ class DatabaseQueryFacade:
             if 'tags' in article_data and isinstance(article_data['tags'], list):
                 article_data['tags'] = ','.join(article_data['tags'])
 
+            # One shape for publication_date (ISO 8601 UTC, "+00:00") before the
+            # story labels and the insert see it. An unknown date stays unknown.
+            if 'publication_date' in article_data:
+                from app.utils.timestamps import publication_stamp as _publication_stamp
+                article_data['publication_date'] = _publication_stamp(article_data['publication_date'])
+
             # Check if article already exists
             uri = article_data.get('uri')
             if not uri:

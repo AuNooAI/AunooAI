@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from sqlalchemy import text
-from app.utils.timestamps import submission_stamp
+from app.utils.timestamps import publication_stamp, submission_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -950,7 +950,7 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
     meta = OFFICIAL_SOURCES[source_key]
     topic = f"{brand['display_name']} - Brand Watch"
     now = datetime.now(timezone.utc)
-    now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    now_iso = publication_stamp(now)
     terms = _brand_terms(brand)
     excl = [e.lower().strip() for e in (excludes or []) if e and e.strip()]
     landed: List[str] = []
@@ -963,7 +963,7 @@ def _land_and_attribute(conn, brand: Dict[str, Any], source_key: str,
             continue  # full-text hit that never names the brand — surname/citation noise
         if any(e in text_l for e in excl):
             continue  # known name-collision entity (config.official_keyword_excludes)
-        pub = _clamp_future(r.get("published_at")) or now_iso
+        pub = publication_stamp(_clamp_future(r.get("published_at"))) or now_iso
         inserted = conn.execute(text("""
             INSERT INTO articles (uri, title, summary, news_source,
                 publication_date, submission_date, topic, category, analyzed,
