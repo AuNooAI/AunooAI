@@ -52,6 +52,8 @@ def client(monkeypatch):
     jobs._JOBS.clear()
     research = FakeResearch()
     chat_db = FakeChatDb()
+    # never let a test write a background_tasks row into the site's database
+    monkeypatch.setattr(jobs, "_persist_row", lambda job: None)
     monkeypatch.setattr(routes, "get_deep_research_service", lambda: research)
     monkeypatch.setattr(routes, "get_auspex_service", lambda: types.SimpleNamespace(db=chat_db))
     app = FastAPI()
