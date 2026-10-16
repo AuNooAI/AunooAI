@@ -303,7 +303,7 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 _PREFLIGHT_OWNED = {"metric", "date", "figure"}
 _SELF_CONTRADICTING = re.compile(
     r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
-    r"which matches|exactly as stated)\b", re.I)
+    r"which matches|exactly as stated|is appropriate|which is appropriate|verb|singular|plural|grammatical)\b", re.I)
 
 
 

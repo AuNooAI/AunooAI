@@ -288,6 +288,8 @@ def _letter_opening_sentence(letter: str) -> str:
     return (m.group(1) if m else text).strip()
 
 
+_GRAMMAR_ONLY = re.compile(
+    r"\b(verb|singular|plural|subject-verb|agreement|grammatical|grammar|punctuation|comma|typo)\b", re.I)
 _SELF_CONTRADICTING_FINDING = re.compile(
     r"\b(correctly|accurately|is accurate|is grounded|matches the ledger|as stated|"
     r"which matches|exactly as stated)\b", re.I)
@@ -397,6 +399,7 @@ def _sanitize_review_findings(findings: list, *, exec_letter: str = None, named_
         # error cannot block ("The sentence correctly reports the value and
         # unit", severity error, 16 Oct 2026).
         if severity == "error" and (_SELF_CONTRADICTING_FINDING.search(f.get("finding") or "")
+                                    or _GRAMMAR_ONLY.search(f.get("finding") or "")
                                     or _paraphrases_named_event(f.get("finding") or "", named_events)):
             f["severity"] = "warning"
             f["finding"] = (f.get("finding") or "") + "  [auto-demoted: the finding itself says the sentence is correct]"
@@ -1785,10 +1788,9 @@ async def run_pipeline(
         # the letter still fails the severity rule, keep the gated one.
         if isinstance(exec_summary, dict) and exec_summary.get("letter"):
             _fixed = _quote_titles_with_banned_words(exec_summary["letter"], _bundle_titles(items, eos_per_topic))
-            if _severity_language_defects(_fixed) and pre_rewrite_letter \
-                    and not _severity_language_defects(pre_rewrite_letter):
-                logger.warning("exec letter: post-gate rewrite reintroduced %s; keeping the gated letter",
-                               _severity_language_defects(_fixed))
+            if _letter_defects(_fixed) and pre_rewrite_letter and not _letter_defects(pre_rewrite_letter):
+                logger.warning("exec letter: post-gate rewrite broke the gate (%s); keeping the gated letter",
+                               "; ".join(_letter_defects(_fixed)))
                 _fixed = pre_rewrite_letter
             exec_summary["letter"] = _fixed
             if isinstance(bundle_payload.get("exec_summary"), dict):
@@ -2133,10 +2135,11 @@ async def regenerate_single_stage(
                 # The guards rewrite after the gate; re-quote and keep the
                 # gated letter if they reintroduced a banned word.
                 letter = _quote_titles_with_banned_words(letter, titles)
-                if _severity_language_defects(letter) and gated_letter \
-                        and not _severity_language_defects(gated_letter):
-                    logger.warning("exec letter: post-guard rewrite reintroduced %s; keeping the gated letter",
-                                   _severity_language_defects(letter))
+                # The guards also shorten: a 420-word gated letter came back
+                # at 387 (16 Oct 2026). Any gate defect sends the gated one.
+                if _letter_defects(letter) and gated_letter and not _letter_defects(gated_letter):
+                    logger.warning("exec letter: post-guard rewrite broke the gate (%s); keeping the gated letter",
+                                   "; ".join(_letter_defects(letter)))
                     letter = gated_letter
                 new_payload["letter"] = letter
         except Exception as e:
