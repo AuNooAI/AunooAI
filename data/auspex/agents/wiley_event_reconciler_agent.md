@@ -7,7 +7,7 @@ version: 1.0.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.1
-  max_tokens: 6000
+  max_tokens: 8000
 output_schema:
   type: object
   required: [records]
@@ -60,8 +60,13 @@ across your records, as a keep_id or inside a merge_ids list.
 
 ## Input
 
+`mode` is `merge` (every group has two or more rows that report one
+development: return one record per group, merging them) or `single` (every
+group is one row: return one record per row with its state and qualifiers
+corrected, wording otherwise unchanged, `merge_ids` empty).
+
 ```
-{"topic": "...", "groups": [
+{"topic": "...", "mode": "merge", "groups": [
   [{"id": 2360, "actor": "...", "action": "...", "subject": "...", "date": "2026-10-01",
     "magnitude": "1 billion USD", "sources": ["..."]},
    {"id": 2386, ...}],

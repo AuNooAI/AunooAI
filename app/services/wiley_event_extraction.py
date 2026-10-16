@@ -583,6 +583,7 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
 _EVENT_STATES = {"announced", "proposed", "drafted", "agreed", "completed",
                  "withdrawn", "reported"}
 _JEV_SAME_MIN = 0.6
+_WRITER_BATCH_ROWS = 24
 
 
 def _event_brief(e: dict) -> dict:
@@ -735,10 +736,36 @@ async def reconcile_events_for_topic(db, topic: str, *, cadence: str,
     if not multi:
         return stats
 
-    # 3. writer: one record per group that has more than one row
-    payload = {"topic": topic, "groups": [[_event_brief(rows[i]) for i in g] for g in multi]}
-    out = await _call_agent("wiley_event_reconciler_agent", payload)
-    records = [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+    # 3. writer. Multi-row groups first (merge), then singletons (state and
+    # qualifier only), in batches of at most _WRITER_BATCH_ROWS rows: one
+    # call with 70 rows overran the reply and Quantum Advantage got no
+    # records at all, and mixing singletons into the merge call made the
+    # writer split real groups (16 Oct 2026, round three).
+    merge_groups = [g for g in multi if len(g) > 1]
+    single_groups = [g for g in multi if len(g) == 1]
+    records: list = []
+    for mode, glist in (("merge", merge_groups), ("single", single_groups)):
+        batch: list = []
+        n_rows = 0
+        def _flush():
+            return {"topic": topic, "mode": mode,
+                    "groups": [[_event_brief(rows[i]) for i in g] for g in batch]}
+        payloads = []
+        for g in glist:
+            if batch and n_rows + len(g) > _WRITER_BATCH_ROWS:
+                payloads.append(_flush())
+                batch, n_rows = [], 0
+            batch.append(g)
+            n_rows += len(g)
+        if batch:
+            payloads.append(_flush())
+        for payload in payloads:
+            out = await _call_agent("wiley_event_reconciler_agent", payload)
+            got = [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+            if not got:
+                logger.warning("reconcile %s: writer returned no records for a %s batch of %d groups",
+                               topic, mode, len(payload["groups"]))
+            records.extend(got)
 
     # normalise ids and attach each record to its group
     group_of = {}
