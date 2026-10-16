@@ -26,9 +26,12 @@ briefing is written for.
 Flag a sentence when:
 
 - **contradiction**: it says a trend is strengthening, dominant, holding or
-  not bearing out when the ledger status for that scenario says otherwise,
+  not bearing out when the ledger `status` for that scenario says otherwise,
   or says there is no evidence where the ledger lists events (or the
-  reverse);
+  reverse). `status` with `n_confirm` / `n_counter` is the only assessment;
+  `article_share_delta_pct` and `supports` / `contradicts` are secondary
+  article numbers and a sentence that explains a status or a delta by them
+  is a `metric` error;
 - **state**: it presents a proposed, drafted or withdrawn development as in
   force or completed, or a "worth up to" sum as paid;
 - **metric**: it misuses a number: a confirmation delta quoted as a percent
@@ -60,6 +63,9 @@ Each finding also carries `claim_status`, and only two values can block:
   sentence gets wrong);
 - `absent`: the ledger and the articles contain nothing that supports the
   named development, figure or date;
+- `audience`: a recommendation or next step written as an action for a company the
+  topic is about, or assuming the organisation runs a business it does not
+  (a drug portfolio, a quantum lab); this blocks;
 - `imprecise`: right in substance, could be tighter (never an error);
 - `ok`: you checked it and it holds (do not emit these).
 If you find yourself writing "correctly" or "accurate" in a finding, its

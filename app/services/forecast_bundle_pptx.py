@@ -782,7 +782,7 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
           font_size=9.5, italic=True, color=WILEY_MUTED)
 
     y = 1.18
-    row_h = 0.66  # six rows must fit above the slide edge (16 Oct 2026 review, R13)
+    row_h = 0.58  # six rows must clear the Horizons legend at y=5.28 (16 Oct 2026 review, F05)
     for i, (assessment, _run, _prior) in enumerate(items, 1):
         topic = assessment.get("topic") or "—"
         n_scenarios = len([
@@ -799,21 +799,21 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
         # Each row in a white card with teal number badge
         _rect(slide, x=0.5, y=y, w=sw-1.0, h=row_h, fill=WILEY_CARD_BG)
         _rect(slide, x=0.5, y=y, w=0.7, h=row_h, fill=WILEY_TEAL)
-        _text(slide, x=0.5, y=y+0.22, w=0.7, h=0.42,
-              text=str(i), font_size=22, bold=True, color=WHITE,
+        _text(slide, x=0.5, y=y+0.12, w=0.7, h=0.36,
+              text=str(i), font_size=20, bold=True, color=WHITE,
               align=PP_ALIGN.CENTER)
-        _text(slide, x=1.35, y=y+0.05, w=sw-1.95, h=0.28,
-              text=_truncate(topic, 80), font_size=12.5, bold=True, color=WILEY_BODY)
+        _text(slide, x=1.35, y=y+0.03, w=sw-1.95, h=0.25,
+              text=_truncate(topic, 80), font_size=12, bold=True, color=WILEY_BODY)
         if desc:
-            _text(slide, x=1.35, y=y+0.31, w=sw-1.95, h=0.22,
-                  text=_truncate(desc, 105), font_size=9, color=WILEY_BODY)
+            _text(slide, x=1.35, y=y+0.25, w=sw-1.95, h=0.19,
+                  text=_truncate(desc, 105), font_size=8.5, color=WILEY_BODY)
         meta = (
             f"{n_scenarios} scenarios  ·  {n_surprises} emerging themes  ·  "
             f"{evidence} articles"
         )
-        _text(slide, x=1.35, y=y+0.52, w=sw-1.95, h=0.2, text=meta,
-              font_size=8, color=WILEY_MUTED)
-        y += row_h + 0.05
+        _text(slide, x=1.35, y=y+0.41, w=sw-1.95, h=0.15, text=meta,
+              font_size=7.5, color=WILEY_MUTED)
+        y += row_h + 0.03
         if y > 5.0:
             break
 

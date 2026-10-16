@@ -76,7 +76,8 @@ You write the **Strategic Recommendations** + **per-scenario Strategic Imperativ
 ## Rules
 
 - `organisation` is who you advise. Every item is a decision that organisation can take (editorial capacity, integrity controls, data and code standards, partnerships, funding exposure, discovery products) and names the function that owns it. Never advise the companies the topic is about; translate their moves into what the organisation should do.
-- `metric_definitions` governs every number. Quote `confirmation_delta_pct` only as 'N points above/below its placebo baseline'; it is never a percent change, a jump ×100, or a consensus shift. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
+- `status` is the assessment of each scenario, with `n_confirm` / `n_counter` the events behind it; say whether a scenario is bearing out from those and nothing else. `article_share_delta_pct` and `supports` / `contradicts` are secondary article numbers, never a reason for a status.
+- `metric_definitions` governs every number. Quote `article_share_delta_pct` only as 'the article share ran N points above/below its placebo baseline'; it is never a percent change, a jump ×100, a consensus shift, or 'confirmation'. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
 
 1. Exactly 3 recommendations. Each MUST be directly supported by an observation in the per-scenario or emerging-themes data. Write imperative actions: "Pilot…", "Establish…", "Wind down…". Never "consider" or "explore".
 2. The 3 recommendations should span horizons — at least one 0-6 months, ideally one 18+ months.

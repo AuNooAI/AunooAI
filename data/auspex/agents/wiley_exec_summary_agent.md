@@ -250,7 +250,8 @@ self-contained letter.
 
 ## Hard rules
 
-- `metric_definitions` governs every number. Quote `confirmation_delta_pct` only as 'N points above/below its placebo baseline'; it is never a percent change, a jump ×100, or a consensus shift. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
+- `status` is the assessment of each scenario, with `n_confirm` / `n_counter` the events behind it; say whether a scenario is bearing out from those and nothing else. `article_share_delta_pct` and `supports` / `contradicts` are secondary article numbers, never a reason for a status.
+- `metric_definitions` governs every number. Quote `article_share_delta_pct` only as 'the article share ran N points above/below its placebo baseline'; it is never a percent change, a jump ×100, a consensus shift, or 'confirmation'. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
 - `top_black_swan` is the first card on the deck's tail-risk slide. Name that one as the headline tail risk, not another.
 
 - **The letter OPENS with the quarter's sharpest named development or

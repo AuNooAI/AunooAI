@@ -423,17 +423,32 @@ def _supervisor_payload(items: list, cadence: str, period_label: str, *,
 
 
 _METRIC_DEFINITIONS = {
+    "status": ("THE scenario's assessment, the same one the deck's evidence slides show. It comes "
+               "from the forecast basis and the judged events: Holding, Unconfirmed (sources expected "
+               "it, the events are not showing it), Too early (no events either way), Leaning, "
+               "In doubt, Contested, Outlier confirming, Not bearing out. Every sentence about "
+               "whether a scenario is bearing out uses this status and the n_confirm / n_counter "
+               "counts behind it, nothing else."),
+    "n_confirm / n_counter": ("Counts of named events judged to bear directly on the scenario, "
+                              "confirming or countering it. These are the events a reader can see "
+                              "on the scenario's slide."),
     "original_consensus_pct": ("Forecast basis: the share of sources at forecast time that framed the "
                                "scenario as likely, 0-100. Point-in-time; it does not move."),
-    "confirmation_delta_pct": ("Net support rate in PERCENTAGE POINTS: the share of live-window articles "
-                               "supporting the scenario minus the same share in the pre-forecast (placebo) "
-                               "window. 0.85 means 0.85 points above baseline, never 85. Quote it as "
-                               "'N points above/below its placebo baseline'."),
-    "supports / contradicts": "Counts of live-window articles judged to support or contradict the scenario.",
-    "status": ("Strengthening = above the placebo baseline, Stable = at it, Cooling = below it. "
-               "It is not a change in consensus."),
+    "article_share_delta_pct": ("A SECONDARY number: the share of live-window articles supporting the "
+                                "scenario minus the same share in the pre-forecast (placebo) window, in "
+                                "percentage points (0.85 means 0.85 points). It is not the assessment and "
+                                "must not be presented as one; quote it only as 'the article share ran N "
+                                "points above/below its placebo baseline', and never as 'confirmation', "
+                                "a percent change, or a reason for a status."),
+    "supports / contradicts": ("Counts of live-window ARTICLES judged to support or contradict the "
+                               "scenario. Articles, not events; never explain a status or a delta by them."),
     "named_events": ("One record per real-world event since the forecast date; repeated coverage is "
                      "extra sources on one record, not extra events."),
+}
+_STATUS_LABEL = {
+    "holding": "Holding", "crowd_wrong": "Unconfirmed", "early": "Too early", "leaning": "Leaning",
+    "doubt": "In doubt", "contested": "Contested", "outlier_confirming": "Outlier confirming",
+    "noise": "Not bearing out",
 }
 _ORG_CONTEXT_CACHE: dict = {}
 
@@ -459,6 +474,8 @@ def _organisation_context() -> dict:
 
 
 def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -> dict:
+    from app.services.forecast_pptx_export import _calibration_read
+    from app.services.wiley_event_extraction import events_for_scenario
     """Distil one topic's assessment into the shape the per-topic agents expect.
 
     ``named_events`` (optional) — the topic's slice of
@@ -486,12 +503,21 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
         key = str(v.get("scenario_idx"))
         bc = bc_per.get(key) or {}
         deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
+        _name = deck_info.get("deck_scenario_name") or v.get("scenario_title") or ""
+        _conf, _ctr = events_for_scenario([e for e in (named_events or []) if isinstance(e, dict)], _name)
+        _read_text, _category = _calibration_read(deck_info.get("consensus_pct"), len(_conf), len(_ctr))
         scenarios.append({
             "scenario_idx": v.get("scenario_idx"),
             "name": deck_info.get("deck_scenario_name") or v.get("scenario_title"),
             "horizon": (v.get("horizon_type") or "h1").upper(),
-            "status": _cust(bc.get("label") or v.get("verdict_label")),
-            "confirmation_delta_pct": round((bc.get("net_rate") or 0) * 100, 2) if bc.get("net_rate") is not None else None,
+            # One assessment per scenario, the same the deck's evidence slide
+            # shows: forecast basis × judged events (16 Oct 2026 review, F01).
+            "status": _STATUS_LABEL.get(_category, _category),
+            "read": _read_text,
+            "n_confirm": len(_conf),
+            "n_counter": len(_ctr),
+            "article_share_status": _cust(bc.get("label") or v.get("verdict_label")),
+            "article_share_delta_pct": round((bc.get("net_rate") or 0) * 100, 2) if bc.get("net_rate") is not None else None,
             "original_consensus_pct": deck_info.get("consensus_pct"),
             "current_consensus_pct": v.get("current_consensus_pct"),
             "supports": v.get("supports") or 0,
@@ -503,7 +529,7 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
     # Status distribution + biggest mover
     labels = [s.get("status") for s in scenarios if s.get("status") and s.get("status") != "—"]
     status_dist = {x: labels.count(x) for x in set(labels)}
-    biggest = max(scenarios, key=lambda s: abs(s.get("confirmation_delta_pct") or 0), default=None)
+    biggest = max(scenarios, key=lambda s: (s.get("n_confirm") or 0) - (s.get("n_counter") or 0), default=None)
 
     # Ground-truth events the extraction stage tagged for this topic.
     # Briefing/recs/next-steps agents anchor their tensions and rationales

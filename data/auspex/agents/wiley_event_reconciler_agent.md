@@ -27,6 +27,11 @@ report the same real-world development; the rows differ in wording, in the
 figure they quote, or in the state they claim. Your job is to return **one
 record per group** that states what the sources agree happened.
 
+A group of one row still gets a record: keep its wording unless its state
+or qualifier is wrong (a generic is not a biosimilar, a deal "worth up to" has
+not been paid, a centre that will host a machine has not installed it), and
+give it an event_state.
+
 If a group plainly contains two different developments, you may return two
 records for it, but every row id in the group must appear exactly once
 across your records, as a keep_id or inside a merge_ids list.

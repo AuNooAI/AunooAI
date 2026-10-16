@@ -78,8 +78,9 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
         topic = a.get("topic") or "—"
         evs = events_by_topic.get(topic) or []
         data = _topic_data_payload(a, named_events=evs)
-        scen = [{k: s.get(k) for k in ("name", "status", "original_consensus_pct",
-                                        "confirmation_delta_pct", "supports", "contradicts")}
+        scen = [{k: s.get(k) for k in ("name", "status", "read", "n_confirm", "n_counter",
+                                        "original_consensus_pct", "article_share_delta_pct",
+                                        "supports", "contradicts")}
                 for s in (data.get("scenarios") or [])]
         events = []
         for e in evs:
@@ -133,7 +134,8 @@ def _facts(ledger_topics: List[dict], extra_numbers: List = ()) -> Tuple[set, se
             parts.append(" ".join(str(e.get(k) or "") for k in ("date", "actor", "action", "subject", "magnitude")))
         for s in lt.get("scenarios") or []:
             parts.append(str(s.get("name") or ""))
-            for k in ("original_consensus_pct", "confirmation_delta_pct", "supports", "contradicts"):
+            for k in ("original_consensus_pct", "article_share_delta_pct", "n_confirm", "n_counter",
+                      "supports", "contradicts"):
                 nums.update(_fmt_num(s.get(k)))
         parts.extend(str(t) for t in (lt.get("tail_risks") or []))
         parts.extend(str(t) for t in (lt.get("articles") or []))
@@ -194,7 +196,7 @@ def _quote_gate(findings: List[dict], segments: List[dict]) -> List[dict]:
         # claim the ledger contradicts (false) or lacks (absent) can block.
         # The judge has rated correct sentences "error" for wording.
         status = str(f.get("claim_status") or "").lower()
-        if f["severity"] == "error" and status not in ("false", "absent"):
+        if f["severity"] == "error" and status not in ("false", "absent", "audience"):
             f["severity"] = "warning"
             f["finding"] = (f.get("finding") or "") + f" [claim_status={status or 'unset'}; not blocking]"
         q = _norm_quote(f.get("claim_text") or "")

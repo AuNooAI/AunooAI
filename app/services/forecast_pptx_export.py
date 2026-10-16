@@ -1610,11 +1610,14 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
     for t in tensions[:3]:
         name = (t.get("name") or "").upper()
         body = t.get("body") or ""
+        # Three tensions must share 3.3 inches; a long body ran under the
+        # next heading (16 Oct 2026 review, slides 43 and 56).
         _text(slide, x=0.7, y=ty, w=4.2, h=0.25,
-              text=name, font_size=10, bold=True, color=WILEY_TEAL)
-        _text(slide, x=0.7, y=ty+0.27, w=4.2, h=0.85,
-              text=body, font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
-        ty += 1.1
+              text=_truncate(name, 60), font_size=10, bold=True, color=WILEY_TEAL)
+        _text(slide, x=0.7, y=ty+0.26, w=4.2, h=0.78,
+              text=_truncate(body, 240), font_size=9, color=WILEY_BODY, line_spacing=1.25,
+              shrink_to_fit=True)
+        ty += 1.08
 
     # ── Right panel: The Aunoo Intelligence View ─────────────────────
     _rect(slide, x=5.1, y=1.1, w=4.4, h=4.2, fill=WILEY_CARD_BG)
@@ -1635,8 +1638,8 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
     if iv:
         paragraphs.append(iv)
     full_text = "\n\n".join(paragraphs)
-    _text(slide, x=5.3, y=1.95, w=4.0, h=3.3, text=full_text,
-          font_size=10, color=WILEY_BODY, line_spacing=1.4)
+    _text(slide, x=5.3, y=1.95, w=4.0, h=3.2, text=_truncate(full_text, 1100),
+          font_size=9.5, color=WILEY_BODY, line_spacing=1.3, shrink_to_fit=True)
 
 
 def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None):
@@ -2505,6 +2508,9 @@ def _add_whats_changed_section_slide(prs, whats_changed: dict, *,
         # Show as many as fit: ~7 rows/column at a comfortable row height.
         per_col = max(6, int(body_h // 0.56))
         cap = per_col * 2
+        # Rows need 0.42 inch each at this size; more rows than fit collided
+        # (16 Oct 2026 review, slide 6). The notes keep the full list.
+        cap = min(cap, max(2, int(body_h / 0.42) * 2))
         shown = events[:cap]
         # Split down the columns (first half left, second half right).
         half = (len(shown) + 1) // 2
@@ -2515,7 +2521,7 @@ def _add_whats_changed_section_slide(prs, whats_changed: dict, *,
             for ev in colitems:
                 _rect(slide, x=col_x[ci], y=ey + 0.03, w=0.05, h=0.15, fill=WILEY_TEAL)
                 _text(slide, x=col_x[ci] + 0.13, y=ey, w=col_w - 0.18, h=row_h - 0.02,
-                      text=_truncate(ev, 95), font_size=8.8, color=WILEY_BODY,
+                      text=_truncate(ev, 88), font_size=8.5, color=WILEY_BODY,
                       line_spacing=1.1)
                 ey += row_h
         if len(events) > len(shown):
