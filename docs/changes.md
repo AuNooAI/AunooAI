@@ -1,3 +1,49 @@
+## 2026-10-16 (late afternoon) — Wiley Q4 bundle, round three: one assessment per scenario, judged evidence links
+
+The second independent review confirmed rounds one and two and left five blockers, four of
+them the same mechanism: a scenario carried two assessments (an article-share delta from the
+tracker and an event-ledger read on its slide) and the writers used one while the slides showed
+the other, and the event-to-scenario links were the extractor's single-pass tags, never checked.
+Commits 43a4815b, b066649e, a879345d, f5e251b5; live on bugfixing, wileytest and wiley.
+
+**One assessment per scenario.** `_topic_data_payload` now computes each scenario's status the
+way the evidence slides do (forecast basis × judged events → Holding, Unconfirmed, Too early,
+Leaning, In doubt, Contested, Outlier confirming, Not bearing out) and hands the writers and the
+narrative judge that status with the confirming and countering event counts. The article-share
+delta stays as a labelled secondary number. On Q4: 10 holding, 4 unconfirmed, 3 in doubt, 11
+too early, 1 leaning. Geopolitical Portfolio Resilience, which the letter had called confirmed
+while its slide said unconfirmed, is "too early" everywhere.
+
+**Judged evidence links.** Every live event is judged against every deck scenario of its topic
+by Jev (1,127 pairs on Q4, under two minutes); a link exists only where Jev puts 0.6 or more on
+confirms or counters and above unrelated. It kept 38 of the extractor's 347 tags and dropped
+309: Qualcomm's Apple licensing no longer counts against a pharmaceutical scenario, the
+photography-contest disqualification is gone from research intelligence. Ledgers are thinner and
+honest; the "too early" count is the price.
+
+**Single-row events reconciled.** The writer now sees every group, singletons in a separate
+pass that may only correct state and qualifiers, in batches of 24 rows (one 70-row call had
+overrun its reply and Quantum Advantage got nothing). 227 of 228 live events carry a state;
+ANI's everolimus is a generic with FDA approval, AstraZeneca and insitro is "$40 million
+upfront, agreed" with the $1.5 billion headline folded in. A figure restated in another unit
+scale passes the deterministic check.
+
+**Audience blocks.** A recommendation written for a company the topic is about now holds the
+narrative review until repaired.
+
+**Deck.** Contents rows clear the Horizons legend, the three tensions and the intelligence view
+shrink to fit, what-changed rows are capped by height, and a letter over 330 words is split at
+the headline tail risk across two slides.
+
+**Result.** Narrative review clear (31 errors on the regenerated narrative down to 0 over three
+repair rounds, 14 warnings); built-in reviewer approved with one warning; letter gate clean at
+629 words; 100 slides; LiteLLM-routed cost of the round $2.19 plus the gpt-5.4 judge calls that
+go direct to OpenAI.
+
+**Not done:** announcement dates separate from article dates (the Cambridge "opened with the
+256-qubit system" line follows the articles; the primary source says deployment by 2027), the
+printed Q3-to-Q4 scenario crosswalk, and the "unanticipated" wording on emerging themes.
+
 ## 2026-10-16 (afternoon) — Wiley Q4 bundle, round two: reconciled events and a reviewed narrative
 
 Round one fixed the evidence window and the exports but left the narrative written against the

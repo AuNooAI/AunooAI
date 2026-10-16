@@ -117,6 +117,10 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   agreed, completed, withdrawn ...). Merged rows stay in the table with `include_in_deck`
   off and `merged_into` set, so the editor's Events tab still shows them. Re-running it only
   touches live rows.
+- **Evidence links** (`judge_event_links_for_bundle`, same file, runs right after
+  reconciliation): Jev judges every live event against every deck scenario of its topic;
+  the extractor's tags are proposals only. A scenario's status on its slide, in the
+  writers' input and in the narrative judge's ledger all come from these links.
 - **Narrative review** (`review_and_repair` in `wiley_narrative_review.py`): preflight on
   every date and figure, a quoting judge, up to two targeted repairs. Run it after any
   regeneration and before the reviewer; its result sits on the payload as `narrative_review`.
