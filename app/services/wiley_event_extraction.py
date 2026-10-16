@@ -939,8 +939,11 @@ async def reconcile_events_for_bundle(cadence: str, period_label: str,
 # more on a direction. The extractor's tag is kept as the proposal in the
 # payload but never trusted on its own.
 
-_LINK_MIN = 0.7
-_LINK_MAX_UNRELATED = 0.3
+# Jev proposes at 0.6; the link judge decides. At 0.7 with unrelated capped
+# at 0.3 only 15 links survived across 29 scenarios and two topics had
+# none (16 Oct 2026), which is the gate doing the judge's job.
+_LINK_MIN = 0.6
+_LINK_MAX_UNRELATED = 0.4
 
 
 def _jev_link(event: dict, scenario: dict) -> Optional[dict]:
