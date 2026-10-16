@@ -1117,12 +1117,36 @@ def _quote_titles_with_banned_words(letter: str, titles: list) -> str:
     allows the words inside quotes; the writer restates titles verbatim
     ("Peer Review System Collapse Through AI Submission Flooding") and the
     bundle failed the gate on 15 and 16 Oct 2026 after every retry."""
-    from app.services.report_style import find_severity_language
+    from app.services.report_style import find_severity_language, _SEVERITY_WORDS
     out = letter or ""
-    for t in sorted({str(x).strip() for x in titles if x and str(x).strip()}, key=len, reverse=True):
-        if not find_severity_language(t) or t not in out:
+    spans = set()
+    for t in {str(x).strip() for x in titles if x and str(x).strip()}:
+        if not find_severity_language(t):
             continue
-        out = re.sub(r'(?<!")' + re.escape(t) + r'(?!")', '"' + t + '"', out)
+        spans.add(t)
+        # The writer often names a scenario by its first words ("the
+        # Credibility Crisis scenario"); quote the shortest prefix that
+        # carries the banned word as well.
+        words = t.split()
+        for i, w in enumerate(words):
+            if _SEVERITY_WORDS.search(w) and i >= 1:
+                spans.add(" ".join(words[: i + 1]))
+                break
+    def _quote_outside(text: str, span: str) -> str:
+        # Quote each occurrence that is not already inside a quoted span:
+        # an even number of quote marks before it means it is outside.
+        pat = re.compile(re.escape(span))
+        pos, pieces = 0, []
+        for m in pat.finditer(text):
+            inside = text.count('"', 0, m.start()) % 2 == 1
+            pieces.append(text[pos:m.start()])
+            pieces.append(span if inside else '"' + span + '"')
+            pos = m.end()
+        pieces.append(text[pos:])
+        return "".join(pieces)
+    for span in sorted(spans, key=len, reverse=True):
+        if span in out:
+            out = _quote_outside(out, span)
     return out
 
 
