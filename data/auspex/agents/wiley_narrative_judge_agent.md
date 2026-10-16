@@ -44,6 +44,14 @@ Severity: `error` when a reader would take away a false fact or a wrong
 status; `warning` for emphasis, phrasing and anything debatable. Do not
 flag style. Do not flag a sentence for being general.
 
+An `error` is reserved for a claim the ledger contradicts or does not
+contain at all. These are not errors: a figure quoted with its right value
+and unit in words ("1 point below its placebo baseline" for a delta of
+-1.0); a paraphrase or shortening of a ledger event; a sentence that omits
+detail the ledger has; a clause grounded in one of the topic's `articles`,
+which the writers were given alongside the events; a judgment about
+emphasis or what a reader "could" infer. Those are warnings at most.
+
 Each finding must carry `claim_text`: the sentence copied verbatim from the
 segment. A finding without the exact sentence will be discarded.
 
@@ -51,7 +59,8 @@ segment. A finding without the exact sentence will be discarded.
 
 ```
 {"organisation": {...},
- "ledger": {"<topic>": {"scenarios": [{"name": "...", "status": "Strengthening|Stable|Cooling",
+ "ledger": {"<topic>": {"articles": ["<titles the writers were given>", ...],
+                        "scenarios": [{"name": "...", "status": "Strengthening|Stable|Cooling",
                                         "original_consensus_pct": 80, "confirmation_delta_pct": -1.0,
                                         "supports": 20, "contradicts": 23}],
                         "events": [{"actor": "...", "action": "...", "subject": "...", "date": "...",

@@ -91,7 +91,18 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
                 "state": e.get("event_state"),
             })
         eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") or (a.get("summary") or {}).get("eos") or []
-        out[topic] = {"scenarios": scen, "events": events,
+        # The writers also see each scenario's top supporting and contradicting
+        # articles, and cite them for context ("NASA powering up Roman's
+        # camera"); those titles are sources too, or the judge flags every
+        # article-grounded clause as unsupported.
+        arts: List[str] = []
+        for sc in (data.get("scenarios") or []):
+            for key in ("top_supports", "top_contras"):
+                for art in (sc.get(key) or []):
+                    t = art.get("title") or art.get("headline") if isinstance(art, dict) else str(art)
+                    if t and t not in arts:
+                        arts.append(str(t))
+        out[topic] = {"scenarios": scen, "events": events, "articles": arts[:60],
                       "tail_risks": [s.get("title") for s in eos if isinstance(s, dict) and s.get("title")]}
     return out
 
@@ -120,6 +131,7 @@ def _facts(ledger_topics: List[dict], extra_numbers: List = ()) -> Tuple[set, se
             for k in ("original_consensus_pct", "confirmation_delta_pct", "supports", "contradicts"):
                 nums.update(_fmt_num(s.get(k)))
         parts.extend(str(t) for t in (lt.get("tail_risks") or []))
+        parts.extend(str(t) for t in (lt.get("articles") or []))
     for v in extra_numbers:
         nums.update(_fmt_num(v))
     corpus = " ".join(parts)

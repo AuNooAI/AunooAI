@@ -30,7 +30,11 @@ A record is **ok** only when all of the following hold:
 1. Every claim in it (actor, action, subject, figure, date, state) is stated
    by at least one of its rows. Nothing may come from your own knowledge.
 2. Its rows really report one development. If a row is a different
-   development, the record is not ok and `problems` says which row.
+   development, the record is not ok and `problems` says which row. Rows
+   are claims by different articles about one development, so stronger
+   wording in one row ("separated", "paid") is not evidence of a second
+   development; it is the claim the record must tone down to what the
+   other rows and the primary source support.
 3. Its state is the strongest the rows justify and no stronger: a review of
    options is `proposed`, a draft is `drafted`, a signed agreement is
    `agreed`, something that has happened is `completed`, something shelved

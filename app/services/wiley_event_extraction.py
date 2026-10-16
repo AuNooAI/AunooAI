@@ -602,10 +602,15 @@ def _candidate_pairs(rows: list) -> list:
             da, db_ = _parse_iso(a.get("event_date")), _parse_iso(b.get("event_date"))
             if da and db_ and abs((da - db_).days) > 7:
                 continue
+            # Actor and subject swap places between articles ("Informa /
+            # review of / Taylor & Francis" vs "Taylor & Francis / separated
+            # from / Informa"), so compare the two together.
+            ta = _tokens(a.get("actor")) | _tokens(a.get("subject"))
+            tb = _tokens(b.get("actor")) | _tokens(b.get("subject"))
+            shared = len(ta & tb)
             actor_ok = (bool(_tokens(a.get("actor")) & _tokens(b.get("actor")))
                         or _same_actor_alias(a.get("actor"), b.get("actor")))
-            subj = len(_tokens(a.get("subject")) & _tokens(b.get("subject")))
-            if actor_ok or subj >= 2:
+            if actor_ok or shared >= 2:
                 pairs.append((i, j))
     return pairs
 
@@ -767,6 +772,11 @@ async def reconcile_events_for_topic(db, topic: str, *, cadence: str,
             except (TypeError, ValueError):
                 continue
 
+    covered = {r["keep_id"] for r in cleaned} | {m for r in cleaned for m in r["merge_ids"]}
+    for g in multi:
+        ids = [rows[i]["id"] for i in g]
+        if not any(i in covered for i in ids):
+            logger.info("reconcile %s: group %s got no usable record from the writer", topic, ids)
     used: set = set()
     for rec in cleaned:
         keep, merge_ids = rec["keep_id"], rec["merge_ids"]
