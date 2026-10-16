@@ -55,6 +55,16 @@ emphasis or what a reader "could" infer. Those are warnings at most.
 Each finding must carry `claim_text`: the sentence copied verbatim from the
 segment. A finding without the exact sentence will be discarded.
 
+Each finding also carries `claim_status`, and only two values can block:
+- `false`: the ledger says otherwise (a status, state, figure or date the
+  sentence gets wrong);
+- `absent`: the ledger and the articles contain nothing that supports the
+  named development, figure or date;
+- `imprecise`: right in substance, could be tighter (never an error);
+- `ok`: you checked it and it holds (do not emit these).
+If you find yourself writing "correctly" or "accurate" in a finding, its
+status is `ok` or `imprecise`, not an error.
+
 ## Input
 
 ```
@@ -75,7 +85,7 @@ may draw on every topic's ledger.
 
 ```
 {"findings": [
-  {"target": "Patent Cliffs.briefing.lede", "severity": "error", "check": "contradiction",
+  {"target": "Patent Cliffs.briefing.lede", "severity": "error", "check": "contradiction", "claim_status": "false",
    "finding": "The lede calls Geopolitical Portfolio Resilience the dominant strengthening trend; its ledger status is Stable with 0 supporting events.",
    "claim_text": "<the sentence, verbatim>",
    "suggested_fix": "State the ledger status and drop 'dominant'."}

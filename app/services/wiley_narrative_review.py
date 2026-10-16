@@ -112,10 +112,15 @@ def _fmt_num(v) -> List[str]:
         f = float(v)
     except (TypeError, ValueError):
         return []
-    out = {f"{f:g}"}
-    if f.is_integer():
-        out.add(str(int(f)))
-    out.add(f"{abs(f):g}")
+    # Every spelling a writer may use for the same value: -1.0 is quoted
+    # as "1 point", "1.0 points" or "1.00"; 2.18 as "2.18" or "2.2".
+    out = set()
+    for v in (f, abs(f)):
+        out.add(f"{v:g}")
+        out.add(f"{v:.1f}")
+        out.add(f"{v:.2f}")
+        if v.is_integer():
+            out.add(str(int(v)))
     return list(out)
 
 
@@ -185,6 +190,13 @@ def _quote_gate(findings: List[dict], segments: List[dict]) -> List[dict]:
         f.setdefault("source", "judge")
         sev = (f.get("severity") or "warning").lower()
         f["severity"] = "error" if sev == "error" else "warning"
+        # The verdict is computed here, not taken from the judge: only a
+        # claim the ledger contradicts (false) or lacks (absent) can block.
+        # The judge has rated correct sentences "error" for wording.
+        status = str(f.get("claim_status") or "").lower()
+        if f["severity"] == "error" and status not in ("false", "absent"):
+            f["severity"] = "warning"
+            f["finding"] = (f.get("finding") or "") + f" [claim_status={status or 'unset'}; not blocking]"
         q = _norm_quote(f.get("claim_text") or "")
         if not q:
             if f["severity"] == "error":
@@ -241,6 +253,8 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
     organisation = _organisation_context()
     history = []
     findings: List[dict] = []
+    prev_findings: List[dict] = []
+    pending_revert = None
     rounds_run = 0
     for rnd in range(max_rounds + 1):
         items = await _load_items_for_period(cadence, period_label)
@@ -256,6 +270,31 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         pre = preflight(segments, ledger, extra_numbers=[n_scen, n_tail, len(ledger)])
         jud = await judge(segments, ledger, organisation)
         findings = _merge(pre, jud)
+        # A repair that made a segment worse is undone: the previous text
+        # comes back and its old findings stand (round 1 of the 16 Oct run
+        # went from 13 errors to 24 before this guard).
+        if pending_revert:
+            before, errs_before = pending_revert
+            pending_revert = None
+            reverted = 0
+            for t, seg in before.items():
+                now_err = sum(1 for f in findings if f.get("target") == t and f.get("severity") == "error")
+                if now_err > errs_before.get(t, 0):
+                    try:
+                        if seg["kind"] == "topic":
+                            db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
+                                                                path=seg["path"], value=seg["text"], edited_by="narrative-repair-revert", lock=False)
+                        else:
+                            db.facade.patch_brief_field(cadence, period_label, path=seg["path"], value=seg["text"],
+                                                        edited_by="narrative-repair-revert", lock=False)
+                        reverted += 1
+                        findings = [f for f in findings if f.get("target") != t] + [
+                            f for f in prev_findings if f.get("target") == t]
+                    except Exception as e:
+                        logger.warning("narrative review: revert failed for %s: %s", t, e)
+            if reverted:
+                logger.info("narrative review: reverted %d segments the repair made worse", reverted)
+        prev_findings = findings
         errors = [f for f in findings if f.get("severity") == "error"]
         history.append({"round": rnd, "errors": len(errors), "warnings": len(findings) - len(errors)})
         logger.info("narrative review round %d: %d errors, %d warnings", rnd, len(errors), len(findings) - len(errors))
@@ -263,10 +302,14 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
             break
         for s in segments:
             s["_cadence"] = cadence
+        before = {s["target"]: s for s in segments}
+        errs_before = {t: sum(1 for f in findings if f.get("target") == t and f.get("severity") == "error") for t in before}
         n = await _repair_with_cadence(db, cadence, period_label, segments, findings, ledger, organisation)
         rounds_run += 1
         if n == 0:
             break
+        pending_revert = (before, errs_before)
+        continue
     errors = [f for f in findings if f.get("severity") == "error"]
     result = {"verdict": "blocked" if errors else "clear", "rounds": rounds_run,
               "errors": len(errors), "warnings": len(findings) - len(errors),
