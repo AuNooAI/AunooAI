@@ -554,9 +554,9 @@ def _add_methodology_slide(prs):
         y += 0.7
 
     footer = (
-        "Emerging themes at the end of the deck are clusters of developments that "
-        "none of the original scenarios anticipated — story lines worth tracking "
-        "alongside the existing ones."
+        "Emerging themes at the end of the deck are clusters of recent coverage that "
+        "sit outside the scenarios as written — newly clustered this cycle, worth "
+        "tracking alongside the existing ones."
     )
     _text(slide, x=0.5, y=4.6, w=sw-1.0, h=0.7, text=footer, font_size=9,
           italic=True, color=SLATE_LIGHT, line_spacing=1.2)
@@ -997,7 +997,7 @@ def _add_surprises_divider(prs, surprises: list):
           color=SLATE_DARK)
     body = (
         f"{len(surprises)} {'theme' if len(surprises) == 1 else 'themes'} of recent coverage "
-        f"that none of the original scenarios anticipated — story lines worth tracking."
+        f"newly clustered this cycle, outside the scenarios as written — worth tracking."
         if surprises else
         "No emerging themes of sufficient coherence in this window."
     )
@@ -1672,7 +1672,7 @@ def _add_key_insights_slide(prs, assessment: dict, prior: Optional[dict] = None)
             "kind": "EMERGING THEME",
             "body": f"{(top.get('label') or '(unlabelled)').strip()} surfaced as the "
                     f"largest emerging theme ({top.get('size') or 0} articles) — "
-                    f"none of the original scenarios anticipated it."
+                    f"newly clustered this cycle, outside the scenarios as written."
         })
 
     # 5. Stable overhang — scenarios stuck at the pre-forecast baseline
@@ -1767,8 +1767,11 @@ def _add_strategic_recommendations_slide(prs, assessment: dict):
         # Card header — recommendation headline (short, capitalised treatment)
         headline = (r.get("headline") or "").strip()
         # Wiley headers are a single short phrase. Trim to fit two lines max
-        _text(slide, x=cx+0.15, y=card_y+0.07, w=card_w-0.3, h=0.4,
-              text=headline, font_size=12, bold=True, color=WHITE,
+        # A 12-word headline wraps to three lines in 0.4 inch (16 Oct 2026
+        # self-review, slides 40, 53, 98); keep it to two and let it shrink.
+        _text(slide, x=cx+0.15, y=card_y+0.07, w=card_w-0.3, h=0.55,
+              text=_truncate(headline, 80), font_size=11, bold=True, color=WHITE,
+              shrink_to_fit=True,
               line_spacing=1.15)
 
         # Card body — rationale paragraph
@@ -2661,9 +2664,12 @@ def _add_cross_cutting_themes_slide(prs, themes: list):
         lead = (t.get("lead") or "").strip()
         body = (t.get("body") or "").strip()
         _text(slide, x=0.85, y=y, w=sw-1.7, h=0.3,
-              text=lead, font_size=12, bold=True, color=WILEY_NAVY)
+              text=_truncate(lead, 95), font_size=12, bold=True, color=WILEY_NAVY)
+        # Theme bodies run to 150 words; 0.6 inch holds about 45 at this size
+        # (16 Oct 2026 self-review, slide 11). The HTML carries the full text.
         _text(slide, x=0.85, y=y+0.3, w=sw-1.7, h=0.6,
-              text=body, font_size=10, color=WILEY_BODY, line_spacing=1.4)
+              text=_truncate(body, 330), font_size=9, color=WILEY_BODY, line_spacing=1.2,
+              shrink_to_fit=True)
         y += 0.95
 
 
