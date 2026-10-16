@@ -296,6 +296,15 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
             ev_state = str(ev.get("event_state") or "").strip().lower()
             if ev_state not in _EVENT_STATES:
                 ev_state = None
+            # A date after the article's own date is an effective or planned
+            # date (a licence renewal "from April 2027"), not when the
+            # development happened; the development is the announcement.
+            _art_date = None
+            if isinstance(ev.get("source_index"), int) and 0 <= ev["source_index"] < len(batch):
+                _art_date = _coerce_date(batch[ev["source_index"]].get("date"))
+            if event_date and _art_date and _parse_iso(event_date) and _parse_iso(_art_date) \
+                    and _parse_iso(event_date) > _parse_iso(_art_date):
+                event_date, date_basis = _art_date, "article"
             # An article published after the forecast can report something
             # from months before it. The assessment's live window starts at
             # the forecast date, so evidence dated before it is not evidence
