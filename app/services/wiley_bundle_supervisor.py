@@ -409,6 +409,42 @@ def _supervisor_payload(items: list, cadence: str, period_label: str, *,
     }
 
 
+_METRIC_DEFINITIONS = {
+    "original_consensus_pct": ("Forecast basis: the share of sources at forecast time that framed the "
+                               "scenario as likely, 0-100. Point-in-time; it does not move."),
+    "confirmation_delta_pct": ("Net support rate in PERCENTAGE POINTS: the share of live-window articles "
+                               "supporting the scenario minus the same share in the pre-forecast (placebo) "
+                               "window. 0.85 means 0.85 points above baseline, never 85. Quote it as "
+                               "'N points above/below its placebo baseline'."),
+    "supports / contradicts": "Counts of live-window articles judged to support or contradict the scenario.",
+    "status": ("Strengthening = above the placebo baseline, Stable = at it, Cooling = below it. "
+               "It is not a change in consensus."),
+    "named_events": ("One record per real-world event since the forecast date; repeated coverage is "
+                     "extra sources on one record, not extra events."),
+}
+_ORG_CONTEXT_CACHE: dict = {}
+
+
+def _organisation_context() -> dict:
+    """The tenant's default organisation profile, trimmed for the writers.
+    Without it the recommendation agents advised the drug makers and quantum
+    vendors the topics are about, not the publisher reading the deck."""
+    if "v" in _ORG_CONTEXT_CACHE:
+        return _ORG_CONTEXT_CACHE["v"]
+    out: dict = {}
+    try:
+        from app.database import get_database_instance
+        from app.services.daily_briefing_compose_service import _get_default_org_profile
+        prof = _get_default_org_profile(get_database_instance()) or {}
+        out = {k: prof.get(k) for k in ("name", "industry", "organization_type",
+                                        "strategic_priorities", "key_concerns",
+                                        "custom_context") if prof.get(k)}
+    except Exception as e:
+        logger.warning("organisation context unavailable: %s", e)
+    _ORG_CONTEXT_CACHE["v"] = out
+    return out
+
+
 def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -> dict:
     """Distil one topic's assessment into the shape the per-topic agents expect.
 
@@ -474,6 +510,8 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
             for s in (assessment.get("surprises") or [])[:5]
         ],
         "named_events": events[:30],
+        "organisation": _organisation_context(),
+        "metric_definitions": _METRIC_DEFINITIONS,
     }
 
 
@@ -551,7 +589,7 @@ def _events_by_topic(db, cadence: str, period_label: str) -> dict:
     out: dict[str, list] = {}
     try:
         rows = db.facade.list_extracted_events(
-            cadence=cadence, period_label=period_label, include_excluded=True) or []
+            cadence=cadence, period_label=period_label, include_excluded=False) or []
     except Exception as e:
         logger.warning("events_by_topic: list_extracted_events failed: %s", e)
         return out
@@ -885,13 +923,16 @@ def _exec_summary_payload(items: list, period_label: str,
                 "category": (s.get("category") or "wild_card"),
                 "title": s.get("title"),
                 "impact": s.get("impact_rating") or s.get("impact_score"),
+                "probability": s.get("probability"),
                 "timeframe": s.get("time_horizon") or s.get("timeframe"),
                 "description": s.get("description"),
             })
 
     def _impact(s):
+        # The same score the tail-risk slide ranks by (impact × probability),
+        # so the letter's headline risk is the first card the deck shows.
         try:
-            return float(s.get("impact") or 0)
+            return float(s.get("impact") or 5) * float(s.get("probability") or 0.2)
         except (TypeError, ValueError):
             return 0.0
     black_swans.sort(key=_impact, reverse=True)
@@ -1135,7 +1176,7 @@ def _reviewer_payload(period_label: str, items: list, briefings: dict,
         from app.database import get_database_instance
         db = get_database_instance()
         for e in (db.facade.list_extracted_events(
-                cadence=cadence, period_label=period_label, include_excluded=True) or []):
+                cadence=cadence, period_label=period_label, include_excluded=False) or []):
             named_events.append({
                 "topic": e.get("topic"), "actor": e.get("actor"),
                 "action": e.get("action"), "subject": e.get("subject"),

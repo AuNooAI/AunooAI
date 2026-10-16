@@ -915,11 +915,16 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
           text="NEW EVIDENCE SINCE FORECAST  ·  confirming",
           font_size=8.5, bold=True, color=GREEN_DEEP)
     y += 0.26
+    # Rows that did not fit ran under the READ footer (16 Oct 2026 review,
+    # R07). Budget rows from the space left; the notes carry the full list.
+    _avail = int((4.95 - y - 0.62) // 0.4)
+    _n_conf = min(4, max(1, _avail - (2 if countering_events else 1)))
+    _n_ctr = min(3, max(1 if countering_events else 0, _avail - _n_conf))
     if confirming_events:
-        for e in confirming_events[:4]:
+        for e in confirming_events[:_n_conf]:
             _rect(slide, x=1.9, y=y+0.03, w=0.06, h=0.18, fill=GREEN_DEEP)
             _text(slide, x=2.05, y=y, w=sw-2.55, h=0.36,
-                  text=_truncate(_fmt_event_line(e), 130), font_size=9,
+                  text=_truncate(_fmt_event_line(e), 115), font_size=9,
                   color=SLATE_BLACK, line_spacing=1.15)
             y += 0.4
     else:
@@ -933,10 +938,10 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
           text="COUNTER-EVIDENCE", font_size=8.5, bold=True, color=CORAL)
     y += 0.26
     if countering_events:
-        for e in countering_events[:3]:
+        for e in countering_events[:_n_ctr]:
             _rect(slide, x=1.9, y=y+0.03, w=0.06, h=0.18, fill=CORAL)
             _text(slide, x=2.05, y=y, w=sw-2.55, h=0.36,
-                  text=_truncate(_fmt_event_line(e), 130), font_size=9,
+                  text=_truncate(_fmt_event_line(e), 115), font_size=9,
                   color=SLATE_BLACK, line_spacing=1.15)
             y += 0.4
     else:
@@ -2556,8 +2561,8 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
                "Contains AI-generated content; verify against cited sources before external use.",
           font_size=10.5, italic=True, color=WILEY_MUTED)
 
-    _rect(slide, x=0.5, y=1.15, w=sw - 1.0, h=3.55, fill=WILEY_CARD_BG)
-    _rect(slide, x=0.5, y=1.15, w=0.08, h=3.55, fill=WILEY_TEAL)
+    _rect(slide, x=0.5, y=1.15, w=sw - 1.0, h=3.9, fill=WILEY_CARD_BG)
+    _rect(slide, x=0.5, y=1.15, w=0.08, h=3.9, fill=WILEY_TEAL)
 
     blocks = [
         ("Consensus is the forecast basis, events are the test",
@@ -2582,18 +2587,25 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
          "actor / action / magnitude / date and tagged as confirming or "
          "countering each trend; low-confidence events are held for analyst "
          "review, not auto-published."),
+        ("Reading the numbers",
+         "Forecast basis N% is the share of sources framing a trend as likely at "
+         "forecast time. A confirmation delta is in percentage points: the share "
+         "of live-window articles supporting the trend minus the same share in "
+         "the pre-forecast (placebo) window, so 0.85 means 0.85 points, not 85. "
+         "The evidence window starts at the forecast date. One record per "
+         "real-world event; repeated coverage adds sources, not events."),
     ]
     y = 1.35
     for head, body in blocks:
         _text(slide, x=0.85, y=y, w=sw - 1.7, h=0.24,
               text=head, font_size=11, bold=True, color=WILEY_NAVY)
-        _text(slide, x=0.85, y=y + 0.26, w=sw - 1.7, h=0.7,
-              text=body, font_size=9.5, color=WILEY_BODY, line_spacing=1.3)
-        y += 1.12
+        _text(slide, x=0.85, y=y + 0.26, w=sw - 1.7, h=0.62,
+              text=body, font_size=9, color=WILEY_BODY, line_spacing=1.25)
+        y += 0.93
 
     if data_quality_note:
         _rect(slide, x=0.5, y=4.85, w=sw - 1.0, h=0.6, fill=PALE_AMBER)
-        _text(slide, x=0.7, y=4.92, w=sw - 1.4, h=0.5,
+        _text(slide, x=0.7, y=5.12, w=sw - 1.4, h=0.4,
               text=data_quality_note, font_size=9, italic=True,
               color=SLATE_MID, line_spacing=1.25)
 

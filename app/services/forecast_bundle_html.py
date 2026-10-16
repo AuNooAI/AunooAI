@@ -45,6 +45,7 @@ def _build_report_data(items, *, period_label, cadence, bundle_synthesis,
             "date": (str(e.get("event_date"))[:10] if e.get("event_date") else None),
             "sources": e.get("source_urls") or [],
             "confidence": e.get("confidence"),
+            "state": e.get("event_state"),
         }
 
     trends = []

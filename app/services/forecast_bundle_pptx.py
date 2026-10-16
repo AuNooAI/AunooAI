@@ -782,7 +782,7 @@ def _add_bundle_toc(prs, items: list, *, updates_only: bool):
           font_size=9.5, italic=True, color=WILEY_MUTED)
 
     y = 1.18
-    row_h = 0.74
+    row_h = 0.66  # six rows must fit above the slide edge (16 Oct 2026 review, R13)
     for i, (assessment, _run, _prior) in enumerate(items, 1):
         topic = assessment.get("topic") or "—"
         n_scenarios = len([
@@ -894,6 +894,10 @@ def _add_topic_divider(prs, assessment: dict, forecast_run: dict, *, topic_idx: 
     if age_days is not None and age_days >= 30:
         assessed_label += f" ({age_days}d earlier)"
     parts.append(assessed_label)
+    # Evidence window: events run from the forecast date to the export date.
+    if forecast_at:
+        from datetime import datetime as _dt
+        parts.append(f"Evidence window {_short_date(forecast_at)} to {_short_date(_dt.now().isoformat())}")
     line = "    ·    ".join(parts)
     _text(slide, x=0.5, y=3.85, w=sw-1.0, h=0.3, text=line,
           font_size=12, italic=True, color=WILEY_MUTED, align=PP_ALIGN.CENTER)

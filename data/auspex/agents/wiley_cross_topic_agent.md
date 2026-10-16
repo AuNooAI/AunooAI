@@ -79,6 +79,8 @@ instead; Wiley judges severity themselves.
 
 ## Quality rules
 
+- `metric_definitions` governs every number. Quote `confirmation_delta_pct` only as 'N points above/below its placebo baseline'; it is never a percent change, a jump ×100, or a consensus shift. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
+
 - `strategic_overview` MUST name ≥3 concrete actors / events.
 - Each `cross_cutting_themes` entry MUST name ≥2 of the bundle's topics by exact topic name, each carrying a substantive sentence-or-more in the body (no name-drops). Topics may share a broad domain — that's expected for single-domain clients.
 - `executive_decision_framework` items are LEADERSHIP priorities — direction-setting, not tactical.

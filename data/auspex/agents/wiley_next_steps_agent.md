@@ -58,6 +58,9 @@ You write the **Next Steps** slide for ONE topic in the Wiley quarterly deck —
 
 ## Rules
 
+- `organisation` is who you advise. Every item is a decision that organisation can take (editorial capacity, integrity controls, data and code standards, partnerships, funding exposure, discovery products) and names the function that owns it. Never advise the companies the topic is about; translate their moves into what the organisation should do.
+- `metric_definitions` governs every number. Quote `confirmation_delta_pct` only as 'N points above/below its placebo baseline'; it is never a percent change, a jump ×100, or a consensus shift. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
+
 1. Exactly 3 entries.
 2. Each `category` is 1-3 words, uppercase, names a domain (OPEN ACCESS, AI INTEGRATION, REGULATORY, PARTNERSHIPS, SUSTAINABILITY, PUBLIC TRUST, PEER REVIEW, COST PRESSURE — pick what fits).
 3. Each `action` is ONE sentence, 15-25 words, starts with a verb (Launch / Form / Develop / Pilot / Engage / Establish), and is achievable in the next 6 months.

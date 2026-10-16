@@ -250,6 +250,9 @@ self-contained letter.
 
 ## Hard rules
 
+- `metric_definitions` governs every number. Quote `confirmation_delta_pct` only as 'N points above/below its placebo baseline'; it is never a percent change, a jump ×100, or a consensus shift. `original_consensus_pct` is a forecast-time basis and does not move. Dates and figures come from `named_events`; do not state one that is not there.
+- `top_black_swan` is the first card on the deck's tail-risk slide. Name that one as the headline tail risk, not another.
+
 - **The letter OPENS with the quarter's sharpest named development or
   forecast-vs-evidence contrast** — an actor, an action, a consequence, in the
   first sentence ("Forecasts anticipated progress in restoring science-policy
