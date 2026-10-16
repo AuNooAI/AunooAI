@@ -427,11 +427,23 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
                 by_date.setdefault((int(d[5:7]), int(d[8:10]), int(d[:4])), []).append(e)
             except ValueError:
                 continue
+    from app.services.daily_report_service import _DATE_WORDS, _DATE_ISO, _MONTHS
     out = []
     for sent in _sentences(seg["text"]):
-        if _SPEECH.search(sent):
-            continue
-        for d in _dates_in(sent):
+        # The speech verb must sit in the clause that carries the date, not
+        # anywhere in the sentence: "agents accessed Medicare on 29 September
+        # ..., prompting the company to apologise" passed on "apologise".
+        located = []
+        for m in _DATE_WORDS.finditer(sent):
+            mon = _MONTHS.get(m.group(1).lower().rstrip("."))
+            if mon:
+                located.append(((mon, int(m.group(2)), int(m.group(3)) if m.group(3) else None), m.start(), m.end()))
+        for m in _DATE_ISO.finditer(sent):
+            located.append(((int(m.group(2)), int(m.group(3)), int(m.group(1))), m.start(), m.end()))
+        for d, s0, s1 in located:
+            window = sent[max(0, s0 - 90):min(len(sent), s1 + 25)]
+            if _SPEECH.search(window):
+                continue
             matches = [e for key, evs in by_date.items() if _date_matches(d, [key]) for e in evs]
             if not matches:
                 continue
