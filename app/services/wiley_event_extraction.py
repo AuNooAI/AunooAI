@@ -283,6 +283,19 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
                 continue  # not a usable event
 
             event_date = _coerce_date(ev.get("event_date"))
+            # The development's own date, with where it came from. With no
+            # date in the text the article's publication date stands in and
+            # the exports say "reported on" (16 Oct 2026 review, R11/F07).
+            date_basis = str(ev.get("date_basis") or "").strip().lower()
+            if date_basis not in _DATE_BASIS:
+                date_basis = "stated" if event_date else "article"
+            if not event_date and isinstance(src_idx_pre := ev.get("source_index"), int) \
+                    and 0 <= src_idx_pre < len(batch):
+                event_date = _coerce_date(batch[src_idx_pre].get("date"))
+                date_basis = "article"
+            ev_state = str(ev.get("event_state") or "").strip().lower()
+            if ev_state not in _EVENT_STATES:
+                ev_state = None
             # An article published after the forecast can report something
             # from months before it. The assessment's live window starts at
             # the forecast date, so evidence dated before it is not evidence
@@ -329,6 +342,14 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
             }
             try:
                 eid = db.facade.upsert_extracted_event(event_row)
+                try:
+                    from sqlalchemy import text as _sa_text
+                    db.facade._execute_with_rollback(_sa_text(
+                        "UPDATE extracted_events SET date_basis=:b, "
+                        "event_state=COALESCE(event_state, :st) WHERE id=:id"),
+                        {"b": date_basis, "st": ev_state, "id": int(eid)})
+                except Exception as e:
+                    logger.warning("event-extraction: basis/state update failed for %s: %s", eid, e)
                 if dedupe_key not in persisted:
                     persisted[dedupe_key] = eid
                     n += 1
@@ -583,6 +604,7 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
 _EVENT_STATES = {"announced", "proposed", "drafted", "agreed", "completed",
                  "withdrawn", "reported"}
 _JEV_SAME_MIN = 0.6
+_DATE_BASIS = {"stated", "inferred", "article"}
 _WRITER_BATCH_ROWS = 24
 
 
@@ -592,6 +614,8 @@ def _event_brief(e: dict) -> dict:
         "id": e.get("id"), "actor": e.get("actor"), "action": e.get("action"),
         "subject": e.get("subject"),
         "date": str(e.get("event_date") or "")[:10] or None,
+        "date_basis": e.get("date_basis"),
+        "state": e.get("event_state"),
         "magnitude": (f"{mv:g} {mu or ''}".strip() if isinstance(mv, (int, float)) else None),
         "sources": [u for u in (e.get("source_urls") or []) if u][:3],
     }

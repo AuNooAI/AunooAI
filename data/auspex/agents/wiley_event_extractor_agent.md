@@ -3,7 +3,7 @@ name: wiley_event_extractor_agent
 category: wiley_bundle_supervisor
 description: Extracts structured real-world EVENTS (actor + action + subject + magnitude + date) from a batch of articles for one Wiley topic. Feeds the honest "What's changed this quarter" section — factual ground-truth, NOT forecast scoring. Returns one row per distinct event; never invents magnitudes.
 type: agent
-version: 2.0.0
+version: 2.1.0
 model_config:
   model: bedrock-kimi-k2-5
   temperature: 0.1
@@ -24,6 +24,8 @@ output_schema:
           magnitude_value: {type: ["number", "null"]}
           magnitude_unit: {type: ["string", "null"]}
           event_date: {type: ["string", "null"]}
+          date_basis: {type: string, enum: [stated, inferred, article]}
+          event_state: {type: string, enum: [announced, proposed, drafted, agreed, completed, withdrawn, reported]}
           source_index: {type: integer}
           confidence: {type: number}
           requires_review: {type: boolean}
@@ -90,15 +92,30 @@ that genuinely move the topic, not every dated action in the batch.
 2. **`magnitude_value` / `magnitude_unit` are optional.** Only fill them when
    the article states a real number (1,200 papers; 18%; $2.3M). If there is
    no number, leave both null. **Never invent a magnitude.**
-3. **`event_date`**: ISO `YYYY-MM-DD` if the article gives one (or you can
-   confidently infer it from the publication date + "yesterday/last week").
-   Else null.
-4. **`source_index`**: the 0-based index of the article in the input
+3. **`event_date`** is the date the development itself happened or was
+   announced, ISO `YYYY-MM-DD`, with **`date_basis`** saying where it came
+   from: `stated` when the article names the date ("on 16 September NIST
+   finalised…", "Monday's filing"); `inferred` when you derive it from the
+   publication date plus "yesterday" / "last week"; `article` when the text
+   gives no date at all, in which case use the article's publication date
+   and the briefing will say "reported on". An article published on 7
+   October about an award finalised on 16 September is a 16 September event.
+   Never leave `event_date` null when the article has a publication date.
+4. **`event_state`**: what stage the development is at, from the article's
+   own words: `announced` (made public, no further stage), `proposed`
+   (planned, under review, "exploring"), `drafted` (a draft or order being
+   prepared), `agreed` (signed, licensed, partnered), `completed` (done,
+   approved, launched, delivered), `withdrawn` (shelved, abandoned,
+   reversed), `reported` (a finding, study, disclosure or statistic). A
+   review of options is `proposed`, never `completed`. A deal "worth up to"
+   a sum is `agreed`, and the sum is a ceiling: put the qualifier in
+   `magnitude_unit` ("USD, up to", "USD upfront", "USD total potential").
+5. **`source_index`**: the 0-based index of the article in the input
    `articles` list that best reports this event.
-5. **`confidence`** (0-1): how sure you are this is a real, correctly-extracted
+6. **`confidence`** (0-1): how sure you are this is a real, correctly-extracted
    event. Set **`requires_review: true`** when confidence < 0.6, or when actor
    or date is missing/uncertain.
-6. **`scenario_relevance`**: zero or more entries, each
+7. **`scenario_relevance`**: zero or more entries, each
    `{"scenario": <exact name from the input `scenarios` list>,
    "direction": "confirms" | "counters" | "neutral"}`. The scenario is a
    forward-looking *claim*; **direction** is whether THIS event makes that
@@ -109,7 +126,7 @@ that genuinely move the topic, not every dated action in the batch.
    screen `counters`. Empty array if no scenario fits. Never invent scenario
    names. Direction is about the claim's trajectory, NOT whether the event is
    "good" or "bad".
-7. If the batch contains no genuine events, return `{"events": []}`. An empty
+8. If the batch contains no genuine events, return `{"events": []}`. An empty
    result is correct and expected for opinion-heavy batches.
 
 ## Input shape
@@ -137,6 +154,8 @@ that genuinely move the topic, not every dated action in the batch.
       "magnitude_value": 1200,
       "magnitude_unit": "papers",
       "event_date": "2026-03-14",
+      "date_basis": "stated",
+      "event_state": "completed",
       "source_index": 0,
       "confidence": 0.92,
       "requires_review": false,

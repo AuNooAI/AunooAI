@@ -50,8 +50,9 @@ across your records, as a keep_id or inside a merge_ids list.
   the qualifier in the unit: "USD upfront", "USD, up to", "USD total
   potential". If no figure is reliable, set both to null. Never write a figure
   that no row in the group carries.
-- **event_date**: the date of the development itself, which is the earliest
-  date among the rows that report it, not the date of later coverage.
+- **event_date**: the date of the development itself. Prefer a row whose
+  `date_basis` is `stated`; otherwise the earliest date among the rows, never the
+  date of later coverage.
 - **event_state**: one of `announced`, `proposed`, `drafted`, `agreed`,
   `completed`, `withdrawn`, `reported`. `reported` is for findings, studies
   and disclosures. `withdrawn` covers anything shelved or abandoned.
