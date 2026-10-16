@@ -1,0 +1,7 @@
+/* Long article titles wrap instead of running off a phone screen */
+.saved-incidents-wrap {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}

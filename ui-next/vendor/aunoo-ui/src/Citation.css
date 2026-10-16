@@ -1,0 +1,28 @@
+/* Pink-ink on accent-tint-10 is ≥4.63:1 (DESIGN_CONTEXT §2.3) */
+.citation {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--lg);
+  height: var(--lg);
+  margin: 0 var(--gap-meta);
+  padding: 0 var(--xs);
+  border-radius: var(--r-xs);
+  background: var(--accent-tint-10);
+  font-family: var(--font-sans);
+  font-size: var(--fs-10-5);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  color: var(--pink-ink);
+  text-decoration: none;
+  vertical-align: text-top;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+a.citation:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+@media (hover: hover) {
+  a.citation:hover { background: var(--accent-tint-15); }
+}

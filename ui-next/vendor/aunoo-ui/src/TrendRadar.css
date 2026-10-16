@@ -1,0 +1,127 @@
+.trend-radar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md);
+  font-family: var(--font-sans);
+}
+
+.trend-radar__plot {
+  position: relative;
+  width: 100%;
+  max-width: var(--viz-chart-h);
+  margin: 0 auto;
+  aspect-ratio: 1;
+}
+
+.trend-radar__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* vector-effect keeps hairlines 1px even though the viewBox is scaled */
+.trend-radar__ring,
+.trend-radar__spoke {
+  fill: none;
+  stroke: var(--viz-grid);
+  stroke-width: var(--hairline);
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-radar__sector-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: var(--type-timestamp-size);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.trend-radar__sector--1 { --series: var(--viz-series-1); }
+.trend-radar__sector--2 { --series: var(--viz-series-2); }
+.trend-radar__sector--3 { --series: var(--viz-series-3); }
+
+/* The point is a 28px hit target around an 8px+ mark */
+.trend-radar__point {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+.trend-radar__point:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 0;
+}
+
+.trend-radar__mark {
+  display: block;
+  width: calc(var(--viz-marker-r) * 3);
+  height: calc(var(--viz-marker-r) * 3);
+  border: var(--viz-line-w) solid var(--series);
+  border-radius: var(--r-pill);
+  background: var(--card-light);
+  box-sizing: border-box;
+}
+
+/* Momentum = shape */
+.trend-radar__point--accelerating .trend-radar__mark,
+.trend-radar__mark.trend-radar__point--accelerating { background: var(--series); }
+.trend-radar__point--decelerating .trend-radar__mark,
+.trend-radar__mark.trend-radar__point--decelerating { border-style: dashed; }
+
+.trend-radar__point[aria-pressed='true'] .trend-radar__mark {
+  outline: var(--viz-ring-w) solid var(--text-primary);
+  outline-offset: var(--viz-ring-w);
+}
+
+.trend-radar__point-label {
+  position: absolute;
+  left: 100%;
+  font-size: var(--fs-10-5);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+.trend-radar__legends {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sm) var(--xl);
+}
+
+.trend-radar__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.trend-radar__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+}
+
+.trend-radar__swatch {
+  width: var(--md);
+  height: var(--md);
+  border-radius: var(--r-xs);
+  background: var(--series);
+}
+
+.trend-radar__legend-mark {
+  --series: var(--text-secondary);
+}

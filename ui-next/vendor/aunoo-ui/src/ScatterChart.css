@@ -1,0 +1,83 @@
+.scatter-chart {
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+.scatter-chart__plot {
+  position: relative;
+  width: 100%;
+  /* Width-capped (not height-capped) so the plot keeps the viewBox ratio the labels are placed in */
+  max-width: calc(var(--viz-chart-h) * 100 / 70);
+  aspect-ratio: 100 / 70;
+}
+
+.scatter-chart__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.scatter-chart__grid {
+  stroke: var(--viz-grid);
+  stroke-width: var(--hairline);
+  vector-effect: non-scaling-stroke;
+}
+
+.scatter-chart__axis {
+  stroke: var(--viz-baseline);
+  stroke-width: var(--hairline);
+  vector-effect: non-scaling-stroke;
+}
+
+/* Text: HTML over the plot, placed in % of it */
+.scatter-chart__tick,
+.scatter-chart__name {
+  position: absolute;
+  font-size: var(--fs-11);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+}
+
+.scatter-chart__tick { color: var(--text-muted); }
+.scatter-chart__tick--y { transform: translate(-100%, -50%); }
+.scatter-chart__tick--x { transform: translate(-50%, 0); }
+
+.scatter-chart__name {
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  transform: translate(0, -50%);
+}
+
+.scatter-chart__name--left { transform: translate(-100%, -50%); }
+
+.scatter-chart__axes {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--md);
+  margin-top: var(--lg);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}
+
+.scatter-chart__dot {
+  stroke: var(--card-light);
+  stroke-width: var(--viz-ring-w);
+  vector-effect: non-scaling-stroke;
+}
+
+.scatter-chart__dot--1 { fill: var(--viz-series-1); }
+.scatter-chart__dot--2 { fill: var(--viz-series-2); }
+.scatter-chart__dot--3 { fill: var(--viz-series-3); }
+.scatter-chart__dot--4 { fill: var(--viz-series-4); }
+.scatter-chart__dot--5 { fill: var(--viz-series-5); }
+
+.scatter-chart__empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  font-size: var(--fs-13);
+  text-align: center;
+  color: var(--text-muted);
+}

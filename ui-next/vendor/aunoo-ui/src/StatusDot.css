@@ -1,0 +1,11 @@
+.status-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--r-pill);
+}
+
+.status-dot--live { background: var(--live); }
+.status-dot--accent { background: var(--accent); }
+.status-dot--pending { background: var(--star-active); }

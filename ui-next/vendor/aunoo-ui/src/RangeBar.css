@@ -1,0 +1,49 @@
+.range-bar {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  width: 100%;
+  min-width: calc(var(--menu-min-w) / 2);
+  gap: var(--xs);
+  font-family: var(--font-sans);
+}
+
+.range-bar--1 { --series: var(--viz-series-1); }
+.range-bar--2 { --series: var(--viz-series-2); }
+.range-bar--3 { --series: var(--viz-series-3); }
+
+/* Track is a token, not white — fixes the dark-mode white track of the old page (spec bug 9) */
+.range-bar__track {
+  position: relative;
+  height: var(--sm);
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+}
+
+.range-bar__segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-pill);
+  background: var(--series);
+}
+
+/* A single year: a dot the height of the track */
+.range-bar__segment[data-point] {
+  inline-size: var(--sm) !important;
+  transform: translateX(-50%);
+}
+
+.range-bar__scale {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--type-timestamp-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.range-bar__tick {
+  position: absolute;
+  transform: translateX(-50%);
+}

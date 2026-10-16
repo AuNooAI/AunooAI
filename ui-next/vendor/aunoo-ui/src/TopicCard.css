@@ -1,0 +1,120 @@
+.topic-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-card-stack);
+  width: 100%;
+  padding: var(--pad-inset-y) var(--pad-inset-x);
+  background: var(--card-rest);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-2xl);
+  font-family: var(--font-sans);
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    border-color var(--dur-hover) var(--ease);
+}
+
+.topic-card__description,
+.topic-card .chip {
+  transition:
+    color var(--dur-hover) var(--ease),
+    background var(--dur-hover) var(--ease);
+}
+
+.topic-card:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.topic-card[data-selected] {
+  background: var(--accent-tint-07);
+  border-color: var(--accent-tint-30);
+}
+
+.topic-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+}
+
+.topic-card__emoji {
+  flex: 0 0 auto;
+  font-size: var(--fs-14);
+  line-height: var(--lh-display);
+}
+
+.topic-card__name {
+  flex: 1;
+  font-size: var(--type-card-title-size);
+  font-weight: var(--type-card-title-weight);
+}
+
+.topic-card__check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-sm);
+  background: var(--surface-raised);
+  transition:
+    background var(--dur-hover) var(--ease),
+    border-color var(--dur-hover) var(--ease);
+}
+
+/* Phosphor's fill Check is already a filled square with the tick knocked out,
+   so when selected the icon itself is the checkbox (md = --checkbox-size). */
+.topic-card[data-selected] .topic-card__check {
+  background: none;
+  border-color: transparent;
+  color: var(--accent-strong);
+}
+
+.topic-card__description {
+  font-size: var(--type-card-subtext-size);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+/* Pressed = hover colour, outside the hover query so touch gets it too.
+   On --card-hover, --text-muted (4.44:1) and the pink tag on tint-10 (4.37:1) miss AA,
+   so the description darkens and the tag uses the lighter tint (4.51:1). */
+.topic-card:active:not(:disabled):not([data-selected]) {
+  background: var(--card-hover);
+}
+
+.topic-card:active:not(:disabled):not([data-selected]) .topic-card__description {
+  color: var(--text-secondary);
+}
+
+.topic-card:active:not(:disabled):not([data-selected]) .chip--accent {
+  background: var(--accent-tint-07);
+}
+
+@media (hover: hover) {
+  /* Off only: on hover the reference drops the pink fill, which reads as "deselected" */
+  .topic-card:hover:not(:disabled):not([data-selected]) {
+    background: var(--card-hover);
+  }
+
+  .topic-card:hover:not(:disabled):not([data-selected]) .topic-card__description {
+    color: var(--text-secondary);
+  }
+
+  .topic-card:hover:not(:disabled):not([data-selected]) .chip--accent {
+    background: var(--accent-tint-07);
+  }
+}
+
+.topic-card:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.topic-card:disabled .topic-card__description {
+  color: var(--disabled-text);
+}

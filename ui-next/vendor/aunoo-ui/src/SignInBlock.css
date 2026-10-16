@@ -1,0 +1,30 @@
+.signin-block {
+  padding: var(--pad-signin-block);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+.signin-block__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cozy);
+}
+
+.signin-block__title {
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  color: var(--text-primary);
+}
+
+.signin-block__description {
+  margin-top: var(--space-signin-desc);
+}
+
+.signin-block__field {
+  margin-top: var(--space-copy-field);
+}
+
+.signin-block__hint {
+  margin-top: var(--space-hint);
+}

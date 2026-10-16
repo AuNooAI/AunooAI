@@ -1,0 +1,44 @@
+.grid {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grid > li {
+  display: flex;
+}
+
+.grid > li > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A child can take a whole row, e.g. an expanded card: data-grid-span="full" */
+.grid > [data-grid-span='full'] {
+  grid-column: 1 / -1;
+}
+
+.grid--cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid--cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid--cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid--cols-rail-main-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--rail-w-wide); align-items: start; }
+.grid--cols-main-aside { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+
+.grid--gap-sm { gap: var(--sm); }
+.grid--gap-md { gap: var(--md); }
+
+@media (max-width: 1200px) {
+  .grid--cols-rail-main-rail { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  .grid--cols-rail-main-rail > :nth-child(3) { grid-column: 1 / -1; }
+}
+
+@media (max-width: 1000px) { /* --bp-wide */
+  .grid--cols-rail-main-rail { grid-template-columns: minmax(0, 1fr); }
+  .grid--cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid--stack-wide { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) { /* --bp-small */
+  .grid--stack-small { grid-template-columns: minmax(0, 1fr); }
+}

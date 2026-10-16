@@ -1,0 +1,8 @@
+/* Long article titles wrap inside the table cell instead of stretching the table */
+.db-title {
+  display: inline-block;
+  min-width: 14rem;
+  max-width: 28rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

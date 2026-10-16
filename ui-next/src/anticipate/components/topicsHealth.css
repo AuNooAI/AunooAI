@@ -1,0 +1,16 @@
+/* Topics table: the health dot in the old dashboard's red, amber and green, with its reason beside it */
+.topics-health {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.topics-health__dot {
+  flex: 0 0 auto;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  transform: translateY(0.05rem);
+}
+.topics-health__dot--green { background: var(--success); }
+.topics-health__dot--amber { background: var(--warning); }
+.topics-health__dot--red { background: var(--error); }

@@ -1,0 +1,222 @@
+.sidebar {
+  display: flex;
+  flex: 0 0 var(--sidebar-w);
+  flex-direction: column;
+  width: var(--sidebar-w);
+  min-height: 0;
+  padding: var(--area-gap) 0 var(--area-gap) var(--md);
+  overflow-y: auto;
+  background: var(--nav-bg);
+  font-family: var(--font-sans);
+}
+
+.sidebar__groups {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+
+.sidebar__footer {
+  margin-top: var(--space-section);
+  padding-top: var(--md);
+  border-top: var(--hairline) solid var(--separator-dark);
+}
+
+/* Group */
+.sidebar-group__label {
+  padding: 0 var(--md) var(--sm);
+  font-size: var(--type-group-label-size);
+  font-weight: var(--type-group-label-weight);
+  letter-spacing: var(--tracking-group-label);
+  text-transform: uppercase;
+  color: var(--text-on-dark);
+}
+
+.sidebar-group__list,
+.sidebar-item__sublist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-meta);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Item */
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cozy);
+  width: 100%;
+  height: var(--nav-item-h);
+  padding: 0 var(--md);
+  border: none;
+  border-radius: var(--r-lg);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--type-nav-item-size);
+  font-weight: var(--type-nav-item-weight);
+  color: var(--text-on-dark);
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.sidebar-item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.sidebar-item[aria-current='page'] {
+  background: var(--accent-tint-30);
+  color: var(--accent-text-active);
+}
+
+/* A disclosure whose nested page is current keeps the active text, without the fill */
+.sidebar-item[data-current] {
+  color: var(--accent-text-active);
+}
+
+.sidebar-item:active {
+  background: var(--accent-tint-30);
+}
+
+@media (hover: hover) {
+  .sidebar-item:hover { background: var(--accent-tint-30); }
+}
+
+.sidebar-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-item__chevron {
+  opacity: var(--opacity-caret);
+  transition: transform var(--dur-panel) var(--ease);
+}
+
+.sidebar-item[data-state='closed'] .sidebar-item__chevron {
+  transform: rotate(var(--rotate-collapsed));
+}
+
+/* Opens another site */
+.sidebar-item__external {
+  flex: 0 0 auto;
+  opacity: var(--opacity-caret);
+}
+
+/* Nested items line up with the parent's label */
+.sidebar-item--sub {
+  padding-left: calc(var(--md) + var(--icon-md) + var(--gap-cozy));
+}
+
+.sidebar-item__sub {
+  overflow: hidden;
+}
+
+.sidebar-item__sublist {
+  padding-top: var(--gap-meta);
+}
+
+.sidebar-item__sub[data-state='open'] {
+  animation: sidebar-sub-open var(--dur-panel-slow) var(--ease);
+}
+
+.sidebar-item__sub[data-state='closed'] {
+  animation: sidebar-sub-close var(--dur-panel-slow) var(--ease);
+}
+
+@keyframes sidebar-sub-open {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+
+@keyframes sidebar-sub-close {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-item__sub[data-state] { animation: none; }
+}
+
+/* Collapse toggle (§3.1: chevron, rounded.md). chip-dark on navBg; textOnDark icon is 7.62:1 */
+.sidebar__toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--sm);
+  padding-right: var(--md);
+}
+
+.sidebar__toggle {
+  display: grid;
+  place-items: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--chip-dark);
+  color: var(--text-on-dark);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.sidebar__toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.sidebar__toggle:active { background: var(--chip-dark-hover); }
+
+@media (hover: hover) {
+  .sidebar__toggle:hover { background: var(--chip-dark-hover); }
+}
+
+.sidebar {
+  transition: flex-basis var(--dur-panel) var(--ease), width var(--dur-panel) var(--ease);
+}
+
+/* Collapsed icon rail (--sidebar-w-collapsed): by the toggle, and always under 860px.
+   Labels stay in the accessibility tree and show as tooltips. */
+.sidebar--collapsed {
+  flex-basis: var(--sidebar-w-collapsed);
+  width: var(--sidebar-w-collapsed);
+  padding: var(--area-gap) var(--md);
+}
+
+.sidebar--collapsed .sidebar__toggle-row {
+  justify-content: center;
+  padding-right: 0;
+}
+
+.sidebar--collapsed .sidebar-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar--collapsed .sidebar-group__label,
+.sidebar--collapsed .sidebar-item__label {
+  position: absolute;
+  width: var(--hairline);
+  height: var(--hairline);
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.sidebar--collapsed .sidebar-item__chevron,
+.sidebar--collapsed .sidebar-item__sub {
+  display: none;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .sidebar--collapsed { padding: var(--area-gap-compact) var(--md); }
+}

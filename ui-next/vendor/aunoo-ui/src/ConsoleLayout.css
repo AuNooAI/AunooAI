@@ -1,0 +1,114 @@
+.console-layout {
+  display: flex;
+  flex-direction: column;
+  height: var(--layout-min-h);
+  background: var(--nav-bg);
+}
+
+/* Left edge of the area panel = sidebar width + the panel's margin. TopNav starts its lead
+   (breadcrumbs) on this line. Mirrors Sidebar.css and AreaPanel.css, including their 860px switch. */
+.console-layout--with-sidebar {
+  --top-nav-lead-start: calc(var(--sidebar-w) + var(--area-gap));
+}
+
+/* Collapsed sidebar: the line moves in to the rail — but never so far that the short logo
+   (au + BETA) doesn't fit — and the logo swaps to that short version */
+.console-layout--with-sidebar:has(.sidebar--collapsed) {
+  --top-nav-lead-start: max(
+    calc(var(--sidebar-w-collapsed) + var(--area-gap)),
+    calc(var(--lg) + var(--logo-h) * 96 / 24 + var(--md))
+  );
+}
+
+.console-layout--with-sidebar:has(.sidebar--collapsed) .logo--collapsible .logo__full { display: none; }
+.console-layout--with-sidebar:has(.sidebar--collapsed) .logo--collapsible .logo__mark { display: block; }
+
+@media (max-width: 860px) { /* --bp-medium */
+  .console-layout--with-sidebar {
+    --top-nav-lead-start: max(
+      calc(var(--sidebar-w-collapsed) + var(--area-gap-compact)),
+      calc(var(--lg) + var(--logo-h) * 96 / 24 + var(--md))
+    );
+  }
+}
+
+@media (max-width: 560px) { /* --bp-small: the logo drops to --logo-h-compact */
+  .console-layout--with-sidebar,
+  .console-layout--with-sidebar:has(.sidebar--collapsed) {
+    --top-nav-lead-start: max(
+      calc(var(--sidebar-w-collapsed) + var(--area-gap-compact)),
+      calc(var(--lg) + var(--logo-h-compact) * 96 / 24 + var(--md))
+    );
+  }
+}
+
+.console-layout__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.console-layout__tabs {
+  margin-top: var(--space-tabs-top);
+}
+
+/* No visible page header: the first block starts at the top of the page */
+.console-layout--no-header .console-layout__tabs,
+.console-layout--no-header .console-layout__content:first-of-type {
+  margin-top: 0;
+}
+
+/* Panels inside each tab / the page stack with a fixed gap */
+.console-layout__tabs .tabs__panel,
+.console-layout__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-panel-stack);
+  margin-top: var(--space-panel-stack);
+}
+
+.console-layout__skip {
+  position: absolute;
+  top: var(--sm);
+  left: var(--sm);
+  z-index: var(--z-toast);
+  padding: var(--sm) var(--md);
+  border-radius: var(--r-sm);
+  background: var(--card-light);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  transform: translateY(calc(-1 * var(--topnav-h) * 2));
+}
+
+.console-layout__skip:focus-visible {
+  transform: none;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Print / Save as PDF: just the page content, no app chrome */
+@media print {
+  .console-layout { height: auto; background: none; }
+  .console-layout .top-nav,
+  .console-layout .sidebar,
+  .console-layout__skip,
+  .toast-host { display: none; }
+  .console-layout .area-panel { margin: 0; overflow: visible; border-radius: 0; }
+  .console-layout .sticky-header { position: static; }
+}
+
+/* A floating action button owns the bottom-right corner: stack toasts above it */
+.console-layout:has(.fab) .toast-host {
+  bottom: calc(var(--area-gap) + var(--lg) + var(--fab-size) + var(--md));
+}
+
+/* A sticky form footer owns the bottom edge: lift the floating button (and its toasts) above it */
+.console-layout:has(.sticky-footer) .fab {
+  bottom: calc(var(--area-gap) + var(--lg) + var(--control-h-md) + 2 * var(--md));
+}
+
+.console-layout:has(.sticky-footer):has(.fab) .toast-host {
+  bottom: calc(var(--area-gap) + 2 * var(--lg) + var(--control-h-md) + 2 * var(--md) + var(--fab-size));
+}

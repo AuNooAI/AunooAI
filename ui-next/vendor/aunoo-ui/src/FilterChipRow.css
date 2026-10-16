@@ -1,0 +1,87 @@
+.filter-chip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--md);
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.filter-chip-row__label {
+  flex: 0 0 auto;
+  padding-top: var(--xs);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}
+
+.filter-chip-row__total {
+  font-weight: var(--fw-regular);
+}
+
+.filter-chip-row__chips {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--gap-inline);
+  min-width: 0;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--xs);
+  height: var(--badge-h-md);
+  padding: 0 var(--pad-control-x-sm);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-pill);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    border-color var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.filter-chip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* On = active state: accent tint + pink-ink (same as a selected TopicPill) */
+.filter-chip[aria-pressed='true'] {
+  background: var(--accent-tint-15);
+  border-color: transparent;
+  color: var(--pink-ink);
+  font-weight: var(--fw-medium);
+}
+
+.filter-chip--more {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.filter-chip__count {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.filter-chip[aria-pressed='true'] .filter-chip__count {
+  color: var(--pink-ink);
+}
+
+.filter-chip:active { background: var(--chip-soft); }
+.filter-chip[aria-pressed='true']:active { border-color: var(--accent-tint-30); }
+
+@media (hover: hover) {
+  .filter-chip[aria-pressed='false']:hover,
+  .filter-chip--more:hover { background: var(--chip-soft); }
+  .filter-chip[aria-pressed='true']:hover { border-color: var(--accent-tint-30); }
+}
+
+@media (max-width: 560px) { /* --bp-small */
+  .filter-chip-row { flex-direction: column; gap: var(--xs); }
+}

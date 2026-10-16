@@ -1,0 +1,97 @@
+/* A button that reads as an inline link (counts that open the records behind them) */
+.mm-linkbutton {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+/* Plain lists inside popovers and panels */
+.mm-plainlist {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+}
+.mm-dl {
+  margin: 0;
+}
+/* A panel's header controls wrap under its title on a phone instead of pushing the page sideways */
+.panel__head {
+  flex-wrap: wrap;
+}
+.panel__aside {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+/* Long fold-out headings (article titles) wrap instead of running off a phone screen */
+.mm-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+/* Segmented switches with many options scroll inside themselves on a phone */
+.mm-segmented-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+/* Hidden screen-reader labels inside a table are absolutely placed; keep them inside the table's own
+   scroll box so they can't widen the page on a phone */
+.table {
+  position: relative;
+}
+/* A long series label at the right end of a line chart is clipped at the chart's edge on a phone,
+   rather than pushing the page sideways */
+.line-chart {
+  overflow-x: clip;
+}
+/* Post thumbnails and account photos from other sites */
+.mm-remote-img {
+  display: block;
+  object-fit: cover;
+  border-radius: var(--r-md, 6px);
+  border: var(--hairline, 1px) solid var(--sidebar-border);
+  flex-shrink: 0;
+}
+.mm-remote-img--round {
+  border-radius: 50%;
+}
+/* Stand-in when an account has no photo, or its photo won't load */
+.mm-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--chip-muted);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+/* Clickable bar charts (shared/ClickableBars.tsx) */
+.mm-vbars { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mm-vbars__scroll { max-width: 100%; overflow-x: auto; }
+.mm-vbars__svg { display: block; font-family: var(--font-sans); }
+.mm-vbars__axis { stroke: var(--sidebar-border); }
+.mm-vbars__tick { fill: var(--text-muted); font-size: 10px; }
+.mm-vbar { fill: var(--viz-series-1); cursor: pointer; }
+.mm-vbar:hover, .mm-vbar--active, .mm-vbar:focus-visible { opacity: 0.8; outline: none; stroke: var(--text-primary); stroke-width: 1.5; }
+.mm-hatch-bg { fill: var(--chip-muted); }
+.mm-hatch-line { stroke: var(--viz-neutral); stroke-width: 2; }
+.mm-hbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mm-hbar {
+  display: grid; grid-template-columns: minmax(6rem, 30%) 1fr auto; align-items: center; gap: 8px;
+  inline-size: 100%; background: none; border: 0; padding: 4px 2px; font: inherit; color: inherit;
+  text-align: start; cursor: pointer; border-radius: var(--r-md, 6px);
+}
+.mm-hbar:hover, .mm-hbar:focus-visible { background: var(--chip-muted); outline: none; }
+.mm-hbar__label { font-size: var(--fs-12, 12px); color: var(--text-secondary); overflow-wrap: anywhere; }
+.mm-hbar__track { block-size: 10px; background: var(--chip-muted); border-radius: 5px; overflow: hidden; }
+.mm-hbar__fill { display: block; block-size: 100%; background: var(--viz-series-1); border-radius: 5px; }
+.mm-hbar__value { font-size: var(--fs-12, 12px); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.mm-bar--partial { background-image: repeating-linear-gradient(45deg, var(--viz-neutral) 0 2px, transparent 2px 6px); background-color: var(--chip-muted) !important; }
+/* Two-scale scatter (shared/DualScatter.tsx) */
+.mm-scatter__grid { stroke: var(--sidebar-border); stroke-dasharray: 3 3; }
+.mm-scatter__axis { fill: var(--text-secondary); font-size: 11px; }
+.mm-scatter__name { fill: var(--text-secondary); font-size: 10px; pointer-events: none; }
+.mm-scatter__dot { fill: var(--viz-series-1); stroke: var(--chat-wrap-bg, #fff); stroke-width: 1.5; opacity: 0.85; }
+.mm-scatter__dot--pick { cursor: pointer; }
+.mm-scatter__dot:focus-visible, .mm-scatter__dot--active { opacity: 1; stroke: var(--text-primary); stroke-width: 2; outline: none; }

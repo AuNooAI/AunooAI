@@ -1,0 +1,96 @@
+.stacked-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md);
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+.stacked-bar-chart__body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--sm);
+}
+
+.stacked-bar-chart__y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: var(--viz-chart-h);
+  font-size: var(--fs-11);
+  line-height: 0;
+  text-align: end;
+  color: var(--text-muted);
+}
+
+.stacked-bar-chart__plot {
+  position: relative;
+  padding-bottom: var(--viz-gutter-bottom);
+}
+
+.stacked-bar-chart__svg {
+  display: block;
+  width: 100%;
+  height: var(--viz-chart-h);
+}
+
+.stacked-bar-chart__grid {
+  stroke: var(--viz-grid);
+  stroke-width: var(--hairline);
+  vector-effect: non-scaling-stroke;
+}
+
+.stacked-bar-chart__bar--0 { fill: var(--viz-baseline); background: var(--viz-baseline); }
+.stacked-bar-chart__bar--1 { fill: var(--viz-series-1); background: var(--viz-series-1); }
+.stacked-bar-chart__bar--2 { fill: var(--viz-series-2); background: var(--viz-series-2); }
+.stacked-bar-chart__bar--3 { fill: var(--viz-series-3); background: var(--viz-series-3); }
+.stacked-bar-chart__bar--4 { fill: var(--viz-series-4); background: var(--viz-series-4); }
+.stacked-bar-chart__bar--5 { fill: var(--viz-series-5); background: var(--viz-series-5); }
+
+.stacked-bar-chart__x {
+  position: absolute;
+  inset: auto 0 0;
+  height: var(--viz-gutter-bottom);
+}
+
+.stacked-bar-chart__x span {
+  position: absolute;
+  top: var(--xs);
+  font-size: var(--fs-11);
+  white-space: nowrap;
+  color: var(--text-muted);
+  transform: translateX(-50%);
+}
+
+.stacked-bar-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.stacked-bar-chart__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-meta);
+}
+
+.stacked-bar-chart__key {
+  width: var(--sm);
+  height: var(--sm);
+  border-radius: var(--r-xs);
+}
+
+.stacked-bar-chart__empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  font-size: var(--fs-13);
+  text-align: center;
+  color: var(--text-muted);
+}

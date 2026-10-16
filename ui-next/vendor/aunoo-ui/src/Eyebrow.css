@@ -1,0 +1,10 @@
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-card-eyebrow-size);
+  font-weight: var(--type-card-eyebrow-weight);
+  letter-spacing: var(--tracking-eyebrow);
+  line-height: var(--lh-body);
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}

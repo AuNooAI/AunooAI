@@ -1,0 +1,152 @@
+/* Content above the tab row (titles, toolbars) sits apart from it */
+.tabs__header {
+  margin-bottom: var(--space-tabs-top);
+}
+
+.tabs__list {
+  display: flex;
+  gap: var(--sm);
+  border-bottom: var(--hairline) solid var(--sidebar-border);
+}
+
+/* Scrolling row: the bar carries the hairline; the list scrolls sideways with no scrollbar */
+.tabs__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--xs);
+  min-width: 0;
+  border-bottom: var(--hairline) solid var(--sidebar-border);
+}
+
+.tabs__bar .tabs__list {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+
+.tabs__list--scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs__list--scroll::-webkit-scrollbar { display: none; }
+
+.tabs__list--scroll .tabs__tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Inset focus ring: an outset one would be clipped by the scrolling row */
+.tabs__list--scroll .tabs__tab:focus-visible {
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
+.tabs__list--scroll .tabs__tab::after {
+  bottom: 0;
+}
+
+.tabs__scroll,
+.tabs__aside {
+  flex: 0 0 auto;
+}
+
+.tabs__count {
+  flex: 0 0 auto;
+  padding: 0 var(--gap-inline);
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+}
+
+.tabs__list--stretch {
+  gap: 0;
+}
+
+.tabs__list--stretch .tabs__tab {
+  flex: 1;
+  justify-content: center;
+}
+
+.tabs__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  padding: var(--pad-tab-top) var(--pad-tab-x) var(--pad-tab-bottom);
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease),
+    background var(--dur-hover) var(--ease);
+}
+
+.tabs__tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--hairline) * -1);
+  height: var(--tab-indicator-h);
+  border-radius: var(--r-pill);
+  background: transparent;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.tabs__tab:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.tabs__tab[data-state='active'] {
+  color: var(--pink-ink);
+}
+
+.tabs__tab[data-state='active']::after {
+  background: var(--accent);
+}
+
+@media (hover: hover) {
+  .tabs__tab[data-state='inactive']:not([data-disabled]):hover {
+    color: var(--text-primary);
+    background: var(--chip-soft);
+  }
+}
+
+/* Disabled */
+.tabs__tab[data-disabled] {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.tabs__badge {
+  flex: 0 0 auto;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+
+/* Space under the tab row. ConsoleLayout sets its own (larger) gap for page tabs. */
+.tabs__panel {
+  margin-top: var(--md);
+}
+
+.tabs__panel:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-xs);
+}
+
+@media (max-width: 560px) { /* --bp-small */
+  .tabs__list { gap: var(--gap-tabs-compact); }
+  .tabs__tab { padding: var(--pad-tab-top) var(--pad-tab-x-compact); }
+}

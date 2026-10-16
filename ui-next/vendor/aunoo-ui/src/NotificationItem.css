@@ -1,0 +1,75 @@
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-cozy);
+  padding: var(--pad-list-row-y) var(--pad-list-row-x);
+  border-radius: var(--r-2xl);
+  list-style: none;
+  font-family: var(--font-sans);
+}
+
+/* Unread lifts onto the inset surface; read rows sit flat on the panel */
+.notification-item[data-unread] {
+  background: var(--area-bg);
+}
+
+.notification-item__icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: var(--r-md-plus);
+  background: var(--chip-muted);
+  color: var(--text-secondary);
+}
+
+.notification-item__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-item__title {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-dot);
+  margin: 0;
+  font-size: var(--type-card-title-size);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-body);
+  color: var(--text-primary);
+}
+
+.notification-item[data-unread] .notification-item__title {
+  font-weight: var(--type-card-title-weight);
+}
+
+.notification-item__title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-item__description {
+  margin: var(--gap-meta) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.notification-item__time {
+  display: block;
+  margin-top: var(--xs);
+  font-size: var(--type-timestamp-size);
+  color: var(--text-timestamp);
+}
+
+.notification-item__action {
+  flex: 0 0 auto;
+}
+
+/* On the inset unread surface, lift the button like other controls on areaBg */
+.notification-item[data-unread] .notification-item__action {
+  background: var(--surface-raised);
+}

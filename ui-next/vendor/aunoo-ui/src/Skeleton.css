@@ -1,0 +1,36 @@
+.skeleton {
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--chip-soft) 25%, var(--chip-soft-hover) 50%, var(--chip-soft) 75%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer var(--dur-skeleton) linear infinite;
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+}
+
+.skeleton--line {
+  height: var(--md);
+}
+
+.skeleton--line[data-last] {
+  width: 60%;
+}
+
+.skeleton--block {
+  border-radius: var(--r-2xl);
+}
+
+.skeleton--card { height: calc(var(--avatar-size) * 4); }
+.skeleton--chart { height: var(--viz-chart-h); }
+
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}

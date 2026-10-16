@@ -1,0 +1,12 @@
+/* Long names on fold-out headings wrap instead of running off a phone screen */
+.saved-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+/* The stored episode's player fills its row */
+.saved-audio {
+  width: 100%;
+  max-width: 32rem;
+}

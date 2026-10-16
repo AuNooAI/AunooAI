@@ -1,0 +1,62 @@
+/* Long labels on buttons and fold-out triggers wrap instead of running off a phone screen */
+.policy-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+
+.policy-bar {
+  list-style: none;
+  min-width: 0;
+}
+
+/* The co-occurrence table scrolls sideways inside its own box on a narrow screen */
+.policy-heatmap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.policy-heatmap table {
+  border-collapse: collapse;
+  font-size: var(--fs-12, 12px);
+}
+.policy-heatmap th {
+  font-weight: var(--fw-medium, 500);
+  color: var(--text-muted);
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+.policy-heatmap thead th {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: start;
+  height: 7.5rem;
+}
+.policy-heatmap tbody th {
+  text-align: end;
+}
+.policy-heatmap td {
+  min-width: 2.5rem;
+  height: 2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  border: var(--hairline, 1px) solid var(--sidebar-border);
+  /* Pairs shade in the first chart colour, each category's own count in the second */
+  background: color-mix(in srgb, var(--viz-series-1) calc(var(--heat, 0) * 100%), transparent);
+}
+.policy-heatmap td.policy-heatmap__self {
+  background: color-mix(in srgb, var(--viz-series-2) calc(var(--heat, 0) * 100%), transparent);
+}
+
+.policy-related {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* View switches with several options scroll inside themselves on a phone */
+.policy-segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}

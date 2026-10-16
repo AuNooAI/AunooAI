@@ -1,0 +1,96 @@
+.dialog__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  background: var(--overlay-scrim);
+  animation: dialog-fade var(--dur-panel) var(--ease);
+}
+
+/* Overlay surface (§3.1): card-light, hairline, r-2xl, shadowOverlay */
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--z-dialog);
+  display: flex;
+  flex-direction: column;
+  width: min(var(--dialog-w), calc(100vw - 2 * var(--dialog-inset)));
+  max-height: calc(100dvh - 2 * var(--dialog-inset));
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  transform: translate(-50%, -50%);
+  animation: dialog-fade var(--dur-panel) var(--ease);
+}
+
+.dialog--lg {
+  width: min(var(--dialog-w-lg), calc(100vw - 2 * var(--dialog-inset)));
+}
+
+.dialog--xl {
+  width: min(var(--dialog-w-xl), calc(100vw - 2 * var(--dialog-inset)));
+}
+
+.dialog:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.dialog__header {
+  flex: 0 0 auto;
+  /* room on the right for the ✕ */
+  padding: var(--pad-panel) calc(var(--pad-panel) + var(--control-h-sm) + var(--sm)) 0 var(--pad-panel);
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: var(--type-page-heading-size);
+  font-weight: var(--type-page-heading-weight);
+  color: var(--text-primary);
+}
+
+.dialog__description {
+  margin: var(--space-panel-desc) 0 0;
+  font-size: var(--type-metadata-size);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-panel-body) var(--pad-panel) var(--pad-panel);
+  overflow-y: auto;
+}
+
+.dialog__footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: var(--sm);
+  padding: var(--md) var(--pad-panel);
+  border-top: var(--hairline) solid var(--sidebar-border);
+}
+
+.dialog__close {
+  position: absolute;
+  top: var(--md);
+  right: var(--md);
+}
+
+@keyframes dialog-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog,
+  .dialog__overlay { animation: none; }
+}
+
+@media (max-width: 560px) { /* --bp-small */
+  .dialog__footer > * { flex: 1; }
+}

@@ -1,0 +1,57 @@
+.file-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inline);
+  font-family: var(--font-sans);
+}
+
+.file-field__label {
+  font-size: var(--type-panel-title-size);
+  font-weight: var(--type-panel-title-weight);
+  letter-spacing: var(--tracking-panel-title);
+  color: var(--text-muted);
+}
+
+.file-field__input {
+  max-width: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+}
+
+.file-field__input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-sm);
+}
+
+.file-field__input::file-selector-button {
+  height: var(--control-h-md);
+  margin-right: var(--md);
+  padding: 0 var(--pad-control-x);
+  border: none;
+  border-radius: var(--r-md);
+  background: var(--chip-muted);
+  font-family: var(--font-sans);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .file-field__input::file-selector-button:hover { background: var(--chip-muted-hover); }
+}
+
+.file-field__input:disabled::file-selector-button {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.file-field__hint {
+  margin: 0;
+  font-size: var(--type-faq-body-size);
+  line-height: var(--lh-faq);
+  color: var(--text-muted);
+}

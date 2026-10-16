@@ -1,0 +1,56 @@
+.copy-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-label-below);
+  min-width: 0;
+}
+
+.copy-field__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  background: var(--surface-raised);
+  border-radius: var(--r-lg);
+}
+
+.copy-field__value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.copy-field__value:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-xs);
+}
+
+/* button: URLs and commands — bordered, scrolls */
+.copy-field--button .copy-field__row {
+  border: var(--hairline) solid var(--sidebar-border);
+  padding: var(--pad-copy-field) var(--pad-copy-field) var(--pad-copy-field) var(--pad-copy-field-start);
+}
+
+.copy-field--button .copy-field__value {
+  font-size: var(--fs-12);
+  color: var(--text-primary);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.copy-field--button .copy-field__value::-webkit-scrollbar {
+  display: none;
+}
+
+/* icon: keys — borderless, truncates */
+.copy-field--icon .copy-field__row {
+  padding: var(--pad-key-value) var(--pad-key-value) var(--pad-key-value) var(--pad-copy-field-start);
+}
+
+.copy-field--icon .copy-field__value {
+  font-size: var(--fs-11-5);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

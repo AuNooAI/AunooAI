@@ -1,0 +1,50 @@
+/* The signals view. Colours come from the design system's tokens only. */
+.sig-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr)); gap: var(--sm); list-style: none; margin: 0; padding: 0; }
+.sig-card {
+  display: flex; flex-direction: column; gap: var(--sm); width: 100%; height: 100%; text-align: start;
+  padding: var(--md); border-radius: var(--r-lg); cursor: pointer; font: inherit; color: var(--text-primary);
+  background: var(--card-rest); border: var(--hairline) solid var(--sidebar-border);
+  border-inline-start: 3px solid var(--sidebar-border);
+}
+.sig-card:hover { background: var(--card-hover); }
+.sig-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sig-card[aria-pressed='true'] { border-color: var(--text-muted); }
+.sig-card--high { border-inline-start-color: var(--error); }
+.sig-card--medium { border-inline-start-color: var(--warning); }
+.sig-card__top, .sig-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sm); flex-wrap: wrap; }
+.sig-card__name { font-size: var(--type-card-title-size); font-weight: var(--type-card-title-weight); line-height: var(--lh-tight); margin: 0; }
+.sig-card__takeaway { margin: 0; font-size: var(--type-card-subtext-size); color: var(--text-secondary); line-height: var(--lh-body); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sig-eyebrow { font-size: var(--type-card-eyebrow-size); font-weight: var(--type-card-eyebrow-weight); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; color: var(--text-muted); }
+.sig-small { font-size: var(--fs-11); color: var(--text-muted); }
+
+/* Detection trajectory grid */
+.sig-traj { width: 100%; border-collapse: collapse; font-size: var(--fs-11); }
+.sig-traj th { font-weight: var(--fw-regular); color: var(--text-muted); text-align: center; padding: 0 2px var(--sm); white-space: nowrap; }
+.sig-traj th:first-child { text-align: start; }
+.sig-traj td { padding: 4px 2px; text-align: center; }
+.sig-traj td:first-child { text-align: start; max-width: 12rem; }
+.sig-traj__name { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-align: start; display: block; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sig-cell { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; }
+.sig-cell--found { background: var(--success); }
+.sig-cell--window { background: var(--success-tint); border: var(--hairline) dashed var(--success); }
+.sig-cell--none { border: var(--hairline) solid var(--viz-baseline); }
+.sig-legend { display: flex; flex-wrap: wrap; gap: var(--md); font-size: var(--fs-11); color: var(--text-muted); }
+.sig-legend span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Watch panel rows */
+.sig-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.sig-row { display: flex; align-items: baseline; gap: var(--sm); width: 100%; padding: 4px 0; background: none; border: 0; font: inherit; color: var(--text-primary); cursor: pointer; text-align: start; }
+.sig-row:hover .sig-row__text { text-decoration: underline; }
+.sig-row__text { flex: 1; min-width: 0; font-size: var(--type-card-subtext-size); line-height: var(--lh-body); }
+.sig-row__meta { font-size: var(--fs-11); color: var(--text-muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Detail dialog */
+.sig-takeaway { padding: var(--sm) var(--md); border-inline-start: 3px solid var(--sidebar-border); background: var(--chip-muted); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.sig-takeaway--error { border-inline-start-color: var(--error); }
+.sig-takeaway--warning { border-inline-start-color: var(--warning); }
+.sig-bullets { margin: 0; padding-inline-start: 1.1rem; display: flex; flex-direction: column; gap: 4px; font-size: var(--type-card-subtext-size); line-height: var(--lh-body); }
+.sig-meta { margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px var(--md); font-size: var(--fs-11); }
+.sig-meta dt { color: var(--text-muted); }
+.sig-meta dd { margin: 0; text-align: end; }
+.sig-scroll { overflow-x: auto; }
+.sig-traj th[scope='row'] { font-weight: inherit; text-align: start; }

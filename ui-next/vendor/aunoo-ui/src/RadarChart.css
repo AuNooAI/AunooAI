@@ -1,0 +1,90 @@
+.radar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+.radar-chart__plot {
+  position: relative;
+  width: 100%;
+  max-width: var(--viz-chart-h);
+  aspect-ratio: 1;
+  margin: 0 auto;
+}
+
+.radar-chart__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.radar-chart__ring,
+.radar-chart__spoke {
+  fill: none;
+  stroke: var(--viz-grid);
+  stroke-width: var(--hairline);
+  vector-effect: non-scaling-stroke;
+}
+
+.radar-chart__area {
+  fill: var(--chart-color);
+  stroke: var(--chart-color);
+  fill-opacity: var(--viz-area-opacity);
+  stroke-width: var(--viz-line-w);
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.radar-chart__area--dashed { stroke-dasharray: var(--viz-dash); }
+
+
+/* Axis names: HTML over the plot, placed in % of it */
+.radar-chart__axis {
+  position: absolute;
+  max-width: calc(var(--xl) * 4);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  color: var(--text-muted);
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.radar-chart__axis--start { transform: translate(0, -50%); text-align: start; }
+.radar-chart__axis--end { transform: translate(-100%, -50%); text-align: end; }
+
+.radar-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.radar-chart__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-meta);
+}
+
+.radar-chart__key {
+  width: var(--md);
+  border-top: var(--viz-line-w) solid var(--chart-color);
+}
+
+.radar-chart__key--dashed { border-top-style: dashed; }
+
+.radar-chart__empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  font-size: var(--fs-13);
+  text-align: center;
+  color: var(--text-muted);
+}

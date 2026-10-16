@@ -1,0 +1,55 @@
+/* Exploratory Analysis: only what the design system doesn't cover */
+
+/* A button that reads as an inline link (titles, related articles, outliers) */
+.xa-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+
+/* Long fold-out labels wrap on a phone */
+.xa-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+
+/* The article details table: field names on the left, values wrap */
+.xa-meta {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-13, 13px);
+}
+.xa-meta th {
+  text-align: start;
+  vertical-align: top;
+  padding: 4px 12px 4px 0;
+  color: var(--text-muted);
+  font-weight: var(--fw-medium, 500);
+  white-space: nowrap;
+}
+.xa-meta td {
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+/* The map of articles */
+.xa-map { margin: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.xa-map__scroll { max-width: 100%; overflow-x: auto; }
+.xa-map__svg { display: block; width: 100%; height: auto; min-width: 320px; }
+.xa-map__frame { fill: none; stroke: var(--sidebar-border); }
+.xa-map__dot { stroke: var(--chat-wrap-bg, #fff); stroke-width: 0.6; opacity: 0.8; cursor: pointer; }
+.xa-map__dot:hover, .xa-map__dot--active { opacity: 1; stroke: var(--text-primary); stroke-width: 1.5; }
+.xa-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+}

@@ -1,0 +1,23 @@
+.sig-impact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.sig-impact__dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--viz-neutral);
+}
+.sig-impact__dot--high { background: var(--error); }
+.sig-impact__dot--medium { background: var(--warning); }
+.sig-impact__dot--low { background: var(--viz-series-1); }
+.sig-steps {
+  margin: 0.25rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+.sig-steps li {
+  overflow-wrap: anywhere;
+}

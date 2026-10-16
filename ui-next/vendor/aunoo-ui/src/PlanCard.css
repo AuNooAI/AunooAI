@@ -1,0 +1,53 @@
+/* Same surface as Panel */
+.plan-card {
+  display: grid;
+  grid-template-columns: 1fr var(--plan-side-w);
+  gap: var(--gap-plan);
+  align-items: start;
+  padding: var(--pad-panel);
+  background: var(--chat-wrap-bg);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-area);
+}
+
+.plan-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cozy);
+  margin: var(--space-plan-head-top) 0 var(--space-plan-head-bottom);
+}
+
+.plan-card__name {
+  margin: 0;
+  font-size: var(--type-page-heading-size);
+  font-weight: var(--type-page-heading-weight);
+  color: var(--text-primary);
+}
+
+.plan-card__note {
+  margin-top: var(--space-plan-note);
+}
+
+.plan-card__includes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-inline);
+  margin: var(--space-plan-includes) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-card__side .line-items {
+  margin-bottom: var(--space-plan-side);
+}
+
+.plan-card__fine {
+  margin-top: var(--space-fine-print);
+}
+
+@media (max-width: 1000px) { /* --bp-wide */
+  .plan-card {
+    grid-template-columns: 1fr;
+    gap: var(--gap-plan-compact);
+  }
+}

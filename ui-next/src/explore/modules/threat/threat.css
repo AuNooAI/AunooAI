@@ -1,0 +1,140 @@
+/* Threat Intelligence: a few local rules on top of the design system */
+
+/* A name or count that opens something: an inline link that is really a button */
+.threat-linkbutton {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+
+/* Long labels on fold-out triggers wrap instead of running off a phone screen */
+.threat-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+
+/* Indicator values (hashes, URLs) break anywhere rather than widening the page */
+.threat-mono {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-12, 12px);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.threat-plainlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm, 8px);
+}
+
+/* Threat map: dots on a plain longitude/latitude grid */
+.threat-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--area-bg);
+  border-radius: var(--r-area);
+}
+.threat-map__grid {
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+  fill: none;
+}
+.threat-map__equator {
+  stroke: var(--viz-grid);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  fill: none;
+}
+.threat-map__dot {
+  fill-opacity: 0.6;
+  stroke-width: 2;
+  cursor: pointer;
+}
+.threat-map__dot:focus-visible {
+  outline: none;
+  stroke-width: 4;
+}
+.threat-map__dot--critical { fill: var(--error); stroke: var(--error); }
+.threat-map__dot--high { fill: var(--warning); stroke: var(--warning); }
+.threat-map__dot--medium { fill: var(--viz-series-3); stroke: var(--viz-series-3); }
+.threat-map__dot--low { fill: var(--success); stroke: var(--success); }
+.threat-map__dot--info { fill: var(--info); stroke: var(--info); }
+.threat-map__label {
+  fill: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+.threat-map__axis {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+/* Campaign timeline: one bar per campaign across the shared date range */
+.threat-span {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--viz-grid);
+  overflow: hidden;
+}
+.threat-span__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  background: var(--viz-series-1);
+}
+.threat-span__bar--active {
+  background: var(--error);
+}
+
+/* Threat actors as cards: a grid of buttons that wraps on a phone; the picked one is outlined */
+.threat-actor-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: var(--sm, 8px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.threat-actor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: var(--md, 12px);
+  text-align: start;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--chat-wrap-bg, transparent);
+  border: var(--hairline, 1px) solid var(--sidebar-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--r-md, 8px);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.threat-actor-card:hover { border-color: var(--error); }
+.threat-actor-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.threat-actor-card[aria-pressed='true'] { border-color: var(--error); background: var(--error-tint, transparent); }
+.threat-actor-card__name {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-weight: 600;
+}
+.threat-actor-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

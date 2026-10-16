@@ -1,0 +1,81 @@
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cozy);
+  min-height: var(--control-h-md);
+  padding: 0 var(--sm);
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.checkbox--box-end {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+}
+
+@media (hover: hover) {
+  .checkbox:not([data-disabled]):hover { background: var(--chip-soft); }
+}
+
+.checkbox__control {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox__control:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Empty box, sized to the filled square inside the Phosphor Check glyph (192 of its 256 units)
+   so checked and unchecked line up. --text-muted keeps the outline above 3:1. */
+.checkbox__box {
+  width: calc(var(--checkbox-size) * 0.75);
+  height: calc(var(--checkbox-size) * 0.75);
+  border: var(--hairline) solid var(--text-muted);
+  border-radius: var(--r-xs);
+}
+
+.checkbox__control[data-state='checked'] .checkbox__box,
+.checkbox__control[data-state='indeterminate'] .checkbox__box {
+  display: none;
+}
+
+.checkbox__indicator {
+  display: grid;
+  place-items: center;
+}
+
+.checkbox__label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-13);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.checkbox--box-end .checkbox__label {
+  flex: 1;
+}
+
+/* Disabled */
+.checkbox[data-disabled] .checkbox__control,
+.checkbox[data-disabled] .checkbox__label {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.checkbox[data-disabled] .checkbox__box {
+  border-color: var(--disabled-text);
+}

@@ -1,0 +1,193 @@
+.select {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-label-below);
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.select--full {
+  display: flex;
+}
+
+.select__label {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}
+
+.select__hint {
+  margin: 0;
+  font-size: var(--type-faq-body-size);
+  line-height: var(--lh-faq);
+  color: var(--text-muted);
+}
+
+.select__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  min-width: 0;
+  height: var(--control-h-md);
+  padding: 0 var(--pad-control-x-sm);
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--chip-muted);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.select--full .select__trigger {
+  width: 100%;
+}
+
+.select__trigger:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.select__trigger[data-state='open'],
+.select__trigger:active:not([data-disabled]) {
+  background: var(--chip-muted-hover);
+}
+
+@media (hover: hover) {
+  .select__trigger:hover:not([data-disabled]) { background: var(--chip-muted-hover); }
+}
+
+.select__trigger[data-disabled] {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.select__trigger-icon { color: var(--text-muted); }
+
+.select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+}
+
+.select__trigger[data-placeholder] .select__value { color: var(--text-muted); }
+
+.select__caret {
+  display: inline-flex;
+  opacity: var(--opacity-caret);
+}
+
+/* List — overlay surface (§3.1). Above dialogs, since selects live inside them. */
+.select__content {
+  z-index: calc(var(--z-dialog) + 1);
+  min-width: max(var(--radix-select-trigger-width), var(--menu-min-w));
+  max-height: calc(var(--radix-select-content-available-height) - 2 * var(--sm));
+  overflow: hidden;
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-sans);
+}
+
+.select__content[data-side='bottom'] { margin-top: var(--xs); }
+.select__content[data-side='top'] { margin-bottom: var(--xs); }
+
+.select__viewport {
+  padding: var(--menu-pad);
+}
+
+.select__group-label {
+  padding: var(--menu-item-pad-y) var(--menu-item-pad-x) var(--gap-meta);
+  font-size: var(--type-card-eyebrow-size);
+  font-weight: var(--type-card-eyebrow-weight);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.select__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-cozy);
+  padding: var(--menu-item-pad-y) var(--menu-item-pad-x);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.select__item[data-highlighted] {
+  background: var(--chip-soft-hover);
+  color: var(--text-primary);
+}
+
+.select__item[data-state='checked'] {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+
+.select__item[data-disabled] {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.select__item-icon {
+  margin-top: var(--gap-meta);
+  color: var(--text-muted);
+}
+
+.select__item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--gap-meta);
+  min-width: 0;
+}
+
+.select__item-label {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+}
+
+.select__item-description {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.select__tag {
+  padding: 0 var(--gap-inline);
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+}
+
+.select__check {
+  display: inline-flex;
+  margin-top: var(--gap-meta);
+  color: var(--accent);
+}
+
+.select__separator {
+  height: var(--hairline);
+  margin: var(--menu-pad) 0;
+  background: var(--sidebar-border);
+}
+
+.select__item--action {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}

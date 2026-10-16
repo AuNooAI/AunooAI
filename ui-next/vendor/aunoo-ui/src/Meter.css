@@ -1,0 +1,36 @@
+.meter {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  font-family: var(--font-sans);
+}
+
+/* Track/fill follow §3.1's proposal for on/off controls: track = chipCount. Fill is neutral —
+   pink is reserved for primary actions and active states (§5 rule 6). */
+.meter__track {
+  flex: 1;
+  height: var(--sm);
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--text-secondary);
+  transition: inline-size var(--dur-panel) var(--ease);
+}
+
+.meter__value {
+  flex: 0 0 auto;
+  min-width: calc(var(--xl) * 2);
+  text-align: right;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
+.meter--success .meter__fill { background: var(--success); }
+.meter--warning .meter__fill { background: var(--warning); }
+.meter--error .meter__fill { background: var(--error); }

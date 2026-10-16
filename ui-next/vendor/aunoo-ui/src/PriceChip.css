@@ -1,0 +1,18 @@
+.price-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--gap-price-suffix);
+  padding: var(--pad-price-chip-y) var(--pad-control-x-sm);
+  border-radius: var(--r-md-plus);
+  background: var(--chip-count);
+  color: var(--text-primary);
+  font-size: var(--fs-14);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.price-chip__period {
+  font-size: var(--fs-11-5);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary); /* --text-muted fails on --chip-count (4.23:1) */
+}

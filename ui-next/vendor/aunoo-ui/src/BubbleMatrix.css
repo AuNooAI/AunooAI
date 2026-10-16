@@ -1,0 +1,62 @@
+.bubble-matrix {
+  overflow-x: auto;
+  font-family: var(--font-sans);
+}
+
+.bubble-matrix:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.bubble-matrix__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.bubble-matrix__caption {
+  padding-bottom: var(--sm);
+  text-align: start;
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  color: var(--text-primary);
+}
+
+.bubble-matrix th {
+  padding: var(--xs) var(--sm);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  color: var(--text-muted);
+}
+
+.bubble-matrix thead th { vertical-align: bottom; text-align: center; }
+.bubble-matrix tbody th { text-align: end; }
+
+.bubble-matrix td { padding: var(--xs); }
+
+/* Square cell; the bubble's width is set inline as a share of it */
+.bubble-matrix__cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  max-width: calc(var(--xl) * 3);
+  margin: 0 auto;
+}
+
+.bubble-matrix__bubble {
+  grid-area: 1 / 1;
+  aspect-ratio: 1;
+  min-width: var(--sm);
+  border-radius: var(--r-pill);
+  background: var(--chart-color);
+  opacity: var(--viz-soft-opacity);
+}
+
+.bubble-matrix__value {
+  grid-area: 1 / 1;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}

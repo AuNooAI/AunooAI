@@ -1,0 +1,148 @@
+.user-menu__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  height: var(--topnav-button-size);
+  padding: var(--pad-user-pill) var(--pad-control-x-sm) var(--pad-user-pill) var(--pad-user-pill);
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--chip-dark);
+  font-family: var(--font-sans);
+  color: var(--text-on-dark);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.user-menu__trigger:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.user-menu__trigger[data-state='open'] {
+  background: var(--chip-dark-hover);
+}
+
+@media (hover: hover) {
+  .user-menu__trigger:hover { background: var(--chip-dark-hover); }
+}
+
+.user-menu__avatar {
+  display: grid;
+  place-items: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: var(--r-md-plus);
+  background: var(--accent-avatar-bg);
+  color: var(--accent-text-active);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+}
+
+.user-menu__name {
+  max-width: var(--user-name-max-w);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-14);
+}
+
+.user-menu__caret {
+  opacity: var(--opacity-caret);
+}
+
+/* Menu (overlay spec §3.1: card-light, hairline, r-2xl, shadowOverlay) */
+.user-menu__content {
+  z-index: var(--z-menu);
+  min-width: var(--menu-min-w);
+  padding: var(--menu-pad);
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-sans);
+  transition: opacity var(--dur-panel) var(--ease);
+}
+
+/* Gap to the trigger. Applied per side so it's right when the menu opens (or flips) upward. */
+.user-menu__content[data-side='bottom'] { margin-top: calc(var(--menu-offset) - var(--topnav-button-size)); }
+.user-menu__content[data-side='top'] { margin-bottom: calc(var(--menu-offset) - var(--topnav-button-size)); }
+
+.user-menu__head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--menu-pad);
+  padding: var(--pad-menu-head);
+  border-bottom: var(--hairline) solid var(--sidebar-border);
+}
+
+.user-menu__head-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
+.user-menu__head-sub {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+}
+
+.user-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-cozy);
+  padding: var(--menu-item-pad-y) var(--menu-item-pad-x);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.user-menu__item[data-highlighted] {
+  background: var(--chip-soft-hover);
+  color: var(--text-primary);
+}
+
+.user-menu__item[data-disabled] {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .user-menu__name { display: none; }
+}
+
+/* Sidebar placement: full-width row at the bottom of the nav */
+.user-menu__trigger--sidebar {
+  width: 100%;
+}
+
+.user-menu__trigger--sidebar .user-menu__name {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  text-align: start;
+}
+
+/* Collapsed rail: avatar only (the name is still the trigger's accessible name) */
+@media (max-width: 860px) { /* --bp-medium */
+  .user-menu__trigger--sidebar {
+    width: auto;
+    padding: var(--pad-user-pill);
+  }
+
+  .user-menu__trigger--sidebar .user-menu__caret { display: none; }
+}
+
+/* Inside a collapsed sidebar at any width: avatar only, like the narrow layout */
+.sidebar--collapsed .user-menu__trigger--sidebar {
+  width: auto;
+  padding: var(--pad-user-pill);
+}
+
+.sidebar--collapsed .user-menu__name,
+.sidebar--collapsed .user-menu__trigger--sidebar .user-menu__caret { display: none; }

@@ -1,0 +1,152 @@
+/* Consensus timeline: a band for the consensus window and markers for the outliers on a year axis */
+.cons-timeline {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  min-width: 0;
+}
+.cons-timeline__track {
+  position: relative;
+  height: 4.25rem;
+  margin-inline: 0.75rem;
+}
+.cons-timeline__band {
+  position: absolute;
+  top: 0;
+  height: 1.6rem;
+  border-radius: var(--r-md, 6px);
+  background: var(--viz-series-1);
+  color: var(--text-on-accent, #fff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.cons-timeline__band span {
+  padding-inline: 0.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cons-timeline__line {
+  position: absolute;
+  top: 2.2rem;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--viz-grid, var(--sidebar-border));
+}
+.cons-timeline__mark {
+  position: absolute;
+  top: 50%;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--chat-wrap-bg, #fff);
+}
+.cons-timeline__mark--optimistic,
+.cons-key--optimistic {
+  background: var(--success);
+}
+.cons-timeline__mark--pessimistic,
+.cons-key--pessimistic {
+  background: var(--error);
+}
+.cons-timeline__peak {
+  position: absolute;
+  top: 50%;
+  width: 0.75rem;
+  height: 0.75rem;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--viz-series-1);
+  border: 2px solid var(--chat-wrap-bg, #fff);
+}
+.cons-key--peak {
+  background: var(--viz-series-1);
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.cons-key--band {
+  background: var(--viz-series-1);
+  border-radius: 3px;
+}
+.cons-timeline__ticks {
+  position: absolute;
+  top: 2.9rem;
+  left: 0;
+  right: 0;
+}
+.cons-timeline__ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--fs-11, 11px);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.cons-timeline__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--lg);
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+.cons-timeline__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.cons-key {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+/* When sources expect it: columns in time order */
+.cons-cols {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--sm);
+  align-items: end;
+  height: 11rem;
+}
+.cons-cols__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 0;
+  gap: 0.25rem;
+}
+.cons-cols__bar {
+  width: min(3.25rem, 80%);
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--viz-neutral);
+}
+.cons-cols__col--consensus .cons-cols__bar {
+  background: var(--viz-series-1);
+}
+.cons-cols__value {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+.cons-cols__label {
+  font-size: var(--fs-11, 11px);
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.cons-cols__col--consensus .cons-cols__label {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}

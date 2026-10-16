@@ -1,0 +1,88 @@
+/* Market Maturity Map. Colours come from the design system's tokens so the map follows the theme. */
+.hz-wrap {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+}
+.hz-svg {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+  max-width: 760px;
+  font-family: var(--font-sans);
+}
+.hz-plot { fill: var(--area-bg); stroke: var(--viz-grid); }
+.hz-band { fill: var(--viz-grid); fill-opacity: 0.5; }
+.hz-cut { fill: none; stroke: var(--viz-baseline); stroke-dasharray: 4 4; }
+.hz-stage { font-size: 13px; font-weight: var(--fw-semibold); fill: var(--text-secondary); letter-spacing: 0.3px; }
+.hz-stage-icon { color: var(--text-secondary); }
+.hz-arrow-text { font-size: 14px; fill: var(--viz-baseline); }
+.hz-caption { font-size: 11px; fill: var(--text-muted); }
+.hz-tick { font-size: 10px; fill: var(--text-subtle); }
+.hz-legend { font-size: 10px; fill: var(--text-muted); }
+.hz-bandname {
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  fill: var(--text-muted);
+  paint-order: stroke;
+  stroke: var(--area-bg);
+  stroke-width: 4px;
+}
+.hz-trail { stroke: var(--viz-baseline); stroke-width: 1.2; fill: none; }
+.hz-arrowhead { fill: var(--viz-baseline); }
+.hz-leader { stroke: var(--text-muted); stroke-width: 1; }
+.hz-leader-dot { fill: var(--text-muted); }
+.hz-label { font-size: 11px; fill: var(--text-primary); }
+.hz-label--on { font-weight: var(--fw-semibold); }
+
+/* The three markers, as rings around a dot */
+.hz-ring-innovating { fill: none; stroke: var(--text-primary); stroke-width: 1.1; stroke-dasharray: 2 2; }
+.hz-ring-hiring { fill: none; stroke: var(--viz-series-4); stroke-width: 1.4; stroke-dasharray: 1 2.2; }
+.hz-ring-funded { fill: none; stroke: var(--viz-series-1); stroke-width: 1; }
+.hz-fill-innovating { fill: var(--text-primary); }
+.hz-fill-hiring { fill: var(--viz-series-4); }
+.hz-fill-funded { fill: var(--viz-series-1); }
+
+/* One grey per stage, light for Emerging through dark for Executing */
+.hz-tier-emerging { fill: var(--viz-baseline); }
+.hz-tier-established { fill: var(--viz-neutral); }
+.hz-tier-innovators { fill: var(--text-muted); }
+.hz-tier-executors { fill: var(--text-primary); }
+
+.hz-dot { cursor: pointer; outline: none; }
+.hz-dot:focus-visible .hz-core { stroke: var(--blue); stroke-width: 2; }
+.hz-dot--dim { opacity: 0.3; }
+
+/* What the dot under the pointer is made of */
+.hz-detail {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  max-width: 18rem;
+  padding: var(--pad-inset-y) var(--pad-inset-x);
+  background: var(--card-rest, #fff);
+  border: var(--hairline) solid var(--viz-grid);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-overlay);
+  pointer-events: none;
+}
+.hz-detail table { border-collapse: collapse; margin-block-start: 4px; }
+.hz-detail td { padding: 0 8px 0 0; font-size: var(--fs-11); color: var(--text-secondary); }
+.hz-detail td.hz-num { text-align: end; }
+
+/* A dot in a stage list */
+.hz-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+}
+.hz-swatch.hz-tier-emerging { background: var(--viz-baseline); }
+.hz-swatch.hz-tier-established { background: var(--viz-neutral); }
+.hz-swatch.hz-tier-innovators { background: var(--text-muted); }
+.hz-swatch.hz-tier-executors { background: var(--text-primary); }
+
+.hz-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.hz-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }

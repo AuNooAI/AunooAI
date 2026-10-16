@@ -1,0 +1,85 @@
+.pipeline {
+  overflow-x: auto;
+  font-family: var(--font-sans);
+}
+
+.pipeline:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--r-lg);
+}
+
+.pipeline__list {
+  display: flex;
+  gap: var(--lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline__step {
+  position: relative;
+  display: flex;
+  flex: 1 0 var(--pipeline-node-w);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-meta);
+  padding: var(--pad-tile-y) var(--pad-tile-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+/* Connector to the next step, across the gap */
+.pipeline__step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--pad-tile-y) + var(--checkbox-size) / 2);
+  left: 100%;
+  width: var(--lg);
+  height: var(--hairline);
+  background: var(--text-subtle);
+}
+
+.pipeline__index {
+  display: grid;
+  place-items: center;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+.pipeline__title {
+  font-size: var(--type-card-title-size);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.pipeline__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-meta);
+}
+
+.pipeline__tag {
+  padding: var(--pad-tag-y) var(--pad-tag-x);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  background: var(--chip-soft);
+  color: var(--text-secondary);
+}
+
+.pipeline__tag--accent { background: var(--accent-tint-15); color: var(--pink-ink); }
+.pipeline__tag--info { background: var(--info-tint); color: var(--info); }
+.pipeline__tag--success { background: var(--success-tint); color: var(--success); }
+.pipeline__tag--warning { background: var(--warning-tint); color: var(--warning); }
+
+.pipeline__detail {
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}

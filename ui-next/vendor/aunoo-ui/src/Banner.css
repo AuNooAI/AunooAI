@@ -1,0 +1,62 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lg);
+  padding: var(--pad-inset-y) var(--pad-inset-x);
+  background: var(--accent-tint-07);
+  border: var(--hairline) solid var(--accent-tint-30);
+  border-radius: var(--r-2xl);
+}
+
+.banner__title {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  margin: 0;
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  color: var(--pink-ink);
+}
+
+.banner__description {
+  margin: var(--gap-desc) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.banner__action {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .banner { flex-wrap: wrap; }
+}
+
+/* Info tone (proposed status tokens). Body uses --text-secondary: --text-muted on the blue tint is 4.40:1 over areaBg */
+.banner--info {
+  background: var(--info-tint);
+  border-color: var(--info-border);
+}
+
+.banner--info .banner__title { color: var(--info); }
+.banner--info .banner__description { color: var(--text-secondary); }
+
+/* Error tone: --error on --error-tint is 4.57:1 */
+.banner--error {
+  background: var(--error-tint);
+  border-color: var(--error);
+}
+
+.banner--error .banner__title { color: var(--error); }
+.banner--error .banner__description { color: var(--text-secondary); }
+
+/* Success / warning (proposed status tokens; text on own tint ≥4.67:1) */
+.banner--success { background: var(--success-tint); border-color: var(--success); }
+.banner--success .banner__title { color: var(--success); }
+.banner--success .banner__description { color: var(--text-secondary); }
+
+.banner--warning { background: var(--warning-tint); border-color: var(--warning); }
+.banner--warning .banner__title { color: var(--warning); }
+.banner--warning .banner__description { color: var(--text-secondary); }

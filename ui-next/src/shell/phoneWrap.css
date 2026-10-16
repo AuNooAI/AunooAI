@@ -1,0 +1,35 @@
+/* Small chips may break anywhere (the design system's rule, so a long label never spills), which in a
+   crowded table cell splits words ("activ / e"). Inside tables they stay on one line; a wide table
+   scrolls sideways inside its own box instead. */
+body .table td .chip--sm {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+/* On a phone, let long labels wrap instead of pushing the page sideways: buttons, chips and tags with
+   sentence-length labels, the action area of a setting row (chips plus a Details button), and list
+   rows with a timestamp. The design system keeps these on one line, which suits a desktop. */
+@media (max-width: 520px) {
+  body .button,
+  body .chip,
+  body .topic-pill {
+    white-space: normal;
+    height: auto;
+    max-width: 100%;
+    text-align: center;
+  }
+  body .setting-row__head {
+    flex-wrap: wrap;
+  }
+  body .setting-row__actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  body .activity-row {
+    flex-wrap: wrap;
+  }
+  body .activity-row__time {
+    min-width: 0;
+  }
+}

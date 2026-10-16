@@ -1,0 +1,24 @@
+.tile {
+  padding: var(--pad-tile-y) var(--pad-tile-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+.tile__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
+.tile__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--line-clamp-tile);
+  line-clamp: var(--line-clamp-tile);
+  overflow: hidden;
+  margin-top: var(--xs);
+  font-size: var(--type-card-subtext-size);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}

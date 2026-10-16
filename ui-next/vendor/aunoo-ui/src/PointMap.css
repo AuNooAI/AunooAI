@@ -1,0 +1,63 @@
+.point-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+/* Fills its container's width and never widens it */
+.point-map__svg {
+  display: block;
+  width: 100%;
+  max-height: var(--viz-chart-h);
+  background: var(--area-bg);
+  border-radius: var(--r-lg);
+}
+
+.point-map__dot--0 { fill: var(--viz-baseline); background: var(--viz-baseline); }
+.point-map__dot--1 { fill: var(--viz-series-1); background: var(--viz-series-1); }
+.point-map__dot--2 { fill: var(--viz-series-2); background: var(--viz-series-2); }
+.point-map__dot--3 { fill: var(--viz-series-3); background: var(--viz-series-3); }
+.point-map__dot--4 { fill: var(--viz-series-4); background: var(--viz-series-4); }
+.point-map__dot--5 { fill: var(--viz-series-5); background: var(--viz-series-5); }
+
+.point-map__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.point-map__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-meta);
+}
+
+.point-map__key {
+  width: var(--sm);
+  height: var(--sm);
+  border-radius: var(--r-pill);
+}
+
+.point-map__caption {
+  margin: 0;
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.point-map__empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  font-size: var(--fs-13);
+  text-align: center;
+  color: var(--text-muted);
+}

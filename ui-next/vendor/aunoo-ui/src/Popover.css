@@ -1,0 +1,72 @@
+/* Overlay surface (§3.1): card-light, hairline, r-2xl, shadowOverlay */
+.popover {
+  z-index: var(--z-menu);
+  display: flex;
+  flex-direction: column;
+  min-width: var(--menu-min-w);
+  /* Never run past the window: Radix measures the space; keep the trigger gap free on both ends */
+  max-height: calc(var(--radix-popover-content-available-height) - 2 * var(--sm));
+  padding: var(--menu-pad);
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  animation: popover-in var(--dur-panel) var(--ease);
+}
+
+.popover:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Gap to the trigger, per side (a token, so not Radix's numeric sideOffset) */
+.popover[data-side='bottom'] { margin-top: var(--sm); }
+.popover[data-side='top'] { margin-bottom: var(--sm); }
+.popover[data-side='left'] { margin-right: var(--sm); }
+.popover[data-side='right'] { margin-left: var(--sm); }
+
+.popover--wide {
+  width: min(var(--popover-w-wide), calc(100vw - 2 * var(--sm)));
+}
+
+.popover__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sm);
+  margin-bottom: var(--menu-pad);
+  padding: var(--xs) var(--xs) var(--sm) var(--sm);
+  border-bottom: var(--hairline) solid var(--sidebar-border);
+}
+
+.popover__title {
+  margin: 0;
+  font-size: var(--type-page-heading-size);
+  font-weight: var(--type-page-heading-weight);
+  color: var(--text-primary);
+}
+
+.popover__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.popover__footer {
+  flex: 0 0 auto;
+  margin-top: var(--menu-pad);
+  padding-top: var(--menu-pad);
+  border-top: var(--hairline) solid var(--sidebar-border);
+}
+
+@keyframes popover-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popover { animation: none; }
+}

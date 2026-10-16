@@ -1,0 +1,47 @@
+/* The map sits inside its own box and never widens the page */
+.street-map {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm, 8px);
+  min-width: 0;
+  max-width: 100%;
+}
+.street-map__frame {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-md, 8px);
+  border: var(--hairline, 1px) solid var(--sidebar-border, rgba(0, 0, 0, 0.12));
+}
+.street-map__map {
+  width: 100%;
+  height: 100%;
+  /* Leaflet's panes sit above most content; keep dialogs and menus on top */
+  z-index: 0;
+}
+.street-map__marker-wrap {
+  background: none;
+  border: none;
+}
+.street-map__marker {
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--chart-1, #3b6fd8);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  opacity: 0.85;
+}
+.street-map__marker--dashed {
+  background: rgba(150, 150, 150, 0.35) !important;
+  border: 2px dashed rgba(60, 60, 60, 0.8);
+}
+.street-map__popup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,29 @@
+.area-panel {
+  flex: 1;
+  min-width: 0;
+  margin: var(--area-gap);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--area-bg);
+  border-radius: var(--r-area);
+  color: var(--text-primary);
+}
+
+.area-panel:focus {
+  outline: none;
+}
+
+.area-panel__page {
+  max-width: var(--page-max-w);
+  margin: 0 auto;
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
+}
+
+.area-panel--wide .area-panel__page {
+  max-width: none;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .area-panel { margin: var(--area-gap-compact); }
+  .area-panel__page { padding: var(--page-pad-top-compact) var(--page-pad-x-compact) var(--page-pad-bottom-compact); }
+}

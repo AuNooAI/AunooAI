@@ -1,0 +1,54 @@
+/* Emerging Topics tab: the few layouts the design system has no component for */
+
+/* A theme's events as a vertical line of dots: trigger, then dated steps, then where it stands now */
+.et-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-inline-start: var(--hairline, 1px) solid var(--sidebar-border);
+  margin-inline-start: 0.4rem;
+}
+.et-timeline > li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0 0 0.75rem 1rem;
+}
+.et-timeline > li::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -0.32rem;
+  top: 0.3rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.et-timeline > li[data-kind='trigger']::before {
+  background: var(--error);
+}
+.et-timeline > li[data-kind='now']::before {
+  background: var(--success);
+}
+
+.et-list {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+}
+
+/* A theme opened from the table or the comparison chart scrolls into view below any sticky header */
+.et-card {
+  scroll-margin-top: 6rem;
+  min-width: 0;
+}
+
+/* A button that reads as an inline link (theme names in the table) */
+.et-linkbutton {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+}

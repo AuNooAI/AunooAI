@@ -1,0 +1,66 @@
+.topic-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-dot);
+  height: var(--control-h-md);
+  padding: 0 var(--pad-pill-end) 0 var(--pad-pill-start);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-pill);
+  background: var(--area-bg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  color: var(--text-primary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease),
+    border-color var(--dur-hover) var(--ease);
+}
+
+.topic-pill--raised {
+  background: var(--surface-raised);
+}
+
+.topic-pill--static {
+  padding: 0 var(--pad-control-x);
+  cursor: default;
+}
+
+.topic-pill:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.topic-pill[data-selected] {
+  background: var(--accent-tint-15);
+  border-color: transparent;
+  color: var(--pink-ink);
+  font-weight: var(--fw-medium);
+}
+
+.topic-pill__tag {
+  margin-left: var(--gap-price-suffix);
+  padding-left: var(--gap-dot);
+  border-left: var(--hairline) solid var(--sidebar-border);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  color: var(--text-subtle);
+}
+
+.topic-pill[data-selected] .topic-pill__tag {
+  color: var(--pink-ink);
+  border-left-color: var(--accent-tint-30);
+}
+
+/* Pressed = hover, outside the hover query so touch gets it too.
+   Selected: keep tint-15 and add a tint-30 border (pink text on tint-30 fills is 3.84:1). */
+button.topic-pill:active:not([data-selected]) { background: var(--chip-soft); }
+button.topic-pill.topic-pill--raised:active:not([data-selected]) { background: var(--surface-raised-hover); }
+button.topic-pill[data-selected]:active { border-color: var(--accent-tint-30); }
+
+@media (hover: hover) {
+  button.topic-pill:hover:not([data-selected]) { background: var(--chip-soft); }
+  button.topic-pill.topic-pill--raised:hover:not([data-selected]) { background: var(--surface-raised-hover); }
+  button.topic-pill[data-selected]:hover { border-color: var(--accent-tint-30); }
+}

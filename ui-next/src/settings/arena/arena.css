@@ -1,0 +1,25 @@
+/* Model Bias Arena: small layout rules the design system doesn't cover */
+.arena-bar {
+  list-style: none;
+  min-width: 0;
+}
+.arena-card {
+  padding: var(--md, 12px);
+  border: var(--hairline, 1px) solid var(--sidebar-border);
+  border-radius: var(--r-md, 8px);
+  min-width: 0;
+}
+/* Long field switches scroll inside themselves on a phone */
+.arena-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+/* The area captured by "export as image" gets the page background, not transparency */
+.arena-export {
+  background: var(--chat-wrap-bg);
+  min-width: 0;
+}
+/* Long run names and descriptions wrap */
+.arena-wrap {
+  overflow-wrap: anywhere;
+}

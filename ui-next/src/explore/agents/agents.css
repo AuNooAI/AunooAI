@@ -1,0 +1,55 @@
+/* The next-24-hours schedule strip on Observer Agents. Colours come from the design tokens. */
+.ag-timeline {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+.ag-timeline__track { fill: var(--chip-muted); }
+.ag-timeline__tick { stroke: var(--sidebar-border); stroke-width: 1; }
+.ag-timeline__label { fill: var(--text-muted); font-size: 10px; }
+.ag-timeline__now { stroke: var(--accent); stroke-width: 2; }
+.ag-timeline__now-label { fill: var(--accent); font-size: 10px; font-weight: 600; }
+.ag-timeline__link { stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+
+.ag-dot--active { fill: var(--success); stroke: var(--success); }
+.ag-dot--paused { fill: var(--viz-neutral); stroke: var(--viz-neutral); }
+.ag-dot--error { fill: var(--error); stroke: var(--error); }
+.ag-dot--running { fill: var(--warning); stroke: var(--warning); }
+
+.ag-sys--emerging_topics { fill: var(--viz-series-1); stroke: var(--viz-series-1); }
+.ag-sys--newsfeed { fill: var(--viz-series-2); stroke: var(--viz-series-2); }
+.ag-sys--autoprocessing { fill: var(--viz-series-3); stroke: var(--viz-series-3); }
+.ag-sys--geopolitical { fill: var(--viz-series-4); stroke: var(--viz-series-4); }
+.ag-sys__text { fill: var(--surface, #fff); font-size: 8px; font-weight: 600; }
+
+.ag-legend { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-inline-end: 6px; vertical-align: middle; }
+.ag-legend--box { border-radius: 2px; width: 12px; height: 8px; }
+.ag-legend.ag-dot--active { background: var(--success); }
+.ag-legend.ag-dot--paused { background: var(--viz-neutral); }
+.ag-legend.ag-dot--error { background: var(--error); }
+.ag-legend.ag-sys--emerging_topics { background: var(--viz-series-1); }
+.ag-legend.ag-sys--newsfeed { background: var(--viz-series-2); }
+.ag-legend.ag-sys--autoprocessing { background: var(--viz-series-3); }
+.ag-legend.ag-sys--geopolitical { background: var(--viz-series-4); }
+
+/* The agent's instruction, kept as the user wrote it */
+.ag-instruction {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-12);
+  color: var(--text-primary);
+}
+/* Long report and agent names wrap instead of running off a phone screen */
+.agents-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+/* The audio player fills the dialog without widening it on a phone */
+.agents-audio {
+  inline-size: 100%;
+  max-inline-size: 100%;
+}

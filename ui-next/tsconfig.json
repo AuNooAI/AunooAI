@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["react", "react-dom", "vite/client", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@aunoo/ui": ["vendor/aunoo-ui/src/index.ts"],
+      "@aunoo/shell": ["vendor/aunoo-shell/src/index.ts"],
+      "@monolith/*": ["../ui/src/services/*"],
+      "@monolith-types/*": ["../ui/src/types/*"]
+    }
+  },
+  "include": ["src", "vendor/aunoo-ui/src", "vendor/aunoo-shell/src", "vite.config.ts"]
+}

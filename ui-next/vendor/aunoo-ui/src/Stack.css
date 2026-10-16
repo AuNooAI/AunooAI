@@ -1,0 +1,31 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stack--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.stack--gap-sm { gap: var(--sm); }
+.stack--gap-md { gap: var(--md); }
+.stack--gap-lg { gap: var(--lg); }
+
+.stack--justify-between { justify-content: space-between; }
+/* If the row wraps, the last group stays at the far end instead of dropping to the left */
+.stack--row.stack--justify-between > :last-child { margin-left: auto; }
+.stack--justify-end { justify-content: flex-end; }
+
+.stack--row.stack--nowrap {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.stack--nowrap > * {
+  min-width: 0;
+}

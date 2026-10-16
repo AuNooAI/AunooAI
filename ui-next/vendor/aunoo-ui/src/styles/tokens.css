@@ -1,0 +1,393 @@
+/* ============================================================
+   aunoo — design tokens (app core)
+   Source: docs/DESIGN_CONTEXT_V1.md §2. Names match docs/reference/console.html.
+   Never hardcode a value in a component — use these variables.
+   Missing a token? Add it to DESIGN_CONTEXT §8 Open questions; don't invent.
+   Marketing & Docs tokens (§2.13) are intentionally NOT included: they never
+   enter the app UI (§5 rule 14).
+   ============================================================ */
+
+:root {
+  /* §2.1 Surfaces */
+  --nav-bg: #212225;              /* alias --ink */
+  --ink: var(--nav-bg);
+  --area-bg: #ECEDF3;             /* alias --paper */
+  --paper: var(--area-bg);
+  --area-outer: #D8D9E0;
+  --chat-wrap-bg: rgba(255, 255, 255, 0.80); /* never solid #FFF on large surfaces */
+  --card-light: #FBFBFD;
+  --surface-raised: rgba(255, 255, 255, 0.55);       /* controls lifted off an inset areaBg surface; live pill */
+  --surface-raised-hover: rgba(255, 255, 255, 0.85);
+  --live-pill-bg: var(--surface-raised);
+
+  /* §2.2 Text */
+  --text-primary: #1A1A2E;
+  --text-secondary: #3D3A4A;
+  --text-muted: #65636D;          /* alias --nav-light */
+  --nav-light: var(--text-muted);
+  --text-subtle: #6A6972;         /* 2026-09-30: darkened from #9B99A6 → 4.64:1 on areaBg (AA) */
+  --text-hints: #8D8D8D;          /* not for essential text (2.84:1) */
+  --text-timestamp: #6B6973;      /* 2026-09-30: darkened from #C0BDC8 → 4.62:1 on areaBg (AA) */
+  --text-on-dark: #B5B2BC;        /* alias --nav */
+  --nav: var(--text-on-dark);
+  --text-on-accent: #FFFFFF;      /* label on accent fills (§3.1 primary button) */
+
+  /* §2.3 Accent — single brand hue */
+  --accent: #D84898;
+  --accent-strong: var(--accent);
+  --accent-strong-hover: #C93D8A;
+  --accent-tint-30: rgba(216, 72, 152, 0.30);
+  --accent-tint-15: rgba(216, 72, 152, 0.15);
+  --accent-tint-10: rgba(216, 72, 152, 0.10);
+  --accent-tint-09: rgba(216, 72, 152, 0.09);
+  --accent-tint-07: rgba(216, 72, 152, 0.07);
+  --accent-avatar-bg: rgba(216, 72, 152, 0.0863);
+  --accent-text-active: #FF8DCC;  /* active text on dark chrome only */
+  --pink-ink: #A62D73;            /* pink TEXT on light. 2026-09-30: darkened from #B8327F → AA on areaBg (5.54) and on tints 07/10/15 (≥4.63) */
+
+  /* §2.4 Functional & identity */
+  --live: #4CAF50;
+  --star-active: #E8A838;
+  --mention: #0D74CE;
+  --mention-tint: rgba(13, 116, 206, 0.10);
+  --blue: #5B7CE8;                /* focus ring everywhere */
+  --focus-ring: var(--blue);
+  --green: #30A46C;
+  --green-chip: #5BB98B;
+  --m-deepresearch: #CC4E00;
+  --m-ciops: #8145B5;
+  --m-auspex: #0D74CE;
+  --m-nocorr: #5B5BD6;
+  --m-inactive: #C8C6D0;
+  /* Logo artwork (Collapsed.svg / Expanded.svg, 2026-10-07) — brand colours, used only by Logo */
+  --logo-word: #ECEDF2;
+  --logo-dot: #CE5E9C;
+  --logo-badge-bg: rgba(254, 55, 204, 0.161);
+  --logo-badge-text: #FF8DCC;
+
+  /* Disabled & error — approved 2026-09-30 (DESIGN_CONTEXT §2.4a) */
+  --disabled-bg: var(--chip-soft);
+  --disabled-text: #64626C;       /* 4.59:1 on disabled-bg over areaBg, 5.13:1 on areaBg */
+  --disabled-border: var(--sidebar-border);
+  --error: #B91C1C;               /* text, border, icon. 2026-10-15: a true red, from the burnt orange #AB4200, which read as amber beside --warning. 5.54:1 on areaBg, 6.26:1 on the panel */
+  --error-tint: rgba(185, 28, 28, 0.08); /* error message / field fill; --error on it = 4.86:1 */
+  --error-hover: #991B1B;         /* pressed/hover fill of a destructive button */
+
+  /* Status colours — proposed 2026-10-05, pending design review (DESIGN_CONTEXT §8 Q4).
+     Text on its tint: success 4.67, warning 4.72, info 4.74 over areaBg (AA); higher on panels.
+     Error reuses --error / --error-tint (an --error at 10% tint would drop to 4.44). */
+  --success: #1A6E44;
+  --success-tint: rgba(26, 110, 68, 0.10);
+  --warning: #8A5300;
+  --warning-tint: rgba(138, 83, 0, 0.10);
+  --info: #1F5FAD;
+  --info-tint: rgba(31, 95, 173, 0.10);
+  --info-border: rgba(31, 95, 173, 0.30); /* info callout outline, mirrors --accent-tint-30 on promo */
+
+  /* Data visualisation — proposed 2026-10-05, pending design review.
+     Series hues from the dataviz reference palette (blue slot 1, violet slot 7), validated on the
+     panel surface #FBFBFD: CVD ΔE 13.0, normal-vision ΔE 16.3, both ≥3:1. Text never uses these. */
+  --viz-series-1: #2A78D6;
+  --viz-series-2: #4A3AA7;
+  --viz-series-3: #008300;             /* green slot 6 — trio validated all-pairs: CVD 13.0, tritan 7.6 (needs labels), normal 16.3 */
+  --viz-series-4: #B25E00;             /* proposed 2026-10-06 — orange, 4.5:1 on the panel; charts with 4–5 series label every mark */
+  --viz-series-5: #A3367E;             /* proposed 2026-10-06 — magenta, 5.9:1 on the panel */
+  --viz-neutral: #7B7C86;              /* proposed 2026-10-06 — "neutral / other" marks, 4.0:1 on the panel (--viz-baseline is too light for marks) */
+  --viz-soft-opacity: 0.4;             /* proposed 2026-10-06 — flow ribbons and bubbles: soft enough for dark text on top */
+  --viz-flow-h: 560px;                 /* proposed 2026-10-06 — flow (Sankey) diagram height */
+  --viz-grid: var(--sidebar-border);   /* hairline gridlines, solid */
+  --viz-baseline: #B5B6BF;             /* zero line / axis — one step stronger than the grid */
+  --viz-line-w: 2px;
+  --viz-area-opacity: 0.1;             /* area wash under a line */
+  --viz-dash: 6 4;                     /* dashed series (e.g. competitor average) */
+  --viz-marker-r: 4px;                 /* 8px dots */
+  --viz-ring-w: 2px;                   /* surface ring around dots */
+  --viz-chart-h: 280px;
+  --viz-gutter-start: 40px;            /* y-axis labels */
+  --viz-gutter-bottom: 28px;           /* x-axis labels */
+  --viz-gutter-top: 8px;
+  --viz-gutter-end: 112px;             /* room for end-of-line labels */
+
+  /* §2.5 Neutral chips */
+  --chip-soft: rgba(0, 0, 0, 0.05);
+  --chip-soft-hover: rgba(0, 0, 0, 0.09);
+  --card-rest: #EBECF4;           /* selectable card at rest (topic card); --text-muted on it 5.01:1 */
+  --card-hover: #DDDFEA;          /* selectable card hover/pressed. --text-muted is 4.44:1 here → description switches to --text-secondary (8.31:1) */
+  --chip-action: rgba(0, 0, 0, 0.055);
+  --chip-count: rgba(0, 0, 0, 0.08);
+  --chip-muted: rgba(101, 99, 109, 0.08);
+  --chip-muted-hover: rgba(101, 99, 109, 0.14);
+  --chip-dark: rgba(235, 234, 248, 0.0784);
+  --chip-dark-hover: rgba(235, 234, 248, 0.14);
+  --collapse-toggle: rgba(0, 0, 58, 0.0627);
+  --kbd-chip: rgba(0, 0, 0, 0.06);
+
+  /* §2.6 Lines */
+  --sidebar-border: #E0E1E9;
+  --separator-dark: rgba(181, 178, 188, 0.15);
+
+  /* §2.8 Typography */
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;             /* Geist only — Geist Mono has no 600 */
+  --fw-bold: 700;
+
+  /* App size scale — these sizes only */
+  --fs-10: 10px;
+  --fs-10-5: 10.5px;
+  --fs-11: 11px;
+  --fs-11-5: 11.5px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-13-5: 13.5px;
+  --fs-14: 14px;
+  --fs-display: 28px;             /* prices and key figures only */
+
+  --lh-display: 1.1;
+  --lh-tight: 1.2;                /* price chip */
+  --lh-body: 1.5;
+  --lh-faq: 1.55;
+  --lh-assistant: 1.6;
+  --lh-code: 1.65;
+
+  --tracking-display: -0.02em;
+  --tracking-panel-title: 0.01em;
+  --tracking-group-label: 0.02em;
+  --tracking-eyebrow: 0.07em;
+
+  /* Type roles (size / weight) */
+  --type-display-size: var(--fs-display);   --type-display-weight: var(--fw-bold); /* prices and key figures only */
+  --type-page-heading-size: var(--fs-14);   --type-page-heading-weight: var(--fw-semibold);
+  --type-body-size: var(--fs-14);           --type-body-weight: var(--fw-regular);
+  --type-nav-item-size: var(--fs-14);       --type-nav-item-weight: var(--fw-regular);
+  --type-chat-input-size: var(--fs-13-5);   --type-chat-input-weight: var(--fw-regular);
+  --type-section-title-size: var(--fs-13);  --type-section-title-weight: var(--fw-semibold);
+  --type-card-title-size: var(--fs-13);     --type-card-title-weight: var(--fw-semibold);
+  --type-metadata-size: var(--fs-13);       --type-metadata-weight: var(--fw-regular);
+  --type-member-name-size: var(--fs-13);    --type-member-name-weight: var(--fw-medium);
+  --type-live-pill-size: var(--fs-12);      --type-live-pill-weight: var(--fw-medium);
+  --type-panel-title-size: var(--fs-12);    --type-panel-title-weight: var(--fw-medium);
+  --type-faq-body-size: var(--fs-12);       --type-faq-body-weight: var(--fw-regular);
+  --type-card-subtext-size: var(--fs-11-5); --type-card-subtext-weight: var(--fw-regular);
+  --type-group-label-size: var(--fs-11);    --type-group-label-weight: var(--fw-medium);
+  --type-timestamp-size: var(--fs-11);      --type-timestamp-weight: var(--fw-regular);
+  --type-card-eyebrow-size: var(--fs-10-5); --type-card-eyebrow-weight: var(--fw-semibold);
+
+  /* §2.9 Spacing scale */
+  --hairline: 1px;
+  --hairline-live-pill: 1.5px;    /* live pill only */
+  --xs: 4px;
+  --sm: 8px;
+  --md: 12px;
+  --lg: 16px;
+  --xl: 20px;
+
+  /* Spacing by purpose (from docs/reference/console.html) */
+  --gap-price-suffix: 1px;        /* "$3" → "/month" inside price chip */
+  --gap-meta: 2px;                /* title → meta line (key card) */
+  --gap-desc: 3px;                /* title → description in rows */
+  --gap-price: 5px;               /* display figure → "/month" */
+  --gap-inline: 6px;              /* icon ↔ label in buttons, chips */
+  --gap-dot: 7px;                 /* status dot ↔ label */
+  --gap-cozy: 10px;               /* avatar/icon ↔ text in menu items, headers */
+  --pad-control-x: 12px;          /* button md */
+  --pad-control-x-sm: 10px;       /* button sm, chips */
+  --pad-field-x: 14px;            /* text field */
+  --pad-pill-start: 11px;         /* topic pill, before dot/label */
+  --pad-pill-end: 14px;
+  --pad-price-chip-y: 5px;
+  --pad-tag-y: 2px;
+  --pad-tag-x: 9px;
+  --pad-tile-y: 12px;             /* tiles, line-item boxes */
+  --pad-tile-x: 14px;
+  --pad-inset-y: 14px;            /* inset areaBg surfaces: rows, cards, banners, code */
+  --pad-inset-x: 16px;
+  --pad-list-row-y: 11px;         /* activity rows */
+  --pad-list-row-x: 14px;
+  --pad-copy-field: 7px;          /* copy row, around the button */
+  --pad-copy-field-start: 12px;
+  --pad-key-value: 8px;
+  --pad-panel: 20px;
+  --pad-empty-y: 30px;
+  --pad-empty-x: 20px;
+  --space-panel-stack: 16px;      /* between panels */
+  --space-section: 20px;          /* eyebrow top margin, block spacing inside a panel */
+  --space-eyebrow-below: 8px;
+  --space-field-row: 14px;        /* description → field row */
+  --space-code-head-top: 18px;
+  --space-code-head-below: 6px;
+  --space-divider-top: 20px;
+  --space-divider-bottom: 18px;
+  --space-tabs-top: 22px;         /* page header → tabs */
+  --space-panel-desc: 6px;        /* panel title → description */
+  --space-panel-body: 16px;       /* panel header → body */
+  --space-label-below: 6px;       /* eyebrow label → the control it labels */
+  --space-row-extra: 10px;        /* row/card text → price chip or key value */
+  --space-row-children: 12px;     /* row header → nested content (pills) */
+  --space-card-actions: 14px;     /* card body → actions pinned at the bottom */
+  --gap-card-stack: 6px;          /* between lines inside a topic card */
+  --pad-line-y: 5px;              /* one line item (label … amount) */
+  --space-line-total: 6px;        /* last line item → total divider */
+  --pad-line-total-top: 11px;     /* total divider → total line */
+  --space-total-row: 14px;        /* content → total row, and divider → total */
+  --gap-total-aside: 4px;         /* total summary counts → total value */
+  --space-plan-head-top: 6px;     /* "Current plan" eyebrow → plan name */
+  --space-plan-head-bottom: 12px; /* plan name → price */
+  --space-plan-note: 12px;        /* price → note */
+  --space-plan-includes: 14px;    /* note → included chips */
+  --space-plan-side: 12px;        /* line items → CTA */
+  --space-fine-print: 10px;       /* CTA → fine print */
+  --pad-signin-block: 16px;
+  --space-signin-desc: 8px;       /* sign-in heading → description */
+  --space-copy-field: 14px;       /* between stacked copy fields */
+  --space-hint: 10px;             /* copy field → hint lines */
+  --space-coverage-head: 14px;    /* coverage heading row → chosen pills */
+  --space-coverage-foot: 12px;    /* chosen pills → cost line */
+  --space-coverage-available: 16px; /* → "Available" label */
+  --space-coverage-available-below: 10px;
+  --pad-fold-surface: 8px;        /* top of the folded-in pills */
+  --space-topic-count: 18px;      /* panel header → "21 topics available" */
+  --space-topic-count-below: 10px;
+  --space-block: 14px;            /* description → field row, button, list */
+  --space-key-list: 12px;         /* between key cards, and banner → rows */
+  --space-list-row: 8px;          /* between activity / request rows */
+  --pad-tab-top: 10px;
+  --pad-tab-x: 12px;
+  --pad-tab-bottom: 12px;
+  --pad-tab-x-compact: 8px;       /* ≤560px */
+  --gap-tabs-compact: 2px;
+
+  /* Sizes */
+  --area-gap: 16px;
+  --area-gap-compact: 8px;        /* ≤860px */
+  --sidebar-w: 244px;
+  --sidebar-w-collapsed: 64px;
+  --wire-sidebar-w: 185px;
+  --topnav-h: 64px;
+  --topnav-button-size: 36px;
+  --send-button-size: 32px;
+  --nav-item-h: 40px;
+  --feed-card-size: 520px;
+  --page-max-w: 940px;
+  --layout-min-h: 100dvh;         /* app frame fills the viewport; the area panel scrolls */
+  --page-pad-top: 28px;
+  --page-pad-x: 24px;
+  --page-pad-bottom: 56px;
+  --page-pad-top-compact: 20px;
+  --page-pad-x-compact: 16px;
+  --page-pad-bottom-compact: 40px;
+  --plan-side-w: 304px;
+  --gap-plan: 28px;
+  --gap-plan-compact: 20px;
+  --logo-h: 21px;
+  --logo-h-compact: 18px;
+  --user-name-max-w: 180px;
+  --timestamp-min-w: 64px;
+
+  --control-h-sm: 28px;           /* button sm, icon button, stepper */
+  --control-h-md: 32px;           /* button md, topic pill */
+  --control-h-lg: 36px;           /* field, button next to a field, block button, user pill */
+  --badge-h-xs: 22px;             /* "Recommended" pill */
+  --badge-h-sm: 24px;             /* plan state chip */
+  --badge-h-md: 26px;             /* static chips, include chips */
+  --badge-h-lg: 28px;             /* plan pill */
+  --dot-size: 7px;                /* status dots, tab badge */
+  --checkbox-size: 20px;          /* 2026-09-30: 18 → 20 = --icon-md, so the selected state can be the Phosphor fill Check itself */
+  --avatar-size: 28px;
+  --tab-indicator-h: 2px;
+  --scrollbar-size: 6px;
+  --line-clamp-value: 2;          /* proposed 2026-10-06 — text values in a Stat */
+  --line-clamp-tile: 3;
+
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Overlays */
+  --menu-offset: 44px;            /* trigger top → menu top */
+  --menu-min-w: 232px;
+  --menu-pad: 6px;
+  --menu-item-pad-y: 9px;
+  --menu-item-pad-x: 10px;
+  --pad-menu-head: 8px 10px 10px;
+  --pad-user-pill: 4px;           /* around the avatar; right side uses --pad-control-x-sm */
+  --toast-inset: 24px;
+  --toast-inset-compact: 12px;
+  --toast-pad-y: 10px;
+  --toast-pad-x: 14px;
+  --toast-enter-offset: 4px;
+  --z-menu: 40;
+  --z-dialog: 60;                 /* above menus, below toasts */
+  --z-sticky: 10;                 /* proposed 2026-10-05 — sticky headers inside the area panel, below menus */
+
+  /* Dialog — proposed 2026-10-05, pending design review (no source value in DESIGN_CONTEXT) */
+  --overlay-scrim: rgba(33, 34, 37, 0.5); /* --nav-bg at 50%, behind modal dialogs */
+  --dialog-w: 560px;
+  --dialog-w-lg: 800px;           /* proposed 2026-10-06 — large dialogs (prompt tuning) */
+  --dialog-w-xl: 1100px;          /* proposed 2026-10-06 — side-by-side comparison dialogs */
+  --dialog-inset: 24px;           /* min gap between a dialog and the window edge */
+  --popover-w-wide: 380px;        /* proposed 2026-10-05 — wide popover (notifications) */
+  --sheet-w: 520px;               /* proposed 2026-10-06 — side sheet (record details) */
+  --sheet-w-lg: 640px;            /* proposed 2026-10-06 — side sheet holding an edit form */
+  --fab-size: 48px;               /* proposed 2026-10-06 — floating action button */
+  --sparkline-h: 40px;            /* proposed 2026-10-06 — inline trend line in cards */
+  --pipeline-node-w: 150px;       /* proposed 2026-10-06 — min width of a pipeline step */
+  --multi-select-list-h: 280px;   /* proposed 2026-10-06 — scrolling option list of a MultiSelect */
+  --table-max-h: 360px;           /* proposed 2026-10-06 — scrolling height of a long Table */
+  --rail-w: 260px;                /* proposed 2026-10-06 — left rail of a three-column page */
+  --rail-w-wide: 300px;           /* proposed 2026-10-06 — right detail rail of a three-column page */
+  --z-toast: 90;
+  --opacity-caret: 0.7;
+
+  /* Breakpoints — reference only: CSS custom properties can't be used inside
+     @media, so media queries must repeat these exact values. */
+  --bp-wide: 1000px;              /* tile grid + plan card stack */
+  --bp-medium: 860px;             /* compact area/page padding, rows wrap */
+  --bp-small: 560px;              /* premium grid stacks, compact tabs */
+
+  /* Icons (§3.1) — Phosphor, fill weight */
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+
+  /* §2.10 Radius — never 0, never off-scale */
+  --r-xs: 3px;
+  --r-sm: 4px;
+  --r-md: 5px;
+  --r-md-plus: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-2xl: 12px;
+  --r-card: 14px;
+  --r-area: 16px;
+  --r-pill: 999px;
+  --r-user-bubble: 16px 4px 16px 16px; /* only asymmetric radius */
+
+  /* §2.11 Shadows — these two only */
+  --shadow-card-hover: 0 2px 14px rgba(0, 0, 0, 0.08);
+  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.28);
+
+  /* §2.12 Motion */
+  --dur-hover: 0.12s;             /* 0.12–0.15s, colour/background only */
+  --dur-hover-slow: 0.15s;
+  --dur-panel: 0.2s;              /* 0.2–0.25s */
+  --dur-panel-slow: 0.25s;
+  --dur-toast: 0.15s;
+  --dur-skeleton: 1.4s;           /* proposed 2026-10-06 — loading shimmer cycle */
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --glide: cubic-bezier(.16, 1, .3, 1);
+  --rotate-collapsed: -90deg;     /* fold chevron when closed */
+}
+
+/* §2.12 — honour reduced motion: no animation, final states */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-hover: 0s;
+    --dur-hover-slow: 0s;
+    --dur-panel: 0s;
+    --dur-panel-slow: 0s;
+    --dur-toast: 0s;
+  }
+}

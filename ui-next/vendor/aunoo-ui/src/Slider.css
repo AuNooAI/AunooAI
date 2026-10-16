@@ -1,0 +1,84 @@
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inline);
+  font-family: var(--font-sans);
+}
+
+.slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sm);
+}
+
+.slider__label {
+  font-size: var(--type-panel-title-size);
+  font-weight: var(--type-panel-title-weight);
+  letter-spacing: var(--tracking-panel-title);
+  color: var(--text-muted);
+}
+
+.slider__value {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.slider__root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--checkbox-size);
+  touch-action: none;
+  user-select: none;
+}
+
+.slider__track {
+  position: relative;
+  flex: 1;
+  height: var(--xs);
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+}
+
+.slider__range {
+  position: absolute;
+  height: 100%;
+  background: var(--accent);
+}
+
+.slider__thumb {
+  display: block;
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  border: var(--focus-ring-offset) solid var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--card-light);
+  box-shadow: var(--shadow-card-hover);
+  cursor: grab;
+  transition: transform var(--dur-hover) var(--ease);
+}
+
+.slider__thumb:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.slider__thumb:active { cursor: grabbing; }
+
+.slider__hint {
+  margin: 0;
+  font-size: var(--type-faq-body-size);
+  line-height: var(--lh-faq);
+  color: var(--text-muted);
+}
+
+.slider[data-disabled] .slider__range { background: var(--disabled-text); }
+.slider[data-disabled] .slider__thumb { border-color: var(--disabled-text); cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  .slider__thumb { transition: none; }
+}

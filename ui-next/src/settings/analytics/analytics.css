@@ -1,0 +1,33 @@
+/* Charts that need their own width scroll sideways inside their box on a phone */
+.an-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.an-sankey {
+  display: block;
+  min-width: 640px;
+}
+.an-sankey__node {
+  stroke: var(--surface-panel, #fff);
+  stroke-width: 1;
+}
+.an-sankey__link {
+  fill: none;
+  stroke-opacity: 0.35;
+}
+.an-sankey__link:hover,
+.an-sankey__link:focus {
+  stroke-opacity: 0.65;
+  outline: none;
+}
+.an-sankey__label {
+  font-size: 12px;
+  fill: var(--text-primary, #1f2937);
+}
+.an-sankey__count {
+  font-size: 11px;
+  fill: var(--text-muted, #6b7280);
+}
+.an-figure {
+  margin: 0;
+}

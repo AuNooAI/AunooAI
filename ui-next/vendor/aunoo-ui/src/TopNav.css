@@ -1,0 +1,51 @@
+.top-nav {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--md);
+  height: var(--topnav-h);
+  padding: 0 var(--lg);
+  background: var(--nav-bg);
+  border-bottom: var(--hairline) solid var(--separator-dark);
+}
+
+.top-nav__brand {
+  display: flex;
+  grid-column: 1;
+  align-items: center;
+  gap: var(--md);
+  min-width: 0;
+}
+
+.top-nav__lead {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  min-width: 0;
+}
+
+.top-nav__right {
+  position: relative;
+  display: flex;
+  grid-column: 3;
+  align-items: center;
+  gap: var(--sm);
+}
+
+/* Lead pinned at --top-nav-lead-start: the brand column is exactly that wide (padding included),
+   with no column gap, so the lead's left edge sits on that line at every width. */
+.top-nav--align-lead {
+  grid-template-columns: var(--top-nav-lead-start, auto) minmax(0, 1fr) auto;
+  column-gap: 0;
+  padding-left: 0;
+}
+
+.top-nav--align-lead .top-nav__brand {
+  overflow: hidden;
+  padding: 0 var(--md) 0 var(--lg);
+}
+
+.top-nav--align-lead .top-nav__right {
+  margin-left: var(--md);
+}

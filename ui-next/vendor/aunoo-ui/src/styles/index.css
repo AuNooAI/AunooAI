@@ -1,0 +1,5 @@
+/* Global design foundation for @aunoo/ui.
+   Import once at the app root: `import '@aunoo/ui/styles.css'`.
+   Component CSS is bundled automatically via each component module. */
+@import './tokens.css';
+@import './base.css';

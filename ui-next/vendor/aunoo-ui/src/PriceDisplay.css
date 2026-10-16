@@ -1,0 +1,19 @@
+.price-display {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-price);
+}
+
+.price-display__amount {
+  font-size: var(--type-display-size);
+  font-weight: var(--type-display-weight);
+  line-height: var(--lh-display);
+  letter-spacing: var(--tracking-display);
+  color: var(--text-primary);
+}
+
+.price-display__period {
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}

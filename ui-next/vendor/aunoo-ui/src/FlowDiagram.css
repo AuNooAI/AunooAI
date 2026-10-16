@@ -1,0 +1,68 @@
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  margin: 0;
+  font-family: var(--font-sans);
+}
+
+.flow-diagram__stages {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--type-card-eyebrow-size);
+  font-weight: var(--type-card-eyebrow-weight);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.flow-diagram__plot {
+  position: relative;
+  height: var(--viz-flow-h);
+}
+
+.flow-diagram__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.flow-diagram__link {
+  fill: var(--chart-color);
+  opacity: var(--viz-soft-opacity);
+}
+
+@media (hover: hover) {
+  .flow-diagram__link:hover { opacity: 1; }
+}
+
+.flow-diagram__node { fill: var(--chart-color); }
+
+/* Node names: HTML beside each node, placed in % of the plot */
+.flow-diagram__label {
+  position: absolute;
+  max-width: 30%;
+  padding: 0 var(--sm);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  color: var(--text-primary);
+  transform: translateY(-50%);
+}
+
+.flow-diagram__label--end {
+  text-align: end;
+  transform: translate(-100%, -50%);
+}
+
+.flow-diagram__count { color: var(--text-muted); }
+
+.flow-diagram__empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  font-size: var(--fs-13);
+  text-align: center;
+  color: var(--text-muted);
+}

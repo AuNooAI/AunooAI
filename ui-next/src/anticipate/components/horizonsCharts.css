@@ -1,0 +1,120 @@
+/* Three Horizons chart: curves with numbered scenario markers, an axis of years and phases */
+.h3-chart {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  min-width: 0;
+}
+.h3-chart__stage {
+  position: relative;
+  height: clamp(12rem, 40vw, 18rem);
+}
+.h3-chart__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.h3-chart__grid {
+  stroke: var(--viz-grid, var(--sidebar-border));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.h3-chart__mark,
+.h3-chart__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  border: 2px solid;
+  background: var(--chat-wrap-bg, #fff);
+  color: var(--text-primary);
+  font-size: var(--fs-11, 11px);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+.h3-chart__mark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.h3-chart__axis {
+  position: relative;
+  height: 2.2rem;
+}
+.h3-chart__axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--fs-11, 11px);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.h3-chart__axis span:first-child {
+  transform: none;
+  align-items: flex-start;
+}
+.h3-chart__axis span:last-child {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+.h3-chart__axis strong {
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+.h3-chart__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm) var(--lg);
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+.h3-chart__key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.h3-chart__key i {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+}
+.h3-chart__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.h3-chart__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.h3-chart__num {
+  flex: 0 0 auto;
+}
+
+/* Strategic consensus: the consensus share, and decision forks in positive and warning colours */
+.h3-fork {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--r-md, 6px);
+  border-left: 3px solid;
+}
+.h3-fork--pos {
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+.h3-fork--warn {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}

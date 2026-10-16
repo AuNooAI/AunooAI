@@ -1,0 +1,79 @@
+/* Long labels on fold-out triggers wrap instead of running off a phone screen */
+.science-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+
+/* A category's colour as a small dot beside its name */
+.science-dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  margin-inline-end: 0.4rem;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Co-occurrence heatmap: scrolls sideways inside its own box on a narrow screen */
+.science-heatmap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.science-heatmap table {
+  border-collapse: collapse;
+  font-size: var(--fs-12, 12px);
+  font-variant-numeric: tabular-nums;
+}
+.science-heatmap th {
+  font-weight: var(--fw-medium, 500);
+  color: var(--text-muted);
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+.science-heatmap th[scope='col'] {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: start;
+  vertical-align: bottom;
+}
+.science-heatmap th[scope='row'] {
+  text-align: end;
+}
+.science-heatmap td {
+  min-width: 2.6rem;
+  height: 2rem;
+  text-align: center;
+  border: 1px solid var(--sidebar-border);
+  color: var(--text-primary);
+  /* --heat (0–1) sets how strongly the cell is tinted */
+  background: color-mix(in srgb, var(--viz-series-1) calc(var(--heat, 0) * 70%), transparent);
+}
+.science-heatmap td.science-heatmap__self {
+  background: color-mix(in srgb, var(--viz-series-2) calc(var(--heat, 0) * 70%), transparent);
+}
+.science-heatmap__key {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-inline-end: 0.35rem;
+  background: color-mix(in srgb, var(--viz-series-1) 50%, transparent);
+}
+.science-heatmap__key--self {
+  background: color-mix(in srgb, var(--viz-series-2) 50%, transparent);
+}
+
+/* The browser's own file and date inputs, kept inside the dialog on a phone */
+.science-input {
+  max-width: 100%;
+}
+
+/* Switches with several options scroll inside themselves on a phone */
+.science-segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}

@@ -1,0 +1,98 @@
+.stat {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--md);
+  min-width: 0;
+  list-style: none;
+  font-family: var(--font-sans);
+}
+
+.stat--inset {
+  padding: var(--pad-tile-y) var(--pad-tile-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+.stat--panel {
+  padding: var(--pad-panel);
+  background: var(--chat-wrap-bg);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-area);
+}
+
+.stat__text {
+  min-width: 0;
+}
+
+.stat__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-meta);
+  min-width: 0;
+}
+
+.stat__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+}
+
+.stat__value {
+  margin-top: var(--gap-meta);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.stat--display .stat__value {
+  margin-top: var(--gap-card-stack);
+  font-size: var(--type-display-size);
+  font-weight: var(--type-display-weight);
+  line-height: var(--lh-display);
+  letter-spacing: var(--tracking-display);
+}
+
+.stat--compact .stat__value {
+  font-size: var(--fs-14);
+  font-weight: var(--fw-semibold);
+}
+
+/* Geist Mono has no 600 */
+.stat--mono .stat__value {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+  letter-spacing: normal;
+}
+
+.stat--display.stat--mono .stat__value {
+  font-weight: var(--fw-bold);
+}
+
+.stat__meta {
+  margin-top: var(--gap-meta);
+  font-size: var(--type-timestamp-size);
+  color: var(--text-timestamp);
+}
+
+.stat__icon {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+}
+
+.stat--success .stat__value { color: var(--success); }
+.stat--warning .stat__value { color: var(--warning); }
+.stat--error .stat__value { color: var(--error); }
+.stat--info .stat__value { color: var(--info); }
+
+/* Text values: two lines, then an ellipsis */
+.stat--wrap .stat__value {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--line-clamp-value);
+  line-clamp: var(--line-clamp-value);
+}

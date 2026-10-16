@@ -1,0 +1,60 @@
+/* Snapshot grid: one coloured cell per scenario per re-assessment; scrolls sideways in its own box */
+.fc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  min-width: 0;
+}
+.fc-grid__scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.fc-grid__table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: var(--fs-12);
+}
+.fc-grid__name {
+  text-align: start;
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  padding-inline-end: var(--sm);
+  min-width: 10rem;
+  max-width: 18rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.fc-grid__date {
+  font-size: var(--fs-11, 11px);
+  font-weight: normal;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.fc-grid__table td {
+  padding: 0;
+}
+.fc-grid__cell,
+.fc-key {
+  display: inline-block;
+  width: 0.9rem;
+  height: 1.25rem;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+.fc-key {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-inline: 0.15rem 0.1rem;
+}
+.fc-grid__cell--up {
+  background: var(--success);
+}
+.fc-grid__cell--flat {
+  background: var(--viz-neutral);
+}
+.fc-grid__cell--down {
+  background: var(--warning);
+}
+.fc-grid__cell--none {
+  background: var(--viz-grid, var(--sidebar-border));
+}

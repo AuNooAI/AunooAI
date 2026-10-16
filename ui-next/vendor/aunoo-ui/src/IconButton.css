@@ -1,0 +1,85 @@
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--chip-muted);
+  color: var(--text-muted);
+  position: relative;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.icon-button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.icon-button:active:not(:disabled) {
+  background: var(--chip-muted-hover);
+  color: var(--text-primary);
+}
+
+.icon-button--danger:active:not(:disabled) {
+  color: var(--error);
+}
+
+@media (hover: hover) {
+  .icon-button:hover:not(:disabled) {
+    background: var(--chip-muted-hover);
+    color: var(--text-primary);
+  }
+
+  .icon-button--danger:hover:not(:disabled) {
+    color: var(--error);
+  }
+}
+
+/* Disabled */
+.icon-button:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+/* Notification dot (same treatment as the Tabs badge) */
+.icon-button__badge {
+  position: absolute;
+  top: var(--xs);
+  right: var(--xs);
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+
+/* Dark chrome (top nav): §2.9 topnavButtonSize, §2.5 chipDark. textOnDark is 7.62:1 on navBg. */
+.icon-button--dark {
+  width: var(--topnav-button-size);
+  height: var(--topnav-button-size);
+  background: var(--chip-dark);
+  color: var(--text-on-dark);
+}
+
+.icon-button--dark:active:not(:disabled) {
+  background: var(--chip-dark-hover);
+  color: var(--area-bg);
+}
+
+@media (hover: hover) {
+  .icon-button--dark:hover:not(:disabled) {
+    background: var(--chip-dark-hover);
+    color: var(--area-bg);
+  }
+}
+
+.icon-button--dark .icon-button__badge {
+  top: var(--sm);
+  right: var(--sm);
+}

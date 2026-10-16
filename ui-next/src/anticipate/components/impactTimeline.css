@@ -1,0 +1,75 @@
+/* Impact timeline: the window as a band on a year axis, milestones as numbered markers */
+.impact-tl {
+  margin: 0;
+  min-width: 0;
+}
+.impact-tl__track {
+  position: relative;
+  height: 3.4rem;
+  margin-inline: 0.75rem;
+}
+.impact-tl__base {
+  position: absolute;
+  top: 0.9rem;
+  left: 0;
+  right: 0;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--viz-grid, var(--sidebar-border));
+}
+.impact-tl__band {
+  position: absolute;
+  top: 0.9rem;
+  height: 0.45rem;
+  border-radius: 999px;
+}
+.impact-tl__mark,
+.impact-tl__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  border: 2px solid;
+  background: var(--chat-wrap-bg, #fff);
+  color: var(--text-primary);
+  font-size: var(--fs-11, 11px);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+.impact-tl__mark {
+  position: absolute;
+  top: 1.12rem;
+  transform: translate(-50%, -50%);
+}
+.impact-tl__ticks {
+  position: absolute;
+  top: 2.1rem;
+  left: 0;
+  right: 0;
+}
+.impact-tl__ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--fs-11, 11px);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.impact-tl__legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.impact-tl__legend li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.impact-tl__num {
+  flex: 0 0 auto;
+}

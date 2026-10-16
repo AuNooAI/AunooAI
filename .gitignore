@@ -117,6 +117,9 @@ local-models-package.tar.gz
 
 # Node modules (frontend build deps)
 ui/node_modules/
+ui-next/node_modules/
+# Screenshots taken while reviewing the redesign
+ui-next/shots*/
 
 data/evaluation/
 data/*_comparison.json

@@ -1,0 +1,36 @@
+/* Vendor geography: country bubbles on a plain longitude/latitude grid */
+.mm-geo {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--area-bg);
+  border-radius: var(--r-area);
+}
+.mm-geo__grid {
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+  fill: none;
+}
+.mm-geo__bubble {
+  fill: var(--viz-series-1);
+  fill-opacity: 0.45;
+  stroke: var(--viz-series-1);
+  stroke-width: 2;
+}
+.mm-geo__bubble--funding {
+  fill: var(--viz-series-2);
+  stroke: var(--viz-series-2);
+}
+/* No figure published: grey and dashed, so it can't be read as a small amount */
+.mm-geo__bubble--undisclosed {
+  fill: var(--viz-neutral);
+  fill-opacity: 0.2;
+  stroke: var(--viz-neutral);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.mm-geo__label {
+  fill: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-sans);
+}

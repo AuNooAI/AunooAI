@@ -1,0 +1,38 @@
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md);
+  padding: var(--pad-list-row-y) var(--pad-list-row-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+  list-style: none;
+}
+
+.activity-row__primary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-13);
+  color: var(--text-primary);
+}
+
+.activity-row--mono .activity-row__primary {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.activity-row__secondary {
+  flex: 0 0 auto;
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.activity-row__time {
+  flex: 0 0 auto;
+  min-width: var(--timestamp-min-w);
+  text-align: right;
+  font-size: var(--type-timestamp-size);
+  color: var(--text-timestamp);
+}

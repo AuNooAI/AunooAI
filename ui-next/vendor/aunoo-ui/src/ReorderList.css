@@ -1,0 +1,60 @@
+.reorder-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-meta);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reorder-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--xs);
+  border-radius: var(--r-sm);
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.reorder-list__row[data-dragging] {
+  background: var(--chip-soft-hover);
+}
+
+.reorder-list__handle {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none; /* let pointer drags reorder instead of scrolling */
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.reorder-list__row[data-dragging] .reorder-list__handle {
+  cursor: grabbing;
+  color: var(--text-primary);
+}
+
+.reorder-list__handle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+@media (hover: hover) {
+  .reorder-list__handle:hover {
+    background: var(--chip-soft);
+    color: var(--text-primary);
+  }
+}
+
+.reorder-list__content {
+  flex: 1;
+  min-width: 0;
+}

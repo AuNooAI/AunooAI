@@ -1,0 +1,14 @@
+.pagination {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--sm);
+  font-family: var(--font-sans);
+}
+
+.pagination__status {
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+}

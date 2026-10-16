@@ -1,0 +1,113 @@
+/* GeoHotSpots: the hotspot map is points on a plain longitude/latitude grid (no map tiles) */
+.geo-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--area-bg);
+  border-radius: var(--r-area);
+}
+.geo-map__grid {
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+  fill: none;
+}
+.geo-map__equator {
+  stroke: var(--viz-baseline);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+.geo-map__dot {
+  fill-opacity: 0.55;
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+.geo-map__dot:focus-visible,
+.geo-map__dot:hover {
+  fill-opacity: 0.9;
+  outline: none;
+  stroke-width: 3;
+}
+.geo-risk--critical { fill: var(--error); stroke: var(--error); }
+.geo-risk--high { fill: var(--warning); stroke: var(--error); }
+.geo-risk--medium { fill: var(--warning); stroke: var(--warning); }
+.geo-risk--low { fill: var(--success); stroke: var(--success); }
+.geo-risk--info { fill: var(--info); stroke: var(--info); }
+.geo-map__label {
+  fill: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+.geo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm, 8px) var(--lg, 16px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-12, 12px);
+  color: var(--text-secondary);
+}
+.geo-legend__key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-inline-end: 6px;
+  vertical-align: middle;
+}
+/* Long labels on buttons and fold-out headings wrap on a phone instead of widening the page */
+.geo-wrap-trigger {
+  white-space: normal;
+  height: auto;
+  text-align: start;
+  max-width: 100%;
+}
+/* A button that reads as an inline link */
+.geo-linkbutton {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
+.geo-map-figure {
+  margin: 0;
+}
+.geo-linkbutton--block {
+  display: block;
+  width: 100%;
+}
+
+/* The 3D globe: a dark box of fixed height that never widens the page */
+.geo-globe-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm, 8px);
+  min-width: 0;
+}
+.geo-globe {
+  width: 100%;
+  max-width: 100%;
+  height: min(70vh, 560px);
+  min-height: 320px;
+  overflow: hidden;
+  border-radius: var(--r-md, 8px);
+  background: #0b1020;
+  cursor: grab;
+}
+.geo-globe__tip {
+  background: rgba(17, 24, 39, 0.95);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 260px;
+}
+.geo-legend__key--fixed {
+  fill: none;
+  stroke: none;
+}

@@ -1,0 +1,30 @@
+.addon-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--pad-inset-y) var(--pad-inset-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+.addon-card__name {
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  color: var(--text-primary);
+}
+
+.addon-card__description,
+.addon-card__price {
+  margin-top: var(--gap-desc);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.addon-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  margin-top: auto;
+  padding-top: var(--space-card-actions);
+}

@@ -1,0 +1,18 @@
+.text-link {
+  border-radius: var(--r-xs);
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+  text-decoration-color: var(--viz-baseline);
+  text-underline-offset: var(--gap-meta);
+  transition: text-decoration-color var(--dur-hover) var(--ease);
+}
+
+.text-link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+@media (hover: hover) {
+  .text-link:hover { text-decoration-color: currentColor; }
+}

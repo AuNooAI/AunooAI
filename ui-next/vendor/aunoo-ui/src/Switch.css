@@ -1,0 +1,69 @@
+.switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lg);
+  font-family: var(--font-sans);
+}
+
+.switch__text {
+  min-width: 0;
+}
+
+.switch__label {
+  font-size: var(--type-section-title-size);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.switch__description {
+  margin: var(--gap-desc) 0 0;
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+/* Track: 2 × thumb wide. Thumb = --dot-size × 2 (14px) inside a 20px (--checkbox-size) track. */
+.switch__control {
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(var(--checkbox-size) * 2 - var(--xs));
+  height: var(--checkbox-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--chip-count);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.switch__control:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.switch__control[data-state='checked'] {
+  background: var(--accent);
+}
+
+.switch__thumb {
+  display: block;
+  width: calc(var(--dot-size) * 2);
+  height: calc(var(--dot-size) * 2);
+  border-radius: var(--r-pill);
+  /* Off: dark thumb on the pale track (text-muted ≈5:1) so the state reads at ≥3:1 */
+  background: var(--text-muted);
+  transform: translateX(calc((var(--checkbox-size) - var(--dot-size) * 2) / 2));
+  transition: transform var(--dur-panel) var(--ease);
+}
+
+.switch__thumb[data-state='checked'] {
+  background: var(--card-light); /* on accent: 3.96:1 */
+  transform: translateX(calc(var(--checkbox-size) * 2 - var(--xs) - var(--dot-size) * 2 - (var(--checkbox-size) - var(--dot-size) * 2) / 2));
+}
+
+/* Disabled */
+.switch[data-disabled] .switch__label { color: var(--disabled-text); cursor: not-allowed; }
+.switch__control:disabled { background: var(--disabled-bg); cursor: not-allowed; }
+.switch__control:disabled[data-state='checked'] { background: var(--disabled-text); }

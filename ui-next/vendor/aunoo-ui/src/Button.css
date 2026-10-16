@@ -1,0 +1,108 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-inline);
+  border: none;
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Sizes */
+.button--sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--pad-control-x-sm);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+}
+
+.button--md {
+  height: var(--control-h-md);
+  padding: 0 var(--pad-control-x);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+}
+
+.button--lg {
+  height: var(--control-h-lg);
+  padding: 0 var(--pad-control-x);
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+}
+
+.button--full {
+  width: 100%;
+}
+
+/* Variants */
+.button--primary {
+  background: var(--accent-strong);
+  color: var(--text-on-accent);
+}
+
+.button--danger {
+  background: var(--error);
+  color: var(--text-on-accent); /* white on --error ≈ 5.6:1 */
+}
+
+.button--secondary {
+  background: var(--chip-muted);
+  color: var(--text-primary);
+}
+
+.button--onSurface {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.button--secondary,
+.button--onSurface,
+.button--ghost {
+  font-weight: var(--fw-medium);
+}
+
+/* Pressed = hover colour, outside the hover query so touch gets it too */
+.button--primary:active:not([data-disabled]) { background: var(--accent-strong-hover); }
+.button--danger:active:not([data-disabled]) { background: var(--error-hover); }
+.button--secondary:active:not([data-disabled]) { background: var(--chip-muted-hover); }
+.button--onSurface:active:not([data-disabled]) { background: var(--surface-raised-hover); }
+.button--ghost:active:not([data-disabled]) { background: var(--chip-soft); color: var(--text-primary); }
+
+@media (hover: hover) {
+  .button--primary:hover:not([data-disabled]) { background: var(--accent-strong-hover); }
+  .button--danger:hover:not([data-disabled]) { background: var(--error-hover); }
+  .button--secondary:hover:not([data-disabled]) { background: var(--chip-muted-hover); }
+  .button--onSurface:hover:not([data-disabled]) { background: var(--surface-raised-hover); }
+  .button--ghost:hover:not([data-disabled]) { background: var(--chip-soft); color: var(--text-primary); }
+}
+
+/* Disabled / busy */
+.button[data-disabled] {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.button--ghost[data-disabled] {
+  background: transparent;
+}
+
+.button[aria-busy='true'] {
+  cursor: progress;
+}

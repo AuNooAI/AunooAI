@@ -1,0 +1,36 @@
+.sticky-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md);
+  /* Bleed over the page padding so fields don't peek out at the sides while scrolling under it */
+  margin: 0 calc(-1 * var(--page-pad-x));
+  padding: var(--md) var(--page-pad-x);
+  border-top: var(--hairline) solid var(--sidebar-border);
+  background: var(--area-bg);
+  font-family: var(--font-sans);
+}
+
+.sticky-footer__status {
+  min-width: 0;
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+.sticky-footer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sm);
+  margin-left: auto;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .sticky-footer {
+    margin: 0 calc(-1 * var(--page-pad-x-compact));
+    padding: var(--sm) var(--page-pad-x-compact);
+  }
+}

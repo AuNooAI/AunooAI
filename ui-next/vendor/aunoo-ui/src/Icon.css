@@ -1,0 +1,10 @@
+/* Phosphor, fill weight. Size from tokens; colour from currentColor. */
+.icon {
+  flex: 0 0 auto;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.icon--sm { width: var(--icon-sm); height: var(--icon-sm); }
+.icon--md { width: var(--icon-md); height: var(--icon-md); }
+.icon--lg { width: var(--icon-lg); height: var(--icon-lg); }

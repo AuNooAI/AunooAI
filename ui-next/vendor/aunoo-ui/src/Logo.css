@@ -1,0 +1,36 @@
+.logo {
+  --logo-height: var(--logo-h);
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+/* Explicit widths from the artwork's viewBox (176 × 24 and 96 × 24) — some engines size an SVG
+   with width:auto as 300px. */
+.logo__full {
+  display: block;
+  width: calc(var(--logo-height) * 176 / 24);
+  height: var(--logo-height);
+}
+
+.logo__mark {
+  display: none;
+  width: calc(var(--logo-height) * 96 / 24);
+  height: var(--logo-height);
+}
+
+.logo__word { fill: var(--logo-word); }
+.logo__dot { fill: var(--logo-dot); }
+.logo__badge { fill: var(--logo-badge-bg); }
+.logo__badge-text { fill: var(--logo-badge-text); }
+
+/* Short "au BETA" version while the sidebar is a rail (always under 860px; see ConsoleLayout
+   for the collapsed-by-toggle case) */
+@media (max-width: 860px) { /* --bp-medium */
+  .logo--collapsible .logo__full { display: none; }
+  .logo--collapsible .logo__mark { display: block; }
+}
+
+@media (max-width: 560px) { /* --bp-small */
+  .logo { --logo-height: var(--logo-h-compact); }
+}

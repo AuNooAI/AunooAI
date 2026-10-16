@@ -1,0 +1,44 @@
+.swimlane {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm, 8px);
+  min-width: 0;
+}
+/* The chart keeps its width and scrolls sideways inside this box, never the page */
+.swimlane__scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.swimlane__svg {
+  display: block;
+  font-family: var(--font-sans);
+}
+.swimlane__lane {
+  stroke: var(--sidebar-border);
+  stroke-width: 1;
+}
+.swimlane__grid {
+  stroke: var(--sidebar-border);
+  stroke-dasharray: 3 3;
+}
+.swimlane__label,
+.swimlane__tick {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.swimlane__dot {
+  stroke: var(--chat-wrap-bg, #fff);
+  stroke-width: 1.5;
+  opacity: 0.85;
+}
+.swimlane__dot--pick {
+  cursor: pointer;
+}
+.swimlane__dot:focus-visible,
+.swimlane__dot--active {
+  opacity: 1;
+  stroke: var(--text-primary);
+  stroke-width: 2;
+  outline: none;
+}

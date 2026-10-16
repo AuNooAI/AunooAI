@@ -1,0 +1,78 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  flex: 0 0 auto;
+  /* Never wider than its container (e.g. a narrow filter rail) */
+  max-width: 100%;
+  border-radius: var(--r-pill);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
+.chip--md {
+  height: var(--badge-h-md);
+  padding: 0 var(--pad-control-x-sm);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+}
+
+.chip--sm {
+  align-self: flex-start;
+  /* Long labels wrap onto a second line instead of spilling out; short ones stay on one */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+  padding: var(--pad-tag-y) var(--pad-tag-x);
+  font-size: var(--fs-11);
+  font-weight: var(--fw-medium);
+}
+
+.chip--accent {
+  background: var(--accent-tint-10);
+  color: var(--pink-ink);
+}
+
+.chip--neutral {
+  background: var(--chip-soft);
+  color: var(--text-muted);
+  font-weight: var(--fw-regular);
+}
+
+/* --text-secondary: muted/subtle drop below 4.5:1 on chip-muted over a tinted (selected) card */
+.chip--muted {
+  background: var(--chip-muted);
+  color: var(--text-secondary);
+}
+
+/* Status tones (proposed tokens) */
+.chip--success { background: var(--success-tint); color: var(--success); }
+.chip--warning { background: var(--warning-tint); color: var(--warning); }
+.chip--info { background: var(--info-tint); color: var(--info); }
+.chip--error { background: var(--error-tint); color: var(--error); }
+
+/* Outline: same text colour, hairline border, no fill */
+.chip--outline {
+  background: transparent;
+  border: var(--hairline) solid currentColor;
+}
+
+.chip--outline.chip--accent { color: var(--pink-ink); }
+
+/* Clickable chip (e.g. a tag that filters) */
+.chip--button {
+  border: none;
+  cursor: pointer;
+  transition: filter var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
+}
+
+.chip--button.chip--outline { border: var(--hairline) solid currentColor; }
+
+.chip--button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+@media (hover: hover) {
+  .chip--button:hover { box-shadow: inset 0 0 0 var(--hairline) currentColor; }
+}

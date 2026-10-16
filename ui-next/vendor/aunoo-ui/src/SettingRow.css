@@ -1,0 +1,76 @@
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lg);
+  padding: var(--pad-inset-y) var(--pad-inset-x);
+  background: var(--area-bg);
+  border-radius: var(--r-2xl);
+}
+
+.setting-row--tall {
+  align-items: flex-start;
+}
+
+/* With nested content, the text column takes the row's width so the content fills it */
+.setting-row--tall > .setting-row__main {
+  flex: 1;
+}
+
+.setting-row__main {
+  min-width: 0;
+}
+
+.setting-row__title {
+  font-size: var(--type-section-title-size);
+  font-weight: var(--type-section-title-weight);
+  color: var(--text-primary);
+}
+
+.setting-row__description {
+  margin-top: var(--gap-desc);
+  font-size: var(--fs-12);
+  line-height: var(--lh-body);
+  color: var(--text-muted);
+}
+
+.setting-row__price {
+  margin-top: var(--space-row-extra);
+}
+
+.setting-row__children {
+  margin-top: var(--space-row-children);
+}
+
+.setting-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 860px) { /* --bp-medium */
+  .setting-row { flex-wrap: wrap; }
+}
+
+/* Actions on the title line; everything below spans the full row */
+.setting-row--title-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.setting-row__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--md);
+}
+
+.setting-row__head .setting-row__title {
+  min-width: 0;
+  padding-top: var(--xs);
+}
+
+/* Not wrapped onto its own line like the side layout does on narrow screens */
+.setting-row--title-actions { flex-wrap: nowrap; }

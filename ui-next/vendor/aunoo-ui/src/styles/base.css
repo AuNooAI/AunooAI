@@ -1,0 +1,45 @@
+/* Base defaults for surfaces that host the library (Storybook canvas, the app).
+   Tokens only — see tokens.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--area-bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* The hidden attribute always wins over component display rules (e.g. inactive tab panels) */
+[hidden] {
+  display: none !important;
+}
+
+/* Screen-reader-only content (labels, status text) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+}

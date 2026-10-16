@@ -1,0 +1,22 @@
+/* One section of an AI report: a card with a coloured edge and a light tint of the same colour */
+.report-card {
+  min-width: 0;
+  padding: var(--md, 12px) var(--lg, 16px);
+  border-radius: var(--r-md, 8px);
+  border: var(--hairline, 1px) solid var(--sidebar-border, rgba(0, 0, 0, 0.12));
+  border-inline-start-width: 4px;
+  background: var(--chat-wrap-bg, transparent);
+  overflow-wrap: anywhere;
+}
+.report-card__title {
+  margin: 0 0 var(--sm, 8px);
+  font-size: var(--type-section-title-size, 15px);
+  font-weight: var(--type-section-title-weight, 600);
+  color: var(--text-primary);
+}
+.report-card--info { border-inline-start-color: var(--info); background: var(--info-tint, transparent); }
+.report-card--warning { border-inline-start-color: var(--warning); background: var(--warning-tint, transparent); }
+.report-card--error { border-inline-start-color: var(--error); background: var(--error-tint, transparent); }
+.report-card--success { border-inline-start-color: var(--success); background: var(--success-tint, transparent); }
+.report-card--accent { border-inline-start-color: var(--accent); }
+.report-card--neutral { border-inline-start-color: var(--text-muted, #888); }

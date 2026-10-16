@@ -1,0 +1,11 @@
+/* Anticipate uses line items for sentences (the AI disclosure's purpose, "What to do when"), not
+   only short amounts, so their values wrap instead of running off the panel or widening the page */
+body .line-items__line dd {
+  white-space: normal;
+  text-align: end;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+body .line-items__line dt {
+  flex: 0 0 auto;
+}

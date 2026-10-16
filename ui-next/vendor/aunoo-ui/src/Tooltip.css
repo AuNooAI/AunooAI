@@ -1,0 +1,30 @@
+.tooltip {
+  z-index: calc(var(--z-dialog) + 1); /* over menus and dialogs, so a dialog's own buttons show theirs */
+  max-width: var(--menu-min-w);
+  padding: var(--xs) var(--sm);
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-overlay);
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-body);
+  color: var(--text-primary);
+  animation: tooltip-in var(--dur-panel) var(--ease);
+}
+
+/* Gap to the trigger — a token, so it's applied here rather than via Radix's numeric sideOffset */
+.tooltip[data-side='bottom'] { margin-top: var(--gap-inline); }
+.tooltip[data-side='top'] { margin-bottom: var(--gap-inline); }
+.tooltip[data-side='left'] { margin-right: var(--gap-inline); }
+.tooltip[data-side='right'] { margin-left: var(--gap-inline); }
+
+@keyframes tooltip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip { animation: none; }
+}

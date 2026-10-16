@@ -1,0 +1,232 @@
+.line-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm);
+  min-width: 0;
+  font-family: var(--font-sans);
+}
+
+.line-chart__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--xs);
+}
+
+.line-chart__plot {
+  position: relative;
+  height: var(--viz-chart-h);
+  border-radius: var(--r-sm);
+  touch-action: pan-y;
+}
+
+.line-chart__plot:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.line-chart__svg {
+  display: block;
+  overflow: visible;
+}
+
+/* Chrome: recessive, solid hairlines (§ dataviz marks) */
+.line-chart__grid {
+  stroke: var(--viz-grid);
+  stroke-width: var(--hairline);
+}
+
+.line-chart__baseline {
+  stroke: var(--viz-baseline);
+  stroke-width: var(--hairline);
+}
+
+.line-chart__tick {
+  fill: var(--text-muted);
+  font-size: var(--type-timestamp-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.line-chart__crosshair {
+  stroke: var(--text-muted);
+  stroke-width: var(--hairline);
+}
+
+/* Marks */
+.line-chart__series--1 { --series: var(--viz-series-1); }
+.line-chart__series--2 { --series: var(--viz-series-2); }
+
+.line-chart__line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: var(--viz-line-w);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.line-chart__line--dashed {
+  stroke-dasharray: var(--viz-dash);
+}
+
+/* Dot in the series colour with a surface ring, so it stays legible where lines cross */
+.line-chart__marker {
+  fill: var(--series);
+  stroke: var(--card-light);
+}
+
+/* Text never wears the series colour */
+.line-chart__end-label {
+  fill: var(--text-secondary);
+  font-size: var(--type-timestamp-size);
+  font-weight: var(--fw-medium);
+}
+
+/* Tooltip — values lead, labels follow; line keys, not boxes */
+.line-chart__tooltip {
+  position: absolute;
+  top: var(--viz-gutter-top);
+  z-index: var(--z-menu);
+  min-width: max-content;
+  margin-inline-start: var(--md);
+  padding: var(--sm) var(--md);
+  background: var(--card-light);
+  border: var(--hairline) solid var(--sidebar-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-overlay);
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.line-chart__tooltip--flip {
+  transform: translateX(calc(-100% - 2 * var(--md)));
+}
+
+.line-chart__tooltip-title {
+  margin-bottom: var(--xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
+.line-chart__tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  line-height: var(--lh-body);
+}
+
+.line-chart__tooltip-value {
+  min-width: calc(var(--viz-gutter-start) - var(--sm));
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Legend — always present for 2+ series */
+.line-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sm) var(--lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.line-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-inline);
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+/* Short line key; dashed series get a dashed key */
+.line-chart__key {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--lg);
+  height: 0;
+  border-top: var(--viz-line-w) solid var(--series);
+}
+
+.line-chart__key--dashed {
+  border-top-style: dashed;
+}
+
+.line-chart__series--3 { --series: var(--viz-series-3); }
+.line-chart__series--4 { --series: var(--viz-series-4); }
+.line-chart__series--5 { --series: var(--viz-series-5); }
+.line-chart__series--positive { --series: var(--success); }
+.line-chart__series--negative { --series: var(--error); }
+.line-chart__series--neutral { --series: var(--viz-neutral); }
+
+/* Area: a wash of the series hue, never a saturated block */
+.line-chart__area {
+  fill: var(--series);
+  fill-opacity: var(--viz-area-opacity);
+  stroke: none;
+}
+
+/* Numbered annotation: series-coloured disc with a surface ring; white number (≥3:1 on all three hues) */
+.line-chart__annotation circle {
+  fill: var(--series);
+  stroke: var(--card-light);
+}
+
+.line-chart__annotation text {
+  fill: var(--text-on-accent);
+  font-size: var(--fs-10-5);
+  font-weight: var(--fw-bold);
+}
+
+.line-chart__tooltip-note {
+  margin-bottom: var(--xs);
+  max-width: var(--menu-min-w);
+  white-space: normal;
+  color: var(--text-primary);
+}
+
+.line-chart__annotations {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--menu-min-w), 1fr));
+  gap: var(--md) var(--lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.line-chart__annotation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sm);
+  font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.line-chart__annotation-number {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--lg);
+  height: var(--lg);
+  border-radius: var(--r-pill);
+  background: var(--series);
+  font-size: var(--fs-10-5);
+  font-weight: var(--fw-bold);
+  color: var(--text-on-accent);
+}
+
+.line-chart__annotation-label {
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
+.line-chart__annotation-meta {
+  font-weight: var(--fw-regular);
+  color: var(--text-muted);
+}
+
+.line-chart__annotation-detail {
+  margin-top: var(--gap-meta);
+  line-height: var(--lh-faq);
+}

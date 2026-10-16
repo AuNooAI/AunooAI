@@ -1,0 +1,33 @@
+/* Benchmark strip: the vendor's marker against the market median, average and the top cohort's middle half */
+.mm-bench {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+.mm-bench__track {
+  fill: var(--area-bg);
+}
+.mm-bench__band {
+  fill: var(--viz-neutral);
+  fill-opacity: 0.35;
+}
+.mm-bench__median {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+.mm-bench__average {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.mm-bench__vendor {
+  fill: var(--viz-series-1);
+}
+/* Short excerpts of a watched page's diff */
+.mm-diff {
+  margin: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

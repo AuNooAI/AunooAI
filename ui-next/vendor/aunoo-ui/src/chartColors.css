@@ -1,0 +1,12 @@
+/* Shared colour slots for charts: --viz-series-1…5, a neutral grey (0), and sentiment roles.
+   Imported by each chart that takes a `color` — set `--chart-color` and use it for fill/stroke/bg. */
+.chart-c-0 { --chart-color: var(--viz-neutral); }
+.chart-c-1 { --chart-color: var(--viz-series-1); }
+.chart-c-2 { --chart-color: var(--viz-series-2); }
+.chart-c-3 { --chart-color: var(--viz-series-3); }
+.chart-c-4 { --chart-color: var(--viz-series-4); }
+.chart-c-5 { --chart-color: var(--viz-series-5); }
+.chart-c-positive { --chart-color: var(--success); }
+.chart-c-negative { --chart-color: var(--error); }
+.chart-c-caution { --chart-color: var(--warning); }
+.chart-c-neutral { --chart-color: var(--viz-neutral); }
