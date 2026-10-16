@@ -40,9 +40,20 @@ repair rounds, 14 warnings); built-in reviewer approved with one warning; letter
 629 words; 100 slides; LiteLLM-routed cost of the round $2.19 plus the gpt-5.4 judge calls that
 go direct to OpenAI.
 
-**Not done:** announcement dates separate from article dates (the Cambridge "opened with the
-256-qubit system" line follows the articles; the primary source says deployment by 2027), the
-printed Q3-to-Q4 scenario crosswalk, and the "unanticipated" wording on emerging themes.
+**Self-review after the rebuild (commit 1b39df70 and three event edits on wileytest).** Deck,
+HTML and Word agree on all 29 scenario reads and on the letter. Three event records corrected
+from the reviewer's primary sources: Anderon's CHIPS award dated 16 September and taken out of
+the window, OpenAI's manuscripts release dated 6 October, Cambridge's centre "will host" the
+256-qubit system with deployment due by summer 2027. The narrative was re-reviewed against the
+corrected ledger (3 errors, repaired, 0 left; 14 warnings) and the bundle rebuilt: approved
+with 10 warnings, no errors. The ten slides that called emerging themes "unanticipated" now say
+"newly clustered this cycle, outside the scenarios as written"; recommendation headlines and
+theme bodies fit their cards. The Patent Cliffs lede quotes AstraZeneca's Summit investment as
+the record's $2 billion rather than a source's £1.5 billion.
+
+**Not done:** announcement dates captured by the extractor itself (the three above were hand
+edits), the printed Q3-to-Q4 scenario crosswalk, and the OpenAI withdrawals as an event (no
+source in the corpus).
 
 ## 2026-10-16 (afternoon) — Wiley Q4 bundle, round two: reconciled events and a reviewed narrative
 
