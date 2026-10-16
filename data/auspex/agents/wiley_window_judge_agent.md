@@ -3,7 +3,7 @@ name: wiley_window_judge_agent
 category: wiley_bundle_supervisor
 description: Reads each extracted event with its source article and says whether the action happened inside the forecast window, before it (historical, revisited by the article), or cannot be told. Historical rows leave the deck.
 type: agent
-version: 1.0.1
+version: 1.0.3
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -40,11 +40,18 @@ publication date and summary. Decide:
 `occurrence_date` is required for `historical`, as precise as the text
 allows: "between April and June" is "2026-06", "in July" is "2026-07",
 "earlier this year" is "2026", "last year" is the previous year, "over the
-past year" is not a date (then `unknown`). A historical verdict without an
+past year" is not a date (then `unknown`). A season is its last month:
+"this summer" or "over the summer" in a 2026 article is "2026-08", "spring"
+"2026-05", "the winter" "2026-02". A historical verdict without an
 occurrence date is treated as unknown.
 
 Be conservative: `historical` needs words in the article that place the
-action before the window. A summer action reported in September with no
+event's OWN action before the window: the takedown, the launch, the
+withholding. A precursor's date is not the event's date: a tip received in
+late 2025 does not make an October takedown historical; cuts made earlier
+do not make a placement initiative launched in October historical; an
+amount accumulated "over the past year" and reported in October is a
+report in the window, not a dated earlier action. A summer action reported in September with no
 year is `unknown`, not historical.
 
 ## Input

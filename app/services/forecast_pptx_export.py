@@ -977,7 +977,14 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
                 d = str(e.get("event_date") or "")[:10]
                 head = " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject")).strip()
                 urls = ", ".join(u for u in (e.get("source_urls") or []) if u)
-                lines.append(f"- {head}" + (f" ({d})" if d else "") + (f" — {urls}" if urls else ""))
+                # Date type and stage travel with the row (ninth review,
+                # 16 Oct 2026): "reported 2026-10-02" is an article date,
+                # "dated" a stated occurrence; the stage is the event's state.
+                basis = str(e.get("date_basis") or "")
+                when = ("reported " if basis == "article" else "inferred " if basis == "inferred" else "dated ") + d if d else ""
+                st = str(e.get("event_state") or "").strip()
+                prov = "; ".join(x for x in (when, st) if x)
+                lines.append(f"- {head}" + (f" ({prov})" if prov else "") + (f" — {urls}" if urls else ""))
         if lines:
             slide.notes_slide.notes_text_frame.text = "\n".join(lines)
     except Exception:

@@ -1,3 +1,34 @@
+## 2026-10-16 (night, ninth review) — Wiley Q4 bundle: counts from the judged list, date provenance in the records
+
+Two findings, both in the evidence records. A topic synthesis said "9 confirming events" for a
+scenario whose evidence slide listed eight: the count had gone stale when a row left the ledger
+and no deterministic check counted events per scenario. And the record for NSF's $1.4 billion
+said "withheld on 2 October" when the report describes an amount accumulated over the preceding
+year; the date-type check had let it through because a same-day event's subject words matched
+the sentence.
+
+- `_event_count_findings` (`wiley_narrative_review.py`): "N confirming/countering events" in a
+  sentence that names a scenario (full name or its first two or three words; the looser
+  two-word match read "partnership … biosimilar" as a scenario name) must equal that scenario's
+  ledger count; a sentence naming none passes when any scenario has the count.
+- `_date_basis_findings` narrows same-day events by actor first (initials count, matched in
+  the date's own clause), then by subject words. Day-first dates ("2 October") were invisible
+  to every date check, because the shared `_DATE_WORDS` pattern is month-first only; the
+  review module now reads them too, in the date check, the date-type check and the figure
+  stripping.
+- `_historical_findings`: a sentence that restates a row the window audit holds as
+  historical (three shared distinctive words, the actor named, no context marker) is a
+  `window` error; the ledger now carries each topic's historical rows.
+- Evidence-slide notes carry each row's date type ("reported", "dated", "inferred") and stage
+  beside its source.
+- Window judge 1.0.3: a season is its last month; a precursor's date (a tip, the cuts an
+  initiative responds to, an amount accumulated over a year) is not the event's date. Its
+  second pass on the Q4 set still over-reached on two rows and was not applied; the NIH record
+  was dated by hand from the ACLU article (summer terminations, before the window) and left as
+  context, and the $810 million rescission package was recorded from the White House PDF of
+  25 September as a proposal across 11 accounts with $27.7 million for AHRQ research, judged
+  confirming with a rationale that keeps it distinct from GAO's 7 October finding.
+
 ## 2026-10-16 (late night) — Wiley Q4 bundle after the eighth review
 
 The eighth review read a deck whose overview, themes, decision framework and letter had been

@@ -141,7 +141,9 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   link judge): each included event is read against its source article and classified in-window,
   historical or unknown. Historical rows with an occurrence before the window leave the deck and
   counts recompute; rows without such a date become "reported". Check its `historical_rows` output
-  by hand: the first run over-reached on five rows. A statement made in the window is an event.
+  by hand: the first run over-reached on five rows, the second on two, so treat its
+  `historical_rows` as proposals to confirm against the article, never as applied truth. A
+  statement made in the window is an event.
 - **Narrative review runs inside the pipeline** since the eighth review (16 Oct 2026): any build
   that reran a writer stage reviews and repairs before the reviewer and the render. A deck must
   never ship from a build whose writers ran without that stage; `WILEY_SKIP_NARRATIVE_REVIEW=1`

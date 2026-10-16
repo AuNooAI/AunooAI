@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 
 MAX_ROUNDS = 2
 _YEAR = re.compile(r"^(19|20)\d\d$")
+# "2 October", "22 September 2026": the shared _DATE_WORDS pattern is
+# month-first only, and the writers favour day-first (ninth review).
+_DATE_DAY_FIRST = re.compile(
+    r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December|"
+    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)\.?(?:,?\s+(\d{4}))?\b")
+
+
+def _day_first_dates(sent: str) -> list:
+    """(month, day, year|None) tuples for day-first dates in a sentence."""
+    from app.services.daily_report_service import _MONTHS
+    out = []
+    for m in _DATE_DAY_FIRST.finditer(sent):
+        mon = _MONTHS.get(m.group(2).lower().rstrip("."))
+        if mon:
+            out.append(((mon, int(m.group(1)), int(m.group(3)) if m.group(3) else None), m.start(), m.end()))
+    return out
 
 
 # ── Segments: every narrative field, with the path to write it back ────
@@ -116,7 +132,27 @@ def _segments(items: list, payload: dict) -> List[dict]:
 
 # ── Ledger: what the narrative may claim ───────────────────────────────
 
-def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
+def _historical_events(cadence: Optional[str], period_label: Optional[str]) -> Dict[str, list]:
+    """Rows the window audit moved out of the deck (event_state
+    'historical'), per topic; the narrative must not present them as this
+    period's developments."""
+    if not cadence or not period_label:
+        return {}
+    try:
+        from app.database import get_database_instance
+        rows = get_database_instance().facade.list_extracted_events(cadence=cadence, period_label=period_label,
+                                                                     include_excluded=True) or []
+    except Exception as e:
+        logger.warning("narrative review: historical rows unavailable: %s", e)
+        return {}
+    out: Dict[str, list] = {}
+    for r in rows:
+        if str(r.get("event_state") or "") == "historical":
+            out.setdefault(r.get("topic"), []).append(r)
+    return out
+
+
+def _ledger(items: list, events_by_topic: dict, historical_by_topic: Optional[dict] = None) -> Dict[str, dict]:
     from app.services.wiley_bundle_supervisor import _topic_data_payload
     out: Dict[str, dict] = {}
     for a, _r, _p in items:
@@ -155,6 +191,9 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
         # Events only. Article titles were allowed for a while and let the
         # writers cite "supporting articles" the slides never show.
         out[topic] = {"scenarios": scen, "events": events,
+                      "historical": [{"actor": h.get("actor"), "action": h.get("action"), "subject": h.get("subject"),
+                                      "date": str(h.get("event_date") or "")[:10] or None, "edited_by": h.get("edited_by")}
+                                     for h in (historical_by_topic or {}).get(topic, [])],
                       "tail_risks": [s.get("title") for s in eos if isinstance(s, dict) and s.get("title")]}
     return out
 
@@ -290,6 +329,42 @@ def _count_findings(seg: dict, scen: list, per_topic: Optional[List[list]] = Non
                             "claim_text": sent, "source": "preflight",
                             "suggested_fix": f"Use the ledger tally: {tally}."})
                 break
+    return out
+
+
+_EVENT_COUNT = re.compile(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                          r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+(confirming|countering|counter)\s+"
+                          r"(?:events?|developments?|signals?|records?)\b", re.I)
+
+
+def _event_count_findings(seg: dict, scen: list) -> List[dict]:
+    """"Drew 9 confirming events" for a scenario whose ledger lists eight:
+    the count is the length of that scenario's events list, and it goes
+    stale when a row leaves the ledger (ninth review, 16 Oct 2026). A
+    sentence that names a scenario is held to that scenario's count; one
+    that names none passes when any scenario of the ledger has the count."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    if not scen:
+        return out
+    for sent in _sentences(seg["text"]):
+        low = sent.lower()
+        named = [sc for sc in scen if _names_scenario(low, sc, strict=True)]
+        for m in _EVENT_COUNT.finditer(sent):
+            raw = m.group(1).lower()
+            n = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw)
+            key = "n_confirm" if m.group(2).lower() == "confirming" else "n_counter"
+            if n is None:
+                continue
+            pool = named or scen
+            if any((sc.get(key) or 0) == n for sc in pool):
+                continue
+            have = ", ".join(f"{sc.get('name')}: {sc.get(key) or 0}" for sc in pool[:5])
+            out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
+                        "finding": f"The sentence counts {n} {m.group(2).lower()} events; the ledger has {have}.",
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": "Use the scenario's count from the ledger."})
+            break
     return out
 
 
@@ -446,6 +521,7 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
                 located.append(((mon, int(m.group(2)), int(m.group(3)) if m.group(3) else None), m.start(), m.end()))
         for m in _DATE_ISO.finditer(sent):
             located.append(((int(m.group(2)), int(m.group(3)), int(m.group(1))), m.start(), m.end()))
+        located.extend(_day_first_dates(sent))
         for d, s0, s1 in located:
             # The clause that carries the date, from its last boundary (a
             # comma, a semicolon, "and", "while") to 25 characters after
@@ -467,11 +543,23 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
             # September" through (round nine, 16 Oct 2026).
             if len(matches) > 1:
                 swords = set(_WORD.findall(sent.lower()))
-                def _about(e):
-                    a = {w for w in _WORD.findall(str(e.get("actor") or "").lower()) if len(w) > 3}
+                # The event the sentence is about: first by actor (initials
+                # count), then by subject words. Subject words alone let
+                # Newsom's "California Foundation for Science and Health
+                # Research" stand in for NSF's withholding on the same day
+                # (ninth review, 16 Oct 2026).
+                # Actors are matched in the date's own clause: a sentence
+                # that names NIH in its second clause must not let an NIH
+                # event stand in for NSF's in the first (17 Oct 2026).
+                clause = _clause_of(sent, s0)
+                sent_toks = ({_norm_tok(w) for w in _WORD.findall(clause.lower())}
+                             | {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", clause)})
+                def _by_actor(e):
+                    return bool(_actor_tokens(e) & sent_toks)
+                def _by_subject(e):
                     s_ = {w for w in _WORD.findall(str(e.get("subject") or "").lower()) if len(w) > 3}
-                    return bool(a & swords) or len(s_ & swords) >= 2
-                narrowed = [e for e in matches if _about(e)]
+                    return len(s_ & swords) >= 2
+                narrowed = [e for e in matches if _by_actor(e)] or [e for e in matches if _by_subject(e)]
                 if narrowed:
                     matches = narrowed
             label = f"{d[1]} {['','January','February','March','April','May','June','July','August','September','October','November','December'][d[0]]}"
@@ -579,13 +667,19 @@ def _norm_tok(w: str) -> str:
     return w
 
 
-def _names_scenario(sent_low: str, sc: dict) -> bool:
+def _names_scenario(sent_low: str, sc: dict, strict: bool = False) -> bool:
+    """``strict`` takes the full name or its first two or three words only;
+    the two-token match ("biosimilar … partnership") read "Samsung expanded
+    its partnership for six biosimilar candidates" as naming Biosimilar
+    Partnership Models and held a nine-event count to it (16 Oct 2026)."""
     name = str(sc.get("name") or "").lower()
     if len(name) > 3 and name in sent_low:
         return True
     shorts = [" ".join(name.split()[:k]) for k in (3, 2)]
     if any(len(s) > 10 and s in sent_low for s in shorts):
         return True
+    if strict:
+        return False
     toks = _name_tokens(sc.get("name"))
     if len(toks) == 2:
         norm = " ".join(_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’-]+", sent_low))
@@ -1087,6 +1181,41 @@ def _length_findings(seg: dict) -> List[dict]:
                               "three named developments; the notes carry the evidence."}]
 
 
+_CONTEXT = re.compile(r"\b(earlier|before the (?:window|forecast|quarter)|context|historical|historically|previously|"
+                      r"last year|summer|spring|in (?:january|february|march|april|may|june|july|august) 20\d\d|"
+                      r"pre-forecast|had (?:already )?(?:been|cut|cancelled|terminated))\b", re.I)
+
+
+def _historical_findings(seg: dict, historical: list) -> List[dict]:
+    """A development the window audit holds as historical context (its
+    action predates the forecast) written as this period's: "NIH terminated
+    Alzheimer's and kidney disease grants, reported on 28 September" after
+    the NIH record was moved to summer context (ninth review, 16 Oct 2026).
+    A sentence sharing three distinctive words with a historical row, and
+    not marked as context, is flagged."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    hist = [(h, _content_tokens(_event_text(h))) for h in (historical or [])]
+    if not hist:
+        return out
+    for sent in _sentences(seg["text"]):
+        if _CONTEXT.search(sent):
+            continue
+        stoks = _content_tokens(sent)
+        for h, toks in hist:
+            shared = stoks & toks
+            if len(shared) >= 3 and (_actor_tokens(h) & {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+                                      or len(shared) >= 4):
+                out.append({"target": seg["target"], "severity": "error", "check": "window",
+                            "finding": (f"The sentence presents '{h.get('actor')} {h.get('action')} "
+                                        f"{str(h.get('subject') or '')[:70]}' as this period's development; the window audit "
+                                        f"holds it as historical context ({str(h.get('edited_by') or '')[:120]})."),
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": "Drop the development, or keep it only as context in so many words ('earlier terminations reported in September'), never as a dated action of the period or a confirming event."})
+                break
+    return out
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -1102,6 +1231,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             evs = ledger[seg["topic"]].get("events") or []
             findings.extend(_sweep_findings(seg, scen))
             findings.extend(_count_findings(seg, scen))
+            findings.extend(_event_count_findings(seg, scen))
             findings.extend(_silence_findings(seg, scen))
             findings.extend(_points_findings(seg, scen))
             findings.extend(_date_basis_findings(seg, evs))
@@ -1113,6 +1243,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_deal_type_findings(seg, evs, scen))
             findings.extend(_baseline_findings(seg, evs))
             findings.extend(_rate_findings(seg))
+            findings.extend(_historical_findings(seg, ledger[seg["topic"]].get("historical") or []))
         elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
             findings.extend(_points_findings(seg, scen))
@@ -1121,6 +1252,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
                 findings.extend(_signal_findings(seg, scen, ledger[seg["topic"]].get("events") or []))
         else:
             findings.extend(_count_findings(seg, scen_all, per_topic=[lt.get("scenarios") or [] for lt in all_topics]))
+            findings.extend(_event_count_findings(seg, scen_all))
             findings.extend(_points_findings(seg, scen_all))
             findings.extend(_date_basis_findings(seg, events_all))
             findings.extend(_type_count_findings(seg, scen_all))
@@ -1133,18 +1265,19 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_rate_findings(seg))
             findings.extend(_bridge_findings(seg, ledger))
             findings.extend(_length_findings(seg))
+            findings.extend(_historical_findings(seg, [h for lt in all_topics for h in (lt.get("historical") or [])]))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all
         for sent in _sentences(seg["text"]):
-            for d in _dates_in(sent):
+            for d in list(_dates_in(sent)) + [t for t, _a, _b in _day_first_dates(sent)]:
                 if not _date_matches(d, dates):
                     label = f"{d[0]:02d}-{d[1]:02d}" + (f"-{d[2]}" if len(d) > 2 and d[2] else "")
                     findings.append({"target": seg["target"], "severity": "error", "check": "date",
                                      "finding": f"The date {label} appears in no event in the ledger.",
                                      "claim_text": sent, "source": "preflight",
                                      "suggested_fix": "Use the event's date from the ledger or drop the date."})
-            stripped = _DATE_WORDS.sub(" ", _DATE_ISO.sub(" ", sent))
+            stripped = _DATE_DAY_FIRST.sub(" ", _DATE_WORDS.sub(" ", _DATE_ISO.sub(" ", sent)))
             for n in _numbers_in(stripped):
                 if n in nums or _YEAR.match(n) or n.lower() in corpus:
                     continue
@@ -1213,7 +1346,7 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
 _PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline",
-                    "rate", "bridge", "length"}
+                    "rate", "bridge", "length", "window"}
 _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
                          r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
                          r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
@@ -1350,7 +1483,7 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         for s in segments:
             s["_period"] = period_label
         events_by_topic = _events_by_topic(cadence, period_label)
-        ledger = _ledger(items, events_by_topic)
+        ledger = _ledger(items, events_by_topic, _historical_events(cadence, period_label))
         # Tail-risk titles live in the EOS store, not on the assessment
         # summary; the letter names them and the gate needs them quoted.
         try:
