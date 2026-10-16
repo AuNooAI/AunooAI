@@ -2013,6 +2013,27 @@ def _add_review_pending_banner_slide(prs, findings: list, period_label: str):
 
 
 def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: str):
+    """The five-section letter on one slide was a 500-word essay at small
+    type (16 Oct 2026 review, F05). Over ~330 words it is split at the
+    headline tail risk: sections one and two on the first slide, three to
+    five and the signoff on the second."""
+    letter = (exec_summary or {}).get("letter") or ""
+    if not letter.strip():
+        return
+    signoff = (exec_summary or {}).get("signoff") or f"AunooAI Editorial Team · {period_label}"
+    marker = "**The headline tail risk.**"
+    chunks = [letter]
+    if len(letter.split()) > 330 and letter.count(marker) == 1 and not letter.strip().startswith(marker):
+        head, tail = letter.split(marker, 1)
+        chunks = [head.rstrip(), marker + tail]
+    for i, chunk in enumerate(chunks):
+        _add_executive_summary_letter_page(
+            prs, chunk, period_label,
+            title="Executive Summary" if i == 0 else "Executive Summary (continued)",
+            signoff=signoff if i == len(chunks) - 1 else None)
+
+
+def _add_executive_summary_letter_page(prs, letter: str, period_label: str, *, title: str, signoff):
     """Executive Summary LETTER — sits at slide 2, immediately after the cover.
 
     v2: multi-paragraph briefing rendered with inline-bold section headers
@@ -2022,11 +2043,6 @@ def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: s
     words of concrete prose with named actors, % numbers, and quoted
     briefing lines.
     """
-    letter = (exec_summary or {}).get("letter") or ""
-    if not letter.strip():
-        return
-    signoff = (exec_summary or {}).get("signoff") or f"AunooAI Editorial Team · {period_label}"
-
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     sw = 10.0
@@ -2034,7 +2050,7 @@ def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: s
 
     # Title row
     _text(slide, x=0.5, y=0.4, w=sw-1.0, h=0.45,
-          text="Executive Summary", font_size=24, bold=True, color=WILEY_NAVY,
+          text=title, font_size=24, bold=True, color=WILEY_NAVY,
           shrink_to_fit=False)
     _text(slide, x=0.5, y=0.95, w=sw-1.0, h=0.3,
           text=period_label, font_size=11, italic=True, color=WILEY_MUTED,
@@ -2058,10 +2074,11 @@ def _add_executive_summary_letter_slide(prs, exec_summary: dict, period_label: s
         line_spacing=1.35,
     )
 
-    # Signoff
-    _text(slide, x=0.5, y=5.18, w=sw-1.0, h=0.25,
-          text="— " + signoff, font_size=10, italic=True, color=WILEY_TEAL,
-          align=PP_ALIGN.RIGHT, shrink_to_fit=False)
+    # Signoff, on the last page only
+    if signoff:
+        _text(slide, x=0.5, y=5.18, w=sw-1.0, h=0.25,
+              text="— " + signoff, font_size=10, italic=True, color=WILEY_TEAL,
+              align=PP_ALIGN.RIGHT, shrink_to_fit=False)
 
 
 def _add_expert_commentary_slide(prs, commentary: str, period_label: str):
