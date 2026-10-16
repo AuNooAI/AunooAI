@@ -288,6 +288,15 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
             s["_period"] = period_label
         events_by_topic = _events_by_topic(cadence, period_label)
         ledger = _ledger(items, events_by_topic)
+        # Tail-risk titles live in the EOS store, not on the assessment
+        # summary; the letter names them and the gate needs them quoted.
+        try:
+            from app.services.wiley_delivery_service import _ensure_eos_for_bundle
+            for t, sc in ((await _ensure_eos_for_bundle(items)) or {}).items():
+                if t in ledger:
+                    ledger[t]["tail_risks"] = [x.get("title") for x in (sc or []) if isinstance(x, dict) and x.get("title")]
+        except Exception as e:
+            logger.warning("narrative review: tail-risk titles unavailable: %s", e)
         n_scen = sum(len(v.get("scenarios") or []) for v in ledger.values())
         n_tail = sum(len(v.get("tail_risks") or []) for v in ledger.values())
         pre = preflight(segments, ledger, extra_numbers=[n_scen, n_tail, len(ledger)])
