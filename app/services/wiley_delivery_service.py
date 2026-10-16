@@ -266,6 +266,13 @@ def _events_by_topic(cadence: str, period_label: str) -> dict:
         )
         for e in rows:
             out.setdefault(e.get("topic"), []).append(e)
+        # Same real event under two wordings or an acronym counted twice
+        # in every ledger; near-duplicates collapsed here, best-confidence
+        # row kept, so the deck, HTML and docx all see one event.
+        from app.services.wiley_event_extraction import _collapse_near_dupes
+        for t, evs in list(out.items()):
+            evs.sort(key=lambda e: (e.get("confidence") or 0), reverse=True)
+            out[t] = _collapse_near_dupes(evs)
     except Exception as e:
         logger.warning("events_by_topic load failed (%s/%s): %s", cadence, period_label, e)
     return out
@@ -563,6 +570,10 @@ async def generate_bundle_html(
         a = db.facade.get_latest_forecast_assessment_by_topic(topic)
         if a:
             items.append((a, None, None))
+    # The deck relabels topics with the overlay display name before it
+    # renders; the HTML looked events up under the database name and
+    # found none for the two renamed topics (16 Oct 2026 review, P1-02).
+    items = _apply_overlay_display_names(items)
 
     eos_per_topic = {}
     for a, _r, _p in items:

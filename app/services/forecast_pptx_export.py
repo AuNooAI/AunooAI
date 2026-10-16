@@ -15,6 +15,7 @@ returns the PPTX as bytes.
 """
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, List
@@ -236,6 +237,21 @@ def _set_autofit_scale(tf, scale: float):
         pass
 
 
+def _md_segments(line: str):
+    """Split a line on **bold** markers: [(text, is_bold), …]. Agent output
+    carries markdown bold ("**TRAJECTORY**: …") that was printed literally
+    on the tail-risk slides (16 Oct 2026 review, P2-13)."""
+    out = []
+    for seg in re.split(r"(\*\*[^*]+?\*\*)", line or ""):
+        if not seg:
+            continue
+        if seg.startswith("**") and seg.endswith("**") and len(seg) > 4:
+            out.append((seg[2:-2], True))
+        else:
+            out.append((seg, False))
+    return out or [("", False)]
+
+
 def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
           color=TITLE_DARK, align=PP_ALIGN.LEFT, font_name=BODY_FONT,
           line_spacing: Optional[float] = None,
@@ -280,13 +296,14 @@ def _text(slide, *, x, y, w, h, text, font_size=10.0, bold=False, italic=False,
         p.alignment = align
         if line_spacing:
             p.line_spacing = line_spacing
-        r = p.add_run()
-        r.text = line
-        r.font.name = font_name
-        r.font.size = Pt(font_size)
-        r.font.bold = bold
-        r.font.italic = italic
-        r.font.color.rgb = color
+        for seg, seg_bold in _md_segments(line):
+            r = p.add_run()
+            r.text = seg
+            r.font.name = font_name
+            r.font.size = Pt(font_size)
+            r.font.bold = bold or seg_bold
+            r.font.italic = italic
+            r.font.color.rgb = color
     # Bake an explicit shrink scale into the autofit so overflowing text is
     # actually smaller in the saved file (not reliant on the viewer
     # recomputing PowerPoint's autofit).
@@ -939,6 +956,25 @@ def _add_scenario_slide(prs, verdict: dict, baseline: Optional[dict],
     _text(slide, x=2.55, y=ry+0.05, w=sw-3.05, h=0.5,
           text=read_text, font_size=9.5, bold=True, color=read_color,
           line_spacing=1.15)
+
+    # Speaker notes carry every attributed event with its source link, so
+    # a reader of the deck can check a claim without the HTML export
+    # (the deck had no hyperlinks at all, 16 Oct 2026 review, P2-12).
+    try:
+        lines = []
+        for label, evs in (("Confirming", confirming_events), ("Countering", countering_events)):
+            if not evs:
+                continue
+            lines.append(f"{label} events:")
+            for e in evs:
+                d = str(e.get("event_date") or "")[:10]
+                head = " ".join(str(e.get(k) or "") for k in ("actor", "action", "subject")).strip()
+                urls = ", ".join(u for u in (e.get("source_urls") or []) if u)
+                lines.append(f"- {head}" + (f" ({d})" if d else "") + (f" — {urls}" if urls else ""))
+        if lines:
+            slide.notes_slide.notes_text_frame.text = "\n".join(lines)
+    except Exception:
+        pass
 
 
 def _add_surprises_divider(prs, surprises: list):

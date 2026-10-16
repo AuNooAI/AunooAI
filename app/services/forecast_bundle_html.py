@@ -294,11 +294,6 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
     <h2>Events explorer</h2>
     <div class="filters screen-only">
       <select id="fTopic"><option value="">All topics</option></select>
-      <select id="fDir">
-        <option value="">All directions</option>
-        <option value="conf">Confirming</option>
-        <option value="ctr">Countering</option>
-      </select>
       <input id="fText" placeholder="filter text…" size="20">
       <span class="muted small" id="evCount"></span>
     </div>

@@ -45,6 +45,24 @@ def _tokens(s: Optional[str]) -> set:
     }
 
 
+def _acronym(s: Optional[str]) -> str:
+    """Initials of the capitalised words: "National Board of Accreditation" → "NBA"."""
+    words = re.findall(r"[A-Za-z][A-Za-z&-]*", s or "")
+    return "".join(w[0] for w in words if w[0].isupper() and w.lower() not in _STOPWORDS)
+
+
+def _same_actor_alias(a: Optional[str], b: Optional[str]) -> bool:
+    """True when one actor is the acronym of the other (NIRF vs National
+    Institutional Ranking Framework), which token overlap never catches."""
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a or not b:
+        return False
+    for short, long in ((a, b), (b, a)):
+        if 3 <= len(short) <= 6 and short.isupper() and _acronym(long) == short:
+            return True
+    return False
+
+
 def _parse_iso(d) -> Optional[_date]:
     try:
         return _date.fromisoformat(str(d)[:10]) if d else None
@@ -127,7 +145,8 @@ def _collapse_near_dupes(events: list) -> list:
                       or abs((e_date - kd).days) <= 10)
             if not within:
                 continue
-            actor_overlap = bool(e_atoks & _tokens(k.get("actor")))
+            actor_overlap = (bool(e_atoks & _tokens(k.get("actor")))
+                             or _same_actor_alias(e.get("actor"), k.get("actor")))
             subj_overlap = len(e_stoks & _tokens(k.get("subject")))
             k_mag = k.get("magnitude_value")
             if e_mag is not None and k_mag is not None and e_mag == k_mag:
@@ -136,7 +155,8 @@ def _collapse_near_dupes(events: list) -> list:
                     break
             elif e_mag is None and k_mag is None:
                 # No magnitude to anchor on — require a strong subject match.
-                if subj_overlap >= 3 and (e_date and kd and abs((e_date - kd).days) <= 3):
+                if ((subj_overlap >= 3 or (actor_overlap and subj_overlap >= 2))
+                        and (e_date and kd and abs((e_date - kd).days) <= 3)):
                     is_dupe = True
                     break
         if not is_dupe:
@@ -190,7 +210,7 @@ def _coerce_date(raw) -> Optional[str]:
 
 async def _extract_for_topic(db, topic: str, assessment: dict, *,
                              cadence: str, period_label: str,
-                             days_back: int) -> int:
+                             days_back: int, not_before: Optional[_date] = None) -> int:
     """Extract + persist events for one topic. Returns the number of
     distinct events persisted."""
     from app.services.wiley_bundle_supervisor import _call_agent
@@ -229,6 +249,7 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
 
     persisted: dict[tuple, int] = {}  # dedupe key → event id
     n = 0
+    skipped_before_forecast = 0
 
     for start in range(0, len(rows), _BATCH_SIZE):
         batch = rows[start:start + _BATCH_SIZE]
@@ -260,6 +281,13 @@ async def _extract_for_topic(db, topic: str, assessment: dict, *,
                 continue  # not a usable event
 
             event_date = _coerce_date(ev.get("event_date"))
+            # An article published after the forecast can report something
+            # from months before it. The assessment's live window starts at
+            # the forecast date, so evidence dated before it is not evidence
+            # for this cycle (307 of 463 Q4 2026 events were, 16 Oct 2026).
+            if not_before and event_date and _parse_iso(event_date) and _parse_iso(event_date) < not_before:
+                skipped_before_forecast += 1
+                continue
             dedupe_key = (
                 _normalize(actor), action.lower(), _normalize(subject), event_date,
             )
@@ -340,11 +368,20 @@ async def run_event_extraction(
             logger.info("event-extraction: no assessment for %s — skipping", topic)
             out[topic] = 0
             continue
+        # Pull articles from the forecast date onward, not a fixed look-back,
+        # and drop events dated before it.
+        not_before = _parse_iso(str((assessment.get("summary") or {}).get("forecast_generated_at") or "")[:10])
+        topic_days_back = days_back
+        if not_before:
+            topic_days_back = max(1, min(days_back, (_date.today() - not_before).days + 1))
         try:
             out[topic] = await _extract_for_topic(
                 db, topic, assessment,
-                cadence=cadence, period_label=period_label, days_back=days_back,
+                cadence=cadence, period_label=period_label, days_back=topic_days_back,
+                not_before=not_before,
             )
+            if not_before:
+                logger.info("event-extraction: %s window from %s (%d days)", topic, not_before, topic_days_back)
         except Exception as e:
             logger.exception("event-extraction failed for %s: %s", topic, e)
             out[topic] = 0
