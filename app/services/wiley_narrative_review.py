@@ -343,6 +343,18 @@ async def _repair_with_cadence(db, cadence, period_label, segments, findings, le
         if len(new) > 1.5 * len(seg["text"]) + 200:
             logger.info("narrative repair: %s grew too much; skipped", seg["target"])
             continue
+        if seg["path"] == "exec_summary.letter":
+            # The letter has its own gate (five sections, length, banned
+            # severity words); a repair must not hand the bundle a letter
+            # that gate will reject.
+            from app.services.wiley_bundle_supervisor import _letter_defects, _quote_titles_with_banned_words
+            titles = [sc.get("name") for lt in ledger.values() for sc in (lt.get("scenarios") or [])]
+            titles += [t for lt in ledger.values() for t in (lt.get("tail_risks") or [])]
+            new = _quote_titles_with_banned_words(new, titles)
+            defects = _letter_defects(new)
+            if defects:
+                logger.info("narrative repair: letter repair rejected by the letter gate (%s)", "; ".join(defects))
+                continue
         try:
             if seg["kind"] == "topic":
                 db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],

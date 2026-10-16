@@ -32,6 +32,9 @@ Rules:
   drafted development stays proposed or drafted. "Up to" stays "up to".
 - Recommendations and next steps are actions for `organisation`, and name
   the function that owns them.
+- The customer bans these words in the writer's own voice: crisis / severe /
+  aggressive / alarming / catastrophic / collapse / compromised. Never add one.
+  A scenario or article title that contains one goes in double quotes.
 - Keep each segment's length within about a fifth of the original. No new
   developments, no new figures, no new dates.
 

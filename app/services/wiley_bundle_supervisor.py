@@ -1068,6 +1068,31 @@ def _letter_defects(letter: str) -> list:
     return out
 
 
+def _quote_titles_with_banned_words(letter: str, titles: list) -> str:
+    """Put a scenario or tail-risk title that contains a banned severity word
+    in double quotes wherever the letter restates it unquoted. The rule
+    allows the words inside quotes; the writer restates titles verbatim
+    ("Peer Review System Collapse Through AI Submission Flooding") and the
+    bundle failed the gate on 15 and 16 Oct 2026 after every retry."""
+    out = letter or ""
+    for t in sorted({str(x).strip() for x in titles if x and str(x).strip()}, key=len, reverse=True):
+        if not find_severity_language(t) or t not in out:
+            continue
+        out = re.sub(r'(?<!")' + re.escape(t) + r'(?!")', '"' + t + '"', out)
+    return out
+
+
+def _bundle_titles(items: list, eos_per_topic: Optional[dict]) -> list:
+    titles = []
+    for a, _r, _p in items or []:
+        for v in (a.get("scenario_verdicts") or []):
+            deck_info = (v.get("top_articles") or {}).get("deck_info") or {}
+            titles.extend([deck_info.get("deck_scenario_name"), v.get("scenario_title")])
+    for scenarios in (eos_per_topic or {}).values():
+        titles.extend([x.get("title") for x in (scenarios or []) if isinstance(x, dict)])
+    return [t for t in titles if t]
+
+
 async def _golden_gate(letter: str) -> dict:
     """Judge the letter against the Q2 2026 exemplar — the letter the
     customer called good.
@@ -1377,6 +1402,9 @@ async def run_pipeline(
             cadence=cadence,
         )
         exec_summary = await _call_agent("wiley_exec_summary_agent", exec_payload)
+        if isinstance(exec_summary, dict) and exec_summary.get("letter"):
+            exec_summary["letter"] = _quote_titles_with_banned_words(
+                exec_summary["letter"], _bundle_titles(items, eos_per_topic))
         # Structural completeness is validated, not requested: all five
         # sections, minimum length. Up to two retries with the defect list
         # spelled out; a still-incomplete letter fails the stage loudly
@@ -1413,6 +1441,9 @@ async def run_pipeline(
                     "quotes. Keep all five bold sections.")
             retry_payload["structure_defects"] = " ".join(parts)
             exec_summary = await _call_agent("wiley_exec_summary_agent", retry_payload)
+            if isinstance(exec_summary, dict) and exec_summary.get("letter"):
+                exec_summary["letter"] = _quote_titles_with_banned_words(
+                    exec_summary["letter"], _bundle_titles(items, eos_per_topic))
         defects = _letter_defects((exec_summary or {}).get("letter") or "")
         if defects:
             raise RuntimeError(
