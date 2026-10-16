@@ -1,3 +1,63 @@
+## 2026-10-16 — Auspex deep research on wileytest: synthesis batches thrown away at the 3,000-token cap, reports cut at 12,000
+
+### Goal
+Oliver reported that Auspex research on wileytest "keeps failing". Two runs today (11:21 and 12:43, both on the ASML Watch topic) and three on 15 Oct.
+
+### What was wrong
+Two separate things, both visible in `llm_usage_log` and the journal.
+
+**Every synthesis batch hit the output cap and was discarded.** `_run_synthesis` in `app/services/deep_research_service.py` asked Sonnet 4.5 for a JSON object per batch of 50 articles with `max_tokens=3000`. The ledger shows 6 of 8 batches today stopped at exactly 3,000 completion tokens; the two that fit came in at 2,876 and 2,905. A cut reply makes `extract_json_response` fall back to the first complete inner fragment, which is a list, so `batch_result.get(...)` raised `'list' object has no attribute 'get'` and the whole batch was logged as `Batch N failed`. The 12:43 run reached the writer with 1 finding from 4 batches (the metadata summary); the 11:21 run with 6. Same pattern on 15 Oct (7 of 12 batches lost).
+
+**Every report hit the writer's cap.** `_run_writing` streamed with `max_tokens=12000`; all three completed runs since 15 Oct show exactly 12,000 completion tokens, so each report stopped mid-way, which loses the Limitations and References sections at the end.
+
+**The 12:43 run was also killed by a restart.** At 12:52:26 another session ran `systemctl restart wileytest.aunoo.ai.service` from the bugfixing tree while the writer was still streaming. nginx logged `upstream prematurely closed connection` on `/api/auspex/research`. `restart_when_quiet.sh` cannot see a running research: its "chat" signal reads `auspex_messages`, and the research stream writes no message rows (chats 550–554 hold only the system prompt).
+
+### Fix (commit 310ec61d, canonical)
+`app/services/deep_research_service.py`:
+- `SYNTHESIS_MAX_TOKENS = 6000`, `synthesis_batch_timeout` 60 → 150 s (Sonnet 4.5 wrote ~55 tokens/s on these runs, so 3,000 tokens took ~50 s and sat right under the old timeout).
+- Synthesis replies go through `parse_stage_reply(response, "batch_findings", ...)`, the helper from `app/ai_models.py` that keeps every complete finding from a reply cut at the cap instead of raising. Statistics and contradictions from a cut reply are still lost; the findings are not.
+- `WRITING_MAX_TOKENS = 20000`. The stream now tracks `finish_reason`; when the report still hits the cap it logs a warning and sends the UI a "writing" event saying the last sections may be cut off.
+
+### Web search on wileytest moved to Bright Data
+The 13:35 run's report said it "relies exclusively on 305 internal database articles without external web sources" although hybrid was selected. The log for that run shows why: every external query got `Google Search API error: 403 … blocked`, the router logged `Hybrid search complete: 50 internal + 0 external` for each one, and the TheNewsAPI fallback added nothing. wileytest's Google key has never returned a result in the 90 days of journal we keep (no successful Google search line; 65 refusals, all on 15–16 Oct because those are the only days anyone ran research). Each site has its own key; bugfixing stopped calling Google first on 14 Oct (67ce069e, Bright Data ahead of Google).
+
+Copied that path to wileytest, nothing new written: `app/services/brightdata_web.py`, `scripts/brightdata_mcp_tools.py`, `tests/test_brightdata_web.py`, `docs/BRIGHTDATA_WEB_ACCESS_SPEC.md` are canonical's files; `app/services/deep_research_service.py` and `app/services/search_router.py` are now byte-identical to canonical HEAD (wileytest's copies differed only by the Bright Data hunks); `app/services/auspex_tools.py` got only the 14-line `web_search()` method spliced in, because wileytest's copy lacks the `topic=` argument canonical passes to the reranker and that drift was left alone. `.env` on wileytest gained `BRIGHTDATA_MCP_TOKEN` and `BRIGHTDATA_MCP_GROUPS` (same values as bugfixing; the token is account-wide). Budgets are the host-wide ones: `_shared/quota_policy.json` `brightdata_web` 150 calls/day across all sites, 25 per run. Backups `*.bak-brightdata-20261016` beside the three edited files.
+
+### Deep research runs as a server-side job (bb9bfacb, ui-next bundle ac632296)
+The 14:40 run on wileytest, the first with Bright Data results and 9 fetched pages, died at 14:46:30 when the browser closed the connection. nginx logged the request ending with 4,064 bytes sent, no nginx error (its stream timeout is 600 s), no page navigation from that browser; the server had just started relevance scoring and logged nothing more, because Starlette cancels the response generator on disconnect and `CancelledError` is not an `Exception`. The 12:52 restart killed the 12:43 run the same way. A run only existed as long as one HTTP response did.
+
+Spec first: `docs/AUSPEX_RESEARCH_JOBS_SPEC.md`. Built:
+
+**`app/services/auspex_research_jobs.py`** (new) — the job registry. `start()` runs `conduct_research` as an asyncio task owned by the process; the stage events are kept (capped at 400) for replay, writer `chunk` events fold into one string, every live reader has its own queue and dropping one stops nothing. The question is saved to the chat as a `user` message when the job starts and the report as an `assistant` message when it completes, both with `metadata.deep_research` and the job id, from inside the job, so this happens whether or not anyone is watching. The job mirrors itself into a `background_tasks` row named `deep_research` (status, stage in `current_item`, progress, report length and message id in `result`), throttled to stage changes or 5 s. `restart_when_quiet.sh`'s "jobs" signal counts running `background_tasks` rows, so research now holds off a restart; the startup reconciliation closes the row as failed "Interrupted" after one, so a poller sees a clean failure. Finished jobs stay in memory two hours.
+
+**`app/routes/auspex_routes.py`** — `POST /api/auspex/research` starts the job and returns the same SSE stream as before, now a tail of the job with a first `{"stage": "job", "job_id"}` event. New: `GET /research/jobs/{id}` (status; `report` once completed; a job this process no longer holds is read from its `background_tasks` row), `GET /research/jobs/{id}/events` (reattach: replay of the stage events, the report text so far as one chunk, then live), `GET /research/jobs?chat_id=&active=1`. Owner or admin only. On wileytest this also brings the 14 Oct route (workflow config as the base for request overrides, save to chat) that it never had.
+
+**`static/js/auspex-chat.js`** — the read loop is now `consumeResearchStream()`, returning `{finalReport, finished, jobId}`. If the stream ends or breaks before `done` and a job id is known, `finishResearchFromJob()` polls the status every 3 s (up to 45 min) and renders the report or the error. Opening a chat calls `resumeResearchForChat()`: a running job for that chat gets its progress panel back and is followed from `/events`. Also fixed on the way: a `data.error` event used to be thrown inside the JSON-parse `try`, whose `catch` swallowed it as a parse warning.
+
+**`ui-next/src/shell/auspex/api.ts`** — `streamResearch` remembers the job id and polls the status endpoint when the stream drops, yielding the same update shapes. Bundle rebuilt with `ui-next/deploy.sh` (ac632296); bugfixing only, since only bugfixing serves the new UI.
+
+Not changed: the research pipeline and its event shapes; one-run-per-user is still enforced only by the browsers; a job is not resumed after a restart, it is reported as interrupted.
+
+### Verification
+- `tests/test_auspex_research_jobs.py` (8) and `tests/test_auspex_research_routes.py` (4, FastAPI TestClient with the research service, the chat store and the session faked): 12 passed on bugfixing and against the wileytest tree. Covered: replay then live tail with no event twice, a reader leaving does not stop the job, failure streamed and recorded, both chat messages saved with the job id, status after completion carries the report, 403 for another user and 200 for an admin, status from a `background_tasks` row after a restart.
+- `node --check` on the chat script; `tsc --noEmit` clean for ui-next; route module imports with the three new paths on both trees.
+- Not verified: a real run through a dropped connection. The check is to start a run on wileytest, close the tab, reopen the chat: the progress panel should come back and the report should land in the chat.
+- Bright Data on wileytest, with its own env, from the tree: `brightdata_web.web_search("ASML High-NA EUV 2026 orders", max_results=5)` returned 5 results in 4 s, `search_method=brightdata`. `tests/test_brightdata_web.py` 20 passed against the wileytest tree (run with bugfixing's venv; wileytest's has no pytest). `web_search` is present on `AuspexToolsService`; all four edited modules compile and import.
+- Offline: an intact synthesis reply parses to 2 findings + 1 statistic; the same reply cut inside the second finding returns 1 finding with `_truncated=True` and the warning `reply cut at max_tokens=6000 (finish_reason=length); kept 1 complete 'batch_findings' items`.
+- `py_compile` and import on all three trees pass; the edited hunks are byte-identical on bugfixing, wiley and wileytest.
+- Not verified: a real research run after the restart. The next run on wileytest should show `Batch N/4 complete: … findings` lines instead of `Batch N failed`, and `_run_writing` completion tokens below 20,000.
+
+### Propagation
+Applied to bugfixing (committed), wiley and wileytest (same textual edit, backups `app/services/deep_research_service.py.bak-researchcaps-20261016`). wiley restarted 13:26. wileytest not restarted at the time: ingest was running and other sessions had `restart_when_quiet.sh` waiters on it. Oliver started another research run on wileytest at 13:35 on the old code; it showed the same `Batch N failed` lines (3 of 4 batches lost) and finished about 14:00. wileytest restarted 14:04:36, once both runs had finished and ingest was idle; the new process carries the research caps and the Bright Data web search. The other five monolith sites keep the old caps; nobody but wileytest has run deep research in the last 30 days.
+Bright Data web search: bugfixing and wileytest only. wiley still calls Google first with its own key; nobody has checked whether that key works.
+Research jobs: bugfixing (canonical, committed) and wileytest (`auspex_routes.py` and `auspex-chat.js` copied whole, both were identical to canonical apart from the superseded research block; `auspex_research_jobs.py` new; backups `*.bak-researchjobs-20261016`). Both sites need a restart for the new routes; queued through `restart_when_quiet.sh`. wiley and the other five sites keep the old in-response run.
+
+### Also seen, not changed
+- Cost: a full run is now up to 4 × 6,000 + 20,000 Sonnet 4.5 output tokens, about $0.66 at Bedrock list price if every stage hits its cap, against about $0.36 before for a run that lost most of its findings.
+
+### Lessons
+- `docs/changes.md` lost this entry twice today: another session's commit at 13:55 (fccc5117) truncated the working copy to 46 lines, and the 15:01 commit (6f723b40) rebuilt the file from HEAD without it. Rebuilt both times from this session's scratch copy. After any prepend, check the line count grew; an uncommitted entry in this file does not survive other sessions' commits, so commit it with the work.
+
 ## 2026-10-16 (evening) — Wiley event extractor: the development's own date and state
 
 Every date correction in the three review rounds had the same cause: the extractor stamped an

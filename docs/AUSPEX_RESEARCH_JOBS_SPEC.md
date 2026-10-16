@@ -91,4 +91,6 @@ chat messages remain.
 
 ## As built (16 Oct 2026)
 
-Filled in by the change log entry of the same date in `docs/changes.md`.
+Commit bb9bfacb on bugfixing (branch fix/ingest-pipeline-spec), React bundle ac632296. Copied to wileytest the same day. Twelve tests (`tests/test_auspex_research_jobs.py`, `tests/test_auspex_research_routes.py`). Details, verification and propagation in `docs/changes.md` under 16 Oct 2026.
+
+Differences from the text above: none in behaviour. Two things worth knowing: the `background_tasks` row is written directly through `facade.save_background_task`, not through `BackgroundTaskManager.run_task`, because the manager's three admission slots are shared with keyword checks, topic reports and forecast jobs and a 15-minute research run should neither wait for one nor hold one; and the floating chat used to swallow the job's own `error` event as a JSON-parse warning (the throw sat inside the parse `try`), which is fixed as part of the read-loop refactor.
