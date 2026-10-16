@@ -41,7 +41,7 @@ The NIH abandonment event had lost its counter-link in the merge.
 
 **Deck.** The briefing synthesis slide fits whole sentences at 9.5pt (tensions up to 300
 characters, lede and view up to 1,050 together) and puts the full text in the notes instead
-of shrinking to 8.5pt. The Key Insights evidence count shows from one scenario, not two. The
+of shrinking to 8.5pt (and does not split a sentence at "U.S."). The Key Insights evidence count shows from one scenario, not two. The
 methodology slide states the status thresholds (basis ≥60% high, ≤40% low) and the two
 cutoffs (article-share assessment date; event window to export).
 

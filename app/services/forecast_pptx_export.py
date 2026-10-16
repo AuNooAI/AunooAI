@@ -2988,8 +2988,17 @@ def _fit_sentences(s: Optional[str], max_chars: int) -> str:
     if len(s) <= max_chars:
         return s
     import re as _re
+    # "U.S. government" is not a sentence end; a split there left a
+    # tension body ending in "interactions with U.S." (16 Oct 2026).
+    _abbr = _re.compile(r"(?:\b(?:U\.S|U\.K|E\.U|e\.g|i\.e|vs|Dr|Mr|Ms|Mrs|No|St|Inc|Ltd|Co|Jr|Sr)|\b[A-Z])\.$")
+    pieces = []
+    for piece in _re.split(r"(?<=[.!?])\s+", s):
+        if pieces and _abbr.search(pieces[-1]):
+            pieces[-1] = pieces[-1] + " " + piece
+        else:
+            pieces.append(piece)
     out = ""
-    for sent in _re.split(r"(?<=[.!?])\s+", s):
+    for sent in pieces:
         if not sent:
             continue
         if out and len(out) + 1 + len(sent) > max_chars:
