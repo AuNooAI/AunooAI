@@ -187,9 +187,10 @@ def article_verdict_sql(article: Dict[str, Any], topic: str, d: bd.Decision) -> 
     """Upsert of the article's own verdict for a non-admitted, deferred or
     unavailable candidate. The WHERE keeps another topic's approval intact,
     as save_below_threshold_article does."""
-    pub = article.get("publication_date")
-    if pub is not None and hasattr(pub, "isoformat"):
-        pub = pub.isoformat()
+    # One shape for publication_date (ISO 8601 UTC, "+00:00"); a datetime or
+    # any ISO string is accepted, an unknown date stays None.
+    from app.utils.timestamps import publication_stamp
+    pub = publication_stamp(article.get("publication_date"))
     grade = d.grade if d.grade is not None else 0.0
     q = """
         INSERT INTO articles (uri, title, summary, news_source, publication_date, topic,

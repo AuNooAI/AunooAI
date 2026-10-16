@@ -504,13 +504,16 @@ class DatabaseQueryFacade:
                     self.logger.warning(f"Translation skipped for {article_url}: {_te}")
                 from datetime import timezone as _tz
                 now = datetime.now(_tz.utc)
+                # One shape for publication_date (ISO 8601 UTC, "+00:00"); the
+                # collectors hand over whatever the API sent. See app/utils/timestamps.py.
+                from app.utils.timestamps import publication_stamp as _publication_stamp
                 # Save new article
                 self._execute_with_rollback(insert(articles).values(
                     uri=article_url,
                     title=article['title'],
                     original_title=article.get('original_title'),
                     news_source=article['source'],
-                    publication_date=article['published_date'],
+                    publication_date=_publication_stamp(article['published_date']),
                     summary=article.get('summary', ''),
                     original_summary=article.get('original_summary'),
                     topic=topic,
