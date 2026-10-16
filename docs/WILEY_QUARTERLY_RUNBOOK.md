@@ -126,6 +126,24 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   regeneration and before the reviewer; its result sits on the payload as `narrative_review`.
   An error there means a sentence the ledger contradicts or does not contain; warnings are
   wording. Locks block repair, so unlock before a regeneration and lock after reading.
+  Since the fifth review (16 Oct 2026) the preflight also checks status counts in prose
+  against the ledger tally, "no events" claims, "N points" (only the article-share delta
+  may be quoted in points) and every key signal (names an event of its scenario, or starts
+  with "Watch:"). The writers and the judge get each scenario's judged events as its own
+  list; a synthesis may only credit a scenario with events from that list.
+
+Three things to know when running any of this by hand:
+
+- Run scripts from the tenant's own tree (`cd /home/orochford/tenants/wileytest.aunoo.ai`,
+  its `.venv`, `PYTHONPATH` set to that tree). Deck overlays are read from
+  `data/wiley_horizons` relative to the working directory; started elsewhere, a topic whose
+  display name differs from its source topic (Open Science) silently drops out of the
+  narrative review and the regenerations.
+- In a script, `load_dotenv(<tenant .env>)` and `from app.database import get_database_instance`
+  come before any `app.services` import, or the script talks to the bugfixing database.
+- A scenario link set by hand on an event row (`scenario_relevance` entry with
+  `"locked": true` and an `edited_by` note) survives the link judge; everything else is
+  rebuilt on the next extraction.
 
 Then the Quarterly Brief Editor (`#brief` on the page) to correct and lock fields, re-run
 single stages, preview, and approve. Approval unlocks the download. "Send to recipients"

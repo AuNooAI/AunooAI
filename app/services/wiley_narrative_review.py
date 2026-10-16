@@ -237,6 +237,7 @@ _SILENCE = re.compile(r"\b(?:no|zero|without any|absent any)\s+(?:(named|confirm
                       r"\bnot registered (?:a single|any) event", re.I)
 _REMAINING = re.compile(r"\b(?:remaining|other|rest of the)\s+(?:\w+\s+)?scenarios\b", re.I)
 _POINTS = re.compile(r"(\d+(?:\.\d+)?)[\s-]*(?:percentage[\s-]*)?points?\b", re.I)
+_SHARE_PCT = re.compile(r"\barticle[\s-]share[^.;]{0,60}?(\d+(?:\.\d+)?)\s*(?:%|percent\b)(?!\s*(?:age\s+)?points?)", re.I)
 
 
 def _status_counts(scen: list) -> Dict[str, int]:
@@ -338,6 +339,15 @@ def _points_findings(seg: dict, scen_all: list) -> List[dict]:
     if not deltas:
         return out
     for sent in _sentences(seg["text"]):
+        m = _SHARE_PCT.search(sent)
+        if m:
+            # "the article share increased 1.03 percent": the delta is in
+            # points; the judge rated this a warning (16 Oct 2026, round 8).
+            out.append({"target": seg["target"], "severity": "error", "check": "metric",
+                        "finding": f"The article-share delta is quoted as '{m.group(1)} percent'; it is a difference in percentage points.",
+                        "claim_text": sent, "source": "preflight",
+                        "suggested_fix": f"Write '{m.group(1)} points above/below its placebo baseline'."})
+            continue
         for m in _POINTS.finditer(sent):
             before = sent[max(0, m.start() - 12):m.start()].lower()
             if "basis" in before or "price" in before:
@@ -525,7 +535,12 @@ def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] 
         f = dict(f)
         if f.get("severity") == "error":
             key = (f.get("target"), (f.get("claim_text") or "")[:80])
-            if (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
+            # A points figure the deterministic points check accepted is
+            # right; the judge read "0.83 points" against a ledger value of
+            # 0.83 and called it wrong (16 Oct 2026, round 8).
+            points_owned = (f.get("check") == "metric" and _POINTS.search(f.get("claim_text") or "")
+                            and key not in pre_keys)
+            if points_owned or (f.get("check") in _PREFLIGHT_OWNED and key not in pre_keys) \
                     or _SELF_CONTRADICTING.search(f.get("finding") or "") \
                     or (f.get("check") in ("unsupported", "absent")
                         and _paraphrases_event(f.get("claim_text") or "", events)):
