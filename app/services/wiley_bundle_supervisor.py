@@ -1279,12 +1279,14 @@ def _reviewer_payload(period_label: str, items: list, briefings: dict,
                        recommendations: dict, next_steps: dict,
                        cross_topic: dict, exec_summary: dict,
                        eos_per_topic: dict,
-                       cadence: str = None) -> dict:
+                       cadence: str = None, events_by_topic: dict = None) -> dict:
     per_topic = {}
     for assessment, _run, _prior in items:
         topic = assessment.get("topic") or "—"
         per_topic[topic] = {
-            "data": _topic_data_payload(assessment),
+            # With the judged events, or every scenario reads "Too early" and
+            # the reviewer calls every correct lede an error (16 Oct 2026).
+            "data": _topic_data_payload(assessment, named_events=(events_by_topic or {}).get(topic)),
             "briefing": briefings.get(topic) or (assessment.get("summary") or {}).get("topic_briefing"),
             "recommendations": recommendations.get(topic) or {
                 "recommendations": (assessment.get("summary") or {}).get("strategic_recommendations") or []
@@ -1590,6 +1592,10 @@ async def run_pipeline(
     if expert_commentary:
         bundle_payload["expert_commentary"] = expert_commentary
 
+    pre_rewrite_letter = (exec_summary or {}).get("letter") if isinstance(exec_summary, dict) else None
+    if pre_rewrite_letter:
+        pre_rewrite_letter = _quote_titles_with_banned_words(pre_rewrite_letter, _bundle_titles(items, eos_per_topic))
+
     # ── Humanization pass — strip AI-slop tells from the generated prose
     # (exec summary, strategic overview, theme/framework bodies) before the
     # reviewer sees it and before persistence. Threshold-gated + lock-aware
@@ -1773,10 +1779,24 @@ async def run_pipeline(
                "payload": {"verdict": verdict, "prior_approval": True}}
     else:
         yield {"stage": "reviewer", "status": "started", "progress": 0.92}
+        # The humanizer, the grounding check and the golden gate all rewrite
+        # the letter after its gate ran, and the rewrite stripped the quotes
+        # around a title with a banned word (16 Oct 2026). Re-quote, and if
+        # the letter still fails the severity rule, keep the gated one.
+        if isinstance(exec_summary, dict) and exec_summary.get("letter"):
+            _fixed = _quote_titles_with_banned_words(exec_summary["letter"], _bundle_titles(items, eos_per_topic))
+            if _severity_language_defects(_fixed) and pre_rewrite_letter \
+                    and not _severity_language_defects(pre_rewrite_letter):
+                logger.warning("exec letter: post-gate rewrite reintroduced %s; keeping the gated letter",
+                               _severity_language_defects(_fixed))
+                _fixed = pre_rewrite_letter
+            exec_summary["letter"] = _fixed
+            if isinstance(bundle_payload.get("exec_summary"), dict):
+                bundle_payload["exec_summary"]["letter"] = _fixed
         review_payload = _reviewer_payload(period_label, items, briefings,
                                             recommendations, next_steps,
                                             cross_topic, exec_summary, eos_per_topic,
-                                            cadence=cadence)
+                                            cadence=cadence, events_by_topic=events_by_topic)
         review_result = await _call_agent("wiley_reviewer_agent", review_payload,
                                            reasoning_effort="high")
         findings = (review_result or {}).get("findings") or []
