@@ -202,25 +202,55 @@ date is never replaced with now. A string that does not parse comes back unchang
 warning. `is_publication_stamp()` tests the shape. `tests/test_publication_stamp.py`, 7 tests,
 pass with `tests/test_submission_stamp.py`.
 
-Three write paths call it: `DatabaseQueryFacade.upsert_article` (approved articles, before the
-story labels see the date), `AsyncDatabaseService.save_below_threshold_article` (rejected
-rows), and `_land_and_attribute` in `app/services/bw_official_sources.py`, whose `now_iso`
-fallback was itself a microsecond `Z` stamp. The same hunks were applied by script to
-bugfixing, wileytest and wiley (`*.bak-pubstamp-20261016` beside each tenant file).
-wiley's `bw_official_sources.py` was two lines behind wileytest (it still wrote
-`submission_date` as a `Z` stamp, the 28 August fix it had missed); it now matches wileytest
-byte for byte. No UI change: with one stored shape, the existing parsing is right.
+Five write paths call it (3a53ab41 and 780ec985): `DatabaseQueryFacade.upsert_article`
+(approved articles, before the story labels see the date), `DatabaseQueryFacade.create_article`
+(the keyword monitor's insert of a newly collected article), `AsyncDatabaseService.save_below_threshold_article`
+(rejected rows), `article_verdict_sql` in `app/services/brand_decision_store.py` (the Brand
+Watcher verdict row), and `_land_and_attribute` in `app/services/bw_official_sources.py`, whose
+`now_iso` fallback was itself a microsecond `Z` stamp. The first pass covered three of them;
+the other two showed up as 43 new `Z` rows on wiley in the two hours after its restart, all
+from the keyword monitor's TheNewsAPI collection. The same hunks were applied by script to
+bugfixing, wileytest and wiley (`*.bak-pubstamp-20261016` and `*.bak-pubstamp2-20261016`
+beside each tenant file). wiley's `bw_official_sources.py` was two lines behind wileytest (it
+still wrote `submission_date` as a `Z` stamp, the 28 August fix it had missed); it now matches
+wileytest byte for byte. With one stored shape the existing date parsing in the UI is right.
 
 ### Data repair and restarts
 `/var/tmp/aunoo_repair_pubdate.sh <db>` copies the affected `(uri, publication_date)` pairs to
-`articles_pubdate_backup_20261016`, then rewrites them 20,000 rows per transaction, only
-where the live value still equals the backed-up one. It covers the `Z` and zone-less shapes
-(260,246 rows on wileytest, 217,929 on wiley); bare dates and the 2025 space-separated rows
-are left alone. The auto-mode permission classifier blocked running it and blocked the wiley
-restart, so both sit in `/var/tmp/aunoo_pubdate_fix_20261016.sh` for Oliver to run. The
-wileytest restart was queued through `restart_when_quiet.sh --max 90` at 10:15 (six users on
-the site at the time). bugfixing was not restarted: another session has uncommitted work in
-its tree, and its collectors already write the canonical shape.
+`articles_pubdate_backup_20261016` (rows that appear later are appended on a re-run), then
+rewrites every row whose live value still equals the backed-up one, 20,000 per transaction,
+until none is left. It covers the `Z` and zone-less shapes; bare dates and the 2025
+space-separated rows are left alone. Oliver ran the first pass from `/var/tmp/aunoo_pubdate_fix_20261016.sh`:
+wileytest 260,246 rows rewritten by 10:33, wiley 217,929 by 10:41, none left on either. wiley
+restarted at 10:43 and again at 13:28 for the second pair of write paths, and its 43 new rows
+were rewritten after that restart. The wileytest restart is queued behind another session's
+`restart_when_quiet.sh` (six users on the site all day); `/var/tmp/aunoo_wileytest_pubdate_catchup.sh`
+waits for that restart and then rewrites the rows written in between (241 at 13:05). bugfixing
+was not restarted: another session has uncommitted work in its tree, and its collectors already
+write the canonical shape.
+
+### The articles Oliver actually saw: a saved "Last 30 days"
+The shape mix explains wrong hours and a misordered list, but Oliver's report was older
+articles at the top, and the shapes have been there since October 2025. The wileytest log had
+the answer: from the first request of his session at 07:33 the browser asked for
+`date_range=30d` on every feed call, before any click. Nothing in the code defaults to 30 days
+(the hook, the served bundle and the API all default to `7d`; the only `30d` constant is in
+the article search box). The feed saved the dropdown choice to `localStorage` under
+`newsFeed_config` and restored it on every load, so a "Last 30 days" picked once stayed until
+changed. A 30-day feed sorted newest-first, with collection running 11 to 15 hours behind
+publication (steady for three weeks, half of each day's articles arrive the same day), puts
+yesterday's items at the top.
+
+Oliver's decision: reset to 7 days on each page load. `useNewsFeed.ts loadStoredConfig` now
+drops the saved `dateRange` and custom start/end before merging the rest (0bef37e8); topic,
+model, persona and profile still carry over. The same rule is in the new Explore's
+`ui-next/src/explore/lib/useExploreConfig.ts`, which bugfixing serves at /explore; rebuilt with
+`ui-next/deploy.sh` (entry `explore-BFzbSum5.js`, the only source change since the 15 Oct build).
+The `ui-next` tree, its vendored packages, deploy script and built output were then added to git as a1b9606e (node_modules and review screenshots ignored), so the edit is committed with it. wileytest's UI was rebuilt from its proven base
+(0e0ce9eb + 1c448ddb) plus 0bef37e8 and now serves `newsfeed-Cgiv8R6e.js`; the previous build is
+in `tenants/wileytest-ui-bak-daterange-20261016/`. The template auto-reloads, so no restart was
+needed. wiley's UI was not touched: its live bundle (`newsfeed-DohbQEdr.js`) does not match any
+known commit and its assets directory holds two generations of chunks.
 
 ### Also found
 `docs/changes.md` in the bugfixing tree had been cut to 44 lines at 09:57 (the committed file
