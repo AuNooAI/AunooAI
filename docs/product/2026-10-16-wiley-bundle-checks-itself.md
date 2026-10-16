@@ -91,3 +91,15 @@ first six is a deterministic check now, with the same rule in the judge, repair 
 prompts. The cross-topic writer, which had been working from a headline and one theme label
 per topic, now sees the scenario statuses and events. The slide shows a complete sentence
 per tension, written from the body and checked in code, with the full body in the notes.
+
+## Late-night update: the pipeline reviews what it writes
+
+The eighth review read a deck whose front matter had been regenerated a minute before it went
+out. The narrative review had run and passed, and then a rebuild let the planner rerun the
+cross-topic and letter writers with nothing reviewing the result. The review now runs inside the
+pipeline after any writer stage, and the hand-run scripts lock the reviewed text. The findings
+on that fresh text were new classes too: rates read off scenario counts, a causal link between
+two topics, a February 2025 action dated to September 2026 because its article was in the
+window, and theme bodies too long for their slide. Each is a check now, and a window judge reads
+every event against its source article so earlier actions revisited by in-window reporting leave
+the evidence slides.

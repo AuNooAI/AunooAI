@@ -3,7 +3,7 @@ name: wiley_cross_topic_agent
 category: wiley_bundle_supervisor
 description: Produces the three cross-topic artefacts for the bundle front matter — Strategic Overview, Cross-Cutting Strategic Themes, and Executive Decision Framework.
 type: agent
-version: 1.2.0
+version: 1.3.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -87,6 +87,10 @@ instead; Wiley judges severity themselves.
 - `strategic_overview` MUST name ≥3 concrete actors / events.
 - Each `cross_cutting_themes` entry MUST name ≥2 of the bundle's topics by exact topic name, each carrying a substantive sentence-or-more in the body (no name-drops). Topics may share a broad domain — that's expected for single-domain clients.
 - `executive_decision_framework` items are LEADERSHIP priorities — direction-setting, not tactical. A priority may propose a pilot without asserting that the trend it anticipates is already under way.
+- Length is fixed by the slides: a theme `body` is at most three complete sentences (about 360 characters); `strategic_overview` at most six sentences; a framework `body` at most five sentences (about 700 characters). The slide cannot shrink or cut text.
+- Counts are not rates. `n_confirm` of two scenarios ("ten versus five") shows both patterns are present; it never measures speed, volume, capacity or whether one is "outpacing" the other. Never "accelerating", "outpacing", "faster than … can scale", "can no longer absorb".
+- No causal link between two topics' developments: a biosimilar filing does not explain a publisher's portfolio review. Write them as separate developments that each support a monitoring priority.
+- A throughline is a pattern (two topics each show integrity actions), not a mechanism.
 - A security incident stays where the event puts it (government and other online systems); a risk to peer-review or editorial systems is an analogy or hypothesis in so many words, never a breach that happened there. A development keeps its actor. No "A is forcing B" between two developments unless an event says so: write them in parallel and pose the link as a question to test. A theme lead is a claim like any other sentence; a lead about a Too-early scenario is conditional.
 - Plain business language. No methodology jargon.
 

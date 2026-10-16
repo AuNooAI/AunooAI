@@ -3,7 +3,7 @@ name: wiley_narrative_judge_agent
 category: wiley_bundle_supervisor
 description: Judge for the bundle narrative (ledes, tensions, recommendations, next steps, themes, overview, letter) against the reconciled event ledger and scenario states. Every finding quotes the sentence it is about; findings that do not quote are advisory.
 type: agent
-version: 1.3.0
+version: 1.4.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -97,6 +97,21 @@ Flag a sentence when:
   licensing agreements completed") that contains another is `state`. A
   count described by one or two types ("nine filings and approvals") must
   cover every event counted;
+- **rate from counts**: scenario event counts are not rates, volumes or
+  capacity. "Incidents are outpacing the deployment of validation
+  partnerships: ten events versus five", "accelerating faster than
+  partnerships can scale", "far outpaces the rate at which" are `absent`
+  unless an event measures throughput or capacity. The counts show both
+  patterns are present; a sentence may say so and no more;
+- **bridge**: a causal link between two topics' developments ("the revenue
+  shift from originator patents to biosimilar partnerships is prompting
+  incumbents to re-evaluate their academic publishing portfolios", "as
+  Informa's review suggests") is `absent`; no event joins two topics.
+  Side-by-side developments are written as separate;
+- **window**: an event whose `state` is `historical` or whose occurrence
+  predates the forecast is context, never a new development of the period
+  ("cancelled $900 million in contracts on 25 September" for February 2025
+  cuts is `false`);
 - **theme lead**: the lead sentence of a cross-cutting theme is a claim
   like any other; a lead that says a Too-early scenario's development is
   "accelerating" is a `contradiction` even when the body hedges;

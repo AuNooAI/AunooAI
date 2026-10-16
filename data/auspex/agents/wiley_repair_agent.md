@@ -3,7 +3,7 @@ name: wiley_repair_agent
 category: wiley_bundle_supervisor
 description: Targeted repair of narrative segments after review. Rewrites only the sentences the findings quote, using only the facts in the ledger, and returns each segment in full.
 type: agent
-version: 1.3.0
+version: 1.4.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.2
@@ -77,6 +77,28 @@ Rules:
 - A `…tensions[n].display` segment is one complete sentence of at most 170
   characters drawn from its tension body, with the body's actors, stages
   and date types, no ellipsis, ending with a full stop.
+- Counts are not rates. A comparison of speed, volume or capacity built on
+  scenario counts becomes: "This quarter's evidence records ten confirming
+  developments for the Credibility Crisis scenario and five for Hybrid
+  Human-AI Validation. These counts show both patterns are present; they do
+  not measure whether validation capacity is keeping pace with incidents."
+  A pilot stays a recommendation and names what it would measure. Never
+  write "the ledger" or any input's name in the text; the reader sees
+  "this quarter's evidence" or "the events recorded".
+- A theme lead (target `…cross_cutting_themes[n].lead`) stays a short
+  declarative sentence or a conditional one ("Watch whether …"); never a
+  "Watch:" phrase, which is the form for key signals only.
+- Two topics' developments are written in separate sentences and called
+  separate; a causal link between them is dropped, not hedged. An ongoing
+  review is not a completed separation or consolidation.
+- A cross-cutting theme body (target `…cross_cutting_themes[n].body`) is at
+  most three complete sentences, about 360 characters: the throughline, two
+  or three named developments with their topic names, and what to watch.
+  The strategic overview is at most seven sentences; a decision-framework
+  body at most five.
+- A development the ledger marks `historical`, or one no longer in the
+  ledger, leaves the sentence; a count that included it is recounted from
+  the ledger.
 - A key signal (target `...key_signals[n]`) is a short phrase. Repair it by
   naming an event from the scenario's `events` (actor and what it did), or,
   when the scenario has none, by starting it with "Watch:" so it reads as

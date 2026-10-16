@@ -2260,8 +2260,16 @@ def _add_strategic_overview_slide(prs, period_label: str, overview_text: str):
     # White paragraph card, generous typography
     _rect(slide, x=0.5, y=1.4, w=sw-1.0, h=3.8, fill=WILEY_CARD_BG)
     _rect(slide, x=0.5, y=1.4, w=0.08, h=3.8, fill=WILEY_TEAL)
+    # 3.5 inches at 13 point holds about 950 characters; whole sentences
+    # on the slide, the full text in the notes (eighth review, 16 Oct 2026).
+    shown = _fit_sentences(overview_text, 1150)
     _text(slide, x=0.85, y=1.6, w=sw-1.7, h=3.5,
-          text=overview_text, font_size=13, color=WILEY_BODY, line_spacing=1.55)
+          text=shown, font_size=13, color=WILEY_BODY, line_spacing=1.55)
+    if shown != (overview_text or "").strip():
+        try:
+            slide.notes_slide.notes_text_frame.text = overview_text
+        except Exception:
+            pass
 
 
 def _add_five_domains_summary_slide(prs, items: list):
@@ -2695,7 +2703,7 @@ def _add_methodology_appendix_slide(prs, *, data_quality_note: str = None):
               color=SLATE_MID, line_spacing=1.25)
 
 
-def _add_cross_cutting_themes_slide(prs, themes: list):
+def _add_cross_cutting_themes_slide(prs, themes: list, events_by_topic: Optional[dict] = None):
     """Cross-cutting strategic themes — mirrors Wiley deck slide 18.
 
     3-5 short themed paragraphs, each with a bold lead phrase and body.
@@ -2719,17 +2727,42 @@ def _add_cross_cutting_themes_slide(prs, themes: list):
     _rect(slide, x=0.5, y=1.2, w=0.08, h=4.0, fill=WILEY_TEAL)
 
     y = 1.45
+    notes_parts = []
+    # Whole sentences only: the narrative review keeps a body to three
+    # sentences, and a longer one is cut at a sentence boundary here, never
+    # mid-sentence or by shrinking the type (eighth review, 16 Oct 2026,
+    # F4). The full lead and body go to the notes.
     for t in themes[:4]:
         lead = (t.get("lead") or "").strip()
         body = (t.get("body") or "").strip()
+        shown = _fit_sentences(body, 360)
+        notes_parts.append(f"{lead}\n{body}")
+        # The evidence behind the theme: the judged events of each topic
+        # the theme names, with their dates, date type and sources.
+        for topic, evs in (events_by_topic or {}).items():
+            if topic and topic.lower() in (lead + " " + body).lower():
+                lines = []
+                for e in sorted(evs or [], key=lambda x: str(x.get("event_date") or ""), reverse=True)[:6]:
+                    urls = e.get("source_urls") or []
+                    if isinstance(urls, str):
+                        urls = [urls]
+                    basis = "reported" if str(e.get("date_basis") or "") == "article" else "dated"
+                    lines.append(f"  - {e.get('actor')} {e.get('action')} {e.get('subject')} "
+                                 f"({basis} {str(e.get('event_date') or '')[:10]})"
+                                 + (f" — {urls[0]}" if urls else ""))
+                if lines:
+                    notes_parts.append(f"Evidence, {topic}:\n" + "\n".join(lines))
         _text(slide, x=0.85, y=y, w=sw-1.7, h=0.3,
               text=_truncate(lead, 95), font_size=12, bold=True, color=WILEY_NAVY)
-        # Theme bodies run to 150 words; 0.6 inch holds about 45 at this size
-        # (16 Oct 2026 self-review, slide 11). The HTML carries the full text.
         _text(slide, x=0.85, y=y+0.3, w=sw-1.7, h=0.6,
-              text=_truncate(body, 330), font_size=9, color=WILEY_BODY, line_spacing=1.2,
-              shrink_to_fit=True)
+              text=shown, font_size=9, color=WILEY_BODY, line_spacing=1.2,
+              shrink_to_fit=False)
         y += 0.95
+    if notes_parts:
+        try:
+            slide.notes_slide.notes_text_frame.text = "\n\n".join(notes_parts)
+        except Exception:
+            pass
 
 
 def _add_executive_decision_framework_slide(prs, priorities: list):
@@ -2771,8 +2804,17 @@ def _add_executive_decision_framework_slide(prs, priorities: list):
         body = (p.get("body") or "").strip()
         _text(slide, x=cx+0.18, y=card_y+0.13, w=card_w-0.36, h=0.45,
               text=headline, font_size=13, bold=True, color=WHITE, line_spacing=1.15)
+        # 3 inches by 2.5 at 10 point holds about 720 characters; whole
+        # sentences on the card, the full text in the notes.
+        shown = _fit_sentences(body, 720)
         _text(slide, x=cx+0.22, y=card_y+0.85, w=card_w-0.44, h=card_h-1.0,
-              text=body, font_size=10, color=WILEY_BODY, line_spacing=1.45)
+              text=shown, font_size=10, color=WILEY_BODY, line_spacing=1.45)
+        if shown != body:
+            try:
+                nf = slide.notes_slide.notes_text_frame
+                nf.text = (nf.text + "\n\n" if nf.text else "") + f"{headline}: {body}"
+            except Exception:
+                pass
 
 
 def _add_next_steps_slide(prs, assessment: dict):

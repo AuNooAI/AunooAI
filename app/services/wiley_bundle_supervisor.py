@@ -1825,6 +1825,40 @@ async def run_pipeline(
     except Exception as e:
         logger.warning("Failed to persist bundle synthesis: %s", e)
 
+    # ── Stage 8.5: narrative review of whatever this run wrote ────────
+    # The planner decides which writer stages rerun on a rebuild, so a
+    # plain re-export can regenerate the overview, the themes and the
+    # letter. On 16 Oct 2026 (22:20) it did, after the narrative review had
+    # run, and the deck shipped with unreviewed prose: breaches at review
+    # platforms, "$900 million cancelled on 25 September" for a February
+    # 2025 action, "incidents outpacing validation partnerships" from two
+    # scenario counts. Any run that wrote narrative reviews and repairs it
+    # here, before the reviewer and the render.
+    writer_stages = ("briefing", "recommendations", "next_steps", "cross_topic", "exec_summary", "expert_commentary")
+    wrote_narrative = any(_stage_in_plan(plan, s) for s in writer_stages) or not cross_cached or not exec_cached
+    if wrote_narrative and os.environ.get("WILEY_SKIP_NARRATIVE_REVIEW") != "1":
+        yield {"stage": "narrative_review", "status": "started", "progress": 0.915}
+        try:
+            from app.services.wiley_narrative_review import review_and_repair
+            nr = await review_and_repair(cadence, period_label, max_rounds=2)
+            yield {"stage": "narrative_review", "status": "completed", "progress": 0.918,
+                   "payload": {k: nr.get(k) for k in ("verdict", "rounds", "errors", "warnings")}}
+            # The repairs are on disk; the reviewer and the render read the
+            # repaired text, not this run's in-memory copies.
+            synth_after = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+            if synth_after.get("payload"):
+                bundle_payload = synth_after["payload"]
+                exec_summary = bundle_payload.get("exec_summary") or exec_summary
+                expert_commentary = bundle_payload.get("expert_commentary") or expert_commentary
+                cross_topic = {k: bundle_payload.get(k) for k in
+                               ("strategic_overview", "cross_cutting_themes", "executive_decision_framework")}
+            items = await _load_items_for_period(cadence, period_label)
+            briefings, recommendations, next_steps = {}, {}, {}
+        except Exception as e:
+            logger.warning("narrative review stage failed (non-fatal): %s", e)
+            yield {"stage": "narrative_review", "status": "failed", "progress": 0.918,
+                   "payload": {"error": str(e)[:200]}}
+
     # ── Stage 9: Reviewer (LLM-as-judge) ─────────────────────────────
     # Skip the reviewer if a human has already approved this period —
     # otherwise every re-export would re-fire the LLM-as-judge and could
@@ -1948,9 +1982,9 @@ def _display_numbers(text: str) -> set:
     return nums
 
 
-def display_ok(display: Optional[str], body: str, name: str = "") -> bool:
+def display_ok(display: Optional[str], body: str, name: str = "", cap: int = DISPLAY_MAX) -> bool:
     d = (display or "").strip()
-    if not d or len(d) > DISPLAY_MAX or "…" in d or "..." in d or d[-1] not in ".!?":
+    if not d or len(d) > cap or "…" in d or "..." in d or d[-1] not in ".!?":
         return False
     body_nums = _display_numbers(body)
     for n in _display_numbers(d):

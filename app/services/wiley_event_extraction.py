@@ -432,6 +432,8 @@ async def run_event_extraction(
         logger.info("event-reconciliation: %s", rec)
         links = await judge_event_links_for_bundle(cadence, period_label, topics=topic_list)
         logger.info("event-links: %s", links)
+        window = await judge_event_window_for_bundle(cadence, period_label, topics=topic_list)
+        logger.info("event-window: %s", {k: v for k, v in window.items() if k != "historical_rows"})
     except Exception as e:
         logger.exception("event-reconciliation failed: %s", e)
 
@@ -1103,6 +1105,171 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
             {"rel": json.dumps(new), "id": int(e["id"])})
     logger.info("event links: %s — %s", topic, stats)
     return stats
+
+
+# ── Window membership ──────────────────────────────────────────────────
+#
+# The extractor dates an event by what the article says; an article inside
+# the window that revisits an earlier action ("$900 million in contract
+# cancellations" from February 2025, reported on 25 September 2026) became a
+# September 2026 event and a confirming row on the evidence slide (eighth
+# review, 16 Oct 2026, F3). The window judge reads each included event with
+# its source article's title, date and summary and classifies it: in the
+# window, historical (with the occurrence date it can read), or unknown.
+# Historical rows are dated by their occurrence, marked `historical` and
+# taken out of the deck; counts and statuses recompute from the links of
+# the rows that remain. Rows an analyst edited by hand are left alone.
+
+_STATEMENT_ACT = re.compile(r"^\s*(disclos|apologi|report|announc|warn|found|said|confirm|publish|releas(?:ed)? (?:a )?(?:report|statement)|"
+                            r"stated|acknowledg|admitt|revealed|testified)", re.I)
+
+
+def _occurrence_date(raw, window_start: Optional[str] = None) -> Optional[str]:
+    """YYYY, YYYY-MM or YYYY-MM-DD from the judge, as a full ISO date, but
+    only when the whole period it names ends before ``window_start``: "in
+    2026" covers the window and places nothing before it; "in June" does.
+    Returns the first day of the period, or None."""
+    s = str(raw or "").strip()
+    m = re.match(r"^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$", s)
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), m.group(2), m.group(3)
+    try:
+        first = _date(y, int(mo) if mo else 1, int(d) if d else 1)
+        if d:
+            last = first
+        elif mo:
+            nxt = _date(y + (1 if int(mo) == 12 else 0), 1 if int(mo) == 12 else int(mo) + 1, 1)
+            last = nxt - timedelta(days=1)
+        else:
+            last = _date(y, 12, 31)
+    except ValueError:
+        return None
+    ws = _parse_iso(window_start) if window_start else None
+    if ws and last >= ws:
+        return None
+    return first.isoformat()
+
+
+def _article_for_url(db, url: str) -> dict:
+    from sqlalchemy import text as sa_text
+    if not url:
+        return {}
+    try:
+        row = db.facade._execute_with_rollback(sa_text(
+            "SELECT title, publication_date, summary FROM articles WHERE uri = :u OR url = :u LIMIT 1"),
+            {"u": url}).fetchone()
+    except Exception as e:
+        logger.warning("window judge: article lookup failed for %s: %s", url, e)
+        return {}
+    if not row:
+        return {}
+    return {"title": row[0], "published": str(row[1] or "")[:10], "summary": (row[2] or "")[:1200]}
+
+
+async def judge_event_window_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None,
+                                        *, apply: bool = True, batch: int = 15) -> dict:
+    """Classify every deck-included event of the period as in-window,
+    historical or unknown from its source article; with ``apply``, date
+    historical rows by their occurrence and take them out of the deck."""
+    from app.database import get_database_instance
+    from sqlalchemy import text as sa_text
+    from app.services.wiley_bundle_supervisor import _call_agent
+    db = get_database_instance()
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    topic_list = topics or [(t.get("topic") if isinstance(t, dict) else t) for t in (synth.get("topics") or [])]
+    starts = []
+    for t in topic_list:
+        a = db.facade.get_latest_forecast_assessment_by_topic(t) or {}
+        fg = str(((a.get("summary") or {}).get("forecast_generated_at")) or "")[:10]
+        if fg:
+            starts.append(fg)
+    window_start = min(starts) if starts else None
+    window_end = datetime.now(timezone.utc).date().isoformat()
+    rows = [r for r in (db.facade.list_extracted_events(cadence=cadence, period_label=period_label,
+                                                        include_excluded=False) or [])
+            if r.get("id") is not None and (not topic_list or r.get("topic") in topic_list)]
+    out = {"window_start": window_start, "window_end": window_end, "events": len(rows),
+           "in_window": 0, "historical": 0, "unknown": 0, "applied": 0, "skipped_hand_edited": 0,
+           "historical_rows": []}
+    if not rows or not window_start:
+        return out
+    verdicts: dict = {}
+    for i in range(0, len(rows), batch):
+        chunk = rows[i:i + batch]
+        payload = {"window_start": window_start, "window_end": window_end, "events": []}
+        for r in chunk:
+            urls = r.get("source_urls") or []
+            if isinstance(urls, str):
+                try:
+                    urls = json.loads(urls)
+                except Exception:
+                    urls = [urls]
+            payload["events"].append({
+                "id": int(r["id"]), "actor": r.get("actor"), "action": r.get("action"),
+                "subject": r.get("subject"), "event_date": str(r.get("event_date") or "")[:10],
+                "date_basis": r.get("date_basis"), "state": r.get("event_state"),
+                "article": _article_for_url(db, (urls or [None])[0]),
+            })
+        try:
+            res = await _call_agent("wiley_window_judge_agent", payload)
+        except Exception as e:
+            logger.warning("window judge: call failed: %s", e)
+            continue
+        for v in ((res or {}).get("events") or []):
+            try:
+                verdicts[int(v.get("id"))] = v
+            except (TypeError, ValueError):
+                continue
+    for r in rows:
+        v = verdicts.get(int(r["id"]))
+        if not v:
+            out["unknown"] += 1
+            continue
+        m = str(v.get("membership") or "unknown").lower()
+        if m not in ("in_window", "historical", "unknown"):
+            m = "unknown"
+        # A statement made in the window (disclosed, apologised, reported,
+        # warned, found) is the event, whatever it describes; the judge
+        # called Anthropic's 10 October disclosure of a July incident
+        # historical (16 Oct 2026).
+        if m == "historical" and _STATEMENT_ACT.match(str(r.get("action") or "")):
+            m = "in_window"
+        out[m] += 1
+        if m != "historical":
+            continue
+        occ = _occurrence_date(v.get("occurrence_date"), window_start)
+        rec = {"id": int(r["id"]), "topic": r.get("topic"), "actor": r.get("actor"), "action": r.get("action"),
+               "subject": (r.get("subject") or "")[:100], "event_date": str(r.get("event_date") or "")[:10],
+               "occurrence_date": occ, "reason": (v.get("reason") or "")[:200]}
+        out["historical_rows"].append(rec)
+        if not apply:
+            continue
+        if str(r.get("edited_by") or "").startswith("hand"):
+            out["skipped_hand_edited"] += 1
+            continue
+        try:
+            if occ:
+                # The text places the action before the window: dated by
+                # its occurrence, marked historical, out of the deck.
+                db.facade._execute_with_rollback(sa_text(
+                    "UPDATE extracted_events SET event_date = CAST(:d AS date), date_basis = 'stated', "
+                    "event_state = 'historical', include_in_deck = false, edited_by = :e, updated_at = NOW() "
+                    "WHERE id = :id"),
+                    {"d": occ, "id": int(r["id"]), "e": "window judge: occurred " + occ + "; " + rec["reason"][:120]})
+            else:
+                # Earlier, but the text gives no date: the row stays as a
+                # report, dated by its article ("reported on …").
+                db.facade._execute_with_rollback(sa_text(
+                    "UPDATE extracted_events SET date_basis = 'article', edited_by = :e, updated_at = NOW() "
+                    "WHERE id = :id"),
+                    {"id": int(r["id"]), "e": "window judge: earlier action, occurrence date not stated; " + rec["reason"][:120]})
+                rec["kept_as_reported"] = True
+            out["applied"] += 1
+        except Exception as e:
+            logger.warning("window judge: update failed for %s: %s", r.get("id"), e)
+    logger.info("window judge: %s", {k: v for k, v in out.items() if k != "historical_rows"})
+    return out
 
 
 async def judge_event_links_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None) -> dict:

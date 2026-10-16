@@ -137,6 +137,16 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   forcing" needs a hedge), deal types (an investment is not a licensing agreement; a label
   must cover the events it introduces) and comparison baselines ("once reserved for quantum
   hardware" for an event that says supercomputers).
+- **Window membership** (`judge_event_window_for_bundle` in `wiley_event_extraction.py`, after the
+  link judge): each included event is read against its source article and classified in-window,
+  historical or unknown. Historical rows with an occurrence before the window leave the deck and
+  counts recompute; rows without such a date become "reported". Check its `historical_rows` output
+  by hand: the first run over-reached on five rows. A statement made in the window is an event.
+- **Narrative review runs inside the pipeline** since the eighth review (16 Oct 2026): any build
+  that reran a writer stage reviews and repairs before the reviewer and the render. A deck must
+  never ship from a build whose writers ran without that stage; `WILEY_SKIP_NARRATIVE_REVIEW=1`
+  disables it. After a hand-run review, lock the bundle keys and the topic narrative keys so a
+  planner regeneration restores the reviewed text.
 - **Tension display sentences** (`ensure_tension_displays` in `wiley_bundle_supervisor.py`):
   a tension body longer than the synthesis panel shows is rendered as its `display`, one
   complete sentence of at most 170 characters the briefing writer or `wiley_display_agent`

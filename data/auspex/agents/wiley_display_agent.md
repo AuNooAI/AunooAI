@@ -3,7 +3,7 @@ name: wiley_display_agent
 category: wiley_bundle_supervisor
 description: Writes the one-sentence version of a briefing tension that the synthesis slide shows when the full body is too long for its panel. Uses only the body's facts; the body stays in the slide notes.
 type: agent
-version: 1.0.2
+version: 1.0.3
 model_config:
   model: claude-sonnet-5-5
   temperature: 0.2
@@ -46,6 +46,11 @@ Rules:
 
 When an item carries `previous_attempt` and `problem`, the last sentence
 failed that check; write a different one that passes.
+
+An item with `max_sentences` greater than one is a slide paragraph, not a
+one-liner: write up to that many complete sentences within `max_chars`,
+keeping the paragraph's throughline, its named developments with their
+dates and date types, and its closing watch point.
 
 ## Input
 

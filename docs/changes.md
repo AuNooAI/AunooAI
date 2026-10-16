@@ -1,3 +1,43 @@
+## 2026-10-16 (late night) — Wiley Q4 bundle after the eighth review
+
+The eighth review read a deck whose overview, themes, decision framework and letter had been
+regenerated one minute before it was sent. The round-seven review had run and passed; then a
+rebuild for a one-line body edit let the planner rerun the cross-topic and letter stages, and
+nothing reviewed what they wrote. The findings were the writers' usual classes on fresh text:
+a causal link from pharmaceutical patent pressure to a publisher's portfolio review, rates and
+capacity ("incidents are outpacing validation partnerships: ten events versus five") read off
+scenario counts, a February 2025 contract cancellation dated 25 September 2026, article dates
+written as occurrence dates, and theme bodies of five sentences shrunk and cut on the slide.
+
+**The pipeline reviews what it writes** (`wiley_bundle_supervisor.py`). A new stage after the
+bundle payload is saved runs `review_and_repair` whenever any writer stage ran in that build,
+before the reviewer and the render, and reloads the repaired text. `WILEY_SKIP_NARRATIVE_REVIEW=1`
+turns it off for a run. The hand-run scripts lock the bundle and topic narrative keys after
+the review, so a planner regeneration restores the reviewed text.
+
+**Window membership** (`judge_event_window_for_bundle`, `wiley_window_judge_agent` 1.0.1). The
+extractor dates an event by its article; an in-window article that revisits an earlier action
+became a new event. The judge reads each included event with its source article's title, date
+and summary and classifies it in-window, historical (with the occurrence date the text gives)
+or unknown. A statement made in the window (disclosed, apologised, reported) is in the window
+whatever it describes. A historical row with an occurrence that ends before the window is dated
+by it, marked `historical` and taken out of the deck; one without such a date stays as a report
+(`date_basis` article). Year-only dates ("in 2026") place nothing before the window. It runs after
+the link judge in `run_event_extraction`. On the Q4 2026 set it found the NCES row (set by hand
+to 11 February 2025 from the AP report), the OpenAI scrape of UN data (April to June) and the
+second-term climate cuts; five of its first verdicts over-reached and were reverted by hand.
+
+**Three more checks** (`wiley_narrative_review.py`): `_rate_findings` (outpacing, faster than,
+keeping pace, scale gap, can no longer absorb, is accelerating; passes when the sentence says the
+counts do not measure it), `_bridge_findings` (two topics' terms in one sentence with a causal
+connector, not marked separate; topic terms are the words unique to one topic's name, scenarios
+and actors), `_length_findings` (theme body three sentences or 380 characters, overview seven or
+1,000, framework body five or 720). The themes, overview and framework slides show whole
+sentences and carry the full text in the notes, the themes with each named topic's judged events
+and sources.
+
+Prompts: judge 1.4.0, repair 1.4.0, cross-topic 1.3.0, letter 3.4.0, window judge 1.0.1.
+
 ## 2026-10-16 (late) — Wiley Q4 bundle after the seventh review
 
 The seventh review was a targeted handoff: a wrong company on the expert view, breaches

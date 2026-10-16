@@ -158,7 +158,7 @@ def build_bundle_pptx(
     )
     _add_five_domains_summary_slide(prs, items)
     _add_black_swans_slide(prs, eos_per_topic or {})
-    _add_cross_cutting_themes_slide(prs, synth.get("cross_cutting_themes") or [])
+    _add_cross_cutting_themes_slide(prs, synth.get("cross_cutting_themes") or [], events_by_topic=events_by_topic)
     _add_executive_decision_framework_slide(prs, synth.get("executive_decision_framework") or [])
     _add_bundle_toc(prs, items, updates_only=updates_only)
     # Three Horizons Overview sits immediately before the per-topic dive so the

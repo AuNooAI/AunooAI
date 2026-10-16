@@ -447,7 +447,15 @@ def _date_basis_findings(seg: dict, events: list) -> List[dict]:
         for m in _DATE_ISO.finditer(sent):
             located.append(((int(m.group(2)), int(m.group(3)), int(m.group(1))), m.start(), m.end()))
         for d, s0, s1 in located:
-            window = sent[max(0, s0 - 90):min(len(sent), s1 + 25)]
+            # The clause that carries the date, from its last boundary (a
+            # comma, a semicolon, "and", "while") to 25 characters after
+            # the date: "the White House announced plans on 26 September …,
+            # and NIH terminated grants on 28 September" must not pass on
+            # the earlier clause's "announced" (eighth review, 16 Oct 2026).
+            before = sent[:s0]
+            cut = max(before.rfind(", "), before.rfind("; "), before.rfind(" and "), before.rfind(" while "),
+                      before.rfind(": "))
+            window = sent[max(0, cut + 1 if cut >= 0 else 0):min(len(sent), s1 + 25)]
             if _SPEECH.search(window):
                 continue
             matches = [e for key, evs in by_date.items() if _date_matches(d, [key]) for e in evs]
@@ -832,8 +840,7 @@ def _causal_findings(seg: dict) -> List[dict]:
 
 
 _DEAL_LABEL = re.compile(r"\b(licensing|licen[cs]es?|equity investments?|investments?|acquisitions?|mergers?|"
-                         r"partnerships?|alliances?|collaborations?|approvals?|lawsuits?|litigation|settlements?|"
-                         r"submissions?|filings?)\b", re.I)
+                         r"partnerships?|alliances?|collaborations?|approvals?|lawsuits?|litigation|settlements?)\b", re.I)
 _DEAL_TYPES = {"licensing": ("licens",), "licence": ("licens",), "license": ("licens",),
                "investment": ("invest", "equity", "stake", "convertible"), "equity investment": ("invest", "equity", "stake", "convertible"),
                "acquisition": ("acqui", "bought", "purchas", "takeover"), "merger": ("merg",),
@@ -856,7 +863,7 @@ def _deal_key(word: str) -> Optional[str]:
 
 
 def _event_deal_types(e: dict) -> set:
-    text = " " + _event_text(e).lower()
+    text = " " + re.sub(r"unauthori[sz]\w*", " ", _event_text(e).lower())
     return {k for k, stems in _DEAL_TYPES.items() if any(s in text for s in stems)}
 
 
@@ -959,6 +966,127 @@ def _baseline_findings(seg: dict, events: list) -> List[dict]:
     return out
 
 
+# ── Eighth review (16 Oct 2026): rates, bridges and length ─────────────
+
+_RATE = re.compile(r"\b(outpac\w+|faster than\b(?!\s+(?:anticipated|expected|forecast))|keep(?:s|ing)? pace|rate at which|far exceed\w*|smaller than the volume|"
+                   r"can no longer absorb|cannot absorb|scale gap|exceed\w* (?:the )?(?:capacity|volume)|"
+                   r"(?:is|are) accelerating\b|accelerating faster|at a faster rate|slower than\b|"
+                   r"(?:is|are) (?:not )?scaling\b|past recovery)\b", re.I)
+_RATE_OK = re.compile(r"\b(do(?:es)? not measure|not (?:a )?measure|cannot (?:establish|measure)|no measure|"
+                      r"question to test|remains? (?:an? )?(?:open )?question|the question is whether)\b", re.I)
+
+
+def _rate_findings(seg: dict) -> List[dict]:
+    """"Incidents are outpacing the deployment of validation partnerships:
+    ten events versus five" (eighth review, 16 Oct 2026, F2). The ledger
+    has event counts and article-share deltas; neither is a rate, a volume
+    or a capacity, so a sentence that compares speeds, volumes or capacity
+    is flagged unless it says the counts do not measure that."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    for sent in _sentences(seg["text"]):
+        m = _RATE.search(sent)
+        if not m or _RATE_OK.search(sent):
+            continue
+        out.append({"target": seg["target"], "severity": "error", "check": "rate",
+                    "finding": (f"The sentence compares rates, volumes or capacity ('{m.group(0)}'); the ledger has "
+                                "scenario event counts and article-share deltas, neither of which measures a rate, "
+                                "a volume of incidents or deployed capacity."),
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "State the counts ('this quarter's evidence records ten confirming developments for X "
+                                     "and five for Y'), say they show both patterns are present but do not measure whether "
+                                     "one is keeping pace with the other, or drop the comparison. Never write 'the ledger' "
+                                     "on a slide."})
+    return out
+
+
+_BRIDGE = re.compile(r"\b(prompt(?:s|ed|ing)|driv(?:es|en|ing)|suggest(?:s|ed|ing)?|pressure (?:on|from)|because of|"
+                     r"as a result|lead(?:s|ing)? to|accelerat\w+ consolidation|margin pressure|forc(?:es|ed|ing)|"
+                     r"spill\w*|caus(?:es|ed|ing)|in response to|responding to|is reshaping|are reshaping)\b", re.I)
+_SEPARATE = re.compile(r"\b(separately|separate|distinct|does not connect|do not connect|no events? link\w*|"
+                       r"in parallel|unrelated|different subjects)\b", re.I)
+_BRIDGE_EXEMPT = re.compile(r"^\s*(If|Watch|Whether)\b")
+_TOPIC_GENERIC = {"general", "monitoring", "transition", "uncertainty", "attacks", "expertise", "federal", "pullback",
+                  "advantage", "science", "scientific", "publishers", "publishing", "research", "models", "systems",
+                  "traditional", "practical", "applications", "networks", "platforms", "market", "business"}
+
+
+def _topic_terms(ledger: Dict[str, dict]) -> Dict[str, set]:
+    """Words that belong to one topic only: its name, its scenario names
+    and its event actors (six letters or more, generic words dropped)."""
+    raw: Dict[str, set] = {}
+    for topic, lt in ledger.items():
+        words = set()
+        texts = [topic] + [str(sc.get("name") or "") for sc in (lt.get("scenarios") or [])]
+        texts += [str(e.get("actor") or "") for e in (lt.get("events") or [])]
+        for t in texts:
+            for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", t):
+                nw = _norm_tok(w)
+                if len(nw) >= 6 and nw not in _TOPIC_GENERIC and nw not in _GENERIC_ACTOR:
+                    words.add(nw)
+        raw[topic] = words
+    counts: Dict[str, int] = {}
+    for ws in raw.values():
+        for w in ws:
+            counts[w] = counts.get(w, 0) + 1
+    return {t: {w for w in ws if counts[w] == 1} for t, ws in raw.items()}
+
+
+def _bridge_findings(seg: dict, ledger: Dict[str, dict]) -> List[dict]:
+    """A causal link between two topics' developments: "the revenue shift
+    from originator patents to biosimilar partnerships is prompting
+    incumbents to re-evaluate their academic publishing portfolios" (eighth
+    review, F1). Two topics' terms in one sentence with a causal connector,
+    not marked as separate, is flagged; no event joins two topics."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    terms = _topic_terms(ledger)
+    if len(terms) < 2:
+        return out
+    for sent in _sentences(seg["text"]):
+        if _BRIDGE_EXEMPT.match(sent) or _SEPARATE.search(sent):
+            continue
+        m = _BRIDGE.search(sent)
+        if not m:
+            continue
+        words = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+        hit = {t: sorted(words & ws)[:3] for t, ws in terms.items() if words & ws}
+        if len(hit) < 2:
+            continue
+        out.append({"target": seg["target"], "severity": "error", "check": "bridge",
+                    "finding": (f"The sentence joins developments of {', '.join(hit)} with a causal link ('{m.group(0)}'); "
+                                "no event in the ledger connects them."),
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "Keep each topic's developments in their own sentence and say they are separate; "
+                                     "a link between them is a question to test, not a finding."})
+    return out
+
+
+_LENGTH_CAPS = {"cross_cutting_themes": (3, 380), "strategic_overview": (7, 1150), "executive_decision_framework": (5, 720)}
+
+
+def _length_findings(seg: dict) -> List[dict]:
+    """A theme body that runs to five long sentences is shrunk to tiny type
+    and cut mid-sentence on the slide (eighth review, F4). The slide shows
+    at most three complete sentences per theme."""
+    from app.services.daily_report_service import _sentences
+    path = seg.get("path") or ""
+    key = next((k for k in _LENGTH_CAPS if path.startswith(k) and (path.endswith(".body") or path == k)), None)
+    if not key:
+        return []
+    max_sent, max_chars = _LENGTH_CAPS[key]
+    sents = [s for s in _sentences(seg["text"]) if s.strip()]
+    n_chars = len(seg["text"].strip())
+    if len(sents) <= max_sent and n_chars <= max_chars:
+        return []
+    return [{"target": seg["target"], "severity": "error", "check": "length",
+             "finding": (f"The text runs to {len(sents)} sentences and {n_chars} characters; the slide shows at most "
+                         f"{max_sent} complete sentences (about {max_chars} characters) and cannot cut mid-sentence."),
+             "claim_text": seg["text"].strip(), "source": "preflight",
+             "suggested_fix": f"Rewrite as at most {max_sent} complete sentences carrying the throughline and its two or "
+                              "three named developments; the notes carry the evidence."}]
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -984,6 +1112,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_causal_findings(seg))
             findings.extend(_deal_type_findings(seg, evs, scen))
             findings.extend(_baseline_findings(seg, evs))
+            findings.extend(_rate_findings(seg))
         elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
             findings.extend(_points_findings(seg, scen))
@@ -1001,6 +1130,9 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_causal_findings(seg))
             findings.extend(_deal_type_findings(seg, events_all, scen_all))
             findings.extend(_baseline_findings(seg, events_all))
+            findings.extend(_rate_findings(seg))
+            findings.extend(_bridge_findings(seg, ledger))
+            findings.extend(_length_findings(seg))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all
@@ -1080,7 +1212,8 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # and demoted the judge's correct "10 points vs a delta of 2.18" to advisory
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
-_PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline"}
+_PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline",
+                    "rate", "bridge", "length"}
 _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
                          r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
                          r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
@@ -1088,6 +1221,9 @@ _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|E
                          r"Train|Update|Allocate|Appoint|Assign|Benchmark|Budget|Clarify|Extend|Equip|Formalise|Formalize|"
                          r"Prioritise|Prioritize|Protect|Publish|Quantify|Rebalance|Recruit|Resist|Safeguard|Stage)\b")
 _HYPOTHESIS = re.compile(r"^(If|Should|Were|Whether|Unless)\b|\bif\b.{0,160}\bthen\b|\b(would|could|may|might)\b", re.I)
+# "Wiley should pilot …", "We should launch …": an action for the organisation,
+# which the judge rated an audience error (eighth review, 16 Oct 2026).
+_ORG_ACTION = re.compile(r"\b(?:we|wiley|the (?:company|organisation|organization))\s+(?:should|must|can|could|will|need|needs)\b", re.I)
 
 
 def _status_matches(claim: str, scen_all: list) -> bool:
@@ -1152,6 +1288,7 @@ def _merge(preflight_f: List[dict], judge_f: List[dict], events: Optional[list] 
             # ("If … then", "could") is not asserting the outcome.
             # (Round nine, 16 Oct 2026: the judge rated all three as errors.)
             soft = ((f.get("check") == "contradiction" and _status_matches(claim, scen_all or []))
+                    or (f.get("check") == "audience" and _ORG_ACTION.search(claim))
                     or (f.get("check") in ("unsupported", "absent") and _IMPERATIVE.match(claim.strip())
                         and not re.search(r"\d", claim))
                     or (f.get("check") in ("state", "unsupported", "absent", "hypothesis as fact")
@@ -1331,12 +1468,67 @@ async def finish_displays(db, cadence: str, period_label: str, payload: dict, le
     return [dict(x, finding=x.get("finding", "") + " [dropped]") for x in advisory]
 
 
+async def _shorten_segments(db, cadence, period_label, segments, findings) -> int:
+    """Length findings go to the display agent: a shorter text of at most
+    the cap, every name and figure from the original (display_ok), written
+    back as the segment. The repair agent was asked twice and came back
+    over the cap both times (eighth review, 16 Oct 2026)."""
+    from app.services.wiley_bundle_supervisor import _call_agent, display_ok
+    todo = {}
+    for f in findings:
+        if f.get("severity") != "error" or f.get("check") != "length":
+            continue
+        seg = next((s for s in segments if s["target"] == f.get("target")), None)
+        if not seg:
+            continue
+        key = next((k for k in _LENGTH_CAPS if seg["path"].startswith(k)), None)
+        if not key:
+            continue
+        max_sent, max_chars = _LENGTH_CAPS[key]
+        todo[seg["target"]] = (seg, max_sent, max_chars)
+    if not todo:
+        return 0
+    items = [{"id": t, "name": "", "body": seg["text"], "max_chars": max_chars - 20, "max_words": max(12, (max_chars - 20) // 7),
+              "max_sentences": max_sent} for t, (seg, max_sent, max_chars) in todo.items()]
+    n = 0
+    for attempt in range(2):
+        out = await _call_agent("wiley_display_agent", {"items": items})
+        got = {x.get("id"): (x.get("display") or "").strip() for x in ((out or {}).get("items") or []) if isinstance(x, dict)}
+        still = []
+        for it in items:
+            seg, max_sent, max_chars = todo[it["id"]]
+            new = got.get(it["id"], "")
+            if display_ok(new, seg["text"], cap=max_chars) and len(_length_findings(dict(seg, text=new))) == 0:
+                try:
+                    if seg["kind"] == "topic":
+                        db.facade.patch_topic_summary_field(topic=seg["topic"], assessment_id=seg["assessment_id"],
+                                                            path=seg["path"], value=new, edited_by="narrative-shorten", lock=False)
+                    else:
+                        db.facade.patch_brief_field(cadence, period_label, path=seg["path"], value=new,
+                                                    edited_by="narrative-shorten", lock=False)
+                    n += 1
+                except Exception as e:
+                    logger.warning("narrative shorten: write failed for %s: %s", seg["target"], e)
+            else:
+                still.append(dict(it, previous_attempt=new,
+                                  problem=f"{len(new)} characters; at most {it['max_chars']} characters and "
+                                          f"{it['max_sentences']} sentences, every name and figure from the body"))
+        items = still
+        if not items:
+            break
+    logger.info("narrative shorten: %d of %d over-length segments rewritten", n, len(todo))
+    return n
+
+
 async def _repair_with_cadence(db, cadence, period_label, segments, findings, ledger, organisation) -> int:
     from app.services.wiley_bundle_supervisor import _call_agent
+    n_short = await _shorten_segments(db, cadence, period_label, segments, findings)
+    shortened = {f.get("target") for f in findings if f.get("check") == "length" and f.get("severity") == "error"} if n_short else set()
+    findings = [f for f in findings if not (f.get("target") in shortened and f.get("check") == "length")]
     flagged_targets = {f.get("target") for f in findings if f.get("severity") == "error"}
     flagged = [s for s in segments if s["target"] in flagged_targets]
     if not flagged:
-        return 0
+        return n_short
     payload = {"organisation": organisation or {}, "ledger": ledger,
                "segments": [{"target": s["target"], "text": s["text"]} for s in flagged],
                "findings": [{k: f.get(k) for k in ("target", "finding", "claim_text", "suggested_fix", "check")}
@@ -1380,4 +1572,4 @@ async def _repair_with_cadence(db, cadence, period_label, segments, findings, le
         except Exception as e:
             logger.warning("narrative repair: write failed for %s: %s", seg["target"], e)
     logger.info("narrative repair: rewrote %d of %d flagged segments", n, len(flagged))
-    return n
+    return n + n_short
