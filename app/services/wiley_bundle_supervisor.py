@@ -578,7 +578,15 @@ def _topic_data_payload(assessment: dict, named_events: Optional[list] = None) -
              "sample_articles": (s.get("sample_articles") or [])[:3]}
             for s in (assessment.get("surprises") or [])[:5]
         ],
-        "named_events": events[:40],
+        "named_events": [{
+            "actor": e.get("actor"), "action": e.get("action"), "subject": e.get("subject"),
+            "date": str(e.get("event_date") or e.get("date") or "")[:10] or None,
+            "date_basis": e.get("date_basis"), "state": e.get("event_state"),
+            "magnitude": (f"{e['magnitude_value']:g} {e.get('magnitude_unit') or ''}".strip()
+                          if isinstance(e.get("magnitude_value"), (int, float)) else None),
+            "scenarios": [{"scenario": r.get("scenario"), "direction": r.get("direction")}
+                          for r in (e.get("scenario_relevance") or []) if isinstance(r, dict)],
+        } for e in events[:40]],
         "organisation": _organisation_context(),
         "metric_definitions": _METRIC_DEFINITIONS,
     }
@@ -655,26 +663,18 @@ def _events_by_topic(db, cadence: str, period_label: str) -> dict:
     next-steps so the per-topic agents have the same ground truth the
     reviewer evaluates against.
     """
-    out: dict[str, list] = {}
+    # Full rows, collapsed, the same loader the exports use. This used to
+    # trim each event to actor/action/subject/date, which dropped the judged
+    # scenario links: every scenario then read "Too early" to the writers
+    # and to the reviewer, the writers wrote "all five scenarios too early",
+    # and the narrative review spent its repair rounds undoing that (16 Oct
+    # 2026). Agents get a trimmed copy from _topic_data_payload instead.
     try:
-        rows = db.facade.list_extracted_events(
-            cadence=cadence, period_label=period_label, include_excluded=False) or []
+        from app.services.wiley_delivery_service import _events_by_topic as _full_events_by_topic
+        return _full_events_by_topic(cadence, period_label)
     except Exception as e:
-        logger.warning("events_by_topic: list_extracted_events failed: %s", e)
-        return out
-    for e in rows:
-        if not isinstance(e, dict):
-            continue
-        t = (e.get("topic") or "").strip()
-        if not t:
-            continue
-        out.setdefault(t, []).append({
-            "actor":   e.get("actor"),
-            "action":  e.get("action"),
-            "subject": e.get("subject"),
-            "date":    str(e.get("event_date"))[:10] if e.get("event_date") else None,
-        })
-    return out
+        logger.warning("events_by_topic: load failed: %s", e)
+        return {}
 
 
 def _plan_targets(plan: dict, stage_name: str) -> Optional[set]:
