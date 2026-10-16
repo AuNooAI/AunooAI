@@ -1,3 +1,36 @@
+## 2026-10-16 (evening) — Wiley event extractor: the development's own date and state
+
+Every date correction in the three review rounds had the same cause: the extractor stamped an
+event with the article's date and nothing recorded that it had done so, so a NIST award
+finalised on 16 September became a 7 October event because that is when IEEE Spectrum wrote
+about it. Commit 657bf037, migration `ev_002_date_basis` on all three databases, live on
+bugfixing, wileytest and wiley.
+
+**What the extractor now returns.** `event_date` is the date the development happened or was
+announced as the article states it, with `date_basis` saying where it came from: `stated`,
+`inferred` (from "yesterday" or "last week" against the publication date) or `article` (no date
+in the text; the publication date stands in). `event_state` is the stage the development is at
+(announced, proposed, drafted, agreed, completed, withdrawn, reported), and an amount qualifier
+goes in the unit ("USD, up to", "USD upfront"). The deck's ledger rows and the HTML say
+"reported on" for an article-dated event. The reconciler prefers a stated date over an
+inferred one.
+
+**Re-extraction of Q4 2026.** The previous table was dumped, the automatic rows deleted (the
+dedupe key includes the date, so new dates would otherwise sit beside old rows), and the
+extraction run end to end: 323 events, reconciled to 250 live records with 71 merged, every one
+with a state, 229 with a stated date and 13 that read "reported on", none before the forecast.
+The OpenAI withdrawal of three preprints is now an event of its own, which the earlier reviews
+had asked for. The six narrative stages were regenerated and reviewed: 24 errors down to 0 over
+four repair rounds, the last remaining "error" being the judge calling a sentence that matches
+the ledger a contradiction. Bundle approved with 5 warnings and no errors; letter gate clean at
+470 words.
+
+**The limit.** The extractor reads article text, so a date that lives only in a primary source
+is still out of reach: Anderon (NIST, 16 September) and OpenAI's release (6 October) were
+corrected on the rows by hand again, with the reason in `edited_by`, and Anderon left the
+window. The next step for those is a primary-source lookup in the reconciler for events whose
+rows disagree on a date or carry only secondary coverage.
+
 ## 2026-10-16 (late afternoon) — Wiley Q4 bundle, round three: one assessment per scenario, judged evidence links
 
 The second independent review confirmed rounds one and two and left five blockers, four of
