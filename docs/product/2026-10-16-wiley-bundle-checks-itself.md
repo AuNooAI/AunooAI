@@ -65,3 +65,14 @@ out of the writers' input.
 
 On Q4 the first pass of the review found ten contradicted sentences instead of fifty-three,
 and the repair cleared them.
+
+## Night update: meaning that survives a correct count
+
+The sixth review accepted the counts and the transaction states and pointed at what a
+count cannot carry: a report's date written as the date something happened, ten mixed
+events called "ten completed agreements", an agreement called an integration, and overview
+sentences describing scenarios with no evidence as emerging. Each of those is now a check in
+code, with the same rule in the judge and the repair step. The expert view on slide 4, which
+had been written from forecast-time headlines and never reviewed, is now written from the
+period's events and reviewed like every other sentence. The synthesis slides place each
+section from the height of the text above it instead of fixed slots.
