@@ -34,7 +34,7 @@ def _catalogue() -> list[dict[str, Any]]:
     from . import recipes, tools
     out = []
     for t in tools.available_tools():
-        if t.name in ("suggest_tool",):
+        if t.name in ("suggest_tool", "check_ai_tells"):
             continue
         out.append({"name": t.name, "kind": "tool", "description": t.description,
                     "arguments": sorted(t.properties.keys())})

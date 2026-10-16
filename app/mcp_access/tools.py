@@ -646,3 +646,9 @@ from . import entity_tools as _entity_tools  # noqa: E402
 
 TOOLS.update(_entity_tools.SPECS)
 _LOCAL_HANDLERS.update(_entity_tools.HANDLERS)
+
+# ── Prose check: the AI-tells detector, for drafts the assistant wrote ──────
+from . import prose_tools as _prose_tools  # noqa: E402
+
+TOOLS.update(_prose_tools.SPECS)
+_LOCAL_HANDLERS.update(_prose_tools.HANDLERS)

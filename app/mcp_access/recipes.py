@@ -17,6 +17,14 @@ _CITATION_RULES = (
     "gap from memory."
 )
 
+_PROSE_CHECK = (
+    "BEFORE YOU RETURN:\n"
+    "- Call `check_ai_tells` with your full draft as `text`. It lists every span "
+    "that reads as machine prose, with a fix for each.\n"
+    "- Edit only the flagged spans, then call it again. Stop when the verdict is "
+    "clean or acceptable. Do not restyle the rest of the text."
+)
+
 
 @dataclass(frozen=True)
 class RecipeArg:
@@ -54,7 +62,9 @@ Tool sequence:
 
 Write a briefing with these sections: what happened (3 to 6 bullets, newest first), what the tone was (use the sentiment percentages, give each number a meaning), what kinds of stories dominated (from the category distribution), and what to watch next week. Keep it under 400 words.
 
-{_CITATION_RULES}"""
+{_CITATION_RULES}
+
+{_PROSE_CHECK}"""
     return [_user_message(text)]
 
 
@@ -70,7 +80,9 @@ Tool sequence:
 
 Write: an opening finding in one or two sentences, evidence grouped by theme, what the sources disagree on, and what remains unknown. Observational, not advice.
 
-{_CITATION_RULES}"""
+{_CITATION_RULES}
+
+{_PROSE_CHECK}"""
     return [_user_message(text)]
 
 
@@ -87,7 +99,9 @@ Tool sequence:
 
 Report per keyword: how many articles, the date range, the three most substantive articles, and whether the volume looks like a spike or steady coverage. Say when a keyword returned nothing.
 
-{_CITATION_RULES}"""
+{_CITATION_RULES}
+
+{_PROSE_CHECK}"""
     return [_user_message(text)]
 
 
@@ -106,7 +120,9 @@ Tool sequence:
 
 Write: the state of the brand in two sentences; what changed in the window; what each audience says, with one quote each; the competitor comparison; what to watch. Give every number its denominator. Observational, not advice.
 
-{_CITATION_RULES}"""
+{_CITATION_RULES}
+
+{_PROSE_CHECK}"""
     return [_user_message(text)]
 
 
