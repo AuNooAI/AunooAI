@@ -1609,23 +1609,35 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
 
     tensions = briefing.get("tensions") or []
     ty = 1.95
+    panel_bottom = 5.22
     notes_parts = []
-    for t in tensions[:3]:
+
+    # Each section's position comes from the height of the text above it,
+    # estimated from characters per line at 9.5pt in a 4.2-inch box (about
+    # 60), not from a fixed slot: 300-character bodies at 9.5pt ran into
+    # the next heading on three slides (sixth review, 16 Oct 2026, F06).
+    def _est_h(text: str) -> float:
+        lines = max(1, -(-len(text) // 60))
+        return 0.1 + lines * 0.165
+
+    def _shown_bodies(cap: int) -> list:
+        return [_fit_sentences(t.get("body") or "", cap) for t in tensions[:3]]
+
+    shown_list = _shown_bodies(180)
+    if sum(0.26 + _est_h(b) + 0.1 for b in shown_list) > panel_bottom - ty:
+        shown_list = _shown_bodies(120)
+    for t, shown in zip(tensions[:3], shown_list):
         name = (t.get("name") or "").upper()
-        body = t.get("body") or ""
-        # Three tensions share 3.3 inches. Whole sentences up to ~300
-        # characters fit four lines at 9.5pt in a 4.2-inch box; the full
-        # body goes to the notes rather than shrinking the type (fifth
-        # review, 16 Oct 2026, F08, slide 28).
-        shown = _fit_sentences(body, 300)
-        if shown != body.strip():
+        body = (t.get("body") or "").strip()
+        if shown != body:
             notes_parts.append(f"{name}: {body}")
         _text(slide, x=0.7, y=ty, w=4.2, h=0.25,
               text=_truncate(name, 60), font_size=10, bold=True, color=WILEY_TEAL)
-        _text(slide, x=0.7, y=ty+0.26, w=4.2, h=0.78,
+        h = _est_h(shown)
+        _text(slide, x=0.7, y=ty+0.26, w=4.2, h=h,
               text=shown, font_size=9.5, color=WILEY_BODY, line_spacing=1.15,
               shrink_to_fit=False)
-        ty += 1.08
+        ty += 0.26 + h + 0.1
 
     # ── Right panel: The Aunoo Intelligence View ─────────────────────
     _rect(slide, x=5.1, y=1.1, w=4.4, h=4.2, fill=WILEY_CARD_BG)
@@ -1648,8 +1660,8 @@ def _add_briefing_synthesis_slide(prs, assessment: dict, *, topic_idx: Optional[
     # Lede and view are fitted separately so the view always keeps its
     # synthesis call; together they fill 3.2 inches at 9.5pt (about 1,050
     # characters). Overflow goes to the notes.
-    lede_shown = _fit_sentences(lede, 560)
-    iv_shown = _fit_sentences(iv, 1050 - len(lede_shown))
+    lede_shown = _fit_sentences(lede, 480)
+    iv_shown = _fit_sentences(iv, 900 - len(lede_shown))
     if lede_shown != lede or iv_shown != iv:
         notes_parts.append("FULL SYNTHESIS: " + "\n\n".join(paragraphs))
     full_text = "\n\n".join(p for p in (lede_shown, iv_shown) if p)

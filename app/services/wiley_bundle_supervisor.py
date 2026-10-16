@@ -818,11 +818,14 @@ def _compute_calibration(items: list, cadence: str = None,
     return out
 
 
-def _expert_commentary_payload(items: list, period_label: str) -> dict:
+def _expert_commentary_payload(items: list, period_label: str, events_by_topic: Optional[dict] = None) -> dict:
     """Build the expert-commentary agent's input: the quarter's emerging
-    themes (surprise clusters) across all topics, with real sample headlines
-    for grounding. Keyword-salad labels are dropped so the commentary never
-    cites an un-relabelled cluster."""
+    themes (surprise clusters) across all topics, grounded in the period's
+    reconciled events. The sample headlines that used to sit here were
+    forecast-time ("Vought will reportedly be given veto power"), and the
+    expert view asserted that authority three weeks after the plan was
+    dropped (sixth review, 16 Oct 2026, F02). Keyword-salad labels are
+    dropped so the commentary never cites an un-relabelled cluster."""
     import re as _re
 
     def _salad(lab: str) -> bool:
@@ -839,19 +842,22 @@ def _expert_commentary_payload(items: list, period_label: str) -> dict:
             lab = (s.get("label") or "").strip()
             if not lab or _salad(lab):
                 continue
-            samples = []
-            for a in (s.get("sample_articles") or [])[:3]:
-                t = a.get("title") if isinstance(a, dict) else a
-                if t:
-                    samples.append(t)
-            themes.append({
-                "topic": topic, "label": lab,
-                "size": s.get("size"), "sample_articles": samples,
-            })
+            themes.append({"topic": topic, "label": lab, "size": s.get("size")})
+    named: dict = {}
+    for assessment, _run, _prior in items:
+        topic = assessment.get("topic") or "—"
+        evs = sorted([e for e in ((events_by_topic or {}).get(topic) or []) if isinstance(e, dict)],
+                     key=lambda e: str(e.get("event_date") or ""), reverse=True)[:25]
+        named[topic] = [{**_event_brief_for_writer(e),
+                         "scenarios": [{"scenario": r.get("scenario"), "direction": r.get("direction")}
+                                       for r in (e.get("scenario_relevance") or []) if isinstance(r, dict)]}
+                        for e in evs]
     return {
         "period_label": period_label,
         "topics": [(a.get("topic") or "—") for (a, _r, _p) in items],
         "emerging_themes": themes,
+        "named_events": named,
+        "organisation": _organisation_context(),
     }
 
 
@@ -1607,7 +1613,7 @@ async def run_pipeline(
             and (_stage_in_plan(plan, "expert_commentary") or not expert_commentary)):
         yield {"stage": "expert_commentary", "status": "started", "progress": 0.905}
         ec = await _call_agent("wiley_expert_commentary_agent",
-                               _expert_commentary_payload(items, period_label))
+                               _expert_commentary_payload(items, period_label, events_by_topic=_events_by_topic(db, cadence, period_label)))
         expert_commentary = ((ec or {}).get("commentary") or "").strip() or expert_commentary
         yield {"stage": "expert_commentary", "status": "completed", "progress": 0.91}
 
@@ -2194,7 +2200,7 @@ async def regenerate_single_stage(
             return
         await _emit(0.3, "Calling expert_commentary agent")
         ec = await _call_agent("wiley_expert_commentary_agent",
-                               _expert_commentary_payload(items, period_label))
+                               _expert_commentary_payload(items, period_label, events_by_topic=_events_by_topic(db, cadence, period_label)))
         text = ((ec or {}).get("commentary") or "").strip()
         # Same guards as the full pipeline: humanize + verdict-scrub.
         if text:

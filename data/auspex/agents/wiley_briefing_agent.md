@@ -3,7 +3,7 @@ name: wiley_briefing_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Briefing Synthesis page (headline + lede + 3 defining tensions + Aunoo Intelligence View). Mirrors Wiley deck slide 20.
 type: agent
-version: 1.2.0
+version: 1.3.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -81,6 +81,7 @@ neutral or positive for the actor involved, either.
 
 - Exactly 3 tensions. Each MUST reference a concrete dynamic visible in the per-scenario data OR named_events — name actors / technologies / events.
 - The lede MUST name at least 2 concrete actors / events from the input. When scenarios is empty, draw them from named_events.
+- A date is the event's `date`. If `date_basis` is "article", write "reported on <date>"; if the event's action is a statement (apologised, disclosed, reported, warned), the date belongs to the statement, not to what it describes. An event's `state` travels with it ("agreed to integrate" is not "integrated"; "will host by summer 2027" stays future). A count of events names the mix of types unless every event is the same type.
 - The headline never says a topic or scenario has no events when its `events` list is non-empty; a topic with three holding scenarios has evidence.
 - Never write "N points" for anything but `article_share_delta_pct`; an event count is "N confirming events".
 - The intelligence_view MUST reach a synthesis call — not just summarise. Is the forecast on track, cooling, or being replaced? When scenarios is empty, characterise the trajectory from the named_events pattern.

@@ -1,3 +1,35 @@
+## 2026-10-16 (night) — Wiley Q4 bundle after the sixth review
+
+The sixth review confirmed the count, metric and transaction-state fixes and left findings
+about meaning that survives a correct count. Commit below, same hunks on wileytest and wiley.
+
+**Date type and statement dates.** The preflight now reads each date in a sentence against
+the ledger: a date every matching event holds as an article date ("reported") cannot be
+written as when the development happened, and a date whose event is a statement (apologised,
+disclosed, warned) belongs to the statement, not to what it describes ("agents accessed
+Medicare on 29 September" for an apology of that date about June). Ledger events carry
+`date_basis`; the judge, repair and writer prompts carry the same rule.
+
+**Event type and stage.** "Ten completed agreements" for a ledger of releases, platform
+access and launches is an error: a count described by one type must match the actions of
+that scenario's events. "Agreed to integrate" stays an agreement; "will host by summer 2027"
+stays future.
+
+**Hypothesis as fact.** An overview, theme, decision-framework or expert-view sentence that
+describes a scenario with no judged events as emerging, accelerating or routing around
+gatekeepers is an error unless it marks itself as a watch item or a hypothesis. The judge
+also checks platform-breach claims against named incidents and recommendations against the
+named tool's documented scope (a generation-time watermark on all published material).
+
+**The expert view is reviewed.** Slide 4 was written from forecast-time sample headlines
+and was never a review segment; it still said the administration was "asserting veto
+authority". It is now written from the period's events (`named_events` per topic, with
+state and date type) and reviewed with everything else.
+
+**Synthesis slide layout.** Section positions come from the estimated height of the text
+above them (about 60 characters per line at 9.5pt), bodies are cut at a sentence boundary
+at 180 characters (120 if three still do not fit), and the full text sits in the notes.
+
 ## 2026-10-16 (evening) — Wiley Q4 bundle after the fifth review
 
 The fifth outside review of the Q4 2026 deck found six P1 defects. Four of them had one

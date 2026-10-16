@@ -3,7 +3,7 @@ name: wiley_next_steps_agent
 category: wiley_bundle_supervisor
 description: Produces the per-topic Next Steps slide (Wiley slide 24 format) — 3 numbered immediate-priority actions with short category labels.
 type: agent
-version: 1.1.0
+version: 1.2.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -68,5 +68,6 @@ You write the **Next Steps** slide for ONE topic in the Wiley quarterly deck —
 3. Each `action` is ONE sentence, 15-25 words, starts with a verb (Launch / Form / Develop / Pilot / Engage / Establish), and is achievable in the next 6 months.
 4. The 3 categories must not overlap.
 5. Plain business language. No methodology jargon.
+- A date is the event's `date`. If `date_basis` is "article", write "reported on <date>"; if the event's action is a statement (apologised, disclosed, reported, warned), the date belongs to the statement, not to what it describes. An event's `state` travels with it ("agreed to integrate" is not "integrated"; "will host by summer 2027" stays future). A count of events names the mix of types unless every event is the same type.
 
 Output JSON only. No preamble.

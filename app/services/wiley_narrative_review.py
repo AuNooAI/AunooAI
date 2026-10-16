@@ -95,6 +95,12 @@ def _segments(items: list, payload: dict) -> List[dict]:
     if isinstance(payload.get("strategic_overview"), str) and payload["strategic_overview"].strip():
         segs.append({"target": "strategic_overview", "topic": None, "kind": "bundle",
                      "path": "strategic_overview", "text": payload["strategic_overview"]})
+    # The expert view (slide 4) was never reviewed; it said the administration
+    # was "asserting veto authority" three weeks after the scheme was dropped
+    # (sixth review, 16 Oct 2026, F02).
+    if isinstance(payload.get("expert_commentary"), str) and payload["expert_commentary"].strip():
+        segs.append({"target": "expert_commentary", "topic": None, "kind": "bundle",
+                     "path": "expert_commentary", "text": payload["expert_commentary"]})
     letter = (payload.get("exec_summary") or {}).get("letter") if isinstance(payload.get("exec_summary"), dict) else None
     if isinstance(letter, str) and letter.strip():
         segs.append({"target": "exec_summary.letter", "topic": None, "kind": "bundle",
@@ -126,6 +132,7 @@ def _ledger(items: list, events_by_topic: dict) -> Dict[str, dict]:
                 "date": str(e.get("event_date") or "")[:10] or None,
                 "magnitude": (f"{mv:g} {mu or ''}".strip() if isinstance(mv, (int, float)) else None),
                 "state": e.get("event_state"),
+                "date_basis": e.get("date_basis"),
             })
         eos = (a.get("summary") or {}).get("extreme_outlier_scenarios") or (a.get("summary") or {}).get("eos") or []
         # The writers also see each scenario's top supporting and contradicting
@@ -398,6 +405,131 @@ def _signal_findings(seg: dict, scen: list, topic_events: list) -> List[dict]:
              "suggested_fix": "Name an event from this scenario's `events` (actor and what it did), or start the phrase with 'Watch:' so it reads as something to look for rather than something observed."}]
 
 
+_SPEECH = re.compile(r"\b(report(?:ed|s|ing)?|disclos(?:ed|es|ure)|apologi[sz]ed|apology|announc(?:ed|es|ement)|"
+                     r"warn(?:ed|s|ing)|confirm(?:ed|s)|publish(?:ed|es)|said|stated|according to|coverage|described|"
+                     r"found|issued|wrote|revealed|admitted|backtracked|clarified)\b", re.I)
+_SPEECH_ACT = re.compile(r"^\s*(apologi[sz]ed|disclosed|reported|announced|warned|confirmed|published|said|found|"
+                         r"issued|stated|revealed|admitted|backtracked|clarified)\b", re.I)
+
+
+def _date_basis_findings(seg: dict, events: list) -> List[dict]:
+    """A date the ledger holds as an article date, or as the date of a
+    statement (an apology, a disclosure), is written as the date the
+    development happened: "agents accessed Medicare on 29 September" for an
+    apology that day about a June hack; "NIH terminated grants on 28
+    September" for a report of that date (sixth review, 16 Oct 2026, F01)."""
+    from app.services.daily_report_service import _sentences, _dates_in, _date_matches
+    by_date: Dict[tuple, list] = {}
+    for e in events or []:
+        d = str(e.get("date") or "")[:10]
+        if len(d) == 10 and d[4] == "-":
+            try:
+                by_date.setdefault((int(d[5:7]), int(d[8:10]), int(d[:4])), []).append(e)
+            except ValueError:
+                continue
+    out = []
+    for sent in _sentences(seg["text"]):
+        if _SPEECH.search(sent):
+            continue
+        for d in _dates_in(sent):
+            matches = [e for key, evs in by_date.items() if _date_matches(d, [key]) for e in evs]
+            if not matches:
+                continue
+            label = f"{d[1]} {['','January','February','March','April','May','June','July','August','September','October','November','December'][d[0]]}"
+            if all(str(e.get("date_basis") or "") == "article" for e in matches):
+                out.append({"target": seg["target"], "severity": "error", "check": "date",
+                            "finding": f"{label} is the article date of every ledger event carrying it (reported, not occurred); the sentence dates the development itself.",
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": f"Write 'reported on {label}' or attach the date to the reporting, not to the development."})
+                break
+            if all(_SPEECH_ACT.search(str(e.get("action") or "")) for e in matches):
+                acts = sorted({str(e.get("action")).split()[0].lower() for e in matches})
+                out.append({"target": seg["target"], "severity": "error", "check": "date",
+                            "finding": f"On {label} the ledger's event is a statement ({', '.join(acts)}), not the development it describes; the sentence dates the development.",
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": f"Date the statement: '<actor> {acts[0]} on {label} that …', and leave the underlying development undated unless the ledger dates it."})
+                break
+    return out
+
+
+_TYPE_COUNT = re.compile(r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+                         r"sixteen|seventeen|eighteen|nineteen|twenty)\s+(?:(?:confirming|completed|signed|new|formal|"
+                         r"separate|distinct|successful)\s+)*(agreements?|deals?|approvals?|submissions?|partnerships?|"
+                         r"launches|releases?|acquisitions?|contracts?|filings?|retractions?|terminations?)\b", re.I)
+_TYPE_STEMS = {"agreement": ("agree", "partner", "deal", "contract", "sign", "mou", "alliance"),
+               "deal": ("agree", "partner", "deal", "contract", "sign", "acqui"),
+               "approval": ("approv", "clear", "authoris", "authoriz", "granted"),
+               "submission": ("submit", "fil", "applic"), "filing": ("fil", "submit", "applic"),
+               "partnership": ("partner", "agree", "alliance", "collaborat", "deal"),
+               "launch": ("launch", "open", "unveil"), "release": ("releas", "publish", "open"),
+               "acquisition": ("acqui", "bought", "purchas", "takeover"), "contract": ("contract", "award", "agree"),
+               "retraction": ("retract",), "termination": ("terminat", "cancel", "withh")}
+
+
+def _type_count_findings(seg: dict, scen: list) -> List[dict]:
+    """'Ten completed agreements' for a ledger of model releases, platform
+    access and launches: the total is right and its meaning is wrong (sixth
+    review, F04)."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    for sent in _sentences(seg["text"]):
+        for m in _TYPE_COUNT.finditer(sent):
+            raw = m.group(1).lower()
+            n = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw)
+            word = m.group(2).lower()
+            stem_key = next((k for k in _TYPE_STEMS if word.startswith(k[:5])), None)
+            if not n or not stem_key:
+                continue
+            stems = _TYPE_STEMS[stem_key]
+            for sc in scen:
+                evs = sc.get("events") or []
+                if not evs or n not in ((sc.get("n_confirm") or 0), (sc.get("n_confirm") or 0) + (sc.get("n_counter") or 0)):
+                    continue
+                typed = [e for e in evs if any(s in (str(e.get("action") or "") + " " + str(e.get("subject") or "")).lower() for s in stems)]
+                if len(typed) < len(evs):
+                    acts = sorted({str(e.get("action") or "").lower() for e in evs})[:6]
+                    out.append({"target": seg["target"], "severity": "error", "check": "state",
+                                "finding": f"The sentence counts {n} {word}; the '{sc.get('name')}' ledger's {len(evs)} events are not all {stem_key}s (actions: {', '.join(acts)}).",
+                                "claim_text": sent, "source": "preflight",
+                                "suggested_fix": f"Say '{n} confirming events' and name the mix of types, or count only the {stem_key}s."})
+                    break
+            else:
+                continue
+            break
+    return out
+
+
+_PROGRESS = re.compile(r"\b(emerging|emerges|emerged|accelerat\w*|materialis\w*|materializ\w*|gaining|gains|taking hold|"
+                       r"under ?way|is forming|are forming|routing around|substitut\w*|bearing out|confirm(?:ed|ing|s)|"
+                       r"advancing|advances|strengthening|momentum|is building|are building|now fill|filling)\b", re.I)
+_HEDGE = re.compile(r"\b(too early|no events?|not yet|watch|would|could|may|might|if|hypothes\w*|remains? to be seen|"
+                    r"no evidence|absent|unconfirmed|has not|have not)\b", re.I)
+
+
+def _progress_findings(seg: dict, scen: list) -> List[dict]:
+    """An overview that says a scenario with no judged events is emerging,
+    accelerating or routing around gatekeepers (sixth review, F03)."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    early = [sc for sc in scen if (sc.get("n_confirm") or 0) + (sc.get("n_counter") or 0) == 0 and len(str(sc.get("name") or "")) > 3]
+    if not early:
+        return out
+    for sent in _sentences(seg["text"]):
+        low = sent.lower()
+        if not _PROGRESS.search(sent) or _HEDGE.search(sent):
+            continue
+        for sc in early:
+            name = str(sc.get("name")).lower()
+            shorts = [" ".join(name.split()[:k]) for k in (3, 2)]
+            if name in low or any(len(s) > 10 and s in low for s in shorts):
+                out.append({"target": seg["target"], "severity": "error", "check": "contradiction",
+                            "finding": f"The sentence describes '{sc.get('name')}' as developing; its ledger has no judged events (Too early).",
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": "Present it as a watch item or a hypothesis, not as something observed this cycle."})
+                break
+    return out
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -406,21 +538,30 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
     facts_by_topic = {t: _facts([lt], extra_numbers) for t, lt in ledger.items()}
     findings: List[dict] = []
     scen_all = [sc for lt in all_topics for sc in (lt.get("scenarios") or [])]
+    events_all = [e for lt in all_topics for e in (lt.get("events") or [])]
     for seg in segments:
         if seg.get("kind") == "topic" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
+            evs = ledger[seg["topic"]].get("events") or []
             findings.extend(_sweep_findings(seg, scen))
             findings.extend(_count_findings(seg, scen))
             findings.extend(_silence_findings(seg, scen))
             findings.extend(_points_findings(seg, scen))
+            findings.extend(_date_basis_findings(seg, evs))
+            findings.extend(_type_count_findings(seg, scen))
+            findings.extend(_progress_findings(seg, scen))
         elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
             findings.extend(_points_findings(seg, scen))
+            findings.extend(_date_basis_findings(seg, ledger[seg["topic"]].get("events") or []))
             if "key_signals[" in seg.get("path", ""):
                 findings.extend(_signal_findings(seg, scen, ledger[seg["topic"]].get("events") or []))
         else:
             findings.extend(_count_findings(seg, scen_all, per_topic=[lt.get("scenarios") or [] for lt in all_topics]))
             findings.extend(_points_findings(seg, scen_all))
+            findings.extend(_date_basis_findings(seg, events_all))
+            findings.extend(_type_count_findings(seg, scen_all))
+            findings.extend(_progress_findings(seg, scen_all))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
             dates, nums, corpus = facts_all

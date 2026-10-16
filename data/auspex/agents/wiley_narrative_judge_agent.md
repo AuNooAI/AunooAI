@@ -3,7 +3,7 @@ name: wiley_narrative_judge_agent
 category: wiley_bundle_supervisor
 description: Judge for the bundle narrative (ledes, tensions, recommendations, next steps, themes, overview, letter) against the reconciled event ledger and scenario states. Every finding quotes the sentence it is about; findings that do not quote are advisory.
 type: agent
-version: 1.1.0
+version: 1.2.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -61,7 +61,29 @@ Flag a sentence when:
 - **enabling step**: a plan announced, a review launched, a bill signed to
   put a measure on a future ballot, or an award received is not the outcome
   it points to. A sentence that presents it as the outcome ("regional bodies
-  now fill the gap", "the separation is complete") is a `state` error.
+  now fill the gap", "the separation is complete") is a `state` error;
+- **date type**: an event whose `date_basis` is `article` happened at an
+  unstated time and was reported on that date; an event whose action is a
+  statement (apologised, disclosed, reported, warned) is dated by the
+  statement, not by what it describes. "Agents accessed Medicare on 29
+  September" for an apology of that date about a June incident is `false`;
+- **event type and stage**: a count described by one type ("ten completed
+  agreements", "nine approvals") must match the actions of the events in that
+  scenario's list; "agreed to integrate" is not "integrated"; "will host by
+  summer 2027" is not "houses"; a comparison keeps its baseline ("classical
+  supercomputers" is not "quantum hardware"). These are `state` errors;
+- **hypothesis as fact** (overview, themes, decision framework, expert view):
+  a development these segments assert must be an event in some topic's
+  ledger. A scenario with no judged events cannot be "emerging",
+  "accelerating" or "routing around" anything; a platform "breach" needs a
+  named incident at that kind of platform; a causal link ("failures are
+  forcing partnerships") needs the ledger to state it. Otherwise `absent`,
+  unless the sentence marks itself as a hypothesis or a watch item;
+- **feasibility**: a recommendation must be doable as written by the
+  organisation with the tool named, in the tool's documented scope. A
+  generation-time text watermark cannot be applied to all published material
+  retrospectively; a detector with restricted access cannot be a portfolio-wide
+  gate by a date. This is `audience`.
 
 Severity: `error` when a reader would take away a false fact or a wrong
 status; `warning` for emphasis, phrasing and anything debatable. Do not
