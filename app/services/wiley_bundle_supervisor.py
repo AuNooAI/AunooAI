@@ -2071,15 +2071,41 @@ async def regenerate_single_stage(
         except Exception as e:
             logger.warning("EOS load failed during exec_summary regen: %s", e)
             eos_per_topic = {}
-        new_payload = await _call_agent(
-            "wiley_exec_summary_agent",
-            _exec_summary_payload(
-                items, period_label, prior_payload, eos_per_topic,
-                briefings={}, recommendations={}, next_steps={},
-                calibration=_compute_calibration(items, cadence, period_label),
-                cadence=cadence,
-            ),
+        exec_payload = _exec_summary_payload(
+            items, period_label, prior_payload, eos_per_topic,
+            briefings={}, recommendations={}, next_steps={},
+            calibration=_compute_calibration(items, cadence, period_label),
+            cadence=cadence,
         )
+        new_payload = await _call_agent("wiley_exec_summary_agent", exec_payload)
+        # The same gate the full pipeline applies (five sections, 400 words,
+        # banned severity words), with two retries. The single-stage letter
+        # shipped at 377 words without it (16 Oct 2026).
+        titles = _bundle_titles(items, eos_per_topic)
+        for _attempt in range(3):
+            if isinstance(new_payload, dict) and new_payload.get("letter"):
+                new_payload["letter"] = _quote_titles_with_banned_words(new_payload["letter"], titles)
+            defects = _letter_defects((new_payload or {}).get("letter") or "")
+            if not defects or _attempt == 2:
+                if defects:
+                    logger.warning("single-stage exec letter still incomplete after retries: %s", "; ".join(defects))
+                break
+            logger.warning("single-stage exec letter incomplete (%s) — retrying", "; ".join(defects))
+            words = [d.split('"')[1] for d in defects if d.startswith("severity language")]
+            structural = [d for d in defects if not d.startswith("severity language")]
+            parts = []
+            if structural:
+                parts.append("Your previous draft was structurally incomplete: " + "; ".join(structural)
+                             + ". Produce the COMPLETE letter with all five bold sections at full length "
+                               "(about 600 words).")
+            if words:
+                parts.append("Your previous draft used banned severity words in your own voice: "
+                             + ", ".join(words) + ". Remove every one; a scenario or article title that "
+                               "contains one goes in double quotes.")
+            retry_payload = dict(exec_payload)
+            retry_payload["structure_defects"] = " ".join(parts)
+            new_payload = await _call_agent("wiley_exec_summary_agent", retry_payload)
+        gated_letter = (new_payload or {}).get("letter") if isinstance(new_payload, dict) else None
         es_locks = [
             p[len("exec_summary."):] for p in locked_keys
             if p.startswith("exec_summary.")
@@ -2101,9 +2127,18 @@ async def regenerate_single_stage(
                 v = await strip_forecast_verdicts(letter)
                 letter = v["text"] if v.get("changed") else letter
                 named = db.facade.list_extracted_events(
-                    cadence=cadence, period_label=period_label) or []
+                    cadence=cadence, period_label=period_label, include_excluded=False) or []
                 g = await ground_check_exec_summary(letter, named)
-                new_payload["letter"] = g["text"] if g.get("changed") else letter
+                letter = g["text"] if g.get("changed") else letter
+                # The guards rewrite after the gate; re-quote and keep the
+                # gated letter if they reintroduced a banned word.
+                letter = _quote_titles_with_banned_words(letter, titles)
+                if _severity_language_defects(letter) and gated_letter \
+                        and not _severity_language_defects(gated_letter):
+                    logger.warning("exec letter: post-guard rewrite reintroduced %s; keeping the gated letter",
+                                   _severity_language_defects(letter))
+                    letter = gated_letter
+                new_payload["letter"] = letter
         except Exception as e:
             logger.warning("exec_summary post-guards failed (non-fatal): %s", e)
 
