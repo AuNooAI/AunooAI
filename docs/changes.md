@@ -1,3 +1,33 @@
+## 2026-10-17 (evening, thirteenth review) — Wiley Q4 bundle: mixed evidence reads as mixed; enabling milestones are not outcomes; audit export
+
+The thirteenth review read the merge-repair bundle. Counts and arrays agreed everywhere; the
+interpretation did not.
+
+- **`_calibration_read`** (`forecast_pptx_export.py`): confirming and countering events that net
+  to zero read "Mixed evidence — N confirming and M countering; not enough to resolve the
+  forecast" (category `contested`), whatever the consensus basis. Before, a high-consensus 1/1
+  scenario read "the evidence isn't showing up" and sat on the headline gap list.
+- **Rate check** (`wiley_narrative_review.py`): "faster than anticipated" and "ahead of schedule"
+  are timing claims the counts cannot support; the exemption for them is gone.
+- **wileytest records**: thirteen links rejected by hand with a recorded reason, applying the
+  fourth review's rule (an enabling milestone is not the outcome a scenario claims) to both
+  directions: five counters to NISQ Limitations Sustain Classical Infrastructure (2718, 2720,
+  2724, 2726, 2727, 2729, 2730 across runs) and four confirms to Error Correction Unlocks
+  Practical Applications (2724, 2727, 2733, 2764). Both scenarios are back to too early. The
+  federal STEM announcement is described as the record has it (STEM education, 8 October), and
+  "materialising faster than anticipated" is gone.
+- **Audit export** (`link_audit_export.csv` / `.json`, session scratchpad, emailed): one line per
+  scenario link on every Q4 row, 250 lines (179 active, 67 rejected, 4 hand-locked, 0 removed
+  without record, 0 undecided), with before-repair standing and rationale, origin, disposition,
+  reason, decider, time and judge identity. Restored-only versus combined statuses in
+  `status_table.json`.
+
+Verification: tests 10 passed; merged-link audit 0 gaps; build 20:24 approved_with_warnings, 0
+errors, narrative review clear; HTML 62 confirming and 7 countering links, every array equal to
+its count; every changed sentence read against the 12:16 deck. Emailed 20:25 (Resend
+01a14b1c-e60d-7d5b-a7df-ed387e3286c4). The build overwrote the local copy of the 16:55 deck
+because it reused the round-17 file names; round scripts must never write over a sent file.
+
 ## 2026-10-17 (late afternoon) — Wiley Q4 bundle: links lost in the duplicate merge, put back with provenance; a build fails on a silent loss
 
 ### Goal

@@ -798,6 +798,13 @@ def _calibration_read(basis_pct, n_confirm: int, n_counter: int):
 
     confirming_net = n_confirm - n_counter
 
+    # Evidence in both directions that nets to nothing is mixed, not absent
+    # (thirteenth review, 17 Oct 2026: one confirming and one countering
+    # event read "the evidence isn't showing up").
+    if n_confirm > 0 and n_counter > 0 and confirming_net == 0:
+        return (f"Mixed evidence — {n_confirm} confirming and {n_counter} countering; "
+                "not enough to resolve the forecast.", "contested")
+
     if b is not None and b >= hi:
         if n_confirm > 0 and n_counter == 0:
             return ("Consensus holding — sources expected this and the evidence "

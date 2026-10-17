@@ -1068,7 +1068,7 @@ def _baseline_findings(seg: dict, events: list) -> List[dict]:
 
 # ── Eighth review (16 Oct 2026): rates, bridges and length ─────────────
 
-_RATE = re.compile(r"\b(outpac\w+|faster than\b(?!\s+(?:anticipated|expected|forecast))|keep(?:s|ing)? pace|rate at which|far exceed\w*|smaller than the volume|"
+_RATE = re.compile(r"\b(outpac\w+|faster than\b|ahead of (?:schedule|forecast)|keep(?:s|ing)? pace|rate at which|far exceed\w*|smaller than the volume|"
                    r"can no longer absorb|cannot absorb|scale gap|exceed\w* (?:the )?(?:capacity|volume)|"
                    r"(?:is|are) accelerating\b|accelerating faster|at a faster rate|slower than\b|"
                    r"(?:is|are) (?:not )?scaling\b|past recovery)\b", re.I)
