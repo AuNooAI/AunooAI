@@ -171,6 +171,26 @@ def _is_locked(path: str, locked_keys: list) -> bool:
     return False
 
 
+BUNDLE_NARRATIVE_KEYS = ("strategic_overview", "cross_cutting_themes", "executive_decision_framework",
+                         "exec_summary", "expert_commentary")
+TOPIC_NARRATIVE_KEYS = ("topic_briefing", "strategic_recommendations", "next_steps")
+
+
+def _bundle_fully_locked(synth: dict, items: list) -> bool:
+    """True when every bundle narrative key and every topic's narrative keys
+    are locked, so a build has nothing to write."""
+    locked = (synth or {}).get("locked_keys") or []
+    if not all(_is_locked(k, locked) for k in BUNDLE_NARRATIVE_KEYS):
+        return False
+    if not items:
+        return False
+    for (a, _r, _p) in items:
+        tl = (a or {}).get("summary_locked_keys") or []
+        if not all(_is_locked(k, tl) for k in TOPIC_NARRATIVE_KEYS):
+            return False
+    return True
+
+
 def _exec_summary_locks(locked_keys: list, prior_es: dict) -> list:
     """The exec_summary fields to restore: every field of the prior
     subtree when "exec_summary" itself is locked, else the named ones."""
@@ -1429,13 +1449,26 @@ async def run_pipeline(
 
     # ── Stage 1: supervisor plans ───────────────────────────────────
     yield {"stage": "supervisor", "status": "started", "progress": 0.05}
-    plan = await _call_agent("wiley_supervisor_agent", _supervisor_payload(
-        items, cadence, period_label,
-        cross_topic_cached=cross_cached, exec_summary_cached=exec_cached,
-        prior_review=prior_review,
-    ))
-    yield {"stage": "supervisor", "status": "completed", "progress": 0.1,
-           "payload": {"plan_stages": [_plan_stage_name(s) for s in plan.get("plan", []) or []]}}
+    # A fully locked bundle has nothing to write. Once every bundle key and
+    # every topic's narrative keys are locked, the planner is not asked, no
+    # writer runs, and the reviewed text goes straight to the reviewer and
+    # the render. Before this (17 Oct 2026) the planner reran the letter on a
+    # plain rebuild and the review stage reworked the result; the locks now
+    # hold, but each such build still spent the model calls. Evidence edits
+    # after locking are not noticed: unlock, rerun the review, lock again.
+    if _bundle_fully_locked(prior_synth, items) and cross_cached and exec_cached:
+        plan = {"plan": [], "reason": "every narrative key is locked; re-export only"}
+        logger.info("bundle fully locked: planner and writers skipped, re-export only")
+        yield {"stage": "supervisor", "status": "completed", "progress": 0.1,
+               "payload": {"plan_stages": [], "fully_locked": True}}
+    else:
+        plan = await _call_agent("wiley_supervisor_agent", _supervisor_payload(
+            items, cadence, period_label,
+            cross_topic_cached=cross_cached, exec_summary_cached=exec_cached,
+            prior_review=prior_review,
+        ))
+        yield {"stage": "supervisor", "status": "completed", "progress": 0.1,
+               "payload": {"plan_stages": [_plan_stage_name(s) for s in plan.get("plan", []) or []]}}
 
     # ── Stages 2-3 are pure data; skip in this slim build — the existing
     # narrative agents already have access to the same source data via the

@@ -153,6 +153,9 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   actor and the subject; everything else lands in `unverified_rows` for you to check. Read both
   lists after a build. `WILEY_SKIP_PRECEDENCE=1` skips it. The dry-run script is
   `r13_precedence.py` in the session scratchpad (`R13_APPLY=1` applies).
+- **A fully locked bundle is a re-export.** With all five bundle keys and the three topic keys
+  locked on every topic, a build skips the planner and the writers (log line "bundle fully
+  locked"). It will not notice a record edit; after one, unlock, run the review, lock.
 - **The humanizer is a writer too.** `humanize_bundle_payload` runs on every build and is a model
   rewrite. Since the eleventh review (17 Oct 2026) a lock on a parent path covers the fields under
   it, and the narrative review runs when the humanizer changed anything. Before that, a plain

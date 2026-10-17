@@ -1,3 +1,13 @@
+## 2026-10-17 (afternoon) — Wiley Q4 bundle: a fully locked bundle is a plain re-export
+
+Once every bundle narrative key and every topic's narrative keys are locked, a build no longer
+asks the planner or runs a writer: `_bundle_fully_locked` in `wiley_bundle_supervisor.py` sets an
+empty plan, the humanizer and the narrative review have nothing to do, and the reviewed text goes
+to the reviewer and the render. A build-only run on wileytest went from ten to twenty minutes to
+95 seconds, with the deck text-identical to the sent one. The trade: a locked bundle does not
+notice evidence edits on its own, so the runbook rule after a record change stays unlock, rerun
+the review, lock.
+
 ## 2026-10-17 (early afternoon, twelfth review) — Wiley Q4 bundle: matrix cells on their rows; a parent lock covers its children everywhere
 
 The twelfth review found the middle-row cells of the HTML matrix had no grid placement, so the low
