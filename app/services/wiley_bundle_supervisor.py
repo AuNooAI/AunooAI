@@ -160,6 +160,25 @@ def _apply_locks_after_call(prior: dict, new: dict, locked_paths: list) -> dict:
     return merged
 
 
+def _is_locked(path: str, locked_keys: list) -> bool:
+    """A lock on "exec_summary" covers "exec_summary.letter"; one on
+    "cross_cutting_themes" covers "cross_cutting_themes[1].body". The
+    exact-match checks let a planner-regenerated letter replace a locked,
+    reviewed one on a plain rebuild (17 Oct 2026)."""
+    for k in (locked_keys or []):
+        if path == k or path.startswith(k + ".") or path.startswith(k + "["):
+            return True
+    return False
+
+
+def _exec_summary_locks(locked_keys: list, prior_es: dict) -> list:
+    """The exec_summary fields to restore: every field of the prior
+    subtree when "exec_summary" itself is locked, else the named ones."""
+    if "exec_summary" in (locked_keys or []):
+        return list((prior_es or {}).keys())
+    return [p[len("exec_summary."):] for p in (locked_keys or []) if p.startswith("exec_summary.")]
+
+
 # ── Custom exception raised when the reviewer blocks delivery ─────────
 
 class BundleRequiresReviewError(Exception):
@@ -1532,7 +1551,7 @@ async def run_pipeline(
             from app.services.wiley_humanizer import ground_check_figures
             overview = (cross_topic or {}).get("strategic_overview")
             if isinstance(overview, str) and overview.strip() \
-                    and "strategic_overview" not in (locked_keys or []):
+                    and not _is_locked("strategic_overview", locked_keys):
                 ct_sources = [json.dumps(_cross_topic_payload(items, period_label, briefings, events_by_topic),
                                          default=str)]
                 ct_sources += [json.dumps(a.get("summary") or {}, default=str)
@@ -1618,12 +1637,9 @@ async def run_pipeline(
         # Restore locks scoped to exec_summary fields. Locked path
         # 'exec_summary.letter' on the bundle becomes 'letter' here
         # because exec_summary is the local subtree.
-        es_locks = [
-            p[len("exec_summary."):] for p in locked_keys
-            if p.startswith("exec_summary.")
-        ]
+        prior_es = prior_payload.get("exec_summary") or {}
+        es_locks = _exec_summary_locks(locked_keys, prior_es)
         if es_locks:
-            prior_es = prior_payload.get("exec_summary") or {}
             exec_summary = _apply_locks_after_call(prior_es, exec_summary, es_locks)
         yield {"stage": "exec_summary", "status": "completed", "progress": 0.9}
 
@@ -1633,7 +1649,7 @@ async def run_pipeline(
     # re-planned, and never when the analyst has locked it. Grounded in the
     # named themes; humanized + verdict-scrubbed below with the other prose.
     expert_commentary = (prior_synth.get("payload") or {}).get("expert_commentary") or ""
-    if ("expert_commentary" not in (locked_keys or [])
+    if (not _is_locked("expert_commentary", locked_keys)
             and (_stage_in_plan(plan, "expert_commentary") or not expert_commentary)):
         yield {"stage": "expert_commentary", "status": "started", "progress": 0.905}
         ec = await _call_agent("wiley_expert_commentary_agent",
@@ -1692,7 +1708,7 @@ async def run_pipeline(
     try:
         es = bundle_payload.get("exec_summary")
         if (isinstance(es, dict) and es.get("letter")
-                and "exec_summary.letter" not in (locked_keys or [])):
+                and not _is_locked("exec_summary.letter", locked_keys)):
             from app.services.wiley_humanizer import strip_forecast_verdicts
             r = await strip_forecast_verdicts(es["letter"])
             if r["changed"]:
@@ -1812,7 +1828,7 @@ async def run_pipeline(
         # Same deterministic verdict guard on the expert commentary.
         ec_text = bundle_payload.get("expert_commentary")
         if (isinstance(ec_text, str) and ec_text.strip()
-                and "expert_commentary" not in (locked_keys or [])):
+                and not _is_locked("expert_commentary", locked_keys)):
             from app.services.wiley_humanizer import strip_forecast_verdicts
             r2 = await strip_forecast_verdicts(ec_text)
             if r2["changed"]:
@@ -2331,12 +2347,9 @@ async def regenerate_single_stage(
             retry_payload["structure_defects"] = " ".join(parts)
             new_payload = await _call_agent("wiley_exec_summary_agent", retry_payload)
         gated_letter = (new_payload or {}).get("letter") if isinstance(new_payload, dict) else None
-        es_locks = [
-            p[len("exec_summary."):] for p in locked_keys
-            if p.startswith("exec_summary.")
-        ]
+        prior_es = prior_payload.get("exec_summary") or {}
+        es_locks = _exec_summary_locks(locked_keys, prior_es)
         if es_locks:
-            prior_es = prior_payload.get("exec_summary") or {}
             new_payload = _apply_locks_after_call(prior_es, new_payload, es_locks)
 
         # Same guards the full pipeline applies: humanize + scrub any
@@ -2346,7 +2359,7 @@ async def regenerate_single_stage(
                 humanize_text, strip_forecast_verdicts, ground_check_exec_summary,
                 humanize_enabled)
             if humanize_enabled() and new_payload.get("letter") \
-                    and "exec_summary.letter" not in (locked_keys or []):
+                    and not _is_locked("exec_summary.letter", locked_keys):
                 h = await humanize_text(new_payload["letter"])
                 letter = h["text"] if h.get("changed") else new_payload["letter"]
                 v = await strip_forecast_verdicts(letter)
@@ -2377,7 +2390,7 @@ async def regenerate_single_stage(
         return
 
     if stage == "expert_commentary":
-        if "expert_commentary" in (locked_keys or []):
+        if _is_locked("expert_commentary", locked_keys):
             await _emit(1.0, "expert_commentary locked — skipped")
             return
         await _emit(0.3, "Calling expert_commentary agent")

@@ -146,7 +146,8 @@ h2{margin:0 0 4px;font-size:20px;color:var(--navy)}
 .cell.hot{background:#fff7ed;border-color:#fdba74}
 .cell.gold{background:#ecfdf5;border-color:#6ee7b7}
 #cell-hi-thin{grid-row:2;grid-column:2}#cell-hi-conf{grid-row:2;grid-column:3}
-#cell-lo-thin{grid-row:3;grid-column:2}#cell-lo-conf{grid-row:3;grid-column:3}
+#cell-mid-thin{grid-row:3;grid-column:2}#cell-mid-conf{grid-row:3;grid-column:3}
+#cell-lo-thin{grid-row:4;grid-column:2}#cell-lo-conf{grid-row:4;grid-column:3}
 .chip{display:inline-block;margin:3px 4px 3px 0;padding:5px 10px;border-radius:16px;font-size:12.5px;cursor:pointer;border:1px solid var(--line);background:#fff;transition:.12s}
 .chip:hover{border-color:var(--pink);box-shadow:0 1px 4px rgba(214,52,108,.2)}
 .chip .dot{font-size:11px;margin-right:4px}

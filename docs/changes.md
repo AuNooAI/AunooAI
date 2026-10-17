@@ -1,3 +1,18 @@
+## 2026-10-17 (early afternoon, twelfth review) — Wiley Q4 bundle: matrix cells on their rows; a parent lock covers its children everywhere
+
+The twelfth review found the middle-row cells of the HTML matrix had no grid placement, so the low
+cells sat beside the MIDDLE label. Fixed in the CSS (`#cell-mid-*` on row 3, `#cell-lo-*` on row 4)
+and the build script now reads the grid rules back from the generated file.
+
+The rebuild for that fix exposed a worse thing. The planner chose to regenerate the executive
+letter on a plain rebuild, the lock on `exec_summary` was not honoured because the exec stage
+looked only for `exec_summary.<field>`, and the in-pipeline narrative review then repaired the
+fresh letter twice and rewrote six tension displays and a body. `_is_locked` and
+`_exec_summary_locks` in `wiley_bundle_supervisor.py` now treat a locked parent as covering its
+children at every lock check (overview, letter, expert commentary, the exec stage's restore). The
+reviewed letter, lede, displays and body were restored by hand from the 10:51 files, and the sent
+deck is text-identical to that one.
+
 ## 2026-10-17 (midday, eleventh review) — Wiley Q4 bundle: the HTML exports every judged record, three consensus bands, date bases on every row
 
 The eleventh review read the HTML and the docx against the deck. The prose matched across the three
