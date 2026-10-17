@@ -144,6 +144,19 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   by hand: the first run over-reached on five rows, the second on two, so treat its
   `historical_rows` as proposals to confirm against the article, never as applied truth. A
   statement made in the window is an event.
+- **Precedence** (`judge_event_precedence_for_bundle`, after the window judge, since the tenth
+  review on 17 Oct 2026): the window judge reads only the source article, so an award announced
+  on 14 September and reported again on 1 October looked new. The precedence judge searches the
+  web (Bright Data, at most `WILEY_PRECEDENCE_SEARCHES` events per run, default 60, narrative-named
+  and evidence-slide events first) for an earlier announcement of the same action. It applies a
+  verdict only when the cited result carries a readable date before the window and names the
+  actor and the subject; everything else lands in `unverified_rows` for you to check. Read both
+  lists after a build. `WILEY_SKIP_PRECEDENCE=1` skips it. The dry-run script is
+  `r13_precedence.py` in the session scratchpad (`R13_APPLY=1` applies).
+- **Geography** (`geography_findings` in `wiley_narrative_review.py`): a sentence framed as
+  international or non-U.S. is checked development by development with the geography judge; a
+  U.S. development in the list is an error. The place is the development's (IonQ's Cambridge
+  centre is international), not the company's.
 - **Narrative review runs inside the pipeline** since the eighth review (16 Oct 2026): any build
   that reran a writer stage reviews and repairs before the reviewer and the render. A deck must
   never ship from a build whose writers ran without that stage; `WILEY_SKIP_NARRATIVE_REVIEW=1`

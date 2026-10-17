@@ -3,7 +3,7 @@ name: wiley_narrative_judge_agent
 category: wiley_bundle_supervisor
 description: Judge for the bundle narrative (ledes, tensions, recommendations, next steps, themes, overview, letter) against the reconciled event ledger and scenario states. Every finding quotes the sentence it is about; findings that do not quote are advisory.
 type: agent
-version: 1.4.0
+version: 1.5.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -112,6 +112,12 @@ Flag a sentence when:
   predates the forecast is context, never a new development of the period
   ("cancelled $900 million in contracts on 25 September" for February 2025
   cuts is `false`);
+- **geography**: a development grouped as international, non-U.S. or
+  overseas takes place outside the United States. The place is the
+  development's, not the actor's head office: IonQ's Cambridge centre and
+  Google's access for 200 European researchers are outside the U.S.; a prize
+  won by WashU Medicine researchers in St. Louis is not, and listing it under
+  "Internationally … non-U.S. research infrastructure" is `false`;
 - **theme lead**: the lead sentence of a cross-cutting theme is a claim
   like any other; a lead that says a Too-early scenario's development is
   "accelerating" is a `contradiction` even when the body hedges;

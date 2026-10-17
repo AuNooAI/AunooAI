@@ -1,3 +1,42 @@
+## 2026-10-17 (morning, tenth review) — Wiley Q4 bundle: where a development takes place, and whether it was announced before the window
+
+One finding on slide 3. The letter's international sentence listed "WashU Medicine researchers'
+prize-winning tool" under "non-U.S. research infrastructure". Washington University School of
+Medicine is in St. Louis, and the university announced the award on 14 September 2026, a week
+before the forecast; the 1 October article the extractor dated it by was later coverage. The
+window judge could not see that, because the article never says when the award was made.
+
+- `geography_findings` (`wiley_narrative_review.py`): a sentence framed as international ("Internationally",
+  "non-U.S.", "outside the United States", "overseas", "in Europe") is read development by
+  development. Each named event (actor words plus one of its own subject words in the sentence,
+  so "IonQ's Cambridge centre" is one IonQ row, not all of them) goes to the new
+  `wiley_geography_agent`, which says where the development takes place: `us`, `non_us`, `mixed`
+  or `unknown`. The place is the development's, not the head office's, so IonQ's Cambridge centre
+  and Google's access for 200 European researchers pass and the WashU prize is an error. Verdicts
+  are cached per event for the run. "geography" is a preflight-owned category.
+- `judge_event_precedence_for_bundle` (`wiley_event_extraction.py`, after the window judge): for
+  each deck event, a Bright Data web search on the actor and the subject's distinctive words, then
+  the new `wiley_precedence_judge_agent` reads the results and says whether the same action was
+  announced before the window, citing the result and its date. A verdict is verified only when
+  the cited result is one of the results the code sent, carries a date before the window that the
+  code can read in its own title, snippet or URL, and names the actor, two subject words and the
+  action word; the rest are unverified. The judge applies nothing on its own: both lists go into
+  the synthesis payload under `precedence_review` for an analyst, and `WILEY_PRECEDENCE_APPLY=1`
+  moves the verified rows to historical, dated by the announcement, out of the deck, with the
+  "What's Changed" list re-synced. The
+  search budget is the host's shared Bright Data allowance, so a run checks at most
+  `WILEY_PRECEDENCE_SEARCHES` events (default 60): the ones the narrative names first, then the
+  ones on an evidence slide, then the rest by confidence. `WILEY_SKIP_PRECEDENCE=1` skips the
+  stage. The first dry run (17 Oct 2026, 60 events, 18 minutes, 20 searches without results) called two rows verified and both were precursors, not the action (CERN's 130 clusters in April for an October expansion to 139; an order being drafted on 20 September for its abandonment on the 23rd), and nine unverified, two of which were worth a hand edit: the 20,000-device Coathanger compromise cited in a 7 October Dutch warning was disclosed in 2024, so the record now says the warning is the development and the compromise its context, and CERN's expansion is "reported 15 October" because the article does not date it. So the judge applies nothing on its own: its proposals are stored in the synthesis payload under `precedence_review`, the verified tier also requires the action word, and `WILEY_PRECEDENCE_APPLY=1` is the only way it moves a row.
+- `_sync_events_into_payload`: a "What's Changed" row whose date is the article's says "reported
+  2026-10-02", as the evidence notes do; the HTML's ledger and event-explorer lists carry the same
+  label (`forecast_bundle_html.py`).
+- Prompts: judge 1.5.0 (geography), repair 1.5.0 (a U.S. development leaves the international
+  list), exec summary 3.5.0 and cross-topic 1.4.0 (the place is the development's).
+- wileytest records: 2608 (WashU prize) dated 2026-09-14, historical, out of the deck, hand note.
+  Letter sentence replaced by hand with the reviewer's wording; the narrative review then ran
+  clean over the whole bundle.
+
 ## 2026-10-16 (night, ninth review) — Wiley Q4 bundle: counts from the judged list, date provenance in the records
 
 Two findings, both in the evidence records. A topic synthesis said "9 confirming events" for a

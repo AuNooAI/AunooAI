@@ -1216,6 +1216,87 @@ def _historical_findings(seg: dict, historical: list) -> List[dict]:
     return out
 
 
+# ── Tenth review (17 Oct 2026): geography ─────────────────────────────
+
+_GEO_FRAME = re.compile(r"\b(Internationally|international(?:ly)?\b[^.]{0,40}\b(?:examples|developments|signals|evidence)|"
+                        r"non-U\.?S\.?|outside the (?:U\.?S\.?|United States)|overseas|abroad|"
+                        r"(?:in|across) (?:Europe|Asia|China|the EU|the UK))", re.I)
+_GEO_CACHE: Dict[str, dict] = {}
+
+
+async def geography_findings(segments: List[dict], ledger: Dict[str, dict]) -> List[dict]:
+    """"Internationally, IonQ's Cambridge centre, CERN's OpenSearch
+    deployment, Google's access provision to 200 European researchers, and
+    WashU Medicine researchers' prize-winning tool reinforce the need to
+    track non-U.S. research infrastructure" (tenth review, 17 Oct 2026):
+    WashU Medicine is in St. Louis. A sentence framed as international is
+    checked development by development: the events it names go to the
+    geography judge, which says where each development takes place (an IonQ
+    centre in Cambridge is outside the U.S. although IonQ is not), and a
+    U.S. development in the list is an error."""
+    from app.services.daily_report_service import _sentences
+    from app.services.wiley_bundle_supervisor import _call_agent
+    events_all = [e for lt in ledger.values() for e in (lt.get("events") or [])]
+    hits = []  # (seg, sentence, [events named])
+    for seg in segments:
+        for sent in _sentences(seg["text"]):
+            if not _GEO_FRAME.search(sent):
+                continue
+            words = {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+            stems = {_stem(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent)}
+            named, seen = [], set()
+            for e in events_all:
+                toks = _actor_tokens(e)
+                key = _event_text(e)
+                # The actor's event the sentence names: its own words
+                # ("Cambridge centre", "prize-winning tool") are in the
+                # sentence too, or every IonQ event would count.
+                own = _content_tokens(f"{e.get('action') or ''} {e.get('subject') or ''}") - {_stem(t) for t in toks}
+                if toks and toks & words and own & stems and key not in seen:
+                    seen.add(key)
+                    named.append(e)
+            if named:
+                hits.append((seg, sent, named))
+    if not hits:
+        return []
+    todo = {}
+    for _seg, _sent, named in hits:
+        for e in named:
+            key = _event_text(e)
+            if key not in _GEO_CACHE:
+                todo[key] = e
+    if todo:
+        payload = {"developments": [{"id": i, "actor": e.get("actor"), "action": e.get("action"),
+                                     "subject": e.get("subject")} for i, e in enumerate(todo.values())]}
+        try:
+            res = await _call_agent("wiley_geography_agent", payload)
+        except Exception as e:
+            logger.warning("geography judge failed: %s", e)
+            res = {}
+        keys = list(todo)
+        for v in ((res or {}).get("developments") or []):
+            try:
+                _GEO_CACHE[keys[int(v.get("id"))]] = v
+            except (TypeError, ValueError, IndexError):
+                continue
+    out = []
+    for seg, sent, named in hits:
+        us = []
+        for e in named:
+            v = _GEO_CACHE.get(_event_text(e)) or {}
+            if str(v.get("location") or "").lower() == "us":
+                us.append((e, v))
+        if not us:
+            continue
+        what = "; ".join(f"{e.get('actor')} ({v.get('reason') or 'United States'})" for e, v in us)
+        out.append({"target": seg["target"], "severity": "error", "check": "geography",
+                    "finding": f"The sentence groups a U.S. development as international: {what}.",
+                    "claim_text": sent, "source": "preflight",
+                    "suggested_fix": "Drop the U.S. development from the international list; if it belongs in the "
+                                     "letter, it goes in a U.S. sentence."})
+    return out
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -1346,7 +1427,7 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
 _PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline",
-                    "rate", "bridge", "length", "window"}
+                    "rate", "bridge", "length", "window", "geography"}
 _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
                          r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
                          r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
@@ -1496,6 +1577,10 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         n_scen = sum(len(v.get("scenarios") or []) for v in ledger.values())
         n_tail = sum(len(v.get("tail_risks") or []) for v in ledger.values())
         pre = preflight(segments, ledger, extra_numbers=[n_scen, n_tail, len(ledger)])
+        try:
+            pre += await geography_findings(segments, ledger)
+        except Exception as e:
+            logger.warning("narrative review: geography check failed: %s", e)
         jud = await judge(segments, ledger, organisation)
         findings = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])],
                           scen_all=[sc for lt in ledger.values() for sc in (lt.get("scenarios") or [])])

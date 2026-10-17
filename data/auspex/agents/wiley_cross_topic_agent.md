@@ -3,7 +3,7 @@ name: wiley_cross_topic_agent
 category: wiley_bundle_supervisor
 description: Produces the three cross-topic artefacts for the bundle front matter — Strategic Overview, Cross-Cutting Strategic Themes, and Executive Decision Framework.
 type: agent
-version: 1.3.0
+version: 1.4.0
 model_config:
   model: claude-sonnet-5-5
   temperature: 1.0
@@ -91,6 +91,7 @@ instead; Wiley judges severity themselves.
 - Counts are not rates. `n_confirm` of two scenarios ("ten versus five") shows both patterns are present; it never measures speed, volume, capacity or whether one is "outpacing" the other. Never "accelerating", "outpacing", "faster than … can scale", "can no longer absorb".
 - No causal link between two topics' developments: a biosimilar filing does not explain a publisher's portfolio review. Write them as separate developments that each support a monitoring priority.
 - A throughline is a pattern (two topics each show integrity actions), not a mechanism.
+- "International", "non-U.S." and "overseas" cover only developments that take place outside the United States (the place of the development, not of the company's head office). A U.S. university's prize is not international.
 - A security incident stays where the event puts it (government and other online systems); a risk to peer-review or editorial systems is an analogy or hypothesis in so many words, never a breach that happened there. A development keeps its actor. No "A is forcing B" between two developments unless an event says so: write them in parallel and pose the link as a question to test. A theme lead is a claim like any other sentence; a lead about a Too-early scenario is conditional.
 - Plain business language. No methodology jargon.
 

@@ -103,3 +103,15 @@ two topics, a February 2025 action dated to September 2026 because its article w
 window, and theme bodies too long for their slide. Each is a check now, and a window judge reads
 every event against its source article so earlier actions revisited by in-window reporting leave
 the evidence slides.
+
+## Morning update (17 Oct): where it happened, and when it was first announced
+
+The tenth review found one sentence: a U.S. university's prize listed as international evidence,
+for an award announced a week before the forecast and reported again inside the window. The
+article never said when the award was made, so the window judge had nothing to read. Two checks
+answer that. A geography judge is asked, for every development a sentence frames as
+international, where it takes place; the place is the development's, so a U.S. company's centre
+in Cambridge counts and a St. Louis prize does not. A precedence judge searches the web for an
+earlier announcement of each deck event and moves a verified earlier one out of the quarter,
+dated by that announcement. "Verified" is decided in code: the cited result must carry a
+readable earlier date and name the actor and the subject, or the row is left for a person.

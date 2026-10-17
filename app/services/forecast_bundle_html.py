@@ -371,7 +371,7 @@ function evGroup(title, evs, k){{
   let h='<div class="evgrp '+k+'"><h5>'+title+' ('+evs.length+')</h5>';
   if(!evs.length) h+='<div class="small muted">None this cycle.</div>';
   evs.forEach(e=>{{
-    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?' — '+esc(e.date):'';
+    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?' — '+(e.date_basis==='article'?'reported ':'')+esc(e.date):'';
     const src=(e.sources&&e.sources.length)?' <a href="'+esc(e.sources[0])+'" target="_blank" rel="noopener">source</a>':'';
     h+='<div class="ev '+k+'">'+esc(e.actor)+' '+esc(e.action)+' '+esc(e.subject)+mag+'<div class="meta">'+dt+src+'</div></div>';
   }});
@@ -423,7 +423,7 @@ function renderEvents(){{
   const rows=D.events.filter(e=>(!tp||e.topic===tp)&&(!q||(e.actor+' '+e.action+' '+e.subject).toLowerCase().includes(q)));
   document.getElementById('evCount').textContent=rows.length+' events';
   document.getElementById('evList').innerHTML=rows.map(e=>{{
-    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?'<span class="muted small"> · '+esc(e.date)+'</span>':'';
+    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?'<span class="muted small"> · '+(e.date_basis==='article'?'reported ':'')+esc(e.date)+'</span>':'';
     const src=(e.sources&&e.sources.length)?' · <a href="'+esc(e.sources[0])+'" target="_blank" rel="noopener">source</a>':'';
     return '<div class="evrow"><span class="t">'+esc(e.actor)+' '+esc(e.action)+' '+esc(e.subject)+'</span>'+mag+dt+'<span class="muted small"> · '+esc(e.topic)+src+'</span></div>';
   }}).join('') || '<p class="muted small">No matching events.</p>';

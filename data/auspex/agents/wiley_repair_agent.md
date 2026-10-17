@@ -3,7 +3,7 @@ name: wiley_repair_agent
 category: wiley_bundle_supervisor
 description: Targeted repair of narrative segments after review. Rewrites only the sentences the findings quote, using only the facts in the ledger, and returns each segment in full.
 type: agent
-version: 1.4.0
+version: 1.5.0
 model_config:
   model: claude-sonnet-4-5
   temperature: 0.2
@@ -99,6 +99,11 @@ Rules:
 - A development the ledger marks `historical`, or one no longer in the
   ledger, leaves the sentence; a count that included it is recounted from
   the ledger.
+- A U.S. development leaves an international list; the sentence keeps the
+  developments that take place outside the United States and its framing
+  ("Internationally, IonQ's Cambridge centre, CERN's OpenSearch deployment
+  and Google's access provision to 200 European researchers reinforce the
+  need to track non-U.S. research infrastructure.").
 - A key signal (target `...key_signals[n]`) is a short phrase. Repair it by
   naming an event from the scenario's `events` (actor and what it did), or,
   when the scenario has none, by starting it with "Watch:" so it reads as

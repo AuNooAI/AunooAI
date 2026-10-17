@@ -25,6 +25,7 @@ Public entrypoint: ``run_event_extraction(cadence, period_label, topics=None)``.
 from __future__ import annotations
 
 import json
+import os
 import asyncio
 import logging
 import re
@@ -434,6 +435,10 @@ async def run_event_extraction(
         logger.info("event-links: %s", links)
         window = await judge_event_window_for_bundle(cadence, period_label, topics=topic_list)
         logger.info("event-window: %s", {k: v for k, v in window.items() if k != "historical_rows"})
+        if os.environ.get("WILEY_SKIP_PRECEDENCE") != "1":
+            prec = await judge_event_precedence_for_bundle(cadence, period_label, topics=topic_list,
+                                                           apply=os.environ.get("WILEY_PRECEDENCE_APPLY") == "1")
+            logger.info("event-precedence: %s", {k: v for k, v in prec.items() if k not in ("earlier_rows", "unverified_rows")})
     except Exception as e:
         logger.exception("event-reconciliation failed: %s", e)
 
@@ -549,7 +554,10 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
         if e.get("magnitude_value") is not None:
             unit = e.get("magnitude_unit") or ""
             mag = f" ({e['magnitude_value']:g} {unit})".replace("  ", " ").replace(" )", ")")
-        date = f" — {e['event_date']}" if e.get("event_date") else ""
+        # A date the article did not state is the article's own date; the
+        # row says so, as the evidence slides do (tenth review, 17 Oct 2026).
+        label = "reported " if e.get("date_basis") == "article" else ""
+        date = f" — {label}{str(e['event_date'])[:10]}" if e.get("event_date") else ""
         line = " ".join(p for p in (actor, action, subject) if p) + mag + date
         lines.append(line.strip())
 
@@ -1269,6 +1277,231 @@ async def judge_event_window_for_bundle(cadence: str, period_label: str, topics:
         except Exception as e:
             logger.warning("window judge: update failed for %s: %s", r.get("id"), e)
     logger.info("window judge: %s", {k: v for k, v in out.items() if k != "historical_rows"})
+    return out
+
+
+# ── Precedence: was the action announced before the window? ───────────
+#
+# The window judge reads the source article; it cannot see what the
+# article does not say. WashU Medicine's data-sharing prize was announced
+# by the university on 14 September 2026, a week before the forecast, and
+# a 1 October piece reported it again: the extractor dated the event 1
+# October and the letter carried it as a new development (tenth review, 17
+# Oct 2026). The precedence judge searches the web for each deck event's
+# actor and subject, and a result dated before the window that reports the
+# same action moves the row to historical, dated by that announcement.
+#
+# The search budget is the host's Bright Data allowance, shared with Auspex
+# research, so a run checks at most WILEY_PRECEDENCE_SEARCHES events
+# (default 60): first those the narrative names, then those on an
+# evidence slide, then the rest. A verdict counts as verified only when the
+# code can read a date before the window in the cited result's own text or
+# URL and that result names the actor, two subject words and the action;
+# anything else is unverified. The first dry run (17 Oct 2026, 60 events)
+# called two rows verified and both were precursors (CERN at 130 clusters
+# in April for an expansion to 139 in October; an order being drafted on
+# 20 September for its abandonment on the 23rd), so the judge applies
+# nothing on its own: the pipeline stores its proposals in the synthesis
+# payload under `precedence_review` for an analyst, and
+# WILEY_PRECEDENCE_APPLY=1 (or apply=True) moves the verified rows.
+
+_RESULT_DATE = re.compile(
+    r"\b(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})"
+    r"|(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?,?\s+(\d{4})"
+    r"|(\d{4})-(\d{2})-(\d{2}))\b")
+_URL_DATE = re.compile(r"/(20\d{2})/(\d{1,2})(?:/(\d{1,2}))?/")
+_MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
+_PREC_STOP = {"the", "and", "for", "with", "from", "that", "this", "into", "over", "under", "their", "about",
+              "after", "before", "which", "than", "through", "across", "between", "during", "while", "where",
+              "including", "research", "researchers", "university", "company", "group", "report", "reported",
+              "announced", "announces", "million", "billion", "percent", "year", "years", "quarter", "new"}
+
+
+def _dates_in_result(item: dict) -> list:
+    """ISO dates readable in a search result's title, snippet or URL."""
+    out = []
+    text = f"{item.get('title') or ''} {item.get('description') or item.get('summary') or ''}"
+    for m in _RESULT_DATE.finditer(text):
+        try:
+            if m.group(1):
+                out.append(_date(int(m.group(3)), _MONTHS[m.group(1).lower()[:3]], int(m.group(2))).isoformat())
+            elif m.group(5):
+                out.append(_date(int(m.group(6)), _MONTHS[m.group(5).lower()[:3]], int(m.group(4))).isoformat())
+            else:
+                out.append(_date(int(m.group(7)), int(m.group(8)), int(m.group(9))).isoformat())
+        except (ValueError, KeyError):
+            continue
+    m = _URL_DATE.search(str(item.get("link") or item.get("url") or ""))
+    if m:
+        try:
+            out.append(_date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 1)).isoformat())
+        except ValueError:
+            pass
+    return out
+
+
+def _prec_tokens(text: str) -> set:
+    return {w.lower().rstrip("s") for w in re.findall(r"[A-Za-z][A-Za-z'’-]+", str(text or ""))
+            if len(w) >= 4 and w.lower() not in _PREC_STOP}
+
+
+def _prec_query(r: dict) -> str:
+    actor = re.sub(r"\s*\(.*?\)", "", str(r.get("actor") or "")).strip()
+    words = [w for w in re.findall(r"[A-Za-z][A-Za-z'’-]+|\$?\d[\d.,]*\s?(?:million|billion)?", str(r.get("subject") or ""))
+             if len(w) >= 4 and w.lower() not in _PREC_STOP][:6]
+    return " ".join([actor] + words).strip()
+
+
+def _result_supports(item: dict, r: dict) -> bool:
+    """The result names the actor, shares two subject words with the event
+    and, when the action has a word of four letters or more, that word's
+    stem ("expand", "abandon"); a result about an earlier state of the same
+    subject ("operate 130 clusters", "drafting an order") does not."""
+    text = _prec_tokens(f"{item.get('title') or ''} {item.get('description') or item.get('summary') or ''}")
+    actor = _prec_tokens(re.sub(r"\s*\(.*?\)", "", str(r.get("actor") or "")))
+    subject = _prec_tokens(str(r.get("subject") or "")) - actor
+    action = {w[:5] for w in _prec_tokens(str(r.get("action") or ""))}
+    action_ok = (not action) or any(t[:5] in action for t in text)
+    return bool(actor & text) and len(subject & text) >= 2 and action_ok
+
+
+def _narrative_text(db, cadence: str, period_label: str) -> str:
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    payload = synth.get("payload") or {}
+    parts = [json.dumps(payload.get(k) or "") for k in
+             ("exec_summary", "strategic_overview", "cross_cutting_themes", "executive_decision_framework", "expert_commentary")]
+    for t in (synth.get("topics") or []):
+        name = t.get("topic") if isinstance(t, dict) else t
+        a = db.facade.get_latest_forecast_assessment_by_topic(name) or {}
+        s = a.get("summary") or {}
+        parts += [json.dumps(s.get(k) or "") for k in ("topic_briefing", "strategic_recommendations", "next_steps")]
+    return " ".join(parts).lower()
+
+
+async def judge_event_precedence_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None,
+                                            *, apply: bool = False, max_searches: Optional[int] = None,
+                                            batch: int = 10) -> dict:
+    """Search the web for an announcement of each deck event that predates
+    the window and record the proposals; with ``apply``, move the verified
+    earlier actions to historical."""
+    from app.database import get_database_instance
+    from sqlalchemy import text as sa_text
+    from app.services.wiley_bundle_supervisor import _call_agent
+    from app.services import brightdata_web
+    db = get_database_instance()
+    cap = max_searches if max_searches is not None else int(os.environ.get("WILEY_PRECEDENCE_SEARCHES", "60") or 0)
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    topic_list = topics or [(t.get("topic") if isinstance(t, dict) else t) for t in (synth.get("topics") or [])]
+    starts = []
+    for t in topic_list:
+        a = db.facade.get_latest_forecast_assessment_by_topic(t) or {}
+        fg = str(((a.get("summary") or {}).get("forecast_generated_at")) or "")[:10]
+        if fg:
+            starts.append(fg)
+    window_start = min(starts) if starts else None
+    out = {"window_start": window_start, "candidates": 0, "searched": 0, "no_results": 0, "earlier": 0,
+           "unverified": 0, "applied": 0, "skipped_hand_edited": 0, "earlier_rows": [], "unverified_rows": []}
+    if not window_start or cap <= 0 or not brightdata_web.configured():
+        out["skipped"] = "no window" if not window_start else "no budget" if cap <= 0 else "web search not configured"
+        return out
+    rows = [r for r in (db.facade.list_extracted_events(cadence=cadence, period_label=period_label,
+                                                        include_excluded=False) or [])
+            if r.get("id") is not None and (not topic_list or r.get("topic") in topic_list)
+            and str(r.get("event_state") or "") != "historical"
+            and not str(r.get("edited_by") or "").startswith("hand")
+            and not str(r.get("edited_by") or "").startswith("precedence judge")]
+    narrative = _narrative_text(db, cadence, period_label)
+
+    def _named(r):
+        toks = _prec_tokens(re.sub(r"\s*\(.*?\)", "", str(r.get("actor") or "")))
+        return any(t in narrative for t in toks) if toks else False
+
+    rows.sort(key=lambda r: (0 if _named(r) else 1, 0 if (r.get("scenario_relevance") or []) else 1,
+                             -(r.get("confidence") or 0)))
+    rows = rows[:cap]
+    out["candidates"] = len(rows)
+    searched = []
+    with brightdata_web.run_budget(calls=cap):
+        for r in rows:
+            q = _prec_query(r)
+            if not q:
+                continue
+            try:
+                res = await brightdata_web.web_search(q, max_results=8)
+            except Exception as e:
+                logger.warning("precedence judge: search failed for %s: %s", r.get("id"), e)
+                continue
+            out["searched"] += 1
+            items = [{"title": a.get("title"), "url": a.get("url"), "snippet": (a.get("summary") or "")[:400],
+                      "dates": _dates_in_result({"title": a.get("title"), "description": a.get("summary"), "link": a.get("url")})}
+                     for a in (res.get("articles") or [])]
+            if not items:
+                out["no_results"] += 1
+                continue
+            searched.append((r, q, items))
+    verdicts: dict = {}
+    for i in range(0, len(searched), batch):
+        chunk = searched[i:i + batch]
+        payload = {"window_start": window_start, "events": [
+            {"id": int(r["id"]), "actor": r.get("actor"), "action": r.get("action"), "subject": r.get("subject"),
+             "event_date": str(r.get("event_date") or "")[:10], "query": q, "results": items}
+            for r, q, items in chunk]}
+        try:
+            res = await _call_agent("wiley_precedence_judge_agent", payload)
+        except Exception as e:
+            logger.warning("precedence judge: call failed: %s", e)
+            continue
+        for v in ((res or {}).get("events") or []):
+            try:
+                verdicts[int(v.get("id"))] = v
+            except (TypeError, ValueError):
+                continue
+    for r, q, items in searched:
+        v = verdicts.get(int(r["id"]))
+        if not v or not v.get("earlier_report"):
+            continue
+        url = str(v.get("evidence_url") or "")
+        item = next((it for it in items if it.get("url") == url), None)
+        occ = _occurrence_date(v.get("evidence_date"), window_start)
+        rec = {"id": int(r["id"]), "topic": r.get("topic"), "actor": r.get("actor"), "action": r.get("action"),
+               "subject": (r.get("subject") or "")[:100], "event_date": str(r.get("event_date") or "")[:10],
+               "evidence_url": url, "evidence_date": v.get("evidence_date"), "occurrence_date": occ,
+               "reason": (v.get("reason") or "")[:200]}
+        # The judge's date must be readable in the result itself (snippet
+        # or URL) and before the window; the result must name the actor and
+        # share two subject words. Otherwise the row is a proposal.
+        readable = bool(item) and occ is not None and any(d <= occ for d in (item.get("dates") or [])) \
+            and _result_supports({"title": item.get("title"), "description": item.get("snippet")}, r)
+        if not readable:
+            out["unverified"] += 1
+            out["unverified_rows"].append(rec)
+            continue
+        out["earlier"] += 1
+        out["earlier_rows"].append(rec)
+        if not apply:
+            continue
+        try:
+            db.facade._execute_with_rollback(sa_text(
+                "UPDATE extracted_events SET event_date = CAST(:d AS date), date_basis = 'stated', "
+                "event_state = 'historical', include_in_deck = false, edited_by = :e, updated_at = NOW() WHERE id = :id"),
+                {"d": occ, "id": int(r["id"]),
+                 "e": f"precedence judge: announced {occ} ({url[:120]}), before the forecast; " + rec["reason"][:100]})
+            out["applied"] += 1
+        except Exception as e:
+            logger.warning("precedence judge: update failed for %s: %s", r.get("id"), e)
+    if out["applied"]:
+        try:
+            _sync_events_into_payload(db, cadence, period_label)
+        except Exception as e:
+            logger.warning("precedence judge: payload sync failed: %s", e)
+    # The proposals go where the editor can show them.
+    try:
+        db.facade.patch_brief_field(cadence, period_label, path="precedence_review",
+                                    value={**{k: v for k, v in out.items()}, "at": datetime.now(timezone.utc).isoformat()},
+                                    edited_by="precedence-judge", lock=False)
+    except Exception as e:
+        logger.warning("precedence judge: could not persist proposals: %s", e)
+    logger.info("precedence judge: %s", {k: v for k, v in out.items() if k not in ("earlier_rows", "unverified_rows")})
     return out
 
 
