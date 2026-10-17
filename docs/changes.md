@@ -1,3 +1,40 @@
+## 2026-10-17 (late evening, fourteenth review) — Wiley Q4 bundle: no silent collapse at render time; the audit export reconciles to the published counts
+
+The fourteenth review found the audit export counted 75 confirming links where the deck counted 62.
+The difference came from a second hidden collapse: the deck's event loader (`_events_by_topic`,
+`wiley_delivery_service.py`) ran `_collapse_near_dupes` over the included rows and dropped the
+lower-confidence row of each pair, links and all, with no record. It dropped 16 rows. Eight were
+real duplicates the merge step had missed; eight were distinct events fused on three ordinary
+shared words ("open source research", "quantum error correction"), including IBM's and Diraq's
+DARPA Stage C and Tencent's and IonQ's error-correction results.
+
+- **`_events_by_topic`** counts every included row; it no longer collapses anything.
+- **`near_duplicate_pairs`, `record_duplicate_decision`, `audit_duplicate_decisions`**
+  (`wiley_event_extraction.py`): the collapse rule only proposes pairs. A pair is merged
+  (`merged_into`, links inherited as candidates for the link judge) or recorded as distinct, with
+  reason, decider and time in the payload's `duplicate_review`. The build stops while any pair is
+  undecided.
+- **`audit_link_registry`** and a registry step in the link judge: an active link to a name that is
+  not one of the topic's deck scenarios is rejected with that reason, and the build stops if one
+  remains (row 2580 carried a link named after the topic itself).
+- **wileytest records**: 7 pairs merged and 9 recorded as distinct, each with a reason
+  (`duplicate_decisions.csv`); survivors re-judged; the enabling-milestone policy applied to the
+  two IBM rows now counted (Error Correction confirms rejected). Counts moved: Hybrid Models 9→10
+  (AIPOCH's workbench counted again), Logical Qubit Transition 4→7 (IBM Research's execution
+  model, IBM's DARPA Stage C, planqc and LOGIQC's competition selection), Credibility Crisis 12→11
+  (the link judge rejected MI5's alert on re-reading: covert state funding of research is a
+  peer-review integrity matter, not an AI-operations gap). Explorer 222→231 events.
+- **Audit export v2** (`r19_export.py`): one line per link on every row, with event date and
+  basis, row inclusion, canonical row, registered scenario, `count_in_report` computed with the
+  deck's own loader and per-scenario split, and an exclusion reason for every link not counted.
+  `reconciliation.txt` checks the export's counted links against the published HTML scenario by
+  scenario: 29 of 29 match, 65 confirming and 7 countering. Neutral ratings are not evidence and
+  are outside the merged-link invariant by design.
+
+Verification: `tests/test_wiley_event_links.py` 11 passed; merged-link, duplicate and registry
+audits empty; build 20:44 approved_with_warnings with 0 errors, narrative review clear; every
+changed sentence read against the 20:25 deck.
+
 ## 2026-10-17 (evening, thirteenth review) — Wiley Q4 bundle: mixed evidence reads as mixed; enabling milestones are not outcomes; audit export
 
 The thirteenth review read the merge-repair bundle. Counts and arrays agreed everywhere; the

@@ -264,15 +264,15 @@ def _events_by_topic(cadence: str, period_label: str) -> dict:
         rows = db.facade.list_extracted_events(
             cadence=cadence, period_label=period_label, include_excluded=False,
         )
+        # Every included row counts. Duplicates are merged in the record
+        # (merged_into, links inherited and re-judged), never dropped here:
+        # until 17 Oct 2026 this loader collapsed near duplicates silently,
+        # losing 13 confirming links and 8 distinct events. The build stops
+        # while the duplicate detector has an undecided pair.
         for e in rows:
             out.setdefault(e.get("topic"), []).append(e)
-        # Same real event under two wordings or an acronym counted twice
-        # in every ledger; near-duplicates collapsed here, best-confidence
-        # row kept, so the deck, HTML and docx all see one event.
-        from app.services.wiley_event_extraction import _collapse_near_dupes
         for t, evs in list(out.items()):
             evs.sort(key=lambda e: (e.get("confidence") or 0), reverse=True)
-            out[t] = _collapse_near_dupes(evs)
     except Exception as e:
         logger.warning("events_by_topic load failed (%s/%s): %s", cadence, period_label, e)
     return out

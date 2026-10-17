@@ -1556,8 +1556,17 @@ async def run_pipeline(
     # explicit rejection with a reason. A re-export of a locked bundle is
     # gated the same way.
     try:
-        from app.services.wiley_event_extraction import audit_merged_links_for_bundle
+        from app.services.wiley_event_extraction import (audit_merged_links_for_bundle, audit_duplicate_decisions,
+                                                         audit_link_registry)
         offenders = audit_merged_links_for_bundle(cadence, period_label)
+        # Undecided near-duplicate pairs and links to unregistered scenario
+        # names stop the build too (fourteenth review, 17 Oct 2026).
+        offenders += [{"merged_id": p["b"], "survivor_id": p["a"], "scenario": None, "direction": None,
+                       "problem": f"possible duplicate ({p['why']}: {', '.join(p['shared'])}) with no recorded decision"}
+                      for p in audit_duplicate_decisions(cadence, period_label)]
+        offenders += [{"merged_id": o["row_id"], "survivor_id": o["row_id"], "scenario": o["scenario"],
+                       "direction": o["direction"], "problem": "active link to a name that is not one of the topic's scenarios"}
+                      for o in audit_link_registry(cadence, period_label)]
     except Exception as e:
         logger.warning("link audit failed (treated as blocking): %s", e)
         offenders = [{"merged_id": None, "survivor_id": None, "scenario": None, "direction": None,

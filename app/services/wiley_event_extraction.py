@@ -312,6 +312,114 @@ def audit_merged_links_for_bundle(cadence: str, period_label: str, topics: Optio
     return audit_merged_links(rows)
 
 
+# ── Duplicate decisions ────────────────────────────────────────────────
+#
+# Until 17 Oct 2026 the deck's loader ran _collapse_near_dupes over the
+# included rows and silently dropped the lower-confidence row of each pair,
+# links and all. Its rule (three shared subject words within three days)
+# fused distinct events: IBM's and Diraq's DARPA stage, Tencent's and IonQ's
+# error-correction results. Now the rule only proposes pairs. A pair is
+# either merged (merged_into, links inherited as candidates for the link
+# judge) or recorded as distinct, with who decided and why, in the
+# synthesis payload under `duplicate_review`. A build stops while any
+# proposed pair is undecided.
+
+def near_duplicate_pairs(rows: list) -> list:
+    """The pairs _collapse_near_dupes would fuse, per topic, in its own
+    order (confidence first): [{"a": kept_id, "b": dropped_id, "why",
+    "shared"}]."""
+    by: dict = {}
+    for e in rows:
+        by.setdefault(e.get("topic"), []).append(e)
+    out = []
+    for _t, evs in by.items():
+        evs = sorted(evs, key=lambda e: (e.get("confidence") or 0), reverse=True)
+        kept: list = []
+        for e in evs:
+            e_mag = e.get("magnitude_value"); e_date = _parse_iso(e.get("event_date"))
+            ea = _tokens(e.get("actor")); es = _tokens(e.get("subject")); hit = None
+            for k in kept:
+                kd = _parse_iso(k.get("event_date"))
+                if not (e_date is None or kd is None or abs((e_date - kd).days) <= 10):
+                    continue
+                ao = bool(ea & _tokens(k.get("actor"))) or _same_actor_alias(e.get("actor"), k.get("actor"))
+                so = es & _tokens(k.get("subject")); km = k.get("magnitude_value")
+                if e_mag is not None and km is not None and e_mag == km and (ao or len(so) >= 2):
+                    hit = (k, "same magnitude", so); break
+                if (e_mag is None and km is None and (len(so) >= 3 or (ao and len(so) >= 2))
+                        and e_date and kd and abs((e_date - kd).days) <= 3):
+                    hit = (k, "shared subject words", so); break
+            if hit:
+                out.append({"a": int(hit[0]["id"]), "b": int(e["id"]), "why": hit[1], "shared": sorted(hit[2])})
+            else:
+                kept.append(e)
+    return out
+
+
+def _pair_key(a, b) -> str:
+    x, y = sorted((int(a), int(b)))
+    return f"{x}|{y}"
+
+
+def audit_duplicate_decisions(cadence: str, period_label: str) -> list:
+    """Proposed pairs among the included rows with no recorded decision."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    rows = db.facade.list_extracted_events(cadence=cadence, period_label=period_label, include_excluded=False) or []
+    decided = ((db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}).get("payload") or {}).get("duplicate_review") or {}
+    return [p for p in near_duplicate_pairs(rows) if _pair_key(p["a"], p["b"]) not in decided]
+
+
+def record_duplicate_decision(cadence: str, period_label: str, keep_id: int, other_id: int, decision: str,
+                              reason: str, decided_by: str) -> dict:
+    """decision "same": other_id is merged into keep_id and its links become
+    candidates on keep_id. decision "distinct": both stay. Either way the
+    decision is stored in the payload's duplicate_review."""
+    from app.database import get_database_instance
+    from sqlalchemy import text as sa_text
+    db = get_database_instance()
+    now = datetime.now(timezone.utc).isoformat()
+    if decision not in ("same", "distinct"):
+        raise ValueError("decision must be 'same' or 'distinct'")
+    if decision == "same":
+        rows = {int(r["id"]): r for r in (db.facade.list_extracted_events(cadence=cadence, period_label=period_label,
+                                                                          include_excluded=True) or [])}
+        keep, other = rows[int(keep_id)], rows[int(other_id)]
+        links = inherit_links(keep.get("scenario_relevance") or [], [(int(other_id), other.get("scenario_relevance") or [])], now)
+        urls = list(dict.fromkeys(list(keep.get("source_urls") or []) + list(other.get("source_urls") or [])))
+        db.facade._execute_with_rollback(sa_text(
+            "UPDATE extracted_events SET scenario_relevance=CAST(:rel AS jsonb), source_urls=CAST(:u AS jsonb), "
+            "updated_at=NOW() WHERE id=:id"), {"rel": json.dumps(links), "u": json.dumps(urls), "id": int(keep_id)})
+        db.facade._execute_with_rollback(sa_text(
+            "UPDATE extracted_events SET include_in_deck=false, merged_into=:k, edited_by=:e, updated_at=NOW() WHERE id=:id"),
+            {"k": int(keep_id), "id": int(other_id), "e": f"{decided_by}: same event as {keep_id}; {reason}"[:400]})
+    synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
+    review = dict((synth.get("payload") or {}).get("duplicate_review") or {})
+    review[_pair_key(keep_id, other_id)] = {"decision": decision, "kept": int(keep_id), "other": int(other_id),
+                                            "reason": reason, "decided_by": decided_by, "decided_at": now}
+    db.facade.patch_brief_field(cadence, period_label, path="duplicate_review", value=review,
+                                edited_by=decided_by, lock=False)
+    return review[_pair_key(keep_id, other_id)]
+
+
+def audit_link_registry(cadence: str, period_label: str) -> list:
+    """Active links on included rows whose scenario is not one of the
+    topic's deck scenarios (a link named after the topic itself, 17 Oct
+    2026)."""
+    from app.database import get_database_instance
+    db = get_database_instance()
+    out = []
+    names: dict = {}
+    for r in (db.facade.list_extracted_events(cadence=cadence, period_label=period_label, include_excluded=False) or []):
+        t = r.get("topic")
+        if t not in names:
+            names[t] = {s["name"].strip().lower() for s in _deck_scenarios(db.facade.get_latest_forecast_assessment_by_topic(t) or {})}
+        for x in (r.get("scenario_relevance") or []):
+            if _is_active_link(x) and str(x.get("scenario") or "").strip().lower() not in names[t]:
+                out.append({"row_id": int(r["id"]), "topic": t, "scenario": x.get("scenario"), "direction": x.get("direction")})
+    return out
+
+
 def events_for_scenario(events: list, scenario_name: str) -> tuple:
     """Split a topic's events into (confirming, countering) lists for a given
     scenario, by reading the {scenario, direction} entries in
@@ -1337,6 +1445,14 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
             if v is not None:
                 vmap[k] = v
         new, st = resolve_links(old_entries, decide.get(ei, []), vmap, now=now, decided_by="link judge")
+        registered = {s["name"].strip().lower() for s in scenarios}
+        for x in new:
+            if _is_active_link(x) and not x.get("locked") and str(x.get("scenario") or "").strip().lower() not in registered:
+                for k in ("judged", "decided_by", "decided_at"):
+                    x.pop(k, None)
+                x.update({"rejected": True, "rejected_by": "registry check", "rejected_at": now,
+                          "rejected_reason": "not one of this topic's deck scenarios"})
+                st["rejected"] += 1
         stats["links_rejected"] += st["rejected"]
         stats["links_unresolved"] += st["unresolved"]
         stats["links_superseded"] += st["superseded"]

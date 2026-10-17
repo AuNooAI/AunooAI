@@ -3,7 +3,7 @@
 decision, and the audit names what is missing."""
 from app.services.wiley_event_extraction import (
     inherit_links, links_to_decide, resolve_links, audit_merged_links, _normalize_scenario_relevance,
-    events_for_scenario)
+    events_for_scenario, near_duplicate_pairs)
 
 NOW = "2026-10-17T14:00:00+00:00"
 
@@ -129,3 +129,15 @@ def test_rejected_link_is_not_relitigated_by_a_later_inherit_or_run():
     assert links_to_decide(old, []) == []
     out2, st = resolve_links(old, links_to_decide(old, []), {}, now=NOW, decided_by="link judge")
     assert [x for x in out2 if x.get("rejected")] == surv and not any(x.get("candidate") for x in out2)
+
+
+def test_duplicate_detector_proposes_pairs_and_never_drops_rows():
+    rows = [{"id": 1, "topic": "Q", "confidence": 0.9, "actor": "IBM", "subject": "Stage C of DARPA Quantum Benchmarking Initiative",
+             "event_date": "2026-10-08", "magnitude_value": None},
+            {"id": 2, "topic": "Q", "confidence": 0.8, "actor": "Diraq", "subject": "Stage C of DARPA Quantum Benchmarking Initiative",
+             "event_date": "2026-10-07", "magnitude_value": None},
+            {"id": 3, "topic": "Q", "confidence": 0.7, "actor": "IonQ", "subject": "trapped-ion memory", "event_date": "2026-09-01",
+             "magnitude_value": None}]
+    pairs = near_duplicate_pairs(rows)
+    assert [(p["a"], p["b"]) for p in pairs] == [(1, 2)]  # proposed, not decided
+    assert len(rows) == 3  # the detector drops nothing
