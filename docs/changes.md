@@ -1,3 +1,84 @@
+## 2026-10-17 (late afternoon) — Wiley Q4 bundle: links lost in the duplicate merge, put back with provenance; a build fails on a silent loss
+
+### Goal
+A question from the user ("did we find zero counter-evidence?") led to the finding that the
+duplicate-merge step of 16 Oct had dropped scenario links: it carried wording, dates and
+sources to the kept row and not the merged rows' ratings, and the link judge then rebuilt the
+survivors' links from nothing. The audit of all 321 rows for the quarter found 74 lost links
+(65 confirming, 9 countering) on 35 surviving rows. The deck's counts matched its lists all
+week because both read the same thinned record.
+
+### Link provenance (`wiley_event_extraction.py`)
+Every entry in `scenario_relevance` is now one of: an active link (`judged`, `decided_by`,
+`decided_at`, `rationale`), a candidate (`candidate`, `inherited_from`, `inherited_at`), a
+rejected link (`rejected`, `rejected_by`, `rejected_at`, `rejected_reason`, kept as the record),
+or a hand-set link (`locked`). `_normalize_scenario_relevance` and therefore every count ignore
+candidates and rejections. `inherit_links` runs in the merge: the merged rows' active links go
+onto the survivor as candidates (a link the survivor already holds records the twin in
+`also_from`; a rejected link is not re-litigated). `links_to_decide` gives the link judge, per
+row, this run's proposals, the row's candidates and the links a previous run kept; the judge
+prompt (1.1.0) carries each link's `source` and returns a decision with a direction for every
+link. `resolve_links` writes the keep or the rejection with the judge's reason, leaves a
+candidate undecided when the judge gave no verdict, records a candidate on a hand-locked
+scenario as rejected by the lock, and allows one active link per scenario (the lower-probability
+one of two kept directions is recorded as superseded). `judge_event_links_for_bundle(row_ids=…)`
+re-judges chosen rows only.
+
+### Build gate (`audit_merged_links`, `wiley_bundle_supervisor.py`)
+After the events stage, every active link on a merged-away row must be on its final survivor as
+an active link with the same scenario and direction, or as a rejection with a reason. Otherwise
+the build raises `BundleRequiresReviewError` with one finding per gap ("link never carried to
+the survivor", "undecided candidate on the survivor", "direction changed on the survivor with no
+recorded decision", "survivor row missing" when ratings would be lost). A locked re-export is
+gated the same way.
+
+### Review checks (`wiley_narrative_review.py`)
+An actor with two events in one sentence ("Anthropic's Claude filing a false tip … in parallel
+with Anthropic's OpenEvidence partnership") had the label near one mention held against the
+other event. A label now counts only around the mention whose stretch of text up to the next mention
+carries the event's own subject words. The event-count check reads "zero counters" and "no
+counter-evidence". A repetition check flags a two-word phrase repeated within four words (a
+repair twice produced "previously requiring tasks previously requiring"). `review_and_repair`
+takes an `accepted` snapshot of the last sent bundle's text: a judge-only error on a segment
+identical to it is advisory, because the judge is not deterministic and its fresh errors on
+reviewed text sent the repair agent over sentences it then garbled. The What's Changed list
+ranks events the letter names first and shows them in the letter's order.
+
+### Repair on wileytest (data)
+Links backed up to the session scratchpad (`links_backup_before_repair.json`). Inheritance
+applied to 41 survivors (54 candidates), link judge run on those rows (111 s; per topic it
+rejected 0, 13, 21, 13, 2 and 6 links with reasons), audit after: zero gaps. Of the nine
+counter ratings on merged rows: four stand on their survivors (OpenAI's 722 papers against Open
+Infrastructure Transformation; the dropped NIH veto order against Political Centralization,
+twice; the train-American-scientists initiative against Collapse), four were rejected by the
+judge with a reason (Meta's weights, the AstraZeneca–Summit deal, AbbVie's Juvmo approval, the
+veto withdrawal against Collapse), one was superseded by the judge's confirming reading of the
+same event (Biocon's Perjeta settlement). Ten scenarios changed count or status; see
+`count_changes.json`, with each link marked restored or fresh. Three status changes rest mainly
+on fresh ratings the judge made when it re-read those rows: NISQ Limitations and Proprietary
+Inertia to crowd_wrong, Error Correction Unlocks Practical Applications to holding.
+
+### Verification
+`tests/test_wiley_event_links.py`: 10 tests on the pure functions (inheritance with a conflict
+and a twin, decisions for proposals, candidates and previous links, keep/reject/unresolved,
+superseded directions, lock rejection, no re-litigation of a rejection, repeated runs stable,
+audit naming each gap kind, counts ignoring rejections and candidates); green on the bugfixing
+venv against the wileytest tree and against bugfixing. Live audit on wileytest: 74 gaps before,
+0 after. The first build after the repair stopped at the gate on two undecided candidates
+(correct behaviour; resolved, then clean). Final build 16:54: reviewer approved_with_warnings with zero errors, narrative review clear with no repairs in its last pass, 26 slides differ from the 12:16 deck in text (counts, statuses, evidence lists, repaired sentences, the What's Changed order), HTML 66 confirming and 11 countering records with no gaps.
+
+### Propagation
+Code on bugfixing (canonical), wileytest and wiley by patch script; commit the commit titled "Wiley bundle: links lost in the duplicate merge, put back with provenance". Data repair on
+wileytest only. Restart queued after the commit.
+
+### Lessons
+- NEVER let a step that rewrites a row drop fields it does not understand. The merge wrote
+  wording and left the links behind; nothing downstream could tell.
+- A count that matches its list proves nothing about what the list lost upstream. Audit the
+  rows that leave the deck, not only the rows on it.
+- "Zero counter-evidence" is a finding to check, not a result to report. The pipeline still
+  does not search for evidence against a scenario; this repair restores what was found.
+
 ## 2026-10-17 (afternoon) — Wiley Q4 bundle: a fully locked bundle is a plain re-export
 
 Once every bundle narrative key and every topic's narrative keys are locked, a build no longer

@@ -153,6 +153,15 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   actor and the subject; everything else lands in `unverified_rows` for you to check. Read both
   lists after a build. `WILEY_SKIP_PRECEDENCE=1` skips it. The dry-run script is
   `r13_precedence.py` in the session scratchpad (`R13_APPLY=1` applies).
+- **Links carry provenance; the build audits the merge.** Every scenario link on a record is
+  active (judged, with who, when and why), a candidate inherited from a merged row, a rejection
+  with a reason, or hand-set and locked. A build stops when a merged-away row's link is on its
+  survivor neither kept nor rejected (`audit_merged_links`, 17 Oct 2026, after 74 links were
+  lost in the 16 Oct merge). To re-judge chosen rows only: `judge_event_links_for_bundle(…,
+  row_ids=[…])`. The narrative review takes `accepted=` (the last sent bundle's text) so a fresh
+  judge opinion on reviewed text cannot trigger a rewrite; the round scripts build it from the
+  sent HTML and deck. The pipeline does not search for counter-evidence; it only rates what the
+  feeds bring in.
 - **A fully locked bundle is a re-export.** With all five bundle keys and the three topic keys
   locked on every topic, a build skips the planner and the writers (log line "bundle fully
   locked"). It will not notice a record edit; after one, unlock, run the review, lock.

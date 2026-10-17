@@ -332,9 +332,9 @@ def _count_findings(seg: dict, scen: list, per_topic: Optional[List[list]] = Non
     return out
 
 
-_EVENT_COUNT = re.compile(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
-                          r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+(confirming|countering|counter)\s+"
-                          r"(?:events?|developments?|signals?|records?)\b", re.I)
+_EVENT_COUNT = re.compile(r"\b(\d+|zero|no|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                          r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+(confirming|countering|counter)"
+                          r"(?:\s+(?:events?|developments?|signals?|records?)\b|s\b|-evidence\b)", re.I)
 
 
 def _event_count_findings(seg: dict, scen: list) -> List[dict]:
@@ -352,7 +352,7 @@ def _event_count_findings(seg: dict, scen: list) -> List[dict]:
         named = [sc for sc in scen if _names_scenario(low, sc, strict=True)]
         for m in _EVENT_COUNT.finditer(sent):
             raw = m.group(1).lower()
-            n = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw)
+            n = 0 if raw in ("zero", "no") else int(raw) if raw.isdigit() else _NUM_WORDS.get(raw)
             key = "n_confirm" if m.group(2).lower() == "confirming" else "n_counter"
             if n is None:
                 continue
@@ -991,6 +991,12 @@ def _deal_type_findings(seg: dict, events: list, scen: list) -> List[dict]:
             subj = {_norm_tok(w) for w in re.findall(r"[A-Z][A-Za-z'’&-]{3,}", str(e.get("subject") or ""))} - mine
             if not (subj & words):
                 continue
+            # The mention this event is behind: the one whose clause carries
+            # the event's subject words (an actor with two events in one
+            # sentence, 17 Oct 2026).
+            spans = [(a, (apos[i + 1] if i + 1 < len(apos) else len(sent))) for i, a in enumerate(apos)]
+            own = [a for a, end in spans if subj & {_norm_tok(w) for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", sent[a:end])}]
+            apos = own or apos
             labels = set()
             for p, k in label_hits:
                 for a in apos:
@@ -1297,6 +1303,32 @@ async def geography_findings(segments: List[dict], ledger: Dict[str, dict]) -> L
     return out
 
 
+_REPEAT_STOP = {"the", "and", "of", "to", "in", "a", "for", "on", "with", "that", "as", "by", "at", "from", "or", "its"}
+
+
+def _repetition_findings(seg: dict) -> List[dict]:
+    """A run of three words repeated within one sentence ("previously
+    requiring tasks previously requiring the most powerful") is a garbled
+    repair, not prose."""
+    from app.services.daily_report_service import _sentences
+    out = []
+    for sent in _sentences(seg["text"]):
+        words = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’-]+", sent)]
+        seen = {}
+        for i in range(len(words) - 1):
+            pair = tuple(words[i:i + 2])
+            if any(w in _REPEAT_STOP for w in pair):
+                continue
+            if pair in seen and i - seen[pair] <= 4:
+                out.append({"target": seg["target"], "severity": "error", "check": "garble",
+                            "finding": f"The sentence repeats '{' '.join(pair)}' within four words; the text is garbled.",
+                            "claim_text": sent, "source": "preflight",
+                            "suggested_fix": "Rewrite the sentence once, plainly, with the phrase appearing a single time."})
+                break
+            seen.setdefault(pair, i)
+    return out
+
+
 def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List = ()) -> List[dict]:
     from app.services.daily_report_service import (_dates_in, _numbers_in, _sentences,
                                                    _date_matches, _DATE_WORDS, _DATE_ISO)
@@ -1324,6 +1356,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_deal_type_findings(seg, evs, scen))
             findings.extend(_baseline_findings(seg, evs))
             findings.extend(_rate_findings(seg))
+            findings.extend(_repetition_findings(seg))
             findings.extend(_historical_findings(seg, ledger[seg["topic"]].get("historical") or []))
         elif seg.get("kind") == "verdict" and seg.get("topic") in ledger:
             scen = ledger[seg["topic"]].get("scenarios") or []
@@ -1346,6 +1379,7 @@ def preflight(segments: List[dict], ledger: Dict[str, dict], extra_numbers: List
             findings.extend(_rate_findings(seg))
             findings.extend(_bridge_findings(seg, ledger))
             findings.extend(_length_findings(seg))
+            findings.extend(_repetition_findings(seg))
             findings.extend(_historical_findings(seg, [h for lt in all_topics for h in (lt.get("historical") or [])]))
         dates, nums, corpus = facts_by_topic.get(seg.get("topic")) if seg.get("kind") == "topic" else facts_all
         if seg.get("kind") == "topic" and seg.get("topic") not in facts_by_topic:
@@ -1427,7 +1461,7 @@ async def judge(segments: List[dict], ledger: Dict[str, dict], organisation: dic
 # because the figure check had matched the 10 to an event count (fifth
 # review, 16 Oct 2026, F05); the points check above now owns that case.
 _PREFLIGHT_OWNED = {"date", "figure", "date type", "actor", "causal", "transfer", "deal type", "baseline",
-                    "rate", "bridge", "length", "window", "geography"}
+                    "rate", "bridge", "length", "window", "geography", "garble"}
 _IMPERATIVE = re.compile(r"^(Monitor|Pilot|Establish|Launch|Build|Develop|Form|Engage|Stress-test|Prepare|Create|Define|"
                          r"Set|Track|Watch|Scope|Review|Negotiate|Invest|Fund|Audit|Map|Run|Use|Keep|Hold|Expand|Maintain|"
                          r"Secure|Design|Commission|Adopt|Require|Treat|Separate|Position|Price|Shift|Plan|Test|Assess|"
@@ -1542,7 +1576,7 @@ def _write_verdict_field(db, assessment_id, scenario_idx, path: str, value: str)
 # ── Orchestration ──────────────────────────────────────────────────────
 
 async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int = MAX_ROUNDS,
-                            do_repair: bool = True) -> dict:
+                            do_repair: bool = True, accepted: Optional[Dict[str, str]] = None) -> dict:
     """Preflight + judge; repair the quoted sentences and re-review, at most
     ``max_rounds`` times. The verdict is computed from counts in code."""
     from app.database import get_database_instance
@@ -1584,6 +1618,20 @@ async def review_and_repair(cadence: str, period_label: str, *, max_rounds: int 
         jud = await judge(segments, ledger, organisation)
         findings = _merge(pre, jud, [e for lt in ledger.values() for e in (lt.get("events") or [])],
                           scen_all=[sc for lt in ledger.values() for sc in (lt.get("scenarios") or [])])
+        # Text a reviewer accepted stands against a fresh judge opinion: a
+        # judge-only error on a segment identical to the accepted text is
+        # advisory. The deterministic checks still bind (a count that moved
+        # is still an error). The judge is not deterministic, and on 17 Oct
+        # 2026 its fresh errors on reviewed text sent the repair agent over
+        # sentences it then garbled.
+        if accepted:
+            by_target = {s["target"]: s["text"] for s in segments}
+            for f in findings:
+                if (f.get("source") == "judge" and f.get("severity") == "error"
+                        and by_target.get(f.get("target")) is not None
+                        and by_target[f["target"]].strip() == str(accepted.get(f["target"]) or "").strip()):
+                    f["severity"] = "warning"
+                    f["finding"] = "[accepted text] " + str(f.get("finding") or "")
         # A repair that made a segment worse is undone: the previous text
         # comes back and its old findings stand (round 1 of the 16 Oct run
         # went from 13 errors to 24 before this guard).

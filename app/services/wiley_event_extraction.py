@@ -90,6 +90,10 @@ def _normalize_scenario_relevance(raw) -> list:
             if name:
                 out.append({"scenario": name, "direction": "neutral"})
         elif isinstance(item, dict):
+            # A rejected link and an undecided candidate are provenance,
+            # not evidence (17 Oct 2026).
+            if item.get("rejected") or item.get("candidate"):
+                continue
             name = (item.get("scenario") or "").strip()
             if not name:
                 continue
@@ -98,6 +102,214 @@ def _normalize_scenario_relevance(raw) -> list:
                 direction = "neutral"
             out.append({"scenario": name, "direction": direction})
     return out
+
+
+# ── Link provenance ────────────────────────────────────────────────────
+#
+# Every entry in scenario_relevance is one of: an active link (judged, with
+# the deciding judge, time and rationale), a candidate (inherited from a
+# merged row or retained from a previous run, waiting for a decision), a
+# rejected link (kept as a record, with who rejected it, when and why), or a
+# hand-set link (locked). On 16 Oct 2026 the duplicate merge dropped nine
+# countering links because the survivor took only the wording, and the link
+# judge then rebuilt every link from scratch. Nothing is dropped silently now.
+
+def _link_key(x: dict) -> tuple:
+    return (str(x.get("scenario") or "").strip().lower(), str(x.get("direction") or "").strip().lower())
+
+
+def _is_active_link(x) -> bool:
+    return isinstance(x, dict) and not x.get("rejected") and not x.get("candidate") \
+        and str(x.get("direction") or "").lower() in ("confirms", "counters")
+
+
+def inherit_links(survivor_links: list, merged: list, now: str) -> list:
+    """The survivor's entries plus every active link of the rows merged into
+    it, as candidates carrying the row they came from. A link the survivor
+    already holds (same scenario and direction) records the twin instead."""
+    out = [dict(x) for x in (survivor_links or []) if isinstance(x, dict)]
+    # A rejected link stands: the same scenario and direction is not
+    # re-litigated as a candidate on a later merge or run.
+    have = {_link_key(x): x for x in out}
+    for mid, links in merged:
+        for x in (links or []):
+            if not _is_active_link(x):
+                continue
+            k = _link_key(x)
+            if k in have:
+                if not have[k].get("rejected"):
+                    also = have[k].setdefault("also_from", [])
+                    if int(mid) not in also:
+                        also.append(int(mid))
+                continue
+            cand = {"scenario": x.get("scenario"), "direction": x.get("direction"), "candidate": True,
+                    "inherited_from": int(mid), "inherited_at": now, "rationale": x.get("rationale"), "p": x.get("p")}
+            out.append(cand)
+            have[k] = cand
+    return out
+
+
+def _link_source(x: dict) -> str:
+    if x.get("inherited_from"):
+        return (f"inherited from merged row {x['inherited_from']}, which was rated {x.get('direction')}"
+                + (f": {x.get('rationale')}" if x.get("rationale") else ""))
+    if x.get("judged") or x.get("decided_by"):
+        return "retained from a previous run" + (f": {x.get('rationale')}" if x.get("rationale") else "")
+    return "first-pass judge proposed it this run"
+
+
+def links_to_decide(old: list, proposals: list) -> list:
+    """Everything the link judge must rule on for one row: this run's
+    proposals, the row's undecided candidates, and the links a previous run
+    kept (a link that is not re-proposed is not dropped in silence)."""
+    locked = {_link_key(x)[0] for x in (old or []) if isinstance(x, dict) and x.get("locked")}
+    rejected = {_link_key(x) for x in (old or []) if isinstance(x, dict) and x.get("rejected")}
+    todo: dict = {}
+    for x in (proposals or []):
+        if _link_key(x)[0] in locked:
+            continue
+        todo[_link_key(x)] = {**x, "origin": "proposal"}
+    for x in (old or []):
+        if not isinstance(x, dict) or x.get("locked") or x.get("rejected"):
+            continue
+        if _link_key(x)[0] in locked or _link_key(x) in todo:
+            if _link_key(x) in todo and x.get("inherited_from"):
+                todo[_link_key(x)]["inherited_from"] = x["inherited_from"]
+            continue
+        if x.get("candidate"):
+            if _link_key(x) in rejected:
+                continue  # already decided; the rejection is the record
+            todo[_link_key(x)] = {**x, "origin": "candidate"}
+        elif _is_active_link(x):
+            todo[_link_key(x)] = {**x, "origin": "previous"}
+    return list(todo.values())
+
+
+def resolve_links(old: list, decided: list, verdicts: dict, *, now: str, decided_by: str) -> tuple:
+    """Apply the judge's verdicts. ``decided`` is the list from
+    links_to_decide; ``verdicts`` maps (scenario lower, direction) to
+    {"keep": bool, "rationale": str}. Locked links stay. A link without a
+    verdict keeps its previous standing (a proposal becomes active on the
+    first-pass judge's say, a candidate stays a candidate). One active link
+    per scenario: when the judge keeps two directions, the higher-probability
+    one stays and the other is recorded as superseded. Earlier rejections are
+    carried over unless re-decided. Returns (entries, stats)."""
+    stats = {"kept": 0, "rejected": 0, "unresolved": 0, "superseded": 0}
+    out: list = [dict(x) for x in (old or []) if isinstance(x, dict) and x.get("locked")]
+    decided_keys = set()
+    # A candidate on a scenario the analyst locked by hand is decided by
+    # that lock: recorded as rejected, with the hand-set link named.
+    locked_sc = {_link_key(x)[0]: x for x in out}
+    for x in (old or []):
+        if isinstance(x, dict) and x.get("candidate") and _link_key(x)[0] in locked_sc:
+            hand = locked_sc[_link_key(x)[0]]
+            out.append({"scenario": x.get("scenario"), "direction": x.get("direction"), "p": x.get("p"),
+                        "origin": "candidate", "inherited_from": x.get("inherited_from"), "rejected": True,
+                        "rejected_by": "analyst lock", "rejected_at": now,
+                        "rejected_reason": f"the analyst set and locked a {hand.get('direction')} link for this scenario"
+                                           f"{': ' + str(hand.get('rationale'))[:120] if hand.get('rationale') else ''}"})
+            decided_keys.add(_link_key(x))
+            stats["rejected"] += 1
+    for x in decided:
+        k = _link_key(x)
+        decided_keys.add(k)
+        v = verdicts.get(k)
+        base = {"scenario": x.get("scenario"), "direction": x.get("direction"), "p": x.get("p"), "origin": x.get("origin")}
+        if x.get("inherited_from"):
+            base["inherited_from"] = x["inherited_from"]
+        if v is None:
+            if x.get("origin") == "candidate":
+                out.append({**base, "candidate": True, "rationale": x.get("rationale"), "inherited_at": x.get("inherited_at")})
+                stats["unresolved"] += 1
+            else:
+                out.append({**base, "judged": bool(x.get("judged")), "rationale": x.get("rationale"),
+                            "decided_by": x.get("decided_by") or ("first-pass judge" if x.get("origin") == "proposal" else None),
+                            "decided_at": x.get("decided_at") or now})
+                stats["kept"] += 1
+            continue
+        if v.get("keep", True):
+            out.append({**base, "judged": True, "rationale": (v.get("rationale") or x.get("rationale") or "")[:200],
+                        "decided_by": decided_by, "decided_at": now})
+            stats["kept"] += 1
+        else:
+            out.append({**base, "rejected": True, "rejected_by": decided_by, "rejected_at": now,
+                        "rejected_reason": (v.get("rationale") or "the judge did not keep the link")[:200]})
+            stats["rejected"] += 1
+    for x in (old or []):
+        if isinstance(x, dict) and x.get("rejected") and _link_key(x) not in decided_keys:
+            out.append(dict(x))
+    # One active link per scenario.
+    by_sc: dict = {}
+    for x in out:
+        if _is_active_link(x) and not x.get("locked"):
+            by_sc.setdefault(_link_key(x)[0], []).append(x)
+    for sc, xs in by_sc.items():
+        if len(xs) < 2:
+            continue
+        xs.sort(key=lambda y: -(float(y.get("p") or 0)))
+        for y in xs[1:]:
+            y.update({"rejected": True, "rejected_by": decided_by, "rejected_at": now,
+                      "rejected_reason": f"superseded by the {xs[0].get('direction')} link for the same scenario "
+                                         f"(the judge kept both; the higher-probability link stands)"})
+            for k in ("judged", "decided_by", "decided_at"):
+                y.pop(k, None)
+            stats["superseded"] += 1
+            stats["kept"] -= 1
+    return out, stats
+
+
+def _final_survivor(by_id: dict, rid: int, hops: int = 10):
+    r = by_id.get(int(rid))
+    while r and r.get("merged_into") and hops > 0:
+        r = by_id.get(int(r["merged_into"]))
+        hops -= 1
+    return r
+
+
+def audit_merged_links(all_rows: list) -> list:
+    """Every active link on a merged-away row must be on its survivor as an
+    active link with the same scenario and direction, or as a rejected link
+    with a reason. Anything else is returned as an offender: an undecided
+    candidate, a link never carried across, a direction changed with no
+    recorded decision, or a missing survivor."""
+    by_id = {int(r["id"]): r for r in all_rows if r.get("id") is not None}
+    offenders = []
+    for m in all_rows:
+        if not m.get("merged_into"):
+            continue
+        surv = _final_survivor(by_id, m["merged_into"])
+        if not surv and not any(_is_active_link(x) for x in (m.get("scenario_relevance") or [])):
+            continue
+        if not surv:
+            offenders.append({"merged_id": m["id"], "survivor_id": m.get("merged_into"), "topic": m.get("topic"),
+                              "scenario": None, "direction": None, "problem": "survivor row missing"})
+            continue
+        s_entries = [y for y in (surv.get("scenario_relevance") or []) if isinstance(y, dict)]
+        for x in (m.get("scenario_relevance") or []):
+            if not _is_active_link(x):
+                continue
+            k = _link_key(x)
+            same = [y for y in s_entries if _link_key(y) == k]
+            if any(_is_active_link(y) for y in same):
+                continue
+            if any(y.get("rejected") and (y.get("rejected_reason") or "").strip() for y in same):
+                continue
+            problem = ("undecided candidate on the survivor" if any(y.get("candidate") for y in same)
+                       else "direction changed on the survivor with no recorded decision"
+                       if any(_link_key(y)[0] == k[0] and _is_active_link(y) for y in s_entries)
+                       else "link never carried to the survivor")
+            offenders.append({"merged_id": int(m["id"]), "survivor_id": int(surv["id"]), "topic": m.get("topic"),
+                              "scenario": x.get("scenario"), "direction": x.get("direction"), "problem": problem})
+    return offenders
+
+
+def audit_merged_links_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None) -> list:
+    from app.database import get_database_instance
+    db = get_database_instance()
+    rows = db.facade.list_extracted_events(cadence=cadence, period_label=period_label, include_excluded=True) or []
+    if topics:
+        rows = [r for r in rows if r.get("topic") in topics]
+    return audit_merged_links(rows)
 
 
 def events_for_scenario(events: list, scenario_name: str) -> tuple:
@@ -517,9 +729,23 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
     # and/or carrying a hard magnitude, highest confidence first. Skip
     # review-flagged ones (the analyst promotes those from the editor).
     DECK_CAP = 14
+    letter = str(((payload.get("exec_summary") or {}).get("letter") if isinstance(payload.get("exec_summary"), dict) else "") or "").lower()
+
+    def _in_letter(e):
+        toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", str(e.get("actor") or "")) if len(w) >= 4]
+        return bool(toks) and all(t in letter for t in toks[:2])
+
+    def _letter_pos(e):
+        """Where the letter first names the actor; the slide shows the
+        letter's own order. Unnamed rows sort last."""
+        toks = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’&-]+", str(e.get("actor") or "")) if len(w) >= 4]
+        if not toks or not all(t in letter for t in toks[:2]):
+            return 10 ** 9
+        return min(letter.find(t) for t in toks[:2])
 
     def _rank(e):
         return (
+            1 if _in_letter(e) else 0,
             1 if (e.get("scenario_relevance") or []) else 0,
             1 if e.get("magnitude_value") is not None else 0,
             e.get("confidence") or 0,
@@ -533,8 +759,10 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
     # BEFORE the cap so dupes don't consume slide slots. Runs on the
     # rank-ordered list so the highest-ranked phrasing of each event wins.
     ranked = _collapse_near_dupes(ranked)[:DECK_CAP]
-    # Within the capped set, present newest-first for reading.
-    ranked.sort(key=lambda e: e.get("event_date") or "", reverse=True)
+    # Within the capped set: the rows the letter names first, then the
+    # rest, newest first in each group. The slide shows about ten of the
+    # fourteen and the notes keep them all.
+    ranked.sort(key=lambda e: (_letter_pos(e), -int(str(e.get("event_date") or "0000-00-00")[:10].replace("-", "") or 0)))
 
     lines = []
     for e in ranked:
@@ -897,14 +1125,20 @@ async def reconcile_events_for_topic(db, topic: str, *, cadence: str,
         event_date = _coerce_date(rec.get("event_date")) or by_id[keep].get("event_date")
         mag_v = rec.get("magnitude_value") if "magnitude_value" in rec else by_id[keep].get("magnitude_value")
         mag_u = rec.get("magnitude_unit") if "magnitude_unit" in rec else by_id[keep].get("magnitude_unit")
-        base = {"id": keep, "urls": json.dumps(urls), "conf": conf, "state": rec.get("event_state")}
+        # The merged rows' links travel with the record as candidates for
+        # the link judge; the survivor's own links stay (17 Oct 2026).
+        links = inherit_links(by_id[keep].get("scenario_relevance") or [],
+                              [(m, by_id[m].get("scenario_relevance") or []) for m in merge_ids],
+                              datetime.now(timezone.utc).isoformat())
+        base = {"id": keep, "urls": json.dumps(urls), "conf": conf, "state": rec.get("event_state"),
+                "rel": json.dumps(links)}
         try:
             db.facade._execute_with_rollback(sa_text(
                 "UPDATE extracted_events SET actor=:actor, actor_normalized=:an, "
                 "action=:action, subject=:subject, subject_normalized=:sn, "
                 "magnitude_value=:mv, magnitude_unit=:mu, event_date=:ed, "
                 "source_urls=CAST(:urls AS jsonb), confidence=:conf, "
-                "event_state=:state, updated_at=NOW() WHERE id=:id"),
+                "event_state=:state, scenario_relevance=CAST(:rel AS jsonb), updated_at=NOW() WHERE id=:id"),
                 {**base, "actor": actor, "an": _normalize(actor), "action": action,
                  "subject": subject, "sn": _normalize(subject), "mv": mag_v,
                  "mu": mag_u, "ed": event_date})
@@ -914,7 +1148,8 @@ async def reconcile_events_for_topic(db, topic: str, *, cadence: str,
             logger.warning("reconcile: wording update skipped for %s (%s)", keep, e)
             db.facade._execute_with_rollback(sa_text(
                 "UPDATE extracted_events SET source_urls=CAST(:urls AS jsonb), "
-                "confidence=:conf, event_state=:state, updated_at=NOW() WHERE id=:id"), base)
+                "confidence=:conf, event_state=:state, scenario_relevance=CAST(:rel AS jsonb), "
+                "updated_at=NOW() WHERE id=:id"), base)
         for m in merge_ids:
             db.facade._execute_with_rollback(sa_text(
                 "UPDATE extracted_events SET include_in_deck=false, merged_into=:keep, "
@@ -1020,7 +1255,8 @@ def _deck_scenarios(assessment: dict) -> list:
     return out
 
 
-async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_label: str) -> dict:
+async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_label: str,
+                                      row_ids: Optional[list] = None) -> dict:
     import asyncio
     from sqlalchemy import text as sa_text
     assessment = db.facade.get_latest_forecast_assessment_by_topic(topic) or {}
@@ -1028,8 +1264,11 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
     rows = [r for r in (db.facade.list_extracted_events(
         topic=topic, cadence=cadence, period_label=period_label,
         include_excluded=False) or []) if r.get("id") is not None]
+    if row_ids:
+        rows = [r for r in rows if int(r["id"]) in {int(i) for i in row_ids}]
     stats = {"events": len(rows), "scenarios": len(scenarios), "pairs": 0, "answered": 0,
-             "confirms": 0, "counters": 0, "kept_tags": 0, "dropped_tags": 0}
+             "confirms": 0, "counters": 0, "kept_tags": 0, "dropped_tags": 0,
+             "links_rejected": 0, "links_unresolved": 0, "links_superseded": 0}
     if not rows or not scenarios:
         return stats
     sem = asyncio.Semaphore(6)
@@ -1051,9 +1290,14 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
             by_event.setdefault(ei, []).append({"scenario": scenarios[si]["name"],
                                                 "direction": direction,
                                                 "p": round(probs[direction], 2), "judged": True})
-    if stats["answered"] == 0:
+    if stats["answered"] == 0 and not any(
+            links_to_decide(r.get("scenario_relevance") or [], []) for r in rows):
         logger.warning("event links: Jev answered nothing for %s; tags left as they were", topic)
         return stats
+    # What the judge rules on, per row: this run's proposals plus the row's
+    # candidates and previously kept links, each with its source.
+    decide = {ei: links_to_decide(rows[ei].get("scenario_relevance") or [], by_event.get(ei, []))
+              for ei in range(len(rows))}
     # Second opinion, a tier above, with the rationale an analyst would write:
     # Jev at 0.7 still let novel-drug deals confirm a biosimilar scenario and
     # error-correction milestones confirm practical applications (16 Oct
@@ -1062,56 +1306,52 @@ async def judge_event_links_for_topic(db, topic: str, *, cadence: str, period_la
     try:
         from app.services.wiley_bundle_supervisor import _call_agent
         flat = [{"event_id": int(rows[ei]["id"]), "scenario": x["scenario"], "direction": x["direction"],
+                 "source": _link_source(x),
                  "event": {k: v for k, v in _event_brief(rows[ei]).items() if k not in ("id", "sources")}}
-                for ei, xs in by_event.items() for x in xs]
+                for ei, xs in decide.items() for x in xs]
+        verdict: dict = {}
         if flat:
             jout = await _call_agent("wiley_link_judge_agent", {"topic": topic, "scenarios": scenarios, "links": flat})
-            verdict = {}
             for v in ((jout or {}).get("links") or []):
                 try:
-                    verdict[(int(v.get("event_id")), str(v.get("scenario") or "").lower())] = v
+                    verdict[(int(v.get("event_id")), str(v.get("scenario") or "").lower(),
+                             str(v.get("direction") or "").lower())] = v
                 except (TypeError, ValueError):
                     continue
-            if verdict:
-                dropped = 0
-                for ei, xs in list(by_event.items()):
-                    kept = []
-                    for x in xs:
-                        v = verdict.get((int(rows[ei]["id"]), x["scenario"].lower()))
-                        if v is None or v.get("keep", True):
-                            if v is not None and v.get("rationale"):
-                                x["rationale"] = str(v["rationale"])[:200]
-                            kept.append(x)
-                        else:
-                            dropped += 1
-                    by_event[ei] = kept
-                stats["second_opinion_dropped"] = dropped
-            else:
-                logger.warning("event links: link judge gave no verdicts for %s; Jev links kept", topic)
+            if not verdict:
+                logger.warning("event links: link judge gave no verdicts for %s; proposals kept, candidates left undecided", topic)
     except Exception as e:
-        logger.warning("event links: link judge failed for %s (%s); Jev links kept", topic, e)
+        logger.warning("event links: link judge failed for %s (%s); proposals kept, candidates left undecided", topic, e)
+        verdict = {}
+    now = datetime.now(timezone.utc).isoformat()
     for ei, e in enumerate(rows):
-        old = _normalize_scenario_relevance(e.get("scenario_relevance"))
-        new = by_event.get(ei, [])
-        # A link an analyst set by hand carries "locked": true and survives
-        # re-judging; the judges rebuilt every link from scratch and lost the
-        # restored NIH counter-link (fifth review, 16 Oct 2026, F02).
-        locked = [x for x in (e.get("scenario_relevance") or []) if isinstance(x, dict) and x.get("locked")]
-        if locked:
-            lk = {(str(x.get("scenario") or "").lower()) for x in locked}
-            new = [x for x in new if x["scenario"].lower() not in lk] + locked
-            by_event[ei] = new
-        new_keys = {(x["scenario"].lower(), x["direction"]) for x in new}
+        old_entries = [x for x in (e.get("scenario_relevance") or []) if isinstance(x, dict)]
+        old = _normalize_scenario_relevance(old_entries)
+        rid = int(e["id"])
+        # A verdict for a link without a direction in the output applies to
+        # the one link of that scenario the judge was sent.
+        vmap = {}
+        for x in decide.get(ei, []):
+            k = _link_key(x)
+            v = verdict.get((rid, k[0], k[1])) or verdict.get((rid, k[0], ""))
+            if v is not None:
+                vmap[k] = v
+        new, st = resolve_links(old_entries, decide.get(ei, []), vmap, now=now, decided_by="link judge")
+        stats["links_rejected"] += st["rejected"]
+        stats["links_unresolved"] += st["unresolved"]
+        stats["links_superseded"] += st["superseded"]
+        active = _normalize_scenario_relevance(new)
+        new_keys = {(x["scenario"].lower(), x["direction"]) for x in active}
         for o in old:
             if (o["scenario"].lower(), o["direction"]) in new_keys:
                 stats["kept_tags"] += 1
             else:
                 stats["dropped_tags"] += 1
-        stats["confirms"] += sum(1 for x in new if x["direction"] == "confirms")
-        stats["counters"] += sum(1 for x in new if x["direction"] == "counters")
+        stats["confirms"] += sum(1 for x in active if x["direction"] == "confirms")
+        stats["counters"] += sum(1 for x in active if x["direction"] == "counters")
         db.facade._execute_with_rollback(sa_text(
             "UPDATE extracted_events SET scenario_relevance = CAST(:rel AS jsonb), updated_at=NOW() WHERE id=:id"),
-            {"rel": json.dumps(new), "id": int(e["id"])})
+            {"rel": json.dumps(new), "id": rid})
     logger.info("event links: %s — %s", topic, stats)
     return stats
 
@@ -1506,7 +1746,8 @@ async def judge_event_precedence_for_bundle(cadence: str, period_label: str, top
     return out
 
 
-async def judge_event_links_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None) -> dict:
+async def judge_event_links_for_bundle(cadence: str, period_label: str, topics: Optional[list] = None,
+                                       row_ids: Optional[list] = None) -> dict:
     from app.database import get_database_instance
     db = get_database_instance()
     synth = db.facade.get_forecast_bundle_synthesis(cadence, period_label) or {}
@@ -1514,7 +1755,8 @@ async def judge_event_links_for_bundle(cadence: str, period_label: str, topics: 
     out: dict = {}
     for topic in [t for t in topic_list if t]:
         try:
-            out[topic] = await judge_event_links_for_topic(db, topic, cadence=cadence, period_label=period_label)
+            out[topic] = await judge_event_links_for_topic(db, topic, cadence=cadence, period_label=period_label,
+                                                           row_ids=row_ids)
         except Exception as e:
             logger.exception("event links failed for %s: %s", topic, e)
             out[topic] = {"error": str(e)}

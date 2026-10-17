@@ -1548,6 +1548,30 @@ async def run_pipeline(
     except Exception as e:
         logger.warning("event-extraction stage failed (non-fatal): %s", e)
 
+    # ── Link audit gate ──────────────────────────────────────────────
+    # Nine countering links were lost on 16 Oct 2026 when the duplicate
+    # merge folded their rows into others and the link judge rebuilt the
+    # survivors' links from nothing. A build now stops when any link on a
+    # merged-away row is on its survivor neither as a kept link nor as an
+    # explicit rejection with a reason. A re-export of a locked bundle is
+    # gated the same way.
+    try:
+        from app.services.wiley_event_extraction import audit_merged_links_for_bundle
+        offenders = audit_merged_links_for_bundle(cadence, period_label)
+    except Exception as e:
+        logger.warning("link audit failed (treated as blocking): %s", e)
+        offenders = [{"merged_id": None, "survivor_id": None, "scenario": None, "direction": None,
+                      "problem": f"audit could not run: {e}"}]
+    if offenders:
+        findings = [{"severity": "error", "artefact_key": "events",
+                     "finding": (f"merged row {o.get('merged_id')} → survivor {o.get('survivor_id')}: "
+                                 f"{o.get('direction')} link to \"{o.get('scenario')}\" {o.get('problem')}")}
+                    for o in offenders[:40]]
+        yield {"stage": "link_audit", "status": "failed", "progress": 0.735,
+               "payload": {"offenders": len(offenders), "findings": findings[:10]}}
+        raise BundleRequiresReviewError(cadence, period_label, findings)
+    yield {"stage": "link_audit", "status": "completed", "progress": 0.735, "payload": {"offenders": 0}}
+
     # Locked dot-paths configured in the Quarterly Brief Editor. After
     # each agent call we restore any locked subtree from prior_payload so
     # an accidental "Generate bundle" doesn't clobber edited prose.

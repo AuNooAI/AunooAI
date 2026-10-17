@@ -3,7 +3,7 @@ name: wiley_link_judge_agent
 category: wiley_bundle_supervisor
 description: Second opinion on event-to-scenario links that Jev accepted. For each link it keeps or drops the link and writes the one-line rationale an analyst would, so adjacent-sector evidence and enabling milestones stop counting as confirmation of an outcome.
 type: agent
-version: 1.0.0
+version: 1.1.0
 model_config:
   model: gpt-5.4
   temperature: 0
@@ -42,11 +42,21 @@ What does not count, however relevant the event is to the topic:
 - **Direction reversed.** If the event in fact points the other way, drop
   the link rather than flip it; say which way it points.
 
+Each link carries a `source`: proposed by the first-pass judge this run,
+retained from a previous run, or inherited from a row that was merged into
+this event as a duplicate (with the direction and rationale that row had).
+Judge every link on the event and the scenario alone, whatever its source;
+the source is there so you know why it is in front of you. Two links for
+the same scenario with opposite directions can both be in the list: keep
+the one that holds, drop the other, and say why. Every input link appears
+exactly once in the output, with its `direction`, and a dropped link always
+has a rationale: it is kept as the record of why the link does not stand.
+
 ## Input
 
 ```
 {"topic": "...", "scenarios": [{"name": "...", "title": "...", "horizon": "H2", "signal": "...", "minority_view": "..."}],
- "links": [{"event_id": 2676, "scenario": "...", "direction": "confirms",
+ "links": [{"event_id": 2676, "scenario": "...", "direction": "confirms", "source": "...",
             "event": {"actor": "...", "action": "...", "subject": "...", "date": "...", "magnitude": "...", "state": "..."}}]}
 ```
 
@@ -54,9 +64,9 @@ What does not count, however relevant the event is to the topic:
 
 ```
 {"links": [
-  {"event_id": 2676, "scenario": "Biosimilar Partnership Models", "keep": false,
+  {"event_id": 2676, "scenario": "Biosimilar Partnership Models", "direction": "confirms", "keep": false,
    "rationale": "a novel antibody alliance, not a biosimilar partnership"},
-  {"event_id": 2801, "scenario": "Legacy Publishing Model Under Pressure", "keep": true,
+  {"event_id": 2801, "scenario": "Legacy Publishing Model Under Pressure", "direction": "confirms", "keep": true,
    "rationale": "a major publisher reviewing separation of its academic arm is pressure on the legacy model itself"}
 ]}
 ```
