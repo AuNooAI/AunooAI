@@ -575,8 +575,15 @@ async def humanize_bundle_payload(payload: dict, *, locked_keys: list = None) ->
     if not humanize_enabled() or not isinstance(payload, dict):
         return summary
 
+    def _is_locked(path: str) -> bool:
+        # A lock on "exec_summary" covers "exec_summary.letter", and one on
+        # "cross_cutting_themes" covers "cross_cutting_themes[1].body". The
+        # exact-match check let the humanizer rewrite a locked, reviewed
+        # letter on a plain rebuild (17 Oct 2026).
+        return any(path == k or path.startswith(k + ".") or path.startswith(k + "[") for k in locked)
+
     async def _do(path, getter, setter):
-        if path in locked:
+        if _is_locked(path):
             return
         cur = getter()
         if not isinstance(cur, str) or not cur.strip():

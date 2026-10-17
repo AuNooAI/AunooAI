@@ -71,8 +71,11 @@ def _build_report_data(items, *, period_label, cadence, bundle_synthesis,
                 "n_counter": len(ctr),
                 "read": read_text,
                 "category": category,
-                "confirming": [_ev_dict(e) for e in conf[:6]],
-                "countering": [_ev_dict(e) for e in ctr[:6]],
+                # Every judged record, so a drawer that says "Confirming (10)"
+                # lists ten (eleventh review, 17 Oct 2026: six of ten were
+                # exported and the drawer counted the six).
+                "confirming": [_ev_dict(e) for e in conf],
+                "countering": [_ev_dict(e) for e in ctr],
             })
 
     # All deck-included events for the explorer (deduped, period-scoped already).
@@ -133,11 +136,11 @@ h2{margin:0 0 4px;font-size:20px;color:var(--navy)}
 .section-sub{color:var(--muted);font-size:13px;margin:0 0 16px}
 /* calibration matrix — explicit 3-col × (header+2) grid so the 2×2 can't
    mis-place (auto-flow + a spanning axis label was scrambling the quadrants) */
-.matrix{display:grid;grid-template-columns:92px 1fr 1fr;grid-template-rows:26px 1fr 1fr;gap:8px;align-items:stretch}
+.matrix{display:grid;grid-template-columns:92px 1fr 1fr;grid-template-rows:26px 1fr 1fr 1fr;gap:8px;align-items:stretch}
 .m-colhead{grid-row:1;align-self:end;text-align:center;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
 .m-colhead.thin{grid-column:2}.m-colhead.conf{grid-column:3}
 .rowlabel{font-weight:700;color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center}
-.rowlabel.hi{grid-row:2;grid-column:1}.rowlabel.lo{grid-row:3;grid-column:1}
+.rowlabel.hi{grid-row:2;grid-column:1}.rowlabel.mid{grid-row:3;grid-column:1}.rowlabel.lo{grid-row:4;grid-column:1}
 .cell{border:1px dashed var(--line);border-radius:10px;padding:12px;min-height:150px}
 .cell h4{margin:0 0 8px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
 .cell.hot{background:#fff7ed;border-color:#fdba74}
@@ -259,10 +262,14 @@ def build_bundle_html(items, *, period_label, cadence, updates_only=False,
       <div class="rowlabel hi">HIGH<br>consensus</div>
       <div class="cell hot" id="cell-hi-thin"><h4>⚠ Consensus, evidence thin — crowd may be wrong (or too early)</h4></div>
       <div class="cell" id="cell-hi-conf"><h4>● Consensus holding — wisdom of crowds</h4></div>
+      <div class="rowlabel mid">MIDDLE<br>41–59%</div>
+      <div class="cell" id="cell-mid-thin"><h4>· Below the high-consensus threshold, evidence thin — undecided</h4></div>
+      <div class="cell" id="cell-mid-conf"><h4>● Below the high-consensus threshold, evidence confirming — leaning</h4></div>
       <div class="rowlabel lo">LOW<br>consensus</div>
       <div class="cell" id="cell-lo-thin"><h4>· Outlier, quiet — not (yet) bearing out</h4></div>
       <div class="cell gold" id="cell-lo-conf"><h4>★ Outlier confirming — signal the crowd missed</h4></div>
     </div>
+    <p class="section-sub screen-only small">Rows follow the methodology's thresholds: high consensus is 60% or more of sources, low consensus 40% or less, and the middle band is between the two. Only the low row carries the outlier reading.</p>
     <div class="print-only" id="printCalib"></div>
   </section>
 
@@ -337,14 +344,17 @@ document.getElementById('ovText').innerHTML = md(D.strategic_overview || '');
 // direction), not by category. (Category only drives the chip colour/dot so
 // genuine divergences pop within their cell.) This keeps a high-consensus
 // no-evidence-yet trend out of the "low / outlier" row.
+// Three bands, as the methodology defines them: high consensus at 60% or
+// more, low at 40% or less, and the middle band between (eleventh review,
+// 17 Oct 2026: a 58% trend sat in the outlier row). An unknown basis is
+// placed in the middle band, never called an outlier.
 function cellFor(t){{
-  const hi = (t.basis_pct!=null) && t.basis_pct >= 60;
+  const b = t.basis_pct;
+  const band = (b==null) ? 'mid' : (b >= 60 ? 'hi' : (b <= 40 ? 'lo' : 'mid'));
   const confirming = (t.n_confirm - t.n_counter) > 0;
-  if(hi && confirming) return 'cell-hi-conf';
-  if(hi && !confirming) return 'cell-hi-thin';
-  if(!hi && confirming) return 'cell-lo-conf';
-  return 'cell-lo-thin';
+  return 'cell-'+band+(confirming ? '-conf' : '-thin');
 }}
+function dlab(e){{ return e.date_basis==='article' ? 'reported ' : e.date_basis==='inferred' ? 'inferred ' : e.date_basis==='stated' ? '' : 'date basis unknown · '; }}
 D.trends.forEach((t,i)=>{{
   const c=document.getElementById(cellFor(t)); if(!c)return;
   const dot=t.category==='crowd_wrong'?'⚠':t.category==='outlier_confirming'?'★':t.category==='holding'||t.category==='leaning'?'●':'·';
@@ -371,7 +381,7 @@ function evGroup(title, evs, k){{
   let h='<div class="evgrp '+k+'"><h5>'+title+' ('+evs.length+')</h5>';
   if(!evs.length) h+='<div class="small muted">None this cycle.</div>';
   evs.forEach(e=>{{
-    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?' — '+(e.date_basis==='article'?'reported ':'')+esc(e.date):'';
+    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?' — '+dlab(e)+esc(e.date):' — date basis unknown';
     const src=(e.sources&&e.sources.length)?' <a href="'+esc(e.sources[0])+'" target="_blank" rel="noopener">source</a>':'';
     h+='<div class="ev '+k+'">'+esc(e.actor)+' '+esc(e.action)+' '+esc(e.subject)+mag+'<div class="meta">'+dt+src+'</div></div>';
   }});
@@ -423,7 +433,7 @@ function renderEvents(){{
   const rows=D.events.filter(e=>(!tp||e.topic===tp)&&(!q||(e.actor+' '+e.action+' '+e.subject).toLowerCase().includes(q)));
   document.getElementById('evCount').textContent=rows.length+' events';
   document.getElementById('evList').innerHTML=rows.map(e=>{{
-    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?'<span class="muted small"> · '+(e.date_basis==='article'?'reported ':'')+esc(e.date)+'</span>':'';
+    const mag=e.magnitude?' ('+esc(e.magnitude)+')':''; const dt=e.date?'<span class="muted small"> · '+dlab(e)+esc(e.date)+'</span>':'<span class="muted small"> · date basis unknown</span>';
     const src=(e.sources&&e.sources.length)?' · <a href="'+esc(e.sources[0])+'" target="_blank" rel="noopener">source</a>':'';
     return '<div class="evrow"><span class="t">'+esc(e.actor)+' '+esc(e.action)+' '+esc(e.subject)+'</span>'+mag+dt+'<span class="muted small"> · '+esc(e.topic)+src+'</span></div>';
   }}).join('') || '<p class="muted small">No matching events.</p>';

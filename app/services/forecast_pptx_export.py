@@ -849,8 +849,10 @@ def _fmt_event_line(e: dict) -> str:
         unit = e.get("magnitude_unit") or ""
         mag = f" ({e['magnitude_value']:g} {unit})".replace("  ", " ").replace(" )", ")")
     date = e.get("event_date") or ""
-    # A date the article did not state is the article's own date: say so.
-    label = "reported " if e.get("date_basis") == "article" else ""
+    # A date the article did not state is the article's own date: say so;
+    # an inferred date says so too (eleventh review, 17 Oct 2026).
+    basis = e.get("date_basis")
+    label = "reported " if basis == "article" else "inferred " if basis == "inferred" else ""
     date = f" — {label}{str(date)[:10]}" if date else ""
     return (" ".join(p for p in (actor, action, subject) if p) + mag + date).strip()
 

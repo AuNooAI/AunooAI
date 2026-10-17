@@ -556,7 +556,8 @@ def _sync_events_into_payload(db, cadence: str, period_label: str):
             mag = f" ({e['magnitude_value']:g} {unit})".replace("  ", " ").replace(" )", ")")
         # A date the article did not state is the article's own date; the
         # row says so, as the evidence slides do (tenth review, 17 Oct 2026).
-        label = "reported " if e.get("date_basis") == "article" else ""
+        basis = e.get("date_basis")
+        label = "reported " if basis == "article" else "inferred " if basis == "inferred" else ""
         date = f" — {label}{str(e['event_date'])[:10]}" if e.get("event_date") else ""
         line = " ".join(p for p in (actor, action, subject) if p) + mag + date
         lines.append(line.strip())

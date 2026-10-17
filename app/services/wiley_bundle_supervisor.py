@@ -1662,12 +1662,14 @@ async def run_pipeline(
     # (exec summary, strategic overview, theme/framework bodies) before the
     # reviewer sees it and before persistence. Threshold-gated + lock-aware
     # (locked fields are left untouched). Non-fatal.
+    humanized_changed = 0
     try:
         from app.services.wiley_humanizer import humanize_bundle_payload, humanize_enabled
         if humanize_enabled():
             yield {"stage": "humanize", "status": "started", "progress": 0.905}
             hsummary = await humanize_bundle_payload(bundle_payload, locked_keys=locked_keys)
             changed = sum(1 for v in hsummary.values() if v.get("changed"))
+            humanized_changed = changed
             yield {"stage": "humanize", "status": "completed", "progress": 0.915,
                    "payload": {"fields_rewritten": changed,
                                "fields_checked": len(hsummary)}}
@@ -1835,7 +1837,11 @@ async def run_pipeline(
     # scenario counts. Any run that wrote narrative reviews and repairs it
     # here, before the reviewer and the render.
     writer_stages = ("briefing", "recommendations", "next_steps", "cross_topic", "exec_summary", "expert_commentary")
-    wrote_narrative = any(_stage_in_plan(plan, s) for s in writer_stages) or not cross_cached or not exec_cached
+    # The humanizer is a model rewrite too: text it changed is unreviewed
+    # until this stage reads it (an Oxford comma in a reviewed sentence,
+    # 17 Oct 2026).
+    wrote_narrative = (any(_stage_in_plan(plan, s) for s in writer_stages) or not cross_cached or not exec_cached
+                       or humanized_changed > 0)
     if wrote_narrative and os.environ.get("WILEY_SKIP_NARRATIVE_REVIEW") != "1":
         yield {"stage": "narrative_review", "status": "started", "progress": 0.915}
         try:

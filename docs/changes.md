@@ -1,3 +1,27 @@
+## 2026-10-17 (midday, eleventh review) — Wiley Q4 bundle: the HTML exports every judged record, three consensus bands, date bases on every row
+
+The eleventh review read the HTML and the docx against the deck. The prose matched across the three
+files; the HTML did not match its own totals. Four scenario ledgers listed six evidence rows
+against declared totals of ten, ten, nine and eight (thirteen confirming records missing), the
+calibration matrix read every basis under 60% as low consensus and so put a 58% scenario in the
+outlier row, two records had no date basis, and inferred dates were shown bare.
+
+- `forecast_bundle_html.py`: every confirming and countering record is exported (the `[:6]` cap is
+  gone), so a drawer's "Confirming (10)" lists ten and the print ledgers expand the full lists. The
+  matrix has three rows as the methodology defines them: high consensus at 60% or more, a middle
+  band from 41% to 59% ("below the high-consensus threshold", leaning or undecided), low at 40% or
+  less; only the low row carries the outlier reading, and an unknown basis goes to the middle row.
+  Event lists label dates "reported" (article basis), "inferred", or "date basis unknown".
+- `_sync_events_into_payload` and `_fmt_event_line`: "What's Changed" rows and evidence-slide lines
+  say "inferred YYYY-MM-DD" for inferred dates, as the notes already did.
+- The humanizer rewrote a locked, reviewed letter on a plain rebuild (an Oxford comma in the
+  reviewer's sentence). `humanize_bundle_payload` matched locked paths exactly, so a lock on
+  `exec_summary` did not cover `exec_summary.letter`; it now covers children and list items. The
+  in-pipeline narrative review runs whenever the humanizer changed a field, not only after a writer
+  stage (`wiley_bundle_supervisor.py`).
+- wileytest records: 2248 (Sun Pharma) and 2250 (AI2 OlmoCore 3) had no date basis; the articles
+  do not date the actions, so both are "reported" on the article date.
+
 ## 2026-10-17 (morning, tenth review) — Wiley Q4 bundle: where a development takes place, and whether it was announced before the window
 
 One finding on slide 3. The letter's international sentence listed "WashU Medicine researchers'

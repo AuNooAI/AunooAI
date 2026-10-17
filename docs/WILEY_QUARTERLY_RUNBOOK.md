@@ -153,6 +153,14 @@ Two stages run inside the bundle since 16 Oct 2026 and have no button of their o
   actor and the subject; everything else lands in `unverified_rows` for you to check. Read both
   lists after a build. `WILEY_SKIP_PRECEDENCE=1` skips it. The dry-run script is
   `r13_precedence.py` in the session scratchpad (`R13_APPLY=1` applies).
+- **The humanizer is a writer too.** `humanize_bundle_payload` runs on every build and is a model
+  rewrite. Since the eleventh review (17 Oct 2026) a lock on a parent path covers the fields under
+  it, and the narrative review runs when the humanizer changed anything. Before that, a plain
+  rebuild could change a reviewed sentence with nothing reading it.
+- **HTML export** carries every judged evidence record per scenario and a three-band matrix
+  (60% and up, 41–59%, 40% and down). After a build, check the embedded JSON: each trend's
+  `n_confirm` equals `confirming.length`, no event has a null `date_basis` (round14_final.py
+  prints both).
 - **Geography** (`geography_findings` in `wiley_narrative_review.py`): a sentence framed as
   international or non-U.S. is checked development by development with the geography judge; a
   U.S. development in the list is an error. The place is the development's (IonQ's Cambridge
